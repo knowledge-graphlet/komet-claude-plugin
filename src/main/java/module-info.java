@@ -26,6 +26,9 @@
  */
 module komet.claude {
     requires dev.ikm.komet.framework;
+    requires dev.ikm.tinkar.entity;
+    requires dev.ikm.tinkar.common;
+    requires dev.ikm.tinkar.provider.search;
     requires java.net.http;
 
     // Vendored json4j references java.beans.Introspector (java.desktop) and

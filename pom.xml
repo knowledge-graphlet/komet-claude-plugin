@@ -80,5 +80,20 @@
             <groupId>dev.ikm.komet</groupId>
             <artifactId>framework</artifactId>
         </dependency>
+
+        <!-- Tinkar: calculators (bundled in entity), ids/UUID utils (common),
+             and the Lucene Searcher. Versions managed by komet-bom. -->
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>entity</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>search-provider</artifactId>
+        </dependency>
     </dependencies>
 </project>
