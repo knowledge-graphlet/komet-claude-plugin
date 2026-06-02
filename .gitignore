@@ -1,0 +1,9 @@
+target/
+*.iml
+.idea/
+.DS_Store
+# IKE build-unpacked standards (from ike-build-standards via ike-parent; do not commit)
+.claude/
+**/.claude/
+# Syncthing/ike-dev bootstrap artifacts (also in ~/.gitignore_global)
+_git-init*

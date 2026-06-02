@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.1.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.1.0 https://maven.apache.org/xsd/maven-4.1.0.xsd">
+    <modelVersion>4.1.0</modelVersion>
+
+    <parent>
+        <groupId>network.ike.platform</groupId>
+        <artifactId>ike-parent</artifactId>
+        <version>98</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>network.ike.komet</groupId>
+    <artifactId>komet-claude-plugin</artifactId>
+    <version>1-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>Komet Claude Plugin</name>
+    <description>
+        In-Komet Claude assistant: a KometNodeFactory panel that drives an LLM (Claude)
+        dialog whose read-only tools execute in-process over the live knowledge graph.
+    </description>
+    <url>https://ike.network/komet-claude-plugin/</url>
+    <inceptionYear>2026</inceptionYear>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <organization>
+        <name>IKE Network</name>
+        <url>https://ike.network</url>
+    </organization>
+
+    <scm>
+        <connection>scm:git:https://github.com/knowledge-graphlet/komet-claude-plugin.git</connection>
+        <developerConnection>scm:git:git@github.com:knowledge-graphlet/komet-claude-plugin.git</developerConnection>
+        <url>https://github.com/knowledge-graphlet/komet-claude-plugin</url>
+        <tag>HEAD</tag>
+    </scm>
+
+    <!-- Required: ike-parent's enforcer fails an inheriting project whose
+         effective site URL still starts with https://ike.network/ike-platform/
+         while its groupId is not network.ike.platform (ike-issues#380/#383). -->
+    <distributionManagement>
+        <site>
+            <id>ike-site</id>
+            <url>https://ike.network/komet-claude-plugin/</url>
+        </site>
+    </distributionManagement>
+
+    <properties>
+        <!-- Main-line Komet BOM; manages komet module + tinkar versions.
+             Matches ike-komet-wsr on main. -->
+        <komet-bom.version>3.0.7-SNAPSHOT</komet-bom.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>dev.ikm.komet</groupId>
+                <artifactId>komet-bom</artifactId>
+                <version>${komet-bom.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- Komet plugin SPI host: provides KometNodeFactory (the panel
+             contribution point) and the in-JVM service/view access used by
+             the assistant. Version managed by komet-bom. -->
+        <dependency>
+            <groupId>dev.ikm.komet</groupId>
+            <artifactId>framework</artifactId>
+        </dependency>
+    </dependencies>
+</project>
