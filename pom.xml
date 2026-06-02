@@ -95,5 +95,24 @@
             <groupId>dev.ikm.tinkar</groupId>
             <artifactId>search-provider</artifactId>
         </dependency>
+
+        <!-- JavaFX controls/layout for the chat panel, and the incubator
+             RichTextArea for the styled transcript. Versions managed by
+             komet-bom (javafx.version 26.0.1). -->
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-controls</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>jfx-incubator-richtext</artifactId>
+        </dependency>
+
+        <!-- Markdown rendering of assistant replies into the RichTextArea.
+             Version managed by komet-bom (commonmark.version 0.24.0). -->
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark</artifactId>
+        </dependency>
     </dependencies>
 </project>

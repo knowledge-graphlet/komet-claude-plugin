@@ -19,17 +19,38 @@
  * dialog whose read-only tools execute in-process over the live knowledge
  * graph.
  *
- * <p>Skeleton iteration: declares the Komet framework dependency and the
- * module boundary. The next iteration adds
- * {@code provides dev.ikm.komet.framework.KometNodeFactory with ...} and the
- * panel, the hand-rolled Anthropic client, and the read-only graph tools.
+ * <p>The panel is contributed as a {@link dev.ikm.komet.framework.KometNodeFactory}
+ * service (see the {@code provides} clause). It is <em>outbound-only</em>: Komet
+ * holds the API key and runs the Anthropic tool-use loop; Claude's tools read
+ * the open knowledge base through the window's {@code ViewCalculator}. There is
+ * no inbound network surface.
  */
 module komet.claude {
+    // Komet plugin SPI + UI host (KometNodeFactory, ExplorationNodeAbstract,
+    // ViewProperties, ObservableViewNoOverride, ActivityStream).
     requires dev.ikm.komet.framework;
+    // KometPreferences + PreferencesService (per-OS-user API-key storage).
+    requires dev.ikm.komet.preferences;
+
+    // Tinkar: calculators (bundled in entity), ids/UUID utils (common),
+    // and the Lucene Searcher.
     requires dev.ikm.tinkar.entity;
     requires dev.ikm.tinkar.common;
     requires dev.ikm.tinkar.provider.search;
+
+    // ImmutableList return types + Lists.immutable factory in the node factory.
+    requires org.eclipse.collections.api;
+
+    // Hand-rolled Anthropic Messages client.
     requires java.net.http;
+
+    // JavaFX UI: controls/layout (transitively graphics+base for Platform,
+    // Color, Task) and the incubator RichTextArea chat transcript.
+    requires javafx.controls;
+    requires jfx.incubator.richtext;
+
+    // Markdown rendering of assistant replies into the RichTextArea.
+    requires org.commonmark;
 
     // Vendored json4j references java.beans.Introspector (java.desktop) and
     // java.sql.Timestamp (java.sql) in serializer code paths we don't exercise
@@ -38,4 +59,9 @@ module komet.claude {
     requires java.sql;
 
     exports network.ike.komet.claude;
+
+    // The panel contribution point. ServiceLoader instantiates the factory via
+    // its public static provider() method.
+    provides dev.ikm.komet.framework.KometNodeFactory
+            with network.ike.komet.claude.ClaudeAssistantNodeFactory;
 }
