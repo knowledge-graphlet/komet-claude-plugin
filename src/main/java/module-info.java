@@ -26,6 +26,13 @@
  */
 module komet.claude {
     requires dev.ikm.komet.framework;
+    requires java.net.http;
+
+    // Vendored json4j references java.beans.Introspector (java.desktop) and
+    // java.sql.Timestamp (java.sql) in serializer code paths we don't exercise
+    // (we use records + Maps only). Candidate to trim so these can be dropped.
+    requires java.desktop;
+    requires java.sql;
 
     exports network.ike.komet.claude;
 }
