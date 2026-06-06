@@ -23,24 +23,35 @@ import dev.ikm.komet.layout.preferences.KlPreferencesFactory;
 import dev.ikm.komet.layout_engine.blueprint.SupplementalAreaBlueprint;
 import dev.ikm.komet.preferences.KometPreferences;
 import dev.ikm.komet.preferences.PreferencesService;
+import dev.ikm.tinkar.common.service.ServiceKeys;
+import dev.ikm.tinkar.common.service.ServiceProperties;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import javafx.application.Platform;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
+import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Dialog;
+import javafx.scene.control.ListView;
+import javafx.scene.control.MenuItem;
 import javafx.scene.control.PasswordField;
+import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.VBox;
 import javafx.stage.Window;
 import jfx.incubator.scene.control.richtext.RichTextArea;
 import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.anthropic.AnthropicTool;
+import network.ike.komet.claude.json.Json;
 import network.ike.komet.claude.tools.GraphTools;
 import network.ike.komet.claude.ui.MarkdownRichText;
 
@@ -49,9 +60,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.prefs.BackingStoreException;
@@ -83,19 +96,21 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
     private static final String PREF_API_KEY = "network.ike.komet.claude.apiKey";
     private static final String PREF_MODEL = "network.ike.komet.claude.model";
     private static final String PREF_FONT_SIZE = "network.ike.komet.claude.fontSize";
+    private static final String PREF_RAIL_VISIBLE = "network.ike.komet.claude.railVisible";
+    private static final String PREF_RAIL_DIVIDER = "network.ike.komet.claude.railDivider";
 
     private static final int MAX_TOKENS = 8192;
 
     private final String systemPrompt;
     private final List<AnthropicTool> tools;
     private final ExecutorService worker =
-            Executors.newSingleThreadExecutor(r -> {
+            Executors.newFixedThreadPool(4, r -> {
                 Thread t = new Thread(r, "komet-claude-ask");
                 t.setDaemon(true);
                 return t;
             });
-    /** Raw Markdown of the whole conversation, for Save / copy. */
-    private final StringBuilder transcriptMarkdown = new StringBuilder();
+    /** Live ref to the active conversation's Save markdown (reassigned on switch). */
+    private StringBuilder transcriptMarkdown;
 
     /** Journal view injected by the host before display; tools query against it. */
     private volatile ViewProperties toolViewProperties;
@@ -105,12 +120,43 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
     private RichTextArea transcript;
     private TextField input;
     private Button sendButton;
-    /** The conversation, rebuilt into the transcript's view-only model each turn. */
-    private final List<MarkdownRichText.Entry> entries = new ArrayList<>();
-    /** Prior clean user/assistant turns sent to the model for continuity. */
-    private final List<java.util.Map<String, Object>> apiMessages = new ArrayList<>();
+    /** All conversations (left rail); the active one drives the transcript. */
+    private final ObservableList<Conversation> conversations = FXCollections.observableArrayList();
+    private Conversation active;
+    private ListView<Conversation> conversationList;
+    private VBox conversationRail;
+    private SplitPane split;
+    private boolean railVisible = true;
+    private double railDivider = 0.24;
+    /** Live refs to the active conversation's collections (reassigned on switch). */
+    private List<MarkdownRichText.Entry> entries;
     /** Transcript base font size (px); adjustable via the A−/A+ buttons, persisted. */
     private double baseFontSize = MarkdownRichText.DEFAULT_BASE;
+
+    /** One named conversation: its display entries, clean API turns, and Save markdown. */
+    private static final class Conversation {
+        final String id;
+        String name;
+        boolean named;
+        volatile boolean busy;
+        final List<MarkdownRichText.Entry> entries = new ArrayList<>();
+        final List<java.util.Map<String, Object>> apiMessages = new ArrayList<>();
+        final StringBuilder markdown = new StringBuilder();
+
+        Conversation(String id, String name) {
+            this.id = id;
+            this.name = name;
+        }
+
+        @Override
+        public String toString() {
+            return name;
+        }
+    }
+
+    /** Serialized form of a {@link Conversation} (json4j). */
+    private record ConversationDto(String id, String name, List<java.util.Map<String, Object>> turns) {
+    }
 
     /** Restore constructor (see {@link Factory#restore}). */
     public ClaudeAssistantArea(KometPreferences preferences) {
@@ -156,13 +202,26 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
     private void buildUi() {
         BorderPane pane = fxObject();
         baseFontSize = readFontSizePref();
+        // Solid background + Anthropic-coral frame so the tool window reads as a
+        // branded panel rather than a transparent border.
+        pane.setStyle("-fx-background-color: -fx-background; -fx-border-color: #d97757; -fx-border-width: 1.5;"
+                + " -fx-background-radius: 10; -fx-border-radius: 10;");
+        // Clip to a rounded rect so every corner (header, input) is cleanly rounded
+        // like the other journal windows, which the workspace frames for us.
+        javafx.scene.shape.Rectangle paneClip = new javafx.scene.shape.Rectangle();
+        paneClip.setArcWidth(20);
+        paneClip.setArcHeight(20);
+        paneClip.widthProperty().bind(pane.widthProperty());
+        paneClip.heightProperty().bind(pane.heightProperty());
+        pane.setClip(paneClip);
+        pane.setPrefSize(900, 700);  // open at a size consistent with other journal windows
 
         transcript = new RichTextArea();
         transcript.setEditable(false);
         transcript.setWrapText(true);
 
         javafx.scene.control.Label title = new javafx.scene.control.Label(TOOL_NAME);
-        title.setStyle("-fx-font-weight: bold;");
+        title.setStyle("-fx-font-weight: bold; -fx-text-fill: white; -fx-font-size: 13px;");
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
         Button fontDown = new Button("A−");
@@ -171,17 +230,30 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
         Button fontUp = new Button("A+");
         fontUp.setTooltip(new javafx.scene.control.Tooltip("Larger text"));
         fontUp.setOnAction(e -> adjustFont(1));
-        Button clearButton = new Button("Clear");
-        clearButton.setOnAction(e -> clearTranscript());
         Button saveButton = new Button("Save…");
         saveButton.setOnAction(e -> saveTranscript());
         Button keyButton = new Button("API key…");
         keyButton.setOnAction(e -> promptForApiKey());
-        Button closeButton = new Button("✕");
+        Region closeIcon = new Region();
+        closeIcon.getStyleClass().add("close-window");      // Komet's window-close X shape (kview.css)
+        closeIcon.setStyle("-fx-background-color: white;");  // white to read on the coral bar
+        Button closeButton = new Button();
+        closeButton.setGraphic(closeIcon);
         closeButton.setOnAction(e -> requestClose());
-        HBox header = new HBox(6, title, fontDown, fontUp, spacer, clearButton, saveButton, keyButton, closeButton);
+        Button toggleRail = new Button("☰");
+        toggleRail.setTooltip(new javafx.scene.control.Tooltip("Show/hide conversations"));
+        toggleRail.setOnAction(e -> setRailVisible(!railVisible));
+        HBox header = new HBox(6, toggleRail, title, fontDown, fontUp, spacer, saveButton, keyButton, closeButton);
         header.setAlignment(Pos.CENTER_LEFT);
         header.setPadding(new Insets(6));
+        header.setStyle("-fx-background-color: #d97757; -fx-background-radius: 10 10 0 0;");  // Anthropic coral title bar
+        String headerBtn = "-fx-background-color: rgba(255,255,255,0.20); -fx-text-fill: white;"
+                + " -fx-background-radius: 4; -fx-font-weight: bold;";
+        for (Button b : List.of(toggleRail, fontDown, fontUp, saveButton, keyButton)) {
+            b.setStyle(headerBtn);
+        }
+        // Close reads as a window control (Komet's .close-window X), consistent with other windows.
+        closeButton.setStyle("-fx-background-color: transparent; -fx-padding: 6 8;");
 
         input = new TextField();
         input.setPromptText("Ask about the concepts in your open knowledge base…");
@@ -195,19 +267,77 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
 
         // The blueprint puts a children GridPane in the center; this tool has no child
         // areas, so its chat transcript becomes the center content instead.
+        javafx.scene.control.Label railTitle = new javafx.scene.control.Label("Conversations");
+        railTitle.setStyle("-fx-font-weight: bold;");
+        Region railSpacer = new Region();
+        HBox.setHgrow(railSpacer, Priority.ALWAYS);
+        Button newButton = new Button("+ New");
+        newButton.setTooltip(new javafx.scene.control.Tooltip("Start a new conversation"));
+        newButton.setOnAction(e -> newConversation());
+        HBox railHeader = new HBox(6, railTitle, railSpacer, newButton);
+        railHeader.setAlignment(Pos.CENTER_LEFT);
+        railHeader.setPadding(new Insets(6));
+        conversationList = new ListView<>(conversations);
+        conversationList.setPrefWidth(190);
+        conversationList.getSelectionModel().selectedItemProperty().addListener((o, prev, sel) -> {
+            if (sel != null && sel != active) {
+                activate(sel);
+            }
+        });
+        conversationList.setOnMouseClicked(e -> {
+            if (e.getClickCount() == 2) {
+                renameActive();
+            }
+        });
+        // Per-conversation "thinking" spinner so parallel conversations are visible.
+        conversationList.setCellFactory(lv -> new javafx.scene.control.ListCell<>() {
+            private final javafx.scene.control.ProgressIndicator spinner =
+                    new javafx.scene.control.ProgressIndicator();
+            {
+                spinner.setPrefSize(14, 14);
+                spinner.setMaxSize(14, 14);
+                setContentDisplay(javafx.scene.control.ContentDisplay.RIGHT);
+            }
+            @Override
+            protected void updateItem(Conversation c, boolean empty) {
+                super.updateItem(c, empty);
+                setText(empty || c == null ? null : c.name);
+                setGraphic(!empty && c != null && c.busy ? spinner : null);
+            }
+        });
+        MenuItem renameItem = new MenuItem("Rename…");
+        renameItem.setOnAction(e -> renameActive());
+        MenuItem deleteItem = new MenuItem("Delete");
+        deleteItem.setOnAction(e -> deleteActive());
+        conversationList.setContextMenu(new ContextMenu(renameItem, deleteItem));
+
+        conversationRail = new VBox(railHeader, conversationList);
+        VBox.setVgrow(conversationList, Priority.ALWAYS);
+        conversationRail.setMinWidth(140);
+
+        railVisible = readRailVisiblePref();
+        railDivider = readRailDividerPref();
+        split = new SplitPane(transcript);
+        SplitPane.setResizableWithParent(conversationRail, Boolean.FALSE);
+
         pane.setTop(header);
-        pane.setCenter(transcript);
+        pane.setCenter(split);
         pane.setBottom(inputBar);
 
-        entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT,
-                "Ask about the concepts in your open knowledge base. "
-                        + "I answer by running read-only queries against the active view — "
-                        + "I won't invent codes or relationships. "
-                        + (hasApiKey()
-                                ? "Type a question below to begin."
-                                : "Set your Anthropic API key (the \"API key…\" button) to begin."),
-                false));
-        refreshTranscript();
+        setRailVisible(railVisible);
+        // SplitPane ignores a divider position set before layout; re-apply once shown.
+        Platform.runLater(() -> {
+            if (railVisible) {
+                split.setDividerPositions(railDivider);
+            }
+        });
+
+        loadConversations();
+        if (conversations.isEmpty()) {
+            newConversation();
+        } else {
+            activate(conversations.get(0));
+        }
     }
 
     /** Rebuilds the transcript's view-only model from the accumulated entries. */
@@ -239,6 +369,41 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
         }
     }
 
+    /** Shows or hides the conversations rail (left of the transcript), persisting the choice + width. */
+    private void setRailVisible(boolean visible) {
+        railVisible = visible;
+        boolean present = split.getItems().contains(conversationRail);
+        if (visible && !present) {
+            split.getItems().add(0, conversationRail);
+            split.setDividerPositions(railDivider);
+            if (!split.getDividers().isEmpty()) {
+                split.getDividers().get(0).positionProperty().addListener((o, ov, nv) -> {
+                    railDivider = nv.doubleValue();
+                    userPreferences().put(PREF_RAIL_DIVIDER, Double.toString(railDivider));
+                });
+            }
+        } else if (!visible && present) {
+            if (split.getDividerPositions().length > 0) {
+                railDivider = split.getDividerPositions()[0];
+            }
+            split.getItems().remove(conversationRail);
+        }
+        userPreferences().put(PREF_RAIL_VISIBLE, Boolean.toString(visible));
+    }
+
+    private boolean readRailVisiblePref() {
+        return !"false".equals(userPreferences().get(PREF_RAIL_VISIBLE, "true"));
+    }
+
+    private double readRailDividerPref() {
+        try {
+            double d = Double.parseDouble(userPreferences().get(PREF_RAIL_DIVIDER, "0.24"));
+            return (d > 0.05 && d < 0.9) ? d : 0.24;
+        } catch (RuntimeException e) {
+            return 0.24;
+        }
+    }
+
     private void requestClose() {
         Runnable r = this.onCloseRequest;
         if (r != null) {
@@ -258,13 +423,24 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
             return;
         }
 
-        renderUser(text);
+        Conversation conv = active;
+        if (conv == null || conv.busy) {
+            return;
+        }
+
+        renderUser(conv, text);
+        if (!conv.named) {
+            conv.name = text.length() > 40 ? text.substring(0, 40).trim() + "…" : text;
+            conv.named = true;
+        }
         input.clear();
-        setBusy(true);
+        conv.busy = true;
+        conversationList.refresh();
+        updateInputState();
 
         String model = userPreferences().get(PREF_MODEL, AnthropicClient.DEFAULT_MODEL);
         AnthropicClient client = new AnthropicClient(key, model, MAX_TOKENS);
-        List<java.util.Map<String, Object>> history = List.copyOf(apiMessages);
+        List<java.util.Map<String, Object>> history = List.copyOf(conv.apiMessages);
 
         worker.submit(() -> {
             String reply;
@@ -274,8 +450,7 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
             } catch (Throwable t) {
                 // Catch Throwable, not just RuntimeException: a non-runtime failure in the
                 // ask path (e.g. a class-init / ServiceConfigurationError) must still clear
-                // the busy state and surface in the transcript, never leave the panel hung
-                // on "Working…".
+                // the busy state and surface in the transcript.
                 LOG.error("Claude request failed", t);
                 Throwable root = t;
                 while (root.getCause() != null) {
@@ -288,52 +463,220 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
             String finalReply = reply;
             boolean finalError = error;
             Platform.runLater(() -> {
-                renderAssistant(finalReply, finalError);
+                renderAssistant(conv, finalReply, finalError);
                 if (!finalError) {
-                    // Append this turn's clean user/assistant pair so the next ask
-                    // continues the conversation.
-                    apiMessages.add(java.util.Map.of("role", "user", "content", text));
-                    apiMessages.add(java.util.Map.of("role", "assistant", "content", finalReply));
+                    // Append this turn's clean user/assistant pair so the conversation continues.
+                    conv.apiMessages.add(java.util.Map.of("role", "user", "content", text));
+                    conv.apiMessages.add(java.util.Map.of("role", "assistant", "content", finalReply));
+                    saveConversation(conv);
                 }
-                setBusy(false);
-                input.requestFocus();
+                conv.busy = false;
+                conversationList.refresh();
+                if (conv == active) {
+                    updateInputState();
+                    input.requestFocus();
+                }
             });
         });
     }
 
-    private void setBusy(boolean busy) {
+    /**
+     * Reflects only the <em>active</em> conversation's in-flight state on the shared
+     * input. Other conversations keep running in parallel and can be switched to or
+     * added to freely — the rail spinner shows which ones are thinking.
+     */
+    private void updateInputState() {
+        boolean busy = active != null && active.busy;
         input.setDisable(busy);
         sendButton.setDisable(busy);
         sendButton.setText(busy ? "Working…" : "Send");
     }
 
-    // ---- Transcript rendering (FX thread) ----------------------------------
+    // ---- Conversations -----------------------------------------------------
 
-    private void renderUser(String text) {
-        entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.USER, text, false));
-        transcriptMarkdown.append("**You:** ").append(text).append("\n\n");
-        refreshTranscript();
-    }
-
-    private void renderAssistant(String markdown, boolean error) {
-        if (error) {
-            String text = markdown == null ? "Unknown error" : markdown;
-            entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ERROR, text, false));
-            transcriptMarkdown.append("**Error:** ").append(text).append("\n\n");
-        } else {
-            entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT, markdown, true));
-            transcriptMarkdown.append("**Komet Assistant:** ").append(markdown).append("\n\n");
+    /** Makes {@code conv} active: repoints the live refs and re-renders the transcript. */
+    private void activate(Conversation conv) {
+        active = conv;
+        entries = conv.entries;
+        transcriptMarkdown = conv.markdown;
+        if (conversationList.getSelectionModel().getSelectedItem() != conv) {
+            conversationList.getSelectionModel().select(conv);
         }
         refreshTranscript();
+        updateInputState();
     }
 
-    private void clearTranscript() {
-        entries.clear();
-        apiMessages.clear();
-        transcriptMarkdown.setLength(0);
-        entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT,
-                "Cleared. Ask a new question below.", false));
-        refreshTranscript();
+    /** Creates a fresh conversation (with the intro) and makes it active. */
+    private void newConversation() {
+        Conversation conv = new Conversation(UUID.randomUUID().toString(), "New conversation");
+        conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT,
+                "Ask about the concepts in your open knowledge base. "
+                        + "I answer by running read-only queries against the active view — "
+                        + "I won't invent codes or relationships. "
+                        + (hasApiKey()
+                                ? "Type a question below to begin."
+                                : "Set your Anthropic API key (the \"API key…\" button) to begin."),
+                false));
+        conversations.add(conv);
+        activate(conv);
+    }
+
+    /** Renames the active conversation (double-click on the rail). */
+    private void renameActive() {
+        if (active == null) {
+            return;
+        }
+        javafx.scene.control.TextInputDialog dialog =
+                new javafx.scene.control.TextInputDialog(active.name);
+        dialog.setTitle("Rename conversation");
+        dialog.setHeaderText(null);
+        dialog.setContentText("Name:");
+        dialog.initOwner(ownerWindow());
+        dialog.showAndWait().ifPresent(name -> {
+            if (!name.isBlank()) {
+                active.name = name.trim();
+                active.named = true;
+                conversationList.refresh();
+                saveConversation(active);
+            }
+        });
+    }
+
+    /** Confirms, then removes the active conversation (rail + file) and activates another. */
+    private void deleteActive() {
+        if (active == null) {
+            return;
+        }
+        Conversation toDelete = active;
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
+                "Delete conversation \"" + toDelete.name + "\"? This cannot be undone.",
+                ButtonType.OK, ButtonType.CANCEL);
+        confirm.setHeaderText(null);
+        confirm.initOwner(ownerWindow());
+        if (confirm.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) {
+            return;
+        }
+        int idx = conversations.indexOf(toDelete);
+        conversations.remove(toDelete);
+        deleteConversationFile(toDelete);
+        if (conversations.isEmpty()) {
+            newConversation();
+        } else {
+            activate(conversations.get(Math.min(idx, conversations.size() - 1)));
+        }
+    }
+
+    // ---- Persistence (per-user folder under the KB datastore) --------------
+
+    /** {@code <DATA_STORE_ROOT>/claude-conversations/<os-user>/}, created on demand; null if no datastore. */
+    private static Path conversationsDir() {
+        Optional<File> root = ServiceProperties.get(ServiceKeys.DATA_STORE_ROOT);
+        if (root.isEmpty()) {
+            return null;
+        }
+        String user = System.getProperty("user.name", "default").replaceAll("[^a-zA-Z0-9._-]", "_");
+        Path dir = root.get().toPath().resolve("claude-conversations").resolve(user);
+        try {
+            Files.createDirectories(dir);
+            return dir;
+        } catch (IOException e) {
+            LOG.warn("Could not create conversations dir {}", dir, e);
+            return null;
+        }
+    }
+
+    /** Persists one conversation (skips empties); files are named by id. */
+    private void saveConversation(Conversation conv) {
+        if (conv == null || conv.apiMessages.isEmpty()) {
+            return;
+        }
+        Path dir = conversationsDir();
+        if (dir == null) {
+            return;
+        }
+        try {
+            String json = Json.stringify(
+                    java.util.Map.of("id", conv.id, "name", conv.name, "turns", conv.apiMessages));
+            Files.writeString(dir.resolve(conv.id + ".json"), json, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            LOG.warn("Could not save conversation {}", conv.id, e);
+        }
+    }
+
+    /** Loads this user's conversations for the open KB, most-recent first. */
+    private void loadConversations() {
+        Path dir = conversationsDir();
+        if (dir == null) {
+            return;
+        }
+        try (var paths = Files.list(dir)) {
+            paths.filter(p -> p.toString().endsWith(".json"))
+                    .sorted(java.util.Comparator
+                            .comparingLong((Path p) -> p.toFile().lastModified()).reversed())
+                    .forEach(this::loadConversation);
+        } catch (IOException e) {
+            LOG.warn("Could not list conversations dir {}", dir, e);
+        }
+    }
+
+    private void loadConversation(Path file) {
+        try {
+            ConversationDto dto = Json.parse(Files.readString(file, StandardCharsets.UTF_8), ConversationDto.class);
+            Conversation conv = new Conversation(dto.id(), dto.name());
+            conv.named = true;
+            if (dto.turns() != null) {
+                conv.apiMessages.addAll(dto.turns());
+            }
+            for (java.util.Map<String, Object> turn : conv.apiMessages) {
+                String content = String.valueOf(turn.get("content"));
+                if ("user".equals(String.valueOf(turn.get("role")))) {
+                    conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.USER, content, false));
+                    conv.markdown.append("**You:** ").append(content).append("\n\n");
+                } else {
+                    conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT, content, true));
+                    conv.markdown.append("**Komet Assistant:** ").append(content).append("\n\n");
+                }
+            }
+            conversations.add(conv);
+        } catch (Exception e) {
+            LOG.warn("Could not load conversation {}", file, e);
+        }
+    }
+
+    private void deleteConversationFile(Conversation conv) {
+        Path dir = conversationsDir();
+        if (dir == null) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(dir.resolve(conv.id + ".json"));
+        } catch (IOException e) {
+            LOG.warn("Could not delete conversation {}", conv.id, e);
+        }
+    }
+
+    // ---- Transcript rendering (FX thread) ----------------------------------
+
+    private void renderUser(Conversation conv, String text) {
+        conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.USER, text, false));
+        conv.markdown.append("**You:** ").append(text).append("\n\n");
+        if (conv == active) {
+            refreshTranscript();
+        }
+    }
+
+    private void renderAssistant(Conversation conv, String markdown, boolean error) {
+        if (error) {
+            String text = markdown == null ? "Unknown error" : markdown;
+            conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ERROR, text, false));
+            conv.markdown.append("**Error:** ").append(text).append("\n\n");
+        } else {
+            conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT, markdown, true));
+            conv.markdown.append("**Komet Assistant:** ").append(markdown).append("\n\n");
+        }
+        if (conv == active) {
+            refreshTranscript();
+        }
     }
 
     private void saveTranscript() {
