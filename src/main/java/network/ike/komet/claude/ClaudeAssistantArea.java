@@ -37,10 +37,8 @@ import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
-import javafx.scene.paint.Color;
 import javafx.stage.Window;
 import jfx.incubator.scene.control.richtext.RichTextArea;
-import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
 import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.tools.GraphTools;
@@ -51,6 +49,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
@@ -86,10 +85,6 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
 
     private static final int MAX_TOKENS = 8192;
 
-    private static final Color USER_COLOR = Color.web("#1a56db");
-    private static final Color ASSISTANT_COLOR = Color.web("#b15c00");
-    private static final Color ERROR_COLOR = Color.web("#b00020");
-
     private final String systemPrompt;
     private final List<AnthropicTool> tools;
     private final ExecutorService worker =
@@ -109,6 +104,8 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
     private RichTextArea transcript;
     private TextField input;
     private Button sendButton;
+    /** The conversation, rebuilt into the transcript's view-only model each turn. */
+    private final List<MarkdownRichText.Entry> entries = new ArrayList<>();
 
     /** Restore constructor (see {@link Factory#restore}). */
     public ClaudeAssistantArea(KometPreferences preferences) {
@@ -190,13 +187,28 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
         pane.setCenter(transcript);
         pane.setBottom(inputBar);
 
-        appendLabel("Komet Assistant", ASSISTANT_COLOR);
-        appendBody("Ask about the concepts in your open knowledge base. "
-                + "I answer by running read-only queries against the active view — "
-                + "I won't invent codes or relationships. "
-                + (hasApiKey()
-                        ? "Type a question below to begin."
-                        : "Set your Anthropic API key (the \"API key…\" button) to begin."));
+        entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT,
+                "Ask about the concepts in your open knowledge base. "
+                        + "I answer by running read-only queries against the active view — "
+                        + "I won't invent codes or relationships. "
+                        + (hasApiKey()
+                                ? "Type a question below to begin."
+                                : "Set your Anthropic API key (the \"API key…\" button) to begin."),
+                false));
+        refreshTranscript();
+    }
+
+    /** Rebuilds the transcript's view-only model from the accumulated entries. */
+    private void refreshTranscript() {
+        ViewCalculator vc;
+        try {
+            vc = viewCalculator();
+        } catch (RuntimeException e) {
+            // No view yet (e.g. the intro before the host injects one) — chips
+            // fall back to bare identicons until a view is available.
+            vc = null;
+        }
+        transcript.setModel(new MarkdownRichText(vc).toModel(entries));
     }
 
     private void requestClose() {
@@ -263,39 +275,29 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
     // ---- Transcript rendering (FX thread) ----------------------------------
 
     private void renderUser(String text) {
-        appendLabel("You", USER_COLOR);
-        appendBody(text);
+        entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.USER, text, false));
         transcriptMarkdown.append("**You:** ").append(text).append("\n\n");
+        refreshTranscript();
     }
 
     private void renderAssistant(String markdown, boolean error) {
         if (error) {
-            appendLabel("Error", ERROR_COLOR);
-            transcript.appendText((markdown == null ? "Unknown error" : markdown) + "\n\n",
-                    StyleAttributeMap.builder().setFontSize(13).setItalic(true).setTextColor(ERROR_COLOR).build());
-            transcriptMarkdown.append("**Error:** ").append(markdown).append("\n\n");
-            return;
+            String text = markdown == null ? "Unknown error" : markdown;
+            entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ERROR, text, false));
+            transcriptMarkdown.append("**Error:** ").append(text).append("\n\n");
+        } else {
+            entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT, markdown, true));
+            transcriptMarkdown.append("**Komet Assistant:** ").append(markdown).append("\n\n");
         }
-        appendLabel("Komet Assistant", ASSISTANT_COLOR);
-        MarkdownRichText.append(transcript, markdown);
-        transcript.appendText("\n", StyleAttributeMap.EMPTY);
-        transcriptMarkdown.append("**Komet Assistant:** ").append(markdown).append("\n\n");
-    }
-
-    private void appendLabel(String who, Color color) {
-        transcript.appendText(who + "\n",
-                StyleAttributeMap.builder().setBold(true).setFontSize(13).setTextColor(color).build());
-    }
-
-    private void appendBody(String text) {
-        transcript.appendText(text + "\n\n", StyleAttributeMap.builder().setFontSize(13).build());
+        refreshTranscript();
     }
 
     private void clearTranscript() {
-        transcript.clear();
+        entries.clear();
         transcriptMarkdown.setLength(0);
-        appendLabel("Komet Assistant", ASSISTANT_COLOR);
-        appendBody("Cleared. Ask a new question below.");
+        entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT,
+                "Cleared. Ask a new question below.", false));
+        refreshTranscript();
     }
 
     private void saveTranscript() {
@@ -311,8 +313,9 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
         try {
             Files.writeString(file.toPath(), transcriptMarkdown.toString(), StandardCharsets.UTF_8);
         } catch (IOException e) {
-            appendLabel("Error", ERROR_COLOR);
-            appendBody("Could not save: " + e.getMessage());
+            entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ERROR,
+                    "Could not save: " + e.getMessage(), false));
+            refreshTranscript();
         }
     }
 
