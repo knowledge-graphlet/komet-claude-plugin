@@ -7,7 +7,7 @@
     <parent>
         <groupId>network.ike.platform</groupId>
         <artifactId>ike-parent</artifactId>
-        <version>102</version>
+        <version>104</version>
         <relativePath/>
     </parent>
 
@@ -18,8 +18,9 @@
 
     <name>Komet Claude Plugin</name>
     <description>
-        In-Komet Claude assistant: a KometNodeFactory panel that drives an LLM (Claude)
-        dialog whose read-only tools execute in-process over the live knowledge graph.
+        In-Komet Claude assistant: a knowledge-layout KlToolArea (summoned as a Journal
+        workspace window) that drives an LLM (Claude) dialog whose read-only tools execute
+        in-process over the live knowledge graph.
     </description>
     <url>https://ike.network/komet-claude-plugin/</url>
     <inceptionYear>2026</inceptionYear>
@@ -73,9 +74,18 @@
     </dependencyManagement>
 
     <dependencies>
-        <!-- Komet plugin SPI host: provides KometNodeFactory (the panel
-             contribution point) and the in-JVM service/view access used by
-             the assistant. Version managed by komet-bom. -->
+        <!-- Knowledge-layout SPI host: KlToolArea / KlSupplementalArea +
+             SupplementalAreaBlueprint, KlArea, AreaGridSettings, KlPreferencesFactory.
+             The tool area is contributed via ServiceLoader and rendered in the Journal
+             workspace. Version managed by komet-bom. -->
+        <dependency>
+            <groupId>dev.ikm.komet</groupId>
+            <artifactId>knowledge-layout</artifactId>
+        </dependency>
+
+        <!-- Komet framework: ViewProperties (the journal view injected into the area)
+             and in-JVM service/view access used by the assistant. Version managed by
+             komet-bom. -->
         <dependency>
             <groupId>dev.ikm.komet</groupId>
             <artifactId>framework</artifactId>
@@ -113,6 +123,12 @@
         <dependency>
             <groupId>org.commonmark</groupId>
             <artifactId>commonmark</artifactId>
+        </dependency>
+        <!-- GFM tables extension so the assistant's markdown tables render as rows
+             instead of raw pipes. Version managed by komet-bom. -->
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark-ext-gfm-tables</artifactId>
         </dependency>
     </dependencies>
 </project>

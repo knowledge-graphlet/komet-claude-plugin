@@ -37,9 +37,16 @@ import org.commonmark.node.StrongEmphasis;
 import org.commonmark.node.Text;
 import org.commonmark.node.ThematicBreak;
 import org.commonmark.parser.Parser;
+import org.commonmark.ext.gfm.tables.TableBlock;
+import org.commonmark.ext.gfm.tables.TableHead;
+import org.commonmark.ext.gfm.tables.TableRow;
+import org.commonmark.ext.gfm.tables.TablesExtension;
+import org.commonmark.node.CustomBlock;
+import org.commonmark.node.CustomNode;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
+import java.util.List;
 
 /**
  * Renders a Markdown string into a {@link RichTextArea} as styled text
@@ -57,7 +64,9 @@ import java.util.Deque;
  */
 public final class MarkdownRichText {
 
-    private static final Parser PARSER = Parser.builder().build();
+    private static final Parser PARSER = Parser.builder()
+            .extensions(List.of(TablesExtension.create()))
+            .build();
 
     /** Body font size, in points. */
     private static final double BASE = 13;
@@ -89,6 +98,7 @@ public final class MarkdownRichText {
         private int italic;
         private int headingLevel;
         private int listDepth;
+        private boolean inTableHeader;
         /** Per-list marker state: {@code null} = bullet, else a 1-element counter. */
         private final Deque<int[]> listCounters = new ArrayDeque<>();
 
@@ -256,6 +266,51 @@ public final class MarkdownRichText {
         public void visit(Image node) {
             String url = node.getDestination();
             emit("[image" + (url == null || url.isBlank() ? "" : ": " + url) + "]");
+        }
+
+        // ---- GFM tables (commonmark-ext-gfm-tables) ------------------------
+
+        @Override
+        public void visit(CustomBlock node) {
+            visitChildren(node);
+            if (node instanceof TableBlock) {
+                emit("\n");
+            }
+        }
+
+        @Override
+        public void visit(CustomNode node) {
+            if (node instanceof TableHead) {
+                inTableHeader = true;
+                visitChildren(node);
+                inTableHeader = false;
+            } else if (node instanceof TableRow row) {
+                renderTableRow(row);
+            } else {
+                visitChildren(node);
+            }
+        }
+
+        /** Renders one table row as {@code cell | cell | cell}; header cells bold. */
+        private void renderTableRow(TableRow row) {
+            if (inTableHeader) {
+                bold++;
+            }
+            boolean firstCell = true;
+            for (Node cell = row.getFirstChild(); cell != null; cell = cell.getNext()) {
+                if (!firstCell) {
+                    emit("  |  ");
+                }
+                firstCell = false;
+                visitChildren(cell);
+            }
+            if (inTableHeader) {
+                bold--;
+            }
+            emit("\n");
+            if (inTableHeader) {
+                emit("──────────\n");
+            }
         }
     }
 }
