@@ -86,16 +86,13 @@ public final class MarkdownRichText {
             .extensions(List.of(TablesExtension.create()))
             .build();
 
-    private static final double BASE = 13;
+    /** Default transcript base font size (px); overridable per-instance for zoom. */
+    public static final double DEFAULT_BASE = 13;
     private static final String MONO = "monospace";
-    /** Inline identicon edge length, in pixels. */
-    private static final int ICON_PX = 15;
 
-    /** Adoc Koncept chip palette (koncept.css): soft pill + IKE-blue small-caps label. */
+    /** Adoc Koncept chip palette (koncept.css): soft pill, IKE-blue small-caps label. */
     private static final String CHIP_STYLE =
             "-fx-background-color: #e9eff6; -fx-background-radius: 6; -fx-padding: 1 5 1 4;";
-    private static final String CHIP_LABEL_STYLE =
-            "-fx-text-fill: #2a5a8a; -fx-font-size: 10.5px; -fx-padding: 0;";
 
     /**
      * Matches component identifiers in whatever shape the model reproduces them —
@@ -137,13 +134,17 @@ public final class MarkdownRichText {
 
     /** The view used to resolve concept names for chips; may be null (icon-only fallback). */
     private final ViewCalculator viewCalc;
+    /** Base body font size (px); headings, chip label, and identicon all scale from it. */
+    private final double base;
 
     /**
      * @param viewCalc the live view for resolving concept names; if null, chips
      *                 fall back to a bare identicon
+     * @param base     base body font size in px (see {@link #DEFAULT_BASE})
      */
-    public MarkdownRichText(ViewCalculator viewCalc) {
+    public MarkdownRichText(ViewCalculator viewCalc, double base) {
         this.viewCalc = viewCalc;
+        this.base = base;
     }
 
     /**
@@ -159,7 +160,7 @@ public final class MarkdownRichText {
             // Coloured, bold role label on its own line.
             RichParagraph.Builder label = RichParagraph.builder();
             label.addSegment(e.role().label,
-                    StyleAttributeMap.builder().setBold(true).setFontSize(BASE).setTextColor(e.role().color).build());
+                    StyleAttributeMap.builder().setBold(true).setFontSize(base).setTextColor(e.role().color).build());
             paragraphs.add(label.build());
             plain.add(e.role().label);
 
@@ -188,8 +189,8 @@ public final class MarkdownRichText {
         return new Model(List.copyOf(paragraphs), List.copyOf(plain));
     }
 
-    private static StyleAttributeMap baseStyle(Role role) {
-        StyleAttributeMap.Builder b = StyleAttributeMap.builder().setFontSize(BASE);
+    private StyleAttributeMap baseStyle(Role role) {
+        StyleAttributeMap.Builder b = StyleAttributeMap.builder().setFontSize(base);
         if (role == Role.ERROR) {
             b.setItalic(true).setTextColor(Role.ERROR.color);
         }
@@ -301,24 +302,24 @@ public final class MarkdownRichText {
         }
     }
 
-    private static void emitCodeBlock(String literal, List<RichParagraph> out, List<String> plain) {
+    private void emitCodeBlock(String literal, List<RichParagraph> out, List<String> plain) {
         String code = literal == null ? "" : literal;
         while (code.endsWith("\n")) {
             code = code.substring(0, code.length() - 1);
         }
-        StyleAttributeMap mono = StyleAttributeMap.builder().setFontFamily(MONO).setFontSize(BASE).build();
+        StyleAttributeMap mono = StyleAttributeMap.builder().setFontFamily(MONO).setFontSize(base).build();
         for (String line : code.split("\n", -1)) {
             out.add(RichParagraph.builder().addSegment(line.isEmpty() ? " " : line, mono).build());
             plain.add(line);
         }
     }
 
-    private static double headingSize(int level) {
+    private double headingSize(int level) {
         return switch (level) {
-            case 1 -> 19;
-            case 2 -> 17;
-            case 3 -> 15;
-            default -> 14;
+            case 1 -> base + 6;
+            case 2 -> base + 4;
+            case 3 -> base + 2;
+            default -> base + 1;
         };
     }
 
@@ -423,7 +424,8 @@ public final class MarkdownRichText {
     private javafx.scene.Node conceptChip(PublicId pid, String sctid) {
         try {
             int nid = PrimitiveData.nid(pid);
-            ImageView icon = Identicon.generateIdenticon(pid, ICON_PX, ICON_PX);
+            int iconPx = (int) Math.round(base * 0.92);
+            ImageView icon = Identicon.generateIdenticon(pid, iconPx, iconPx);
             icon.setSmooth(false);
             String name = (viewCalc != null)
                     ? viewCalc.getFullyQualifiedNameText(nid)
@@ -433,8 +435,21 @@ public final class MarkdownRichText {
                 return icon;
             }
             Label label = new Label(name.toUpperCase(Locale.ROOT));
-            label.setStyle(CHIP_LABEL_STYLE);
-            HBox chip = new HBox(icon, label);
+            label.setStyle("-fx-text-fill: #2a5a8a; -fx-font-size: " + (base * 0.8) + "px; -fx-padding: 0;");
+            // CENTER_LEFT visually centres the identicon on the label's midline (like
+            // the adoc chip's vertical-align), while getBaselineOffset is overridden to
+            // report the LABEL's baseline so RTA still seats the whole chip on the
+            // surrounding text baseline (not its centre).
+            final Label chipLabel = label;
+            HBox chip = new HBox(icon, label) {
+                @Override
+                public double getBaselineOffset() {
+                    javafx.geometry.Insets in = getInsets();
+                    double contentH = prefHeight(-1) - in.getTop() - in.getBottom();
+                    double labelTop = in.getTop() + Math.max(0, (contentH - chipLabel.prefHeight(-1)) / 2);
+                    return labelTop + chipLabel.getBaselineOffset();
+                }
+            };
             chip.setAlignment(Pos.CENTER_LEFT);
             chip.setSpacing(3);
             chip.setStyle(CHIP_STYLE);

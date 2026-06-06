@@ -82,6 +82,7 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
     /** Per-user preference keys (stored under {@link PreferencesService#userPreferences()}). */
     private static final String PREF_API_KEY = "network.ike.komet.claude.apiKey";
     private static final String PREF_MODEL = "network.ike.komet.claude.model";
+    private static final String PREF_FONT_SIZE = "network.ike.komet.claude.fontSize";
 
     private static final int MAX_TOKENS = 8192;
 
@@ -106,6 +107,8 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
     private Button sendButton;
     /** The conversation, rebuilt into the transcript's view-only model each turn. */
     private final List<MarkdownRichText.Entry> entries = new ArrayList<>();
+    /** Transcript base font size (px); adjustable via the A−/A+ buttons, persisted. */
+    private double baseFontSize = MarkdownRichText.DEFAULT_BASE;
 
     /** Restore constructor (see {@link Factory#restore}). */
     public ClaudeAssistantArea(KometPreferences preferences) {
@@ -150,6 +153,7 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
 
     private void buildUi() {
         BorderPane pane = fxObject();
+        baseFontSize = readFontSizePref();
 
         transcript = new RichTextArea();
         transcript.setEditable(false);
@@ -159,6 +163,12 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
         title.setStyle("-fx-font-weight: bold;");
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
+        Button fontDown = new Button("A−");
+        fontDown.setTooltip(new javafx.scene.control.Tooltip("Smaller text"));
+        fontDown.setOnAction(e -> adjustFont(-1));
+        Button fontUp = new Button("A+");
+        fontUp.setTooltip(new javafx.scene.control.Tooltip("Larger text"));
+        fontUp.setOnAction(e -> adjustFont(1));
         Button clearButton = new Button("Clear");
         clearButton.setOnAction(e -> clearTranscript());
         Button saveButton = new Button("Save…");
@@ -167,7 +177,7 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
         keyButton.setOnAction(e -> promptForApiKey());
         Button closeButton = new Button("✕");
         closeButton.setOnAction(e -> requestClose());
-        HBox header = new HBox(6, title, spacer, clearButton, saveButton, keyButton, closeButton);
+        HBox header = new HBox(6, title, fontDown, fontUp, spacer, clearButton, saveButton, keyButton, closeButton);
         header.setAlignment(Pos.CENTER_LEFT);
         header.setPadding(new Insets(6));
 
@@ -208,7 +218,23 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
             // fall back to bare identicons until a view is available.
             vc = null;
         }
-        transcript.setModel(new MarkdownRichText(vc).toModel(entries));
+        transcript.setModel(new MarkdownRichText(vc, baseFontSize).toModel(entries));
+    }
+
+    /** Adjusts the transcript font size by {@code delta} px (clamped), persists it, and re-renders. */
+    private void adjustFont(double delta) {
+        baseFontSize = Math.max(9, Math.min(28, baseFontSize + delta));
+        userPreferences().put(PREF_FONT_SIZE, Double.toString(baseFontSize));
+        refreshTranscript();
+    }
+
+    private double readFontSizePref() {
+        try {
+            return Double.parseDouble(
+                    userPreferences().get(PREF_FONT_SIZE, Double.toString(MarkdownRichText.DEFAULT_BASE)));
+        } catch (RuntimeException e) {
+            return MarkdownRichText.DEFAULT_BASE;
+        }
     }
 
     private void requestClose() {
