@@ -111,6 +111,25 @@ public final class AnthropicClient {
      * @throws AnthropicException if the API call fails after retries
      */
     public String ask(String system, List<AnthropicTool> tools, String userMessage) {
+        return ask(system, tools, List.of(), userMessage);
+    }
+
+    /**
+     * Runs a complete tool-use exchange, seeded with {@code priorMessages} (the
+     * conversation's prior clean user/assistant text turns), and returns Claude's
+     * final text answer. Tool-use turns generated during this call are ephemeral —
+     * only the prior clean turns carry across calls, which keeps a persisted
+     * conversation history valid and compact.
+     *
+     * @param system        the system prompt (cached); may be null/blank
+     * @param tools         the read-only tools Claude may call
+     * @param priorMessages prior clean turns ({@code {role,content}} maps); may be empty
+     * @param userMessage   the new user message text
+     * @return the concatenated text of Claude's final answer
+     * @throws AnthropicException if the API call fails after retries
+     */
+    public String ask(String system, List<AnthropicTool> tools,
+                      List<Map<String, Object>> priorMessages, String userMessage) {
         Map<String, AnthropicTool> byName = new HashMap<>();
         if (tools != null) {
             for (AnthropicTool t : tools) {
@@ -119,6 +138,9 @@ public final class AnthropicClient {
         }
 
         List<Map<String, Object>> messages = new ArrayList<>();
+        if (priorMessages != null) {
+            messages.addAll(priorMessages);
+        }
         messages.add(Map.of("role", "user", "content", userMessage));
 
         for (int turn = 0; turn < MAX_TURNS; turn++) {

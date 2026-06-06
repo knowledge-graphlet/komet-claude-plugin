@@ -107,6 +107,8 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
     private Button sendButton;
     /** The conversation, rebuilt into the transcript's view-only model each turn. */
     private final List<MarkdownRichText.Entry> entries = new ArrayList<>();
+    /** Prior clean user/assistant turns sent to the model for continuity. */
+    private final List<java.util.Map<String, Object>> apiMessages = new ArrayList<>();
     /** Transcript base font size (px); adjustable via the A−/A+ buttons, persisted. */
     private double baseFontSize = MarkdownRichText.DEFAULT_BASE;
 
@@ -262,12 +264,13 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
 
         String model = userPreferences().get(PREF_MODEL, AnthropicClient.DEFAULT_MODEL);
         AnthropicClient client = new AnthropicClient(key, model, MAX_TOKENS);
+        List<java.util.Map<String, Object>> history = List.copyOf(apiMessages);
 
         worker.submit(() -> {
             String reply;
             boolean error = false;
             try {
-                reply = client.ask(systemPrompt, tools, text);
+                reply = client.ask(systemPrompt, tools, history, text);
             } catch (Throwable t) {
                 // Catch Throwable, not just RuntimeException: a non-runtime failure in the
                 // ask path (e.g. a class-init / ServiceConfigurationError) must still clear
@@ -286,6 +289,12 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
             boolean finalError = error;
             Platform.runLater(() -> {
                 renderAssistant(finalReply, finalError);
+                if (!finalError) {
+                    // Append this turn's clean user/assistant pair so the next ask
+                    // continues the conversation.
+                    apiMessages.add(java.util.Map.of("role", "user", "content", text));
+                    apiMessages.add(java.util.Map.of("role", "assistant", "content", finalReply));
+                }
                 setBusy(false);
                 input.requestFocus();
             });
@@ -320,6 +329,7 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
 
     private void clearTranscript() {
         entries.clear();
+        apiMessages.clear();
         transcriptMarkdown.setLength(0);
         entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT,
                 "Cleared. Ask a new question below.", false));
