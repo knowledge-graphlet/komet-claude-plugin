@@ -22,7 +22,6 @@ import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.util.uuid.UuidUtil;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import javafx.geometry.Pos;
-import javafx.scene.control.Label;
 import javafx.scene.control.Tooltip;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.HBox;
@@ -302,6 +301,21 @@ public final class MarkdownRichText {
         }
     }
 
+    // ---- Currency check (#586 v1): inactive / retired component ------------
+
+    /** True if the component's latest version in the current view is inactive (retired). */
+    private boolean isInactive(int nid) {
+        if (viewCalc == null) {
+            return false;
+        }
+        try {
+            var latest = viewCalc.stampCalculator().latest(nid);
+            return latest.isPresent() && latest.get().inactive();
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
     private void emitCodeBlock(String literal, List<RichParagraph> out, List<String> plain) {
         String code = literal == null ? "" : literal;
         while (code.endsWith("\n")) {
@@ -434,27 +448,36 @@ public final class MarkdownRichText {
             if (name == null || name.isBlank()) {
                 return icon;
             }
-            Label label = new Label(name.toUpperCase(Locale.ROOT));
-            label.setStyle("-fx-text-fill: #2a5a8a; -fx-font-size: " + (base * 0.8) + "px; -fx-padding: 0;");
-            // CENTER_LEFT visually centres the identicon on the label's midline (like
-            // the adoc chip's vertical-align), while getBaselineOffset is overridden to
-            // report the LABEL's baseline so RTA still seats the whole chip on the
-            // surrounding text baseline (not its centre).
-            final Label chipLabel = label;
-            HBox chip = new HBox(icon, label) {
+            boolean inactive = isInactive(nid);
+            // Strikethrough on the name is the dedicated "inactive / retired" signal
+            // (reusable; leaves ⚠ free for other meanings). The same convention should
+            // carry into the Markdown / adoc Koncept rendering (#585/#586/#563).
+            javafx.scene.text.Text nameText = new javafx.scene.text.Text(name.toUpperCase(Locale.ROOT));
+            nameText.setFont(javafx.scene.text.Font.font(base * 0.8));
+            nameText.setFill(Color.web(inactive ? "#b00020" : "#2a5a8a"));
+            nameText.setStrikethrough(inactive);
+            final javafx.scene.text.Text chipText = nameText;
+            // CENTER_LEFT centres the identicon on the name's midline; getBaselineOffset
+            // reports the text baseline so RTA seats the chip on the surrounding line.
+            HBox chip = new HBox(icon, nameText) {
                 @Override
                 public double getBaselineOffset() {
                     javafx.geometry.Insets in = getInsets();
                     double contentH = prefHeight(-1) - in.getTop() - in.getBottom();
-                    double labelTop = in.getTop() + Math.max(0, (contentH - chipLabel.prefHeight(-1)) / 2);
-                    return labelTop + chipLabel.getBaselineOffset();
+                    double textTop = in.getTop()
+                            + Math.max(0, (contentH - chipText.getLayoutBounds().getHeight()) / 2);
+                    return textTop + chipText.getBaselineOffset();
                 }
             };
             chip.setAlignment(Pos.CENTER_LEFT);
             chip.setSpacing(3);
             chip.setStyle(CHIP_STYLE);
 
-            StringBuilder tip = new StringBuilder(name);
+            StringBuilder tip = new StringBuilder();
+            if (inactive) {
+                tip.append("INACTIVE — retired in this view\n");
+            }
+            tip.append(name);
             if (sctid != null) {
                 tip.append("\nSCTID: ").append(sctid);
             }
