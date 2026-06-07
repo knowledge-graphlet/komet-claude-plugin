@@ -56,9 +56,10 @@ module komet.claude {
     requires javafx.controls;
     requires jfx.incubator.richtext;
 
-    // Markdown rendering of assistant replies into the RichTextArea.
-    requires org.commonmark;
-    requires org.commonmark.ext.gfm.tables;
+    // Shared Markdown → RichTextArea renderer (#585): MarkdownRichTextRenderer +
+    // InlineDecorator + MarkdownStyledModel. Brings the incubator richtext model
+    // transitively; the plugin supplies a ConceptChipInlineDecorator for grounding.
+    requires dev.ikm.komet.markdown.richtext;
 
     // Vendored json4j references java.beans.Introspector (java.desktop) and
     // java.sql.Timestamp (java.sql) in serializer code paths we don't exercise

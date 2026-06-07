@@ -118,17 +118,13 @@
             <artifactId>jfx-incubator-richtext</artifactId>
         </dependency>
 
-        <!-- Markdown rendering of assistant replies into the RichTextArea.
-             Version managed by komet-bom (commonmark.version 0.24.0). -->
+        <!-- Shared Markdown → RichTextArea renderer (#585): the generic commonmark engine
+             plus the InlineDecorator hook. The plugin supplies a ConceptChipInlineDecorator
+             for grounding; commonmark + the incubator richtext model arrive transitively.
+             Version managed by komet-bom. -->
         <dependency>
-            <groupId>org.commonmark</groupId>
-            <artifactId>commonmark</artifactId>
-        </dependency>
-        <!-- GFM tables extension so the assistant's markdown tables render as rows
-             instead of raw pipes. Version managed by komet-bom. -->
-        <dependency>
-            <groupId>org.commonmark</groupId>
-            <artifactId>commonmark-ext-gfm-tables</artifactId>
+            <groupId>dev.ikm.komet</groupId>
+            <artifactId>komet-markdown-richtext</artifactId>
         </dependency>
     </dependencies>
 </project>
