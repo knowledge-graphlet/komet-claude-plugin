@@ -25,6 +25,27 @@ graph.
   Claude's markdown is rendered (commonmark, incl. GFM tables) and the raw markdown
   is available to copy into other fields. Chat is ephemeral with save-to-disk.
 
+## Layout check & chat areas
+
+Beyond the Journal "+" assistant, the plugin contributes placeable **supplemental
+areas** that appear in the Knowledge Layout Editor's **Controls** palette (drag into
+a section of an item's layout) and persist by factory class name:
+
+- **`ClaudeCheckArea`** — a *check area*: asks Claude whether the focused concept
+  meets an author-set criterion, grounding via the read-only graph tools, and shows
+  a green (PASS) / red (FAIL) status. The verdict is structured through a forced
+  `report_result` tool rather than parsed from prose.
+- **`ChatArea`** — a slim, embeddable chat (no conversations rail), reusing the same
+  `AnthropicClient` / `GraphTools` / Markdown rendering as the full assistant.
+
+Both extend the shared `dev.ikm.komet.layout_engine.blueprint.AbstractCheckArea` /
+`SupplementalAreaBlueprint` seams in `knowledge-layout`, reuse the per-OS-user API
+key/model, and are discovered cross-layer via `KlSupplementalArea.Factory`
+(`PluggableService`). A sibling rules-engine check, `EvreteCheckArea` (backed by the
+`RuleService` SPI), ships in `knowledge-layout` itself.
+
+See IKE-Network/ike-issues#588.
+
 ## Build
 
 ```bash

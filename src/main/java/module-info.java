@@ -83,5 +83,11 @@ module komet.claude {
     provides dev.ikm.komet.layout.area.KlToolArea.Factory
             with network.ike.komet.claude.ClaudeAssistantArea.Factory;
     provides dev.ikm.komet.layout.KlArea.Factory
-            with network.ike.komet.claude.ClaudeAssistantArea.Factory;
+            with network.ike.komet.claude.ClaudeAssistantArea.Factory,
+                 network.ike.komet.claude.ClaudeCheckArea.Factory,
+                 network.ike.komet.claude.ChatArea.Factory;
+    // Placeable supplemental areas surfaced in the knowledge-layout editor's "Controls" palette.
+    provides dev.ikm.komet.layout.area.KlSupplementalArea.Factory
+            with network.ike.komet.claude.ClaudeCheckArea.Factory,
+                 network.ike.komet.claude.ChatArea.Factory;
 }
