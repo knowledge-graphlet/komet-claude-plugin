@@ -93,8 +93,10 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
             org.slf4j.LoggerFactory.getLogger(ClaudeAssistantArea.class);
 
     /** Per-user preference keys (stored under {@link PreferencesService#userPreferences()}). */
-    private static final String PREF_API_KEY = "network.ike.komet.claude.apiKey";
-    private static final String PREF_MODEL = "network.ike.komet.claude.model";
+    // Public so the headless commit narrator reads the same per-user config (the key names,
+    // not the key value, are shared).
+    public static final String PREF_API_KEY = "network.ike.komet.claude.apiKey";
+    public static final String PREF_MODEL = "network.ike.komet.claude.model";
     private static final String PREF_FONT_SIZE = "network.ike.komet.claude.fontSize";
     private static final String PREF_RAIL_VISIBLE = "network.ike.komet.claude.railVisible";
     private static final String PREF_RAIL_DIVIDER = "network.ike.komet.claude.railDivider";

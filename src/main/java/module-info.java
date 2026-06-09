@@ -41,6 +41,14 @@ module komet.claude {
     requires dev.ikm.tinkar.common;
     requires dev.ikm.tinkar.provider.search;
 
+    // Tinkar Composer: write COMMENT_PATTERN semantics (commit comments) referencing a STAMP,
+    // and seed the narrator's author/module identity concepts.
+    requires dev.ikm.tinkar.composer;
+
+    // Tinkar events: CommitEvent + EvtBus (FrameworkTopics.COMMIT_TOPIC) drive the headless
+    // commit narrator.
+    requires dev.ikm.tinkar.events;
+
     // slf4j: error logging routed to Komet's log4j2 backend (the image has no
     // log4j-jpl bridge, so System.Logger would miss the canonical ~/Solor/komet/logs).
     requires org.slf4j;
@@ -60,6 +68,15 @@ module komet.claude {
     // InlineDecorator + MarkdownStyledModel. Brings the incubator richtext model
     // transitively; the plugin supplies a ConceptChipInlineDecorator for grounding.
     requires dev.ikm.komet.markdown.richtext;
+
+    // Rule engine: author Evrete rules (RulesBase) and actions (AbstractAction*)
+    // contributed via the RuleProvider SPI; org.evrete.dsl for the rule annotations.
+    requires dev.ikm.komet.rules;
+    requires org.evrete.dsl.java;
+
+    // LifeHash identicon (toucan) → PNG bytes for the Zulip Koncept badge upload.
+    // Already in the komet runtime (framework requires it), so no extra staging.
+    requires com.sparrowwallet.toucan;
 
     // Vendored json4j references java.beans.Introspector (java.desktop) and
     // java.sql.Timestamp (java.sql) in serializer code paths we don't exercise
@@ -90,4 +107,21 @@ module komet.claude {
     provides dev.ikm.komet.layout.area.KlSupplementalArea.Factory
             with network.ike.komet.claude.ClaudeCheckArea.Factory,
                  network.ike.komet.claude.ChatArea.Factory;
+
+    // Plugin-contributed Evrete rules (discovered by EvreteRulesService via the
+    // RuleProvider SPI): a "Post state + history to Zulip" component-focus rule.
+    // Living in the plugin, the rule + action update without a new komet release (#620).
+    provides dev.ikm.komet.framework.rulebase.RuleProvider
+            with network.ike.komet.claude.zulip.rules.ZulipRuleProvider;
+
+    // Headless commit narrator: started once at app startup (after datastore load) by the
+    // ServiceLifecycle machinery, regardless of whether the assistant UI is opened.
+    provides dev.ikm.tinkar.common.service.ServiceLifecycle
+            with network.ike.komet.claude.narrator.CommitNarratorLifecycle;
+
+    // Evrete accesses the rule class via MethodHandles. Like komet/rules (an
+    // `open module`), the rule package must be opened UNQUALIFIED — a qualified
+    // `opens … to org.evrete.*` is NOT sufficient for Evrete's lookup (otherwise a
+    // runtime IllegalAccessException unreflecting the rule method breaks the engine).
+    opens network.ike.komet.claude.zulip.rules;
 }

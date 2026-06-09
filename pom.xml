@@ -106,6 +106,13 @@
             <artifactId>search-provider</artifactId>
         </dependency>
 
+        <!-- Tinkar Composer: author COMMENT_PATTERN semantics (commit comments) referencing a
+             STAMP, and seed the narrator identity concepts. Version managed by komet-bom. -->
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>composer</artifactId>
+        </dependency>
+
         <!-- JavaFX controls/layout for the chat panel, and the incubator
              RichTextArea for the styled transcript. Versions managed by
              komet-bom (javafx.version 26.0.1). -->
@@ -126,5 +133,34 @@
             <groupId>dev.ikm.komet</groupId>
             <artifactId>komet-markdown-richtext</artifactId>
         </dependency>
+
+        <!-- Rule engine: RulesBase + AbstractAction* for plugin-contributed Evrete
+             rules via the RuleProvider SPI. Brings evrete + controlsfx transitively.
+             Version managed by komet-bom. -->
+        <dependency>
+            <groupId>dev.ikm.komet</groupId>
+            <artifactId>rules</artifactId>
+        </dependency>
+
+        <!-- LifeHash identicon generator (non-JavaFX) for the Zulip Koncept badge —
+             the same library komet's Identicon uses. Version managed by komet-bom. -->
+        <dependency>
+            <groupId>com.sparrowwallet</groupId>
+            <artifactId>toucan</artifactId>
+        </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Evrete annotated rules bind facts to rule-method parameters by name,
+                 so parameter names must be retained in the bytecode. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <parameters>true</parameters>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>
