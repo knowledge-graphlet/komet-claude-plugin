@@ -1,5 +1,12 @@
 # Komet Claude Plugin
 
+<a href="https://ike.network">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://ike.network/brand/powered-by/powered-by-ike-color-on-dark.svg">
+    <img alt="Powered by IKE" height="28" src="https://ike.network/brand/powered-by/powered-by-ike-color-on-light.svg">
+  </picture>
+</a>
+
 In-Komet Claude assistant — a Komet plugin (`KometNodeFactory` panel) that drives
 an LLM (Claude) dialog whose read-only tools execute *in-process* over the live
 knowledge graph.
