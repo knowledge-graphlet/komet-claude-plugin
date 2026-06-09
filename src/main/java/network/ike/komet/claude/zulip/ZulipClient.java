@@ -159,43 +159,6 @@ public final class ZulipClient {
     }
 
     /**
-     * Registers (or confirms) a realm <em>custom emoji</em> from a PNG, so it can be
-     * referenced inline in messages as {@code :name:}. Idempotent: an already-existing
-     * emoji is treated as success (the Koncept identicon is deterministic, so an
-     * existing emoji of the same name is already the correct image).
-     *
-     * @param emojiName a Zulip-valid emoji name (lowercase letters/digits/{@code _}/{@code -})
-     * @param pngData   the emoji image bytes (PNG)
-     * @throws ZulipException if the realm rejects the upload (e.g. the bot lacks the
-     *                        "add custom emoji" permission, an invalid name, or the
-     *                        emoji limit is reached) — the caller falls back to a block image
-     */
-    public void upsertEmoji(String emojiName, byte[] pngData) {
-        Objects.requireNonNull(emojiName, "emojiName");
-        Objects.requireNonNull(pngData, "pngData");
-        String boundary = "ikeKometEmoji"
-                + Integer.toHexString(emojiName.hashCode()) + Integer.toHexString(pngData.length);
-        byte[] body = multipartFile(boundary, "file", emojiName + ".png", "image/png", pngData);
-        HttpRequest request = HttpRequest.newBuilder(
-                        URI.create(config.baseUrl() + "/api/v1/realm/emoji/" + enc(emojiName)))
-                .timeout(Duration.ofSeconds(60))
-                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
-                .header("Authorization", authHeader)
-                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
-                .build();
-        HttpResponse<String> response = sendWithRetry(request);
-        if (response.statusCode() / 100 == 2) {
-            return;
-        }
-        String responseBody = response.body() == null ? "" : response.body();
-        if (responseBody.contains("already exists")) {
-            return; // idempotent — the existing emoji is the same deterministic identicon
-        }
-        throw new ZulipException("Zulip emoji upsert returned "
-                + response.statusCode() + ": " + responseBody);
-    }
-
-    /**
      * Reads the most recent messages in a stream topic (newest-anchored).
      *
      * @param channel   the stream and topic to read

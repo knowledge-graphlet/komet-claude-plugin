@@ -19,6 +19,8 @@ import com.sparrowwallet.toucan.LifeHash;
 import com.sparrowwallet.toucan.LifeHashVersion;
 
 import javax.imageio.ImageIO;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -62,6 +64,35 @@ public final class KonceptIdenticon {
             return baos.toByteArray();
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to encode identicon PNG for " + idString, e);
+        }
+    }
+
+    /**
+     * Renders the identicon downscaled to an arbitrary square pixel size — for an
+     * inline-with-text identicon that should sit near the text height. Rendered from the
+     * 32×32 native grid and bilinear-downscaled (at this size the cells are sub-pixel, so
+     * a smooth colour signature reads better than blocky nearest-neighbour).
+     *
+     * @param idString the {@code PublicId.idString()} (the LifeHash input)
+     * @param targetPx the output square size in pixels (&gt; 0)
+     * @return the PNG-encoded identicon at {@code targetPx} square
+     * @throws UncheckedIOException if PNG encoding fails
+     */
+    public static byte[] pngAt(String idString, int targetPx) {
+        LifeHash.Image image =
+                LifeHash.makeFromUTF8(idString, LifeHashVersion.VERSION2, 1, false);
+        BufferedImage source = LifeHash.getBufferedImage(image); // 32×32 native
+        BufferedImage scaled = new BufferedImage(targetPx, targetPx, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D g = scaled.createGraphics();
+        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        g.drawImage(source, 0, 0, targetPx, targetPx, null);
+        g.dispose();
+        try (ByteArrayOutputStream baos = new ByteArrayOutputStream()) {
+            ImageIO.write(scaled, "png", baos);
+            return baos.toByteArray();
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to encode scaled identicon PNG for " + idString, e);
         }
     }
 }

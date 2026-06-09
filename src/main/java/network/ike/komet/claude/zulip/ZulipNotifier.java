@@ -22,13 +22,16 @@ import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityVersion;
 import dev.ikm.tinkar.entity.StampEntity;
+import network.ike.komet.claude.koncept.IdenticonUriCache;
 import network.ike.komet.claude.koncept.KompendiumUrls;
 import network.ike.komet.claude.koncept.KonceptIdenticon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -55,20 +58,16 @@ public final class ZulipNotifier {
     /** Cap on history rows rendered into a single message. */
     private static final int MAX_HISTORY = 20;
 
+    /** Pixel size of the inline identicon flowed next to a concept's name (≈ text height). */
+    private static final int INLINE_IDENTICON_PX = 22;
+
     /** Stub Kompendium URL scheme for the Koncept entry link (placeholder base). */
     private static final KompendiumUrls KOMPENDIUM = KompendiumUrls.defaults();
 
-    /**
-     * Module size for the BLOCK identicon (the {@code /user_uploads} fallback): a
-     * high value so the 32×32 LifeHash renders at {@code 32 * size} px of crisp
-     * solid-cell blocks. Zulip rescales the preview, and downscaling a high-res
-     * sharp source stays sharp on high-DPI/retina displays — where upscaling the
-     * small 128px source blurs. 16 → 512px (sharp at 2× for a ~256px preview).
-     */
-    private static final int BLOCK_MODULE_SIZE = 16;
-
     private final ZulipClient client;
     private final String defaultStream;
+    /** Realm base URL — the scope key for the persistent identicon-upload cache. */
+    private final String realm;
 
     /**
      * Creates a notifier over a configured client.
@@ -79,6 +78,7 @@ public final class ZulipNotifier {
         Objects.requireNonNull(config, "config");
         this.client = new ZulipClient(config);
         this.defaultStream = config.defaultStream();
+        this.realm = config.baseUrl();
     }
 
     /**
@@ -122,26 +122,22 @@ public final class ZulipNotifier {
         String name = name(conceptNid, view);
         String id = stableId(conceptNid);
         UUID uuid = firstUuid(conceptNid);
+        // Per-message identicon-upload cache: author/module/path recur across history
+        // rows, so upload each unique concept's identicon once and reuse the URI.
+        Map<Integer, String> icons = new HashMap<>();
 
         StringBuilder sb = new StringBuilder();
-        // Koncept-standard reference: the uploaded LifeHash identicon, then the label
-        // linked to the concept's Kompendium entry (the "click → entry" behaviour), the
-        // id, and the open-in-Komet token below. The identicon is best-effort.
-        String identiconMd = renderIdenticon(conceptNid);
-        if (!identiconMd.isEmpty()) {
-            sb.append(identiconMd).append(' ');
-        }
-        if (uuid != null) {
-            sb.append("**[").append(name).append("](")
-                    .append(KOMPENDIUM.conceptUrl(uuid)).append(")**");
-        } else {
-            sb.append("**").append(name).append("**");
-        }
-        sb.append("  ·  `").append(id).append("`\n");
+        // Header: the INLINE identicon flowed next to the linked label on one line.
+        // Zulip parses an uploaded ![]() image that SHARES a line with text as
+        // <img class="inline-image"> — it flows inline with NO grey block frame (the
+        // frame only appears when an image is alone on its line). This is the adoc
+        // Koncept badge in Zulip, with the exact LifeHash. (The composite KonceptBadge
+        // image and KonceptMatrix renderings remain available as banked alternatives.)
+        sb.append(renderInlineHeader(conceptNid, name, uuid, id, icons)).append('\n');
         if (uuid != null) {
             // Linkifier-ready deep-link token; a realm linkifier turns
             // `komet:<uuid>` into an open-in-Komet link.
-            sb.append("komet:").append(uuid).append('\n');
+            sb.append("\nkomet:").append(uuid).append('\n');
         }
         sb.append('\n').append(latestStampLine(conceptNid, view)).append('\n');
 
@@ -150,64 +146,73 @@ public final class ZulipNotifier {
             sb.append("\n**Parents**\n");
             int shown = Math.min(parents.length, 12);
             for (int i = 0; i < shown; i++) {
-                sb.append("- ").append(name(parents[i], view)).append('\n');
+                sb.append("- ").append(konceptInline(parents[i], view, icons)).append('\n');
             }
             if (parents.length > shown) {
                 sb.append("- … (").append(parents.length - shown).append(" more)\n");
             }
         }
 
-        sb.append("\n**History**\n").append(renderHistory(conceptNid, view));
+        sb.append("\n**History**\n\n").append(renderHistory(conceptNid, view, icons));
         return sb.toString();
     }
 
     /**
-     * Renders the concept's LifeHash identicon for the message. Prefers an
-     * <strong>inline</strong> realm custom emoji ({@code :k_<id>:}) — the adoc-like
-     * inline badge, also reusable in human replies — and falls back to a
-     * <strong>block</strong> {@code /user_uploads} thumbnail if the bot can't create
-     * emoji. Best-effort: returns {@code ""} on total failure (the post still carries
-     * the label, id, provenance, and history).
+     * Renders the header as an INLINE identicon image followed by the linked label and
+     * id on one line. Because the {@code ![]()} image shares the line with text, Zulip
+     * renders it as an inline image with no block frame. Best-effort: on failure, falls
+     * back to the linked text label without an identicon.
      */
-    private String renderIdenticon(int conceptNid) {
-        String idString;
-        UUID uuid;
-        try {
-            idString = PrimitiveData.publicId(conceptNid).idString();
-            uuid = firstUuid(conceptNid);
-        } catch (RuntimeException e) {
-            LOG.warn("Identicon id resolution failed for nid {}: {}", conceptNid, e.toString());
-            return "";
+    private String renderInlineHeader(int conceptNid, String name, UUID uuid, String id,
+                                      Map<Integer, String> icons) {
+        String labelMd = (uuid != null)
+                ? "**[" + name + "](" + KOMPENDIUM.conceptUrl(uuid) + ")**"
+                : "**" + name + "**";
+        String uri = iconUri(conceptNid, icons);
+        return (uri.isEmpty() ? "" : "![k](" + uri + ") ") + labelMd + "  ·  `" + id + "`";
+    }
+
+    /**
+     * Returns an uploaded inline-identicon URI for a concept, cached per message so a
+     * concept that recurs (author/module/path across history rows) uploads only once.
+     * Returns {@code ""} on failure (the caller then omits the identicon).
+     */
+    private String iconUri(int nid, Map<Integer, String> icons) {
+        return icons.computeIfAbsent(nid, this::resolveIconUri);
+    }
+
+    /**
+     * Resolves a concept's inline-identicon upload URI: the persistent cross-message
+     * cache first (upload once, ever), then a fresh upload (cached) on a miss. Returns
+     * {@code ""} on failure so the caller omits the identicon.
+     */
+    private String resolveIconUri(int nid) {
+        UUID uuid = firstUuid(nid);
+        String cached = IdenticonUriCache.get(realm, uuid);
+        if (cached != null) {
+            return cached;
         }
-        // Preferred: inline custom emoji. Zulip standardizes emoji image size, so a
-        // modest source suffices; registered idempotently (deterministic identicon).
-        String emoji = emojiName(uuid, conceptNid);
         try {
-            client.upsertEmoji(emoji, KonceptIdenticon.png(idString, KonceptIdenticon.DISPLAY_MODULE_SIZE));
-            return ":" + emoji + ":";
+            String idString = PrimitiveData.publicId(nid).idString();
+            byte[] ico = KonceptIdenticon.pngAt(idString, INLINE_IDENTICON_PX);
+            String uri = client.uploadFile("k-" + nid + ".png", ico, "image/png");
+            IdenticonUriCache.put(realm, uuid, uri);
+            return uri;
         } catch (RuntimeException e) {
-            LOG.info("Inline Koncept emoji unavailable ({}); using block identicon", e.getMessage());
-        }
-        // Fallback: a block thumbnail rendered at HIGH resolution so the crisp
-        // pixel-art blocks stay sharp when Zulip rescales the preview on high-DPI displays.
-        try {
-            byte[] png = KonceptIdenticon.png(idString, BLOCK_MODULE_SIZE);
-            String filename = "identicon-" + (uuid != null ? uuid : conceptNid) + ".png";
-            return "[identicon.png](" + client.uploadFile(filename, png, "image/png") + ")";
-        } catch (RuntimeException e) {
-            LOG.warn("Identicon upload failed for nid {}: {}", conceptNid, e.toString());
+            LOG.warn("Inline identicon upload failed for nid {}: {}", nid, e.toString());
             return "";
         }
     }
 
-    /** A stable, Zulip-valid custom-emoji name for a concept, keyed on its UUID. */
-    private static String emojiName(UUID uuid, int conceptNid) {
-        String key = uuid != null ? uuid.toString().replace("-", "") : "nid" + Math.abs(conceptNid);
-        return "k_" + key.substring(0, Math.min(key.length(), 24));
+    /** A concept rendered as the standard inline Koncept: identicon + name (no link). */
+    private String konceptInline(int nid, ViewCalculator view, Map<Integer, String> icons) {
+        String uri = iconUri(nid, icons);
+        String nm = name(nid, view);
+        return uri.isEmpty() ? nm : "![k](" + uri + ") " + nm;
     }
 
     /** The component's STAMP versions, newest first, as Markdown list rows. */
-    private static String renderHistory(int conceptNid, ViewCalculator view) {
+    private String renderHistory(int conceptNid, ViewCalculator view, Map<Integer, String> icons) {
         try {
             var optEntity = EntityHandle.get(conceptNid).entity();
             if (optEntity.isEmpty()) {
@@ -222,13 +227,19 @@ public final class ZulipNotifier {
             }
             versions.sort((a, b) -> Long.compare(b.stamp().time(), a.stamp().time()));
             StringBuilder sb = new StringBuilder();
+            sb.append("| Status · Time | Author | Module | Path |\n");
+            sb.append("| :-- | :-- | :-- | :-- |\n");
             int shown = Math.min(versions.size(), MAX_HISTORY);
             for (int i = 0; i < shown; i++) {
                 StampEntity<?> stamp = versions.get(i).stamp();
-                sb.append("- ").append(stamp.describe()).append('\n');
+                sb.append("| ").append(stamp.state()).append(" · ").append(DateTimeUtil.format(stamp.time()))
+                        .append(" | ").append(konceptInline(stamp.authorNid(), view, icons))
+                        .append(" | ").append(konceptInline(stamp.moduleNid(), view, icons))
+                        .append(" | ").append(konceptInline(stamp.pathNid(), view, icons))
+                        .append(" |\n");
             }
             if (versions.size() > shown) {
-                sb.append("- … (").append(versions.size() - shown).append(" earlier)\n");
+                sb.append("| … (").append(versions.size() - shown).append(" earlier) | | | |\n");
             }
             return sb.toString();
         } catch (RuntimeException e) {
@@ -238,8 +249,7 @@ public final class ZulipNotifier {
 
     /** The concept's fully specified name, falling back to a preferred description. */
     private static String name(int nid, ViewCalculator view) {
-        return view.getFullyQualifiedNameText(nid)
-                .orElseGet(() -> view.getPreferredDescriptionTextWithFallbackOrNid(nid));
+        return view.getPreferredDescriptionTextWithFallbackOrNid(nid);
     }
 
     /** A "Last edited by … · …" line from the concept's latest STAMP, best-effort. */
