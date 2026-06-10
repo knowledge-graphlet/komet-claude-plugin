@@ -18,6 +18,7 @@ package network.ike.komet.claude.zulip.rules;
 import dev.ikm.komet.framework.performance.impl.ObservationRecord;
 import dev.ikm.komet.rules.annotated.RulesBase;
 import dev.ikm.tinkar.entity.EntityVersion;
+import network.ike.komet.claude.html.CopyKonceptHtmlAction;
 import org.evrete.dsl.annotation.MethodPredicate;
 import org.evrete.dsl.annotation.Rule;
 import org.evrete.dsl.annotation.RuleSet;
@@ -67,5 +68,23 @@ public class ZulipRules extends RulesBase {
     })
     public void componentFocusedConfigureZulip(ObservationRecord $observation) {
         addGeneratedActions(new ConfigureZulipAction(calculator(), editCoordinate()));
+    }
+
+    /**
+     * Offers "Copy as HTML (for email)" whenever a component is focused — renders the
+     * concept as rich HTML (the real adoc pill badge + styled definition / history tables)
+     * and puts it on the clipboard for pasting into Outlook / Apple Mail.
+     *
+     * @see RulesBase#isComponentFocused(ObservationRecord)
+     * @param $observation the focused-component observation
+     */
+    @Rule("Component focused — copy Koncept HTML for email")
+    @Where(methods = {
+            @MethodPredicate(method = "isComponentFocused", args = {"$observation"})
+    })
+    public void componentFocusedCopyHtml(ObservationRecord $observation) {
+        if ($observation.subject() instanceof EntityVersion entityVersion) {
+            addGeneratedActions(new CopyKonceptHtmlAction(entityVersion, calculator(), editCoordinate()));
+        }
     }
 }
