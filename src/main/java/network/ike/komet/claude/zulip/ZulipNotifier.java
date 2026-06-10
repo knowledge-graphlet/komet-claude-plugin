@@ -17,11 +17,13 @@ package network.ike.komet.claude.zulip;
 
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.util.time.DateTimeUtil;
+import dev.ikm.tinkar.coordinate.logic.PremiseType;
 import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityVersion;
 import dev.ikm.tinkar.entity.StampEntity;
+import network.ike.komet.claude.koncept.ConceptDefinition;
 import network.ike.komet.claude.koncept.IdenticonUriCache;
 import network.ike.komet.claude.koncept.KompendiumUrls;
 import network.ike.komet.claude.koncept.KonceptIdenticon;
@@ -33,6 +35,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -153,7 +156,55 @@ public final class ZulipNotifier {
             }
         }
 
+        sb.append(renderDefinition(conceptNid, view, icons));
         sb.append("\n**History**\n\n").append(renderHistory(conceptNid, view, icons));
+        return sb.toString();
+    }
+
+    /** Renders the concept's stated and inferred logical definitions as Koncept tables. */
+    private String renderDefinition(int conceptNid, ViewCalculator view, Map<Integer, String> icons) {
+        String stated = renderOneDefinition("Stated", conceptNid, view, PremiseType.STATED, icons);
+        String inferred = renderOneDefinition("Inferred", conceptNid, view, PremiseType.INFERRED, icons);
+        if (stated.isEmpty() && inferred.isEmpty()) {
+            return "";
+        }
+        return "\n**Definition**\n" + stated + inferred;
+    }
+
+    /** One premise's definition as a Group / Attribute / Value table, or "" if absent. */
+    private String renderOneDefinition(String label, int conceptNid, ViewCalculator view,
+                                       PremiseType premise, Map<Integer, String> icons) {
+        Optional<ConceptDefinition> opt;
+        try {
+            opt = ConceptDefinition.extract(conceptNid, view, premise);
+        } catch (RuntimeException e) {
+            LOG.debug("Definition ({}) unavailable for nid {}: {}", premise, conceptNid, e.toString());
+            return "";
+        }
+        if (opt.isEmpty()) {
+            return "";
+        }
+        ConceptDefinition def = opt.get();
+        StringBuilder sb = new StringBuilder();
+        sb.append("\n_").append(label).append(" — ")
+                .append(def.defined() ? "Defined (≡)" : "Primitive (⊑)").append("_\n\n");
+        sb.append("| Group | Attribute | Value |\n");
+        sb.append("| :-- | :-- | :-- |\n");
+        for (int superNid : def.supertypes()) {
+            sb.append("| Is-a |  | ").append(konceptInline(superNid, view, icons)).append(" |\n");
+        }
+        for (ConceptDefinition.Role role : def.ungroupedRoles()) {
+            sb.append("| · | ").append(konceptInline(role.attributeNid(), view, icons))
+                    .append(" | ").append(konceptInline(role.valueNid(), view, icons)).append(" |\n");
+        }
+        int group = 0;
+        for (List<ConceptDefinition.Role> roleGroup : def.roleGroups()) {
+            group++;
+            for (ConceptDefinition.Role role : roleGroup) {
+                sb.append("| ").append(group).append(" | ").append(konceptInline(role.attributeNid(), view, icons))
+                        .append(" | ").append(konceptInline(role.valueNid(), view, icons)).append(" |\n");
+            }
+        }
         return sb.toString();
     }
 
