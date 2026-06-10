@@ -7,13 +7,13 @@
     <parent>
         <groupId>network.ike.platform</groupId>
         <artifactId>ike-parent</artifactId>
-        <version>104</version>
+        <version>106</version>
         <relativePath/>
     </parent>
 
     <groupId>network.ike.komet</groupId>
     <artifactId>komet-claude-plugin</artifactId>
-    <version>1-SNAPSHOT</version>
+    <version>1-claude-assistant-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>Komet Claude Plugin</name>
