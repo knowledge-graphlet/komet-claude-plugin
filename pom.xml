@@ -13,7 +13,7 @@
 
     <groupId>network.ike.komet</groupId>
     <artifactId>komet-claude-plugin</artifactId>
-    <version>1-claude-assistant-SNAPSHOT</version>
+    <version>1-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>Komet Claude Plugin</name>
@@ -58,7 +58,7 @@
     <properties>
         <!-- Main-line Komet BOM; manages komet module + tinkar versions.
              Matches ike-komet-wsr on main. -->
-        <komet-bom.version>3.0.7-claude-assistant-SNAPSHOT</komet-bom.version>
+        <komet-bom.version>3.0.7-SNAPSHOT</komet-bom.version>
     </properties>
 
     <dependencyManagement>
