@@ -15,247 +15,112 @@
  */
 package network.ike.komet.claude.ui;
 
-import jfx.incubator.scene.control.richtext.RichTextArea;
+import dev.ikm.komet.markdown.richtext.MarkdownRichTextRenderer;
+import dev.ikm.komet.markdown.richtext.MarkdownStyledModel;
+import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
+import javafx.scene.paint.Color;
+import jfx.incubator.scene.control.richtext.model.RichParagraph;
 import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
-import org.commonmark.node.AbstractVisitor;
-import org.commonmark.node.BlockQuote;
-import org.commonmark.node.BulletList;
-import org.commonmark.node.Code;
-import org.commonmark.node.Emphasis;
-import org.commonmark.node.FencedCodeBlock;
-import org.commonmark.node.HardLineBreak;
-import org.commonmark.node.Heading;
-import org.commonmark.node.Image;
-import org.commonmark.node.IndentedCodeBlock;
-import org.commonmark.node.Link;
-import org.commonmark.node.ListItem;
-import org.commonmark.node.Node;
-import org.commonmark.node.OrderedList;
-import org.commonmark.node.Paragraph;
-import org.commonmark.node.SoftLineBreak;
-import org.commonmark.node.StrongEmphasis;
-import org.commonmark.node.Text;
-import org.commonmark.node.ThematicBreak;
-import org.commonmark.parser.Parser;
+import jfx.incubator.scene.control.richtext.model.StyledTextModel;
 
-import java.util.ArrayDeque;
-import java.util.Deque;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
- * Renders a Markdown string into a {@link RichTextArea} as styled text
- * segments, using a CommonMark parse and a visitor that maps inline/block
- * structure to {@link StyleAttributeMap} runs.
+ * Builds a view-only {@link StyledTextModel} for the assistant transcript: each {@link Entry}
+ * contributes a coloured role label followed by its content, with Markdown rendered to styled
+ * {@link RichParagraph} runs by the shared {@link MarkdownRichTextRenderer}.
  *
- * <p>Intentionally lightweight: it covers the elements an assistant reply
- * actually uses — headings, paragraphs, bold/italic, inline and fenced code,
- * bullet/ordered lists, block quotes, links, and rules. It does not attempt
- * full CommonMark fidelity (e.g. tables, nested images). Text not recognized as
- * markup is emitted verbatim, so a plain-text reply renders as plain text.
- *
- * <p>All appends mutate the area's model, so callers must invoke
- * {@link #append} on the JavaFX Application Thread.
+ * <p>The grounding behaviour lives in {@link ConceptChipInlineDecorator}, the
+ * {@link dev.ikm.komet.markdown.richtext.InlineDecorator} handed to the renderer: any concept
+ * identifier the assistant reports — an SCTID, UUID, or {@code nid=…} — is followed by a
+ * <em>concept chip</em> (LifeHash identicon + store-resolved name), existence-gated against
+ * the live store and struck through when the component is inactive (#586). The renderer is the
+ * generic, reusable Markdown engine; this class only composes the role-labelled transcript.
  */
 public final class MarkdownRichText {
 
-    private static final Parser PARSER = Parser.builder().build();
+    /** Default transcript base font size (px); overridable per-instance for zoom. */
+    public static final double DEFAULT_BASE = 13;
 
-    /** Body font size, in points. */
-    private static final double BASE = 13;
-    /** Monospace family for code spans/blocks. */
-    private static final String MONO = "monospace";
+    /** A transcript role, with its label and accent colour. */
+    public enum Role {
+        USER("You", Color.web("#1a56db")),
+        ASSISTANT("Komet Assistant", Color.web("#b15c00")),
+        ERROR("Error", Color.web("#b00020"));
 
-    private MarkdownRichText() {
+        final String label;
+        final Color color;
+
+        Role(String label, Color color) {
+            this.label = label;
+            this.color = color;
+        }
     }
 
     /**
-     * Parses {@code markdown} and appends it, styled, to {@code area}.
+     * One transcript message.
      *
-     * @param area     the transcript to append into (mutated on the FX thread)
-     * @param markdown the Markdown source; null/blank is a no-op
+     * @param role     who is speaking
+     * @param content  the message text (Markdown when {@code markdown} is true)
+     * @param markdown whether to render {@code content} as Markdown
      */
-    public static void append(RichTextArea area, String markdown) {
-        if (markdown == null || markdown.isBlank()) {
-            return;
-        }
-        Node document = PARSER.parse(markdown);
-        document.accept(new RenderVisitor(area));
+    public record Entry(Role role, String content, boolean markdown) {
     }
 
-    /** Walks the CommonMark AST, emitting styled runs into the area. */
-    private static final class RenderVisitor extends AbstractVisitor {
+    /** Base body font size (px); the role label and the renderer both scale from it. */
+    private final double base;
+    /** Shared Markdown engine, wired with the concept-chip decorator for grounding. */
+    private final MarkdownRichTextRenderer renderer;
 
-        private final RichTextArea area;
-        private int bold;
-        private int italic;
-        private int headingLevel;
-        private int listDepth;
-        /** Per-list marker state: {@code null} = bullet, else a 1-element counter. */
-        private final Deque<int[]> listCounters = new ArrayDeque<>();
+    /**
+     * @param viewCalc the live view for resolving concept names for chips; if null, chips
+     *                 fall back to a bare identicon
+     * @param base     base body font size in px (see {@link #DEFAULT_BASE})
+     */
+    public MarkdownRichText(ViewCalculator viewCalc, double base) {
+        this.base = base;
+        this.renderer = new MarkdownRichTextRenderer(base, new ConceptChipInlineDecorator(viewCalc, base));
+    }
 
-        private RenderVisitor(RichTextArea area) {
-            this.area = area;
-        }
+    /**
+     * Builds the view-only model for the whole transcript.
+     *
+     * @param entries the conversation, in order
+     * @return a model suitable for {@code RichTextArea.setModel(...)}
+     */
+    public StyledTextModel toModel(List<Entry> entries) {
+        List<RichParagraph> paragraphs = new ArrayList<>();
+        List<String> plain = new ArrayList<>();
+        for (Entry e : entries) {
+            // Coloured, bold role label on its own line.
+            RichParagraph.Builder label = RichParagraph.builder();
+            label.addSegment(e.role().label, StyleAttributeMap.builder()
+                    .setBold(true).setFontSize(base).setTextColor(e.role().color).build());
+            paragraphs.add(label.build());
+            plain.add(e.role().label);
 
-        private double currentSize() {
-            return switch (headingLevel) {
-                case 1 -> 19;
-                case 2 -> 17;
-                case 3 -> 15;
-                case 4 -> 14;
-                default -> BASE;
-            };
-        }
-
-        private void emit(String text) {
-            emit(text, false, currentSize());
-        }
-
-        private void emit(String text, boolean mono, double size) {
-            if (text == null || text.isEmpty()) {
-                return;
-            }
-            StyleAttributeMap.Builder b = StyleAttributeMap.builder();
-            if (bold > 0 || headingLevel > 0) {
-                b.setBold(true);
-            }
-            if (italic > 0) {
-                b.setItalic(true);
-            }
-            if (mono) {
-                b.setFontFamily(MONO);
-            }
-            b.setFontSize(size);
-            area.appendText(text, b.build());
-        }
-
-        @Override
-        public void visit(Text text) {
-            emit(text.getLiteral());
-        }
-
-        @Override
-        public void visit(StrongEmphasis node) {
-            bold++;
-            visitChildren(node);
-            bold--;
-        }
-
-        @Override
-        public void visit(Emphasis node) {
-            italic++;
-            visitChildren(node);
-            italic--;
-        }
-
-        @Override
-        public void visit(Code node) {
-            emit(node.getLiteral(), true, currentSize());
-        }
-
-        @Override
-        public void visit(FencedCodeBlock node) {
-            emitCodeBlock(node.getLiteral());
-        }
-
-        @Override
-        public void visit(IndentedCodeBlock node) {
-            emitCodeBlock(node.getLiteral());
-        }
-
-        private void emitCodeBlock(String literal) {
-            String code = literal == null ? "" : literal;
-            while (code.endsWith("\n")) {
-                code = code.substring(0, code.length() - 1);
-            }
-            emit(code, true, BASE);
-            emit("\n\n");
-        }
-
-        @Override
-        public void visit(Heading node) {
-            headingLevel = node.getLevel();
-            visitChildren(node);
-            headingLevel = 0;
-            emit("\n\n");
-        }
-
-        @Override
-        public void visit(Paragraph node) {
-            visitChildren(node);
-            emit(listDepth > 0 ? "\n" : "\n\n");
-        }
-
-        @Override
-        public void visit(BulletList node) {
-            listCounters.push(new int[]{Integer.MIN_VALUE}); // sentinel = bullet
-            listDepth++;
-            visitChildren(node);
-            listDepth--;
-            listCounters.pop();
-            if (listDepth == 0) {
-                emit("\n");
-            }
-        }
-
-        @Override
-        public void visit(OrderedList node) {
-            listCounters.push(new int[]{1});
-            listDepth++;
-            visitChildren(node);
-            listDepth--;
-            listCounters.pop();
-            if (listDepth == 0) {
-                emit("\n");
-            }
-        }
-
-        @Override
-        public void visit(ListItem node) {
-            emit("  ".repeat(Math.max(0, listDepth - 1)));
-            int[] counter = listCounters.peek();
-            if (counter == null || counter[0] == Integer.MIN_VALUE) {
-                emit("• ");
+            if (e.markdown()) {
+                renderer.render(e.content(), baseStyle(e.role()), paragraphs, plain);
             } else {
-                emit(counter[0]++ + ". ");
+                renderer.renderPlainText(e.content(), baseStyle(e.role()), paragraphs, plain);
             }
-            visitChildren(node);
-        }
 
-        @Override
-        public void visit(BlockQuote node) {
-            italic++;
-            visitChildren(node);
-            italic--;
+            // Blank spacer between messages.
+            paragraphs.add(RichParagraph.builder().build());
+            plain.add("");
         }
+        if (paragraphs.isEmpty()) {
+            return MarkdownStyledModel.empty();
+        }
+        return new MarkdownStyledModel(paragraphs, plain);
+    }
 
-        @Override
-        public void visit(ThematicBreak node) {
-            emit("\n──────────\n\n");
+    private StyleAttributeMap baseStyle(Role role) {
+        StyleAttributeMap.Builder b = StyleAttributeMap.builder().setFontSize(base);
+        if (role == Role.ERROR) {
+            b.setItalic(true).setTextColor(Role.ERROR.color);
         }
-
-        @Override
-        public void visit(SoftLineBreak node) {
-            emit(" ");
-        }
-
-        @Override
-        public void visit(HardLineBreak node) {
-            emit("\n");
-        }
-
-        @Override
-        public void visit(Link node) {
-            visitChildren(node);
-            String url = node.getDestination();
-            if (url != null && !url.isBlank()) {
-                emit(" (" + url + ")");
-            }
-        }
-
-        @Override
-        public void visit(Image node) {
-            String url = node.getDestination();
-            emit("[image" + (url == null || url.isBlank() ? "" : ": " + url) + "]");
-        }
+        return b.build();
     }
 }

@@ -15,19 +15,22 @@
  */
 
 /**
- * Komet Claude Plugin — an in-Komet assistant panel that drives a Claude
- * dialog whose read-only tools execute in-process over the live knowledge
- * graph.
+ * Komet Claude Plugin — an in-Komet assistant contributed as a knowledge-layout
+ * {@link dev.ikm.komet.layout.area.KlToolArea tool area} and summoned as a window in
+ * the Journal workspace.
  *
- * <p>The panel is contributed as a {@link dev.ikm.komet.framework.KometNodeFactory}
- * service (see the {@code provides} clause). It is <em>outbound-only</em>: Komet
- * holds the API key and runs the Anthropic tool-use loop; Claude's tools read
- * the open knowledge base through the window's {@code ViewCalculator}. There is
- * no inbound network surface.
+ * <p>It is <em>outbound-only</em>: Komet holds the API key and runs the Anthropic
+ * tool-use loop; Claude's read-only tools read the open knowledge base through the
+ * journal view injected into the area. There is no inbound network surface. The area is
+ * discovered via {@link java.util.ServiceLoader} (see the {@code provides} clauses):
+ * {@code KlToolArea.Factory} surfaces it on the Journal "+" menu, and
+ * {@code KlArea.Factory} surfaces it in the knowledge-layout editor palette.
  */
 module komet.claude {
-    // Komet plugin SPI + UI host (KometNodeFactory, ExplorationNodeAbstract,
-    // ViewProperties, ObservableViewNoOverride, ActivityStream).
+    // Knowledge-layout SPI: KlToolArea / KlSupplementalArea + SupplementalAreaBlueprint,
+    // KlArea, AreaGridSettings, KlPreferencesFactory, the area lifecycle/context base.
+    requires dev.ikm.komet.layout;
+    // ViewProperties (the journal view the host injects into the tool area).
     requires dev.ikm.komet.framework;
     // KometPreferences + PreferencesService (per-OS-user API-key storage).
     requires dev.ikm.komet.preferences;
@@ -38,19 +41,42 @@ module komet.claude {
     requires dev.ikm.tinkar.common;
     requires dev.ikm.tinkar.provider.search;
 
-    // ImmutableList return types + Lists.immutable factory in the node factory.
+    // Tinkar Composer: write COMMENT_PATTERN semantics (commit comments) referencing a STAMP,
+    // and seed the narrator's author/module identity concepts.
+    requires dev.ikm.tinkar.composer;
+
+    // Tinkar events: CommitEvent + EvtBus (FrameworkTopics.COMMIT_TOPIC) drive the headless
+    // commit narrator.
+    requires dev.ikm.tinkar.events;
+
+    // slf4j: error logging routed to Komet's log4j2 backend (the image has no
+    // log4j-jpl bridge, so System.Logger would miss the canonical ~/Solor/komet/logs).
+    requires org.slf4j;
+
+    // ImmutableList helpers used by the graph tools.
     requires org.eclipse.collections.api;
 
     // Hand-rolled Anthropic Messages client.
     requires java.net.http;
 
-    // JavaFX UI: controls/layout (transitively graphics+base for Platform,
-    // Color, Task) and the incubator RichTextArea chat transcript.
+    // JavaFX UI: controls/layout (transitively graphics+base for Platform, Color)
+    // and the incubator RichTextArea chat transcript.
     requires javafx.controls;
     requires jfx.incubator.richtext;
 
-    // Markdown rendering of assistant replies into the RichTextArea.
-    requires org.commonmark;
+    // Shared Markdown → RichTextArea renderer (#585): MarkdownRichTextRenderer +
+    // InlineDecorator + MarkdownStyledModel. Brings the incubator richtext model
+    // transitively; the plugin supplies a ConceptChipInlineDecorator for grounding.
+    requires dev.ikm.komet.markdown.richtext;
+
+    // Rule engine: author Evrete rules (RulesBase) and actions (AbstractAction*)
+    // contributed via the RuleProvider SPI; org.evrete.dsl for the rule annotations.
+    requires dev.ikm.komet.rules;
+    requires org.evrete.dsl.java;
+
+    // LifeHash identicon (toucan) → PNG bytes for the Zulip Koncept badge upload.
+    // Already in the komet runtime (framework requires it), so no extra staging.
+    requires com.sparrowwallet.toucan;
 
     // Vendored json4j references java.beans.Introspector (java.desktop) and
     // java.sql.Timestamp (java.sql) in serializer code paths we don't exercise
@@ -60,8 +86,42 @@ module komet.claude {
 
     exports network.ike.komet.claude;
 
-    // The panel contribution point. ServiceLoader instantiates the factory via
-    // its public static provider() method.
-    provides dev.ikm.komet.framework.KometNodeFactory
-            with network.ike.komet.claude.ClaudeAssistantNodeFactory;
+    // The vendored json4j (Json) discovers optional Serializer/Deserializer providers via
+    // ServiceLoader in its static initializer; in a named module that REQUIRES a matching
+    // `uses` declaration, or the load throws ServiceConfigurationError (an Error) on first
+    // use. We register no providers, so these resolve to empty lists.
+    uses network.ike.komet.claude.json.Json.Serializer;
+    uses network.ike.komet.claude.json.Json.Deserializer;
+
+    // Tool-area contribution points. ServiceLoader instantiates the factory via its
+    // public no-arg constructor. KlToolArea.Factory is what the Journal workspace
+    // enumerates for its "+" menu; KlArea.Factory makes the area available to the
+    // knowledge-layout editor palette as well.
+    provides dev.ikm.komet.layout.area.KlToolArea.Factory
+            with network.ike.komet.claude.ClaudeAssistantArea.Factory;
+    provides dev.ikm.komet.layout.KlArea.Factory
+            with network.ike.komet.claude.ClaudeAssistantArea.Factory,
+                 network.ike.komet.claude.ClaudeCheckArea.Factory,
+                 network.ike.komet.claude.ChatArea.Factory;
+    // Placeable supplemental areas surfaced in the knowledge-layout editor's "Controls" palette.
+    provides dev.ikm.komet.layout.area.KlSupplementalArea.Factory
+            with network.ike.komet.claude.ClaudeCheckArea.Factory,
+                 network.ike.komet.claude.ChatArea.Factory;
+
+    // Plugin-contributed Evrete rules (discovered by EvreteRulesService via the
+    // RuleProvider SPI): a "Post state + history to Zulip" component-focus rule.
+    // Living in the plugin, the rule + action update without a new komet release (#620).
+    provides dev.ikm.komet.framework.rulebase.RuleProvider
+            with network.ike.komet.claude.zulip.rules.ZulipRuleProvider;
+
+    // Headless commit narrator: started once at app startup (after datastore load) by the
+    // ServiceLifecycle machinery, regardless of whether the assistant UI is opened.
+    provides dev.ikm.tinkar.common.service.ServiceLifecycle
+            with network.ike.komet.claude.narrator.CommitNarratorLifecycle;
+
+    // Evrete accesses the rule class via MethodHandles. Like komet/rules (an
+    // `open module`), the rule package must be opened UNQUALIFIED — a qualified
+    // `opens … to org.evrete.*` is NOT sufficient for Evrete's lookup (otherwise a
+    // runtime IllegalAccessException unreflecting the rule method breaks the engine).
+    opens network.ike.komet.claude.zulip.rules;
 }

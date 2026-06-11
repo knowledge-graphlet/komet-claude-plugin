@@ -19,9 +19,13 @@ import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.service.PrimitiveDataSearchResult;
 import dev.ikm.tinkar.common.util.uuid.UuidUtil;
+import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.EntityService;
+import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.provider.search.Searcher;
+import dev.ikm.tinkar.terms.EntityFacade;
+import dev.ikm.tinkar.terms.TinkarTerm;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 
 import java.util.LinkedHashSet;
@@ -43,9 +47,8 @@ import java.util.function.Supplier;
  * here mutates the knowledge base.
  *
  * <p>Identifiers accepted on input are an SCTID (resolved via the SNOMED type-5
- * UUID) or a concept UUID. Results currently render {@code name [UUID]};
- * reverse SCTID rendering (nid → SCTID via the identifier semantic) is a
- * planned follow-up.
+ * UUID) or a concept UUID. Results render {@code name [SCTID …]} when the concept
+ * carries a SNOMED identifier semantic, falling back to {@code name [UUID]}.
  */
 public final class GraphTools {
 
@@ -278,11 +281,18 @@ public final class GraphTools {
     private static String nameAndId(ViewCalculator v, int nid) {
         String name = v.getFullyQualifiedNameText(nid)
                 .orElseGet(() -> v.getPreferredDescriptionTextWithFallbackOrNid(nid));
-        return name + "  [" + idString(nid) + "]";
+        return name + "  [" + idString(v, nid) + "]";
     }
 
-    /** First public UUID for a nid (reverse SCTID is a planned follow-up). */
-    private static String idString(int nid) {
+    /**
+     * Renders a concept's identifier: its SCTID when the concept carries a SNOMED
+     * identifier semantic, otherwise its first public UUID, otherwise the nid.
+     */
+    private static String idString(ViewCalculator v, int nid) {
+        String sctid = sctidOf(v, nid);
+        if (sctid != null) {
+            return "SCTID " + sctid;
+        }
         try {
             UUID[] uuids = PrimitiveData.publicId(nid).asUuidArray();
             if (uuids.length > 0) {
@@ -292,6 +302,38 @@ public final class GraphTools {
             // fall through to nid
         }
         return "nid=" + nid;
+    }
+
+    /**
+     * Resolves the SNOMED CT identifier of a concept from its identifier semantic
+     * ({@link TinkarTerm#IDENTIFIER_PATTERN} with source {@link TinkarTerm#SCTID}),
+     * or {@code null} if the concept has no SCTID in this knowledge base.
+     */
+    private static String sctidOf(ViewCalculator v, int nid) {
+        try {
+            int[] idSemantics = EntityService.get()
+                    .semanticNidsForComponentOfPattern(nid, TinkarTerm.IDENTIFIER_PATTERN.nid());
+            for (int semanticNid : idSemantics) {
+                Latest<SemanticEntityVersion> latest = v.stampCalculator().latest(semanticNid);
+                if (latest.isPresent()) {
+                    String value = null;
+                    EntityFacade source = null;
+                    for (Object field : latest.get().fieldValues()) {
+                        if (field instanceof String s) {
+                            value = s;
+                        } else if (field instanceof EntityFacade ef) {
+                            source = ef;
+                        }
+                    }
+                    if (value != null && source != null && source.nid() == TinkarTerm.SCTID.nid()) {
+                        return value;
+                    }
+                }
+            }
+        } catch (RuntimeException ignored) {
+            // No resolvable SCTID; caller falls back to UUID.
+        }
+        return null;
     }
 
     private static String renderIds(ViewCalculator v, int[] nids, int limit) {
