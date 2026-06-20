@@ -18,13 +18,12 @@ package network.ike.komet.claude;
 import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.komet.layout.KlArea;
 import dev.ikm.komet.layout.area.AreaGridSettings;
-import dev.ikm.komet.layout.area.KlToolArea;
 import dev.ikm.komet.layout.preferences.KlPreferencesFactory;
-import dev.ikm.komet.layout_engine.blueprint.SupplementalAreaBlueprint;
+import dev.ikm.komet.layout_engine.blueprint.CardBlueprint;
+import dev.ikm.komet.layout_engine.host.AbstractHostCard;
+import dev.ikm.komet.layout_engine.host.KlCardProvider;
 import dev.ikm.komet.preferences.KometPreferences;
 import dev.ikm.komet.preferences.PreferencesService;
-import dev.ikm.tinkar.common.service.ServiceKeys;
-import dev.ikm.tinkar.common.service.ServiceProperties;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
@@ -35,18 +34,25 @@ import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
+import javafx.scene.control.ContentDisplay;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Dialog;
+import javafx.scene.control.Label;
+import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.PasswordField;
+import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextField;
+import javafx.scene.control.TextInputDialog;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
+import javafx.stage.FileChooser;
 import javafx.stage.Window;
 import jfx.incubator.scene.control.richtext.RichTextArea;
 import network.ike.komet.claude.anthropic.AnthropicClient;
@@ -58,11 +64,13 @@ import network.ike.komet.claude.ui.MarkdownRichText;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
@@ -70,31 +78,34 @@ import java.util.concurrent.Executors;
 import java.util.prefs.BackingStoreException;
 
 /**
- * The Claude Assistant as a {@link KlToolArea}: a chat transcript over the open knowledge
- * base, summoned as a self-contained tool window in the Journal workspace.
+ * The Claude Assistant as a first-class {@link AbstractHostCard}: a chat over the open knowledge base,
+ * contributed to the Journal workspace via {@link Factory} (a {@code KlCardProvider}). This is the
+ * card-native successor to the legacy {@code ClaudeAssistantArea} tool — it owns its chrome, coordinate
+ * context, lifecycle, and storage directly rather than being hosted inside a generic shell.
  *
- * <p>The area is <em>outbound-only</em>. On each send it runs the Anthropic tool-use loop
- * ({@link AnthropicClient#ask}) on a background thread; Claude's read-only {@link GraphTools}
- * execute in-process against the {@linkplain #setToolViewProperties(ViewProperties) injected}
- * journal view, so answers are grounded in exactly the coordinate the user sees. The reply
- * (Markdown) is rendered into a {@link RichTextArea} on the FX thread. The Anthropic API key
- * lives in per-OS-user Komet preferences — never in the knowledge base.
+ * <p><b>One chrome.</b> The card's own header (themed Anthropic coral via {@code claude-card.css}) carries the
+ * title and the assistant controls (conversations toggle, font ±, Save, API key); the close lives in the base
+ * chrome. There is no doubled tab.
  *
- * <p>This is the next-generation replacement for the legacy {@code KometNodeFactory} panel:
- * it is contributed via {@link Factory} as a {@code KlToolArea.Factory} / {@code KlArea.Factory}
- * service and rendered inside the modern Journal workspace rather than the classic tab UI.
+ * <p><b>Sandboxed per instance.</b> Conversations are written as files in <em>this card's own preferences-node
+ * {@linkplain KometPreferences#directory() directory}</em> — so two Claude cards never share a rail, and the
+ * conversations are removed with the card when it is deleted. The API key and model stay in shared per-OS-user
+ * preferences (one key for every card), never in the knowledge base.
+ *
+ * <p>Each send runs the Anthropic tool-use loop ({@link AnthropicClient#ask}) on a background thread; Claude's
+ * read-only {@link GraphTools} execute in-process against this card's live coordinate
+ * ({@link #getCardViewProperties()}), so answers are grounded in exactly the view the user sees.
  */
-public final class ClaudeAssistantArea extends SupplementalAreaBlueprint implements KlToolArea<BorderPane> {
+public final class ClaudeCard extends AbstractHostCard {
 
-    /** Menu label and window title for the assistant. */
-    static final String TOOL_NAME = "Claude Assistant";
+    /** Menu label and card title. */
+    static final String CARD_NAME = "Claude Assistant";
 
-    private static final org.slf4j.Logger LOG =
-            org.slf4j.LoggerFactory.getLogger(ClaudeAssistantArea.class);
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(ClaudeCard.class);
 
-    /** Per-user preference keys (stored under {@link PreferencesService#userPreferences()}). */
-    // Public so the headless commit narrator reads the same per-user config (the key names,
-    // not the key value, are shared).
+    /** Per-user preference keys (shared across cards, stored under {@link PreferencesService#userPreferences()}). */
+    // PREF_API_KEY / PREF_MODEL are public so the headless commit narrator reads the same per-user config
+    // (the key names, not the value, are shared).
     public static final String PREF_API_KEY = "network.ike.komet.claude.apiKey";
     public static final String PREF_MODEL = "network.ike.komet.claude.model";
     private static final String PREF_FONT_SIZE = "network.ike.komet.claude.fontSize";
@@ -103,8 +114,8 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
 
     private static final int MAX_TOKENS = 8192;
 
-    private final String systemPrompt;
-    private final List<AnthropicTool> tools;
+    private String systemPrompt;
+    private List<AnthropicTool> tools;
     private final ExecutorService worker =
             Executors.newFixedThreadPool(4, r -> {
                 Thread t = new Thread(r, "komet-claude-ask");
@@ -113,11 +124,6 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
             });
     /** Live ref to the active conversation's Save markdown (reassigned on switch). */
     private StringBuilder transcriptMarkdown;
-
-    /** Journal view injected by the host before display; tools query against it. */
-    private volatile ViewProperties toolViewProperties;
-    /** Callback the host wires to close + remove this window. */
-    private volatile Runnable onCloseRequest;
 
     private RichTextArea transcript;
     private TextField input;
@@ -142,7 +148,7 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
         boolean named;
         volatile boolean busy;
         final List<MarkdownRichText.Entry> entries = new ArrayList<>();
-        final List<java.util.Map<String, Object>> apiMessages = new ArrayList<>();
+        final List<Map<String, Object>> apiMessages = new ArrayList<>();
         final StringBuilder markdown = new StringBuilder();
 
         Conversation(String id, String name) {
@@ -157,105 +163,85 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
     }
 
     /** Serialized form of a {@link Conversation} (json4j). */
-    private record ConversationDto(String id, String name, List<java.util.Map<String, Object>> turns) {
+    private record ConversationDto(String id, String name, List<Map<String, Object>> turns) {
     }
 
-    /** Restore constructor (see {@link Factory#restore}). */
-    public ClaudeAssistantArea(KometPreferences preferences) {
+    private ClaudeCard(KometPreferences preferences) {
         super(preferences);
-        this.systemPrompt = loadSystemPrompt();
-        // Tools read the live view each call via the method reference, so they always
-        // reflect the journal's current coordinate.
-        this.tools = new GraphTools(this::viewCalculator).tools();
-        buildUi();
+        init();
     }
 
-    /** Create constructor (see {@link Factory#create}). */
-    public ClaudeAssistantArea(KlPreferencesFactory preferencesFactory, KlArea.Factory areaFactory) {
+    private ClaudeCard(KlPreferencesFactory preferencesFactory, KlArea.Factory areaFactory) {
         super(preferencesFactory, areaFactory);
+        init();
+    }
+
+    private void init() {
         this.systemPrompt = loadSystemPrompt();
+        // Tools read the live card view each call via the method reference, so they always reflect the
+        // journal's current coordinate (after bind).
         this.tools = new GraphTools(this::viewCalculator).tools();
-        buildUi();
+        fxObject().getStyleClass().add("claude-card");
+        URL css = ClaudeCard.class.getResource("claude-card.css");
+        if (css != null) {
+            fxObject().getStylesheets().add(css.toExternalForm());
+        }
     }
 
-    // ---- KlToolArea injection points ---------------------------------------
-
-    @Override
-    public void setToolViewProperties(ViewProperties viewProperties) {
-        this.toolViewProperties = viewProperties;
-    }
-
-    @Override
-    public void setOnCloseRequest(Runnable onCloseRequest) {
-        this.onCloseRequest = onCloseRequest;
-    }
-
-    /**
-     * Resolves the view calculator the tools should query: the injected journal view if
-     * present, otherwise the knowledge-layout context view as a fallback.
-     */
+    /** Resolves the view calculator the tools query: this card's coordinate of record, once bound. */
     private ViewCalculator viewCalculator() {
-        ViewProperties vp = this.toolViewProperties;
-        return vp != null ? vp.calculator() : calculatorForContext();
+        ViewProperties vp = getCardViewProperties();
+        return vp != null ? vp.calculator() : null;
     }
 
-    // ---- UI construction (into the supplemental area's BorderPane) ----------
+    /*******************************************************************************
+     *  Card chrome + content                                                      *
+     ******************************************************************************/
 
-    private void buildUi() {
-        BorderPane pane = fxObject();
-        baseFontSize = readFontSizePref();
-        // Solid background + Anthropic-coral frame so the tool window reads as a
-        // branded panel rather than a transparent border.
-        pane.setStyle("-fx-background-color: -fx-background; -fx-border-color: #d97757; -fx-border-width: 1.5;"
-                + " -fx-background-radius: 10; -fx-border-radius: 10;");
-        // Clip to a rounded rect so every corner (header, input) is cleanly rounded
-        // like the other journal windows, which the workspace frames for us.
-        javafx.scene.shape.Rectangle paneClip = new javafx.scene.shape.Rectangle();
-        paneClip.setArcWidth(20);
-        paneClip.setArcHeight(20);
-        paneClip.widthProperty().bind(pane.widthProperty());
-        paneClip.heightProperty().bind(pane.heightProperty());
-        pane.setClip(paneClip);
-        pane.setPrefSize(900, 700);  // open at a size consistent with other journal windows
+    @Override
+    protected String cardTitle() {
+        return CARD_NAME;
+    }
 
-        transcript = new RichTextArea();
-        transcript.setEditable(false);
-        transcript.setWrapText(true);
-
-        javafx.scene.control.Label title = new javafx.scene.control.Label(TOOL_NAME);
-        title.setStyle("-fx-font-weight: bold; -fx-text-fill: white; -fx-font-size: 13px;");
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
+    /** The assistant controls live in the card toolbar (the close is in the base chrome). */
+    @Override
+    protected void buildToolbarControls(HBox toolBar) {
+        Button toggleRail = new Button("☰");
+        toggleRail.setTooltip(new Tooltip("Show/hide conversations"));
+        toggleRail.setOnAction(e -> setRailVisible(!railVisible));
         Button fontDown = new Button("A−");
-        fontDown.setTooltip(new javafx.scene.control.Tooltip("Smaller text"));
+        fontDown.setTooltip(new Tooltip("Smaller text"));
         fontDown.setOnAction(e -> adjustFont(-1));
         Button fontUp = new Button("A+");
-        fontUp.setTooltip(new javafx.scene.control.Tooltip("Larger text"));
+        fontUp.setTooltip(new Tooltip("Larger text"));
         fontUp.setOnAction(e -> adjustFont(1));
         Button saveButton = new Button("Save…");
         saveButton.setOnAction(e -> saveTranscript());
         Button keyButton = new Button("API key…");
         keyButton.setOnAction(e -> promptForApiKey());
-        Region closeIcon = new Region();
-        closeIcon.getStyleClass().add("close-window");      // Komet's window-close X shape (kview.css)
-        closeIcon.setStyle("-fx-background-color: white;");  // white to read on the coral bar
-        Button closeButton = new Button();
-        closeButton.setGraphic(closeIcon);
-        closeButton.setOnAction(e -> requestClose());
-        Button toggleRail = new Button("☰");
-        toggleRail.setTooltip(new javafx.scene.control.Tooltip("Show/hide conversations"));
-        toggleRail.setOnAction(e -> setRailVisible(!railVisible));
-        HBox header = new HBox(6, toggleRail, title, fontDown, fontUp, spacer, saveButton, keyButton, closeButton);
-        header.setAlignment(Pos.CENTER_LEFT);
-        header.setPadding(new Insets(6));
-        header.setStyle("-fx-background-color: #d97757; -fx-background-radius: 10 10 0 0;");  // Anthropic coral title bar
-        String headerBtn = "-fx-background-color: rgba(255,255,255,0.20); -fx-text-fill: white;"
-                + " -fx-background-radius: 4; -fx-font-weight: bold;";
         for (Button b : List.of(toggleRail, fontDown, fontUp, saveButton, keyButton)) {
-            b.setStyle(headerBtn);
+            b.getStyleClass().add("claude-card-toolbar-button");
         }
-        // Close reads as a window control (Komet's .close-window X), consistent with other windows.
-        closeButton.setStyle("-fx-background-color: transparent; -fx-padding: 6 8;");
+        toolBar.getChildren().addAll(toggleRail, fontDown, fontUp, saveButton, keyButton);
+    }
+
+    @Override
+    protected void renderContent() {
+        // Build the chat UI once (it is not re-realized on a coordinate change); re-render the transcript on
+        // each refresh so concept chips re-resolve against the current coordinate.
+        if (split == null) {
+            buildBody();
+        }
+        refreshTranscript();
+    }
+
+    /** Builds the chat body (conversations rail | transcript, over the input bar) as the card content. */
+    private void buildBody() {
+        baseFontSize = readFontSizePref();
+
+        transcript = new RichTextArea();
+        transcript.setEditable(false);
+        transcript.setWrapText(true);
 
         input = new TextField();
         input.setPromptText("Ask about the concepts in your open knowledge base…");
@@ -267,14 +253,12 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
         HBox inputBar = new HBox(6, input, sendButton);
         inputBar.setPadding(new Insets(6));
 
-        // The blueprint puts a children GridPane in the center; this tool has no child
-        // areas, so its chat transcript becomes the center content instead.
-        javafx.scene.control.Label railTitle = new javafx.scene.control.Label("Conversations");
+        Label railTitle = new Label("Conversations");
         railTitle.setStyle("-fx-font-weight: bold;");
         Region railSpacer = new Region();
         HBox.setHgrow(railSpacer, Priority.ALWAYS);
         Button newButton = new Button("+ New");
-        newButton.setTooltip(new javafx.scene.control.Tooltip("Start a new conversation"));
+        newButton.setTooltip(new Tooltip("Start a new conversation"));
         newButton.setOnAction(e -> newConversation());
         HBox railHeader = new HBox(6, railTitle, railSpacer, newButton);
         railHeader.setAlignment(Pos.CENTER_LEFT);
@@ -292,13 +276,12 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
             }
         });
         // Per-conversation "thinking" spinner so parallel conversations are visible.
-        conversationList.setCellFactory(lv -> new javafx.scene.control.ListCell<>() {
-            private final javafx.scene.control.ProgressIndicator spinner =
-                    new javafx.scene.control.ProgressIndicator();
+        conversationList.setCellFactory(lv -> new ListCell<>() {
+            private final ProgressIndicator spinner = new ProgressIndicator();
             {
                 spinner.setPrefSize(14, 14);
                 spinner.setMaxSize(14, 14);
-                setContentDisplay(javafx.scene.control.ContentDisplay.RIGHT);
+                setContentDisplay(ContentDisplay.RIGHT);
             }
             @Override
             protected void updateItem(Conversation c, boolean empty) {
@@ -322,9 +305,11 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
         split = new SplitPane(transcript);
         SplitPane.setResizableWithParent(conversationRail, Boolean.FALSE);
 
-        pane.setTop(header);
-        pane.setCenter(split);
-        pane.setBottom(inputBar);
+        BorderPane content = new BorderPane();
+        content.setCenter(split);
+        content.setBottom(inputBar);
+        content.setPrefSize(900, 680);
+        setCardContent(content);
 
         setRailVisible(railVisible);
         // SplitPane ignores a divider position set before layout; re-apply once shown.
@@ -344,12 +329,14 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
 
     /** Rebuilds the transcript's view-only model from the accumulated entries. */
     private void refreshTranscript() {
+        if (transcript == null || entries == null) {
+            return;
+        }
         ViewCalculator vc;
         try {
             vc = viewCalculator();
         } catch (RuntimeException e) {
-            // No view yet (e.g. the intro before the host injects one) — chips
-            // fall back to bare identicons until a view is available.
+            // No usable view yet — chips fall back to bare identicons until one is available.
             vc = null;
         }
         transcript.setModel(new MarkdownRichText(vc, baseFontSize).toModel(entries));
@@ -374,6 +361,9 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
     /** Shows or hides the conversations rail (left of the transcript), persisting the choice + width. */
     private void setRailVisible(boolean visible) {
         railVisible = visible;
+        if (split == null) {
+            return;   // applied by buildBody once the body exists
+        }
         boolean present = split.getItems().contains(conversationRail);
         if (visible && !present) {
             split.getItems().add(0, conversationRail);
@@ -406,14 +396,9 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
         }
     }
 
-    private void requestClose() {
-        Runnable r = this.onCloseRequest;
-        if (r != null) {
-            r.run();
-        }
-    }
-
-    // ---- Send / tool-use loop ----------------------------------------------
+    /*******************************************************************************
+     *  Send / tool-use loop                                                       *
+     ******************************************************************************/
 
     private void onSend() {
         String text = input.getText() == null ? "" : input.getText().trim();
@@ -442,7 +427,7 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
 
         String model = userPreferences().get(PREF_MODEL, AnthropicClient.DEFAULT_MODEL);
         AnthropicClient client = new AnthropicClient(key, model, MAX_TOKENS);
-        List<java.util.Map<String, Object>> history = List.copyOf(conv.apiMessages);
+        List<Map<String, Object>> history = List.copyOf(conv.apiMessages);
 
         worker.submit(() -> {
             String reply;
@@ -450,9 +435,8 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
             try {
                 reply = client.ask(systemPrompt, tools, history, text);
             } catch (Throwable t) {
-                // Catch Throwable, not just RuntimeException: a non-runtime failure in the
-                // ask path (e.g. a class-init / ServiceConfigurationError) must still clear
-                // the busy state and surface in the transcript.
+                // Catch Throwable, not just RuntimeException: a non-runtime failure in the ask path (e.g. a
+                // class-init / ServiceConfigurationError) must still clear busy and surface in the transcript.
                 LOG.error("Claude request failed", t);
                 Throwable root = t;
                 while (root.getCause() != null) {
@@ -467,9 +451,8 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
             Platform.runLater(() -> {
                 renderAssistant(conv, finalReply, finalError);
                 if (!finalError) {
-                    // Append this turn's clean user/assistant pair so the conversation continues.
-                    conv.apiMessages.add(java.util.Map.of("role", "user", "content", text));
-                    conv.apiMessages.add(java.util.Map.of("role", "assistant", "content", finalReply));
+                    conv.apiMessages.add(Map.of("role", "user", "content", text));
+                    conv.apiMessages.add(Map.of("role", "assistant", "content", finalReply));
                     saveConversation(conv);
                 }
                 conv.busy = false;
@@ -483,9 +466,8 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
     }
 
     /**
-     * Reflects only the <em>active</em> conversation's in-flight state on the shared
-     * input. Other conversations keep running in parallel and can be switched to or
-     * added to freely — the rail spinner shows which ones are thinking.
+     * Reflects only the <em>active</em> conversation's in-flight state on the shared input. Other
+     * conversations keep running in parallel; the rail spinner shows which ones are thinking.
      */
     private void updateInputState() {
         boolean busy = active != null && active.busy;
@@ -494,7 +476,9 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
         sendButton.setText(busy ? "Working…" : "Send");
     }
 
-    // ---- Conversations -----------------------------------------------------
+    /*******************************************************************************
+     *  Conversations                                                              *
+     ******************************************************************************/
 
     /** Makes {@code conv} active: repoints the live refs and re-renders the transcript. */
     private void activate(Conversation conv) {
@@ -528,8 +512,7 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
         if (active == null) {
             return;
         }
-        javafx.scene.control.TextInputDialog dialog =
-                new javafx.scene.control.TextInputDialog(active.name);
+        TextInputDialog dialog = new TextInputDialog(active.name);
         dialog.setTitle("Rename conversation");
         dialog.setHeaderText(null);
         dialog.setContentText("Name:");
@@ -568,26 +551,26 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
         }
     }
 
-    // ---- Persistence (per-user folder under the KB datastore) --------------
+    /*******************************************************************************
+     *  Persistence — this card's OWN prefs-node directory (per-instance sandbox)  *
+     ******************************************************************************/
 
-    /** {@code <DATA_STORE_ROOT>/claude-conversations/<os-user>/}, created on demand; null if no datastore. */
-    private static Path conversationsDir() {
-        Optional<File> root = ServiceProperties.get(ServiceKeys.DATA_STORE_ROOT);
-        if (root.isEmpty()) {
+    /** This card's preferences-node directory, created on demand; null if the store is not directory-backed. */
+    private Path conversationsDir() {
+        Optional<Path> dir = preferences().directory();
+        if (dir.isEmpty()) {
             return null;
         }
-        String user = System.getProperty("user.name", "default").replaceAll("[^a-zA-Z0-9._-]", "_");
-        Path dir = root.get().toPath().resolve("claude-conversations").resolve(user);
         try {
-            Files.createDirectories(dir);
-            return dir;
+            Files.createDirectories(dir.get());
+            return dir.get();
         } catch (IOException e) {
-            LOG.warn("Could not create conversations dir {}", dir, e);
+            LOG.warn("Could not create conversations dir {}", dir.get(), e);
             return null;
         }
     }
 
-    /** Persists one conversation (skips empties); files are named by id. */
+    /** Persists one conversation (skips empties); files are named by id, flat in the node directory. */
     private void saveConversation(Conversation conv) {
         if (conv == null || conv.apiMessages.isEmpty()) {
             return;
@@ -597,22 +580,22 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
             return;
         }
         try {
-            String json = Json.stringify(
-                    java.util.Map.of("id", conv.id, "name", conv.name, "turns", conv.apiMessages));
-            Files.writeString(dir.resolve(conv.id + ".json"), json, StandardCharsets.UTF_8);
+            String json = Json.stringify(Map.of("id", conv.id, "name", conv.name, "turns", conv.apiMessages));
+            Files.writeString(dir.resolve("conversation-" + conv.id + ".json"), json, StandardCharsets.UTF_8);
         } catch (Exception e) {
             LOG.warn("Could not save conversation {}", conv.id, e);
         }
     }
 
-    /** Loads this user's conversations for the open KB, most-recent first. */
+    /** Loads this card's conversations, most-recent first. */
     private void loadConversations() {
         Path dir = conversationsDir();
         if (dir == null) {
             return;
         }
         try (var paths = Files.list(dir)) {
-            paths.filter(p -> p.toString().endsWith(".json"))
+            paths.filter(p -> p.getFileName().toString().startsWith("conversation-")
+                            && p.toString().endsWith(".json"))
                     .sorted(java.util.Comparator
                             .comparingLong((Path p) -> p.toFile().lastModified()).reversed())
                     .forEach(this::loadConversation);
@@ -629,7 +612,7 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
             if (dto.turns() != null) {
                 conv.apiMessages.addAll(dto.turns());
             }
-            for (java.util.Map<String, Object> turn : conv.apiMessages) {
+            for (Map<String, Object> turn : conv.apiMessages) {
                 String content = String.valueOf(turn.get("content"));
                 if ("user".equals(String.valueOf(turn.get("role")))) {
                     conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.USER, content, false));
@@ -651,13 +634,15 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
             return;
         }
         try {
-            Files.deleteIfExists(dir.resolve(conv.id + ".json"));
+            Files.deleteIfExists(dir.resolve("conversation-" + conv.id + ".json"));
         } catch (IOException e) {
             LOG.warn("Could not delete conversation {}", conv.id, e);
         }
     }
 
-    // ---- Transcript rendering (FX thread) ----------------------------------
+    /*******************************************************************************
+     *  Transcript rendering (FX thread)                                           *
+     ******************************************************************************/
 
     private void renderUser(Conversation conv, String text) {
         conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.USER, text, false));
@@ -682,11 +667,10 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
     }
 
     private void saveTranscript() {
-        javafx.stage.FileChooser chooser = new javafx.stage.FileChooser();
+        FileChooser chooser = new FileChooser();
         chooser.setTitle("Save conversation");
         chooser.setInitialFileName("komet-assistant-chat.md");
-        chooser.getExtensionFilters().add(
-                new javafx.stage.FileChooser.ExtensionFilter("Markdown", "*.md"));
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Markdown", "*.md"));
         File file = chooser.showSaveDialog(ownerWindow());
         if (file == null) {
             return;
@@ -705,7 +689,9 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
         return pane.getScene() == null ? null : pane.getScene().getWindow();
     }
 
-    // ---- API key (per-user preferences) ------------------------------------
+    /*******************************************************************************
+     *  API key (shared per-user preferences)                                      *
+     ******************************************************************************/
 
     private static KometPreferences userPreferences() {
         return PreferencesService.userPreferences();
@@ -720,7 +706,7 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
     }
 
     /**
-     * Prompts for and stores the Anthropic API key in per-user preferences.
+     * Prompts for and stores the Anthropic API key in shared per-user preferences.
      *
      * @return the saved key, or {@code null} if the user cancelled or cleared it
      */
@@ -757,7 +743,7 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
     }
 
     private static String loadSystemPrompt() {
-        try (InputStream in = ClaudeAssistantArea.class.getResourceAsStream("system-prompt.md")) {
+        try (InputStream in = ClaudeCard.class.getResourceAsStream("system-prompt.md")) {
             if (in == null) {
                 return "You are a read-only terminology assistant embedded in Komet. "
                         + "Always use the provided tools to resolve concepts, identifiers, and "
@@ -769,60 +755,66 @@ public final class ClaudeAssistantArea extends SupplementalAreaBlueprint impleme
         }
     }
 
-    // ---- AreaBlueprint / KlView lifecycle ----------------------------------
-
-    @Override
-    protected void subAreaRestoreFromPreferencesOrDefault() {
-        // Chat is ephemeral; nothing area-scoped to restore.
-    }
-
-    @Override
-    protected void subAreaRevert() {
-        // Nothing to revert.
-    }
-
-    @Override
-    protected void subAreaSave() {
-        // Nothing area-scoped to persist.
-    }
-
-    @Override
-    public void knowledgeLayoutBind() {
-        Platform.runLater(() -> this.lifecycleState.set(LifecycleState.BOUND));
-    }
+    /*******************************************************************************
+     *  Lifecycle                                                                  *
+     ******************************************************************************/
 
     @Override
     public void knowledgeLayoutUnbind() {
+        super.knowledgeLayoutUnbind();
         worker.shutdownNow();
     }
 
+    /*******************************************************************************
+     *  Factory                                                                    *
+     ******************************************************************************/
+
     /**
-     * ServiceLoader factory contributing {@link ClaudeAssistantArea} as a summonable
-     * Journal tool. Registered via {@code provides KlToolArea.Factory} (and
-     * {@code KlArea.Factory}) in {@code module-info}.
+     * ServiceLoader provider contributing {@link ClaudeCard} to the Journal workspace. Registered via
+     * {@code provides KlCardProvider with ClaudeCard.Factory} in {@code module-info}.
      */
-    public static final class Factory implements KlToolArea.Factory<BorderPane, ClaudeAssistantArea> {
+    public static final class Factory implements KlCardProvider {
 
         /** Public no-arg constructor required by {@link java.util.ServiceLoader}. */
         public Factory() {
-            super();
         }
 
         @Override
-        public String toolName() {
-            return TOOL_NAME;
+        public String cardName() {
+            return CARD_NAME;
         }
 
         @Override
-        public ClaudeAssistantArea restore(KometPreferences preferences) {
-            return new ClaudeAssistantArea(preferences);
+        public AbstractHostCard createCard(KometPreferences windowPreferences, UUID journalTopic) {
+            KlPreferencesFactory cardPreferencesFactory =
+                    KlPreferencesFactory.create(windowPreferences, ClaudeCard.class);
+            ClaudeCard card = new CardFactory().create(cardPreferencesFactory);
+            card.setJournalTopic(journalTopic);
+            return card;
         }
 
         @Override
-        public ClaudeAssistantArea create(KlPreferencesFactory preferencesFactory, AreaGridSettings areaGridSettings) {
-            ClaudeAssistantArea area = new ClaudeAssistantArea(preferencesFactory, this);
-            area.setAreaLayout(areaGridSettings.with(this.getClass()));
-            return area;
+        public AbstractHostCard restoreCard(KometPreferences windowPreferences) {
+            KometPreferences cardNode = windowPreferences.node(ClaudeCard.class.getSimpleName());
+            ClaudeCard card = new CardFactory().restore(cardNode);
+            card.revert();
+            return card;
+        }
+    }
+
+    /** Blueprint factory used internally to build the card shell (the {@code KlArea.Factory} the base needs). */
+    private static final class CardFactory implements CardBlueprint.Factory<ClaudeCard> {
+
+        @Override
+        public ClaudeCard restore(KometPreferences preferences) {
+            return new ClaudeCard(preferences);
+        }
+
+        @Override
+        public ClaudeCard create(KlPreferencesFactory preferencesFactory, AreaGridSettings areaGridSettings) {
+            ClaudeCard card = new ClaudeCard(preferencesFactory, this);
+            card.setAreaLayout(areaGridSettings.with(this.getClass()));
+            return card;
         }
     }
 }

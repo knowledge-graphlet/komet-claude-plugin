@@ -93,15 +93,15 @@ module komet.claude {
     uses network.ike.komet.claude.json.Json.Serializer;
     uses network.ike.komet.claude.json.Json.Deserializer;
 
-    // Tool-area contribution points. ServiceLoader instantiates the factory via its
-    // public no-arg constructor. KlToolArea.Factory is what the Journal workspace
-    // enumerates for its "+" menu; KlArea.Factory makes the area available to the
-    // knowledge-layout editor palette as well.
-    provides dev.ikm.komet.layout.area.KlToolArea.Factory
-            with network.ike.komet.claude.ClaudeAssistantArea.Factory;
+    // The Claude Assistant is contributed as a first-class CARD (a KlCardProvider): the Journal
+    // discovers it for the "+" menu and hosts it natively in a CardKlWindow — its own chrome and
+    // sandboxed per-instance prefs-node storage — rather than inside a generic tool host.
+    // ServiceLoader instantiates the provider via its public no-arg constructor.
+    provides dev.ikm.komet.layout_engine.host.KlCardProvider
+            with network.ike.komet.claude.ClaudeCard.Factory;
+    // KlArea.Factory makes the embeddable areas available in the knowledge-layout editor palette.
     provides dev.ikm.komet.layout.KlArea.Factory
-            with network.ike.komet.claude.ClaudeAssistantArea.Factory,
-                 network.ike.komet.claude.ClaudeCheckArea.Factory,
+            with network.ike.komet.claude.ClaudeCheckArea.Factory,
                  network.ike.komet.claude.ChatArea.Factory;
     // Placeable supplemental areas surfaced in the knowledge-layout editor's "Controls" palette.
     provides dev.ikm.komet.layout.area.KlSupplementalArea.Factory
