@@ -31,9 +31,15 @@ import java.util.Objects;
  *
  * @param statementType        whether the statement describes a performance, a
  *                             request, or unstructured narrative
- * @param topic                the clinical topic — a grounded focus plus optional
- *                             grounded role-fillers (post-coordination); null only
- *                             for a {@link Type#NARRATIVE} statement
+ * @param topic                the clinical topic — <strong>exactly one</strong>
+ *                             pre-coordinated concept ({@link AnfSlot.Grounded}, or
+ *                             an {@link AnfSlot.Candidate} when none exists yet);
+ *                             carries no polarity, subject, context, or temporality;
+ *                             null only for a {@link Type#NARRATIVE} statement
+ * @param subjectOfInformation who or what the statement is about when that is not the
+ *                             patient themselves — a family-member relationship
+ *                             (family history), a fetus, a donor organ; null means the
+ *                             patient (self)
  * @param result               the measured or requested result; null when absent
  *                             (e.g. a narrative statement)
  * @param status               the status concept slot (e.g. final / preliminary /
@@ -48,7 +54,8 @@ import java.util.Objects;
  */
 public record AnfStatement(
         Type statementType,
-        Topic topic,
+        AnfSlot topic,
+        AnfSlot subjectOfInformation,
         Result result,
         AnfSlot status,
         List<AnfSlot> modifiers,
@@ -73,48 +80,6 @@ public record AnfStatement(
      * sought); <em>Narrative</em> is the escape valve for content not yet lifted.
      */
     public enum Type { PERFORMANCE, REQUEST, NARRATIVE }
-
-    /**
-     * A statement topic: a grounded focus concept and, optionally, grounded
-     * role-fillers that post-coordinate it (for example, a focus of
-     * {@code Observation procedure} with a {@code Has focus} role pointing at
-     * {@code Diabetes mellitus}). The topic carries concept identity only — no
-     * polarity, context, or temporality, which belong in the circumstance.
-     *
-     * @param focus       the focus slot (the clinical thing); never null
-     * @param roleFillers the post-coordination role-filler pairs; never null
-     *                    (possibly empty)
-     */
-    public record Topic(AnfSlot focus, List<RoleFiller> roleFillers) {
-        /**
-         * Validates and defensively copies the topic.
-         *
-         * @throws NullPointerException if {@code focus} is null
-         */
-        public Topic {
-            Objects.requireNonNull(focus, "focus");
-            roleFillers = roleFillers == null ? List.of() : List.copyOf(roleFillers);
-        }
-    }
-
-    /**
-     * One post-coordination role-filler pair within a {@link Topic} — a relationship
-     * role (e.g. {@code Method}, {@code Using device}) pointing at a filler concept.
-     *
-     * @param role   the role slot; never null
-     * @param filler the filler slot; never null
-     */
-    public record RoleFiller(AnfSlot role, AnfSlot filler) {
-        /**
-         * Validates the role-filler pair.
-         *
-         * @throws NullPointerException if {@code role} or {@code filler} is null
-         */
-        public RoleFiller {
-            Objects.requireNonNull(role, "role");
-            Objects.requireNonNull(filler, "filler");
-        }
-    }
 
     /**
      * A result as a bounded interval together with a grounded measure semantic (the

@@ -23,6 +23,7 @@ import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
+import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.provider.search.Searcher;
 import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.TinkarTerm;
@@ -35,6 +36,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -57,15 +59,31 @@ public final class GraphTools {
     private static final int DEFAULT_LIMIT = 50;
 
     private final Supplier<ViewCalculator> viewSupplier;
+    private final Consumer<AnfSlot> onDiscovered;
 
     /**
-     * Creates the tool set.
+     * Creates the tool set with no concept-discovery callback.
      *
      * @param viewSupplier supplies the current {@link ViewCalculator} (the
      *                     active window's view); must not be null
      */
     public GraphTools(Supplier<ViewCalculator> viewSupplier) {
+        this(viewSupplier, slot -> {
+        });
+    }
+
+    /**
+     * Creates the tool set that reports each concept it confirms.
+     *
+     * @param viewSupplier supplies the current {@link ViewCalculator}; must not be null
+     * @param onDiscovered receives a grounded slot whenever the {@code concept} tool
+     *                     confirms a concept, so a UI can show a live inventory; a
+     *                     null callback is treated as a no-op
+     */
+    public GraphTools(Supplier<ViewCalculator> viewSupplier, Consumer<AnfSlot> onDiscovered) {
         this.viewSupplier = Objects.requireNonNull(viewSupplier, "viewSupplier");
+        this.onDiscovered = (onDiscovered == null) ? slot -> {
+        } : onDiscovered;
     }
 
     /**
@@ -75,7 +93,7 @@ public final class GraphTools {
      */
     public List<AnthropicTool> tools() {
         return List.of(concept(), children(), parents(), descendants(),
-                ancestors(), isA(), axioms(), search());
+                ancestors(), isA(), axioms(), search(), viewInfo());
     }
 
     // ── Tools ───────────────────────────────────────────────────────────
@@ -95,6 +113,7 @@ public final class GraphTools {
                     if (nid == NONE) {
                         return notFound(str(in, "id"));
                     }
+                    fireDiscovered(groundedOf(v, nid));
                     return nameAndId(v, nid) + "\nParents:\n"
                             + renderIds(v, v.parentsOf(nid).intStream().toArray(), DEFAULT_LIMIT);
                 });
@@ -151,7 +170,8 @@ public final class GraphTools {
 
     private AnthropicTool axioms() {
         return tool("axioms",
-                "Show the inferred logical definition (EL++ axioms / role groups) of a concept. "
+                "Show the logical definition (EL++ axioms / role groups) of a concept — both its "
+                        + "stated form (as authored) and its inferred form (after classification). "
                         + "Call this to read how a concept is defined.",
                 idSchema(),
                 in -> {
@@ -163,13 +183,40 @@ public final class GraphTools {
                     if (nid == NONE) {
                         return notFound(str(in, "id"));
                     }
-                    var latest = v.logicCalculator()
+                    Latest<DiTreeEntity> stated = v.logicCalculator()
+                            .getStatedLogicalExpressionForEntity(nid, v.stampCalculator());
+                    Latest<DiTreeEntity> inferred = v.logicCalculator()
                             .getInferredLogicalExpressionForEntity(nid, v.stampCalculator());
-                    if (!latest.isPresent()) {
-                        return "No inferred logical definition for " + nameAndId(v, nid)
-                                + " (is the store classified?).";
+                    StringBuilder sb = new StringBuilder(nameAndId(v, nid)).append('\n');
+                    sb.append("Stated:\n").append(stated.isPresent()
+                            ? stated.get().toString()
+                            : "  (none on this view)").append('\n');
+                    sb.append("Inferred:\n").append(inferred.isPresent()
+                            ? inferred.get().toString()
+                            : "  (none on this view — the concept may be primitive, or classification "
+                              + "is not on this view's path; call view_info to see the active coordinate)");
+                    return sb.toString();
+                });
+    }
+
+    private AnthropicTool viewInfo() {
+        return tool("view_info",
+                "Report the active view coordinate this assistant is querying — its path, modules, "
+                        + "time, language, and navigation premise. Call this when navigation or axioms "
+                        + "come back empty for a concept you can see in Komet's own panels: the panels "
+                        + "and this assistant may be resolving against different paths or premises, and "
+                        + "this shows exactly which coordinate the tools use.",
+                objectSchema(Map.of(), List.of()),
+                in -> {
+                    ViewCalculator v = view();
+                    if (v == null) {
+                        return NO_VIEW;
                     }
-                    return nameAndId(v, nid) + "\n" + latest.get();
+                    try {
+                        return "Active view coordinate:\n" + v.viewCoordinateRecord().toUserString();
+                    } catch (RuntimeException e) {
+                        return "Active view coordinate:\n" + v.viewCoordinateRecord();
+                    }
                 });
     }
 
@@ -298,6 +345,19 @@ public final class GraphTools {
         if (nid == NONE) {
             return Optional.empty();
         }
+        return Optional.of(groundedOf(v, nid));
+    }
+
+    /**
+     * Builds a grounded slot from an already-resolved nid: its fully specified name
+     * (falling back to the preferred description) and its best identifier (SCTID when
+     * present, else the first public UUID).
+     *
+     * @param v   the active view calculator
+     * @param nid the resolved concept nid
+     * @return the grounded slot
+     */
+    public static AnfSlot.Grounded groundedOf(ViewCalculator v, int nid) {
         String label = v.getFullyQualifiedNameText(nid)
                 .orElseGet(() -> v.getPreferredDescriptionTextWithFallbackOrNid(nid));
         String sctid = sctidOf(v, nid);
@@ -308,7 +368,16 @@ public final class GraphTools {
             UUID[] uuids = PrimitiveData.publicId(nid).asUuidArray();
             identifier = uuids.length > 0 ? uuids[0].toString() : "nid=" + nid;
         }
-        return Optional.of(new AnfSlot.Grounded(nid, identifier, label));
+        return new AnfSlot.Grounded(nid, identifier, label);
+    }
+
+    /** Reports a discovered slot to the callback, never letting a callback error break a tool. */
+    private void fireDiscovered(AnfSlot slot) {
+        try {
+            onDiscovered.accept(slot);
+        } catch (RuntimeException ignored) {
+            // a UI callback must never break the tool loop
+        }
     }
 
     private static String nameAndId(ViewCalculator v, int nid) {

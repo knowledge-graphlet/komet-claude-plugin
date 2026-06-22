@@ -27,6 +27,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -58,13 +59,32 @@ public final class AnfTools {
      */
     public static AnthropicTool emitAnf(Supplier<ViewCalculator> viewSupplier,
                                         AtomicReference<AnfStatement> sink) {
+        return emitAnf(viewSupplier, sink, slot -> {
+        });
+    }
+
+    /**
+     * Creates the {@code emit_anf} tool that also reports each slot it grounds.
+     *
+     * @param viewSupplier supplies the current {@link ViewCalculator}; must not be null
+     * @param sink         receives the validated statement when the model emits one;
+     *                     must not be null
+     * @param onDiscovered receives each grounded slot as the statement validates, for a
+     *                     live inventory; a null callback is treated as a no-op
+     * @return the tool to add to the lift's tool list
+     */
+    public static AnthropicTool emitAnf(Supplier<ViewCalculator> viewSupplier,
+                                        AtomicReference<AnfStatement> sink,
+                                        Consumer<AnfSlot> onDiscovered) {
         Objects.requireNonNull(viewSupplier, "viewSupplier");
         Objects.requireNonNull(sink, "sink");
-        return new EmitAnfTool(viewSupplier, sink);
+        return new EmitAnfTool(viewSupplier, sink, (onDiscovered == null) ? slot -> {
+        } : onDiscovered);
     }
 
     /** The {@code emit_anf} tool implementation. */
-    private record EmitAnfTool(Supplier<ViewCalculator> viewSupplier, AtomicReference<AnfStatement> sink)
+    private record EmitAnfTool(Supplier<ViewCalculator> viewSupplier, AtomicReference<AnfStatement> sink,
+                               Consumer<AnfSlot> onDiscovered)
             implements AnthropicTool {
 
         @Override
@@ -78,9 +98,14 @@ public final class AnfTools {
                     + "after grounding every clinical term with the search and concept tools. Every "
                     + "*_concept_id must be an identifier those tools returned for a real concept; an "
                     + "identifier that does not resolve is rejected, and you must search for the correct "
-                    + "one and call emit_anf again rather than inventing a code. Presence is the result "
-                    + "interval [1, no upper bound] on the Presence scale and absence is [0,0] — never a "
-                    + "negated concept.";
+                    + "one and call emit_anf again rather than inventing a code. Reference EXACTLY ONE "
+                    + "pre-coordinated concept per slot — never compose a focus plus role-fillers (IKE "
+                    + "does not post-coordinate). Put who the statement is about, when not the patient, in "
+                    + "subject_of_information_concept_id; polarity in the result; status/timing as "
+                    + "modifiers. Presence is the result interval [1, no upper bound] on the "
+                    + "'Presence (property) (qualifier value)' concept (a qualifier value, NOT a unit) "
+                    + "and absence is [0,0] — never a negated concept and never a unit of measure. A "
+                    + "finding asserted with no measured value is a presence result.";
         }
 
         @Override
@@ -104,25 +129,18 @@ public final class AnfTools {
             }
 
             List<String> unresolved = new ArrayList<>();
-            AnfSlot focus = ground(str(topicMap, "focus_concept_id"), v, unresolved);
+            AnfSlot topic = ground(str(topicMap, "topic_concept_id"), v, unresolved, onDiscovered());
 
-            List<AnfStatement.RoleFiller> roleFillers = new ArrayList<>();
-            for (Object rfObj : list(topicMap, "role_fillers")) {
-                Map<String, Object> rf = asMap(rfObj);
-                if (rf == null) {
-                    continue;
-                }
-                AnfSlot role = ground(str(rf, "role_concept_id"), v, unresolved);
-                AnfSlot filler = ground(str(rf, "filler_concept_id"), v, unresolved);
-                if (role != null && filler != null) {
-                    roleFillers.add(new AnfStatement.RoleFiller(role, filler));
-                }
+            AnfSlot subjectOfInformation = null;
+            String soiId = str(input, "subject_of_information_concept_id");
+            if (soiId != null && !soiId.isBlank()) {
+                subjectOfInformation = ground(soiId, v, unresolved, onDiscovered());
             }
 
             AnfStatement.Result result = null;
             Map<String, Object> resultMap = map(input, "result");
             if (resultMap != null) {
-                AnfSlot measure = ground(str(resultMap, "measure_semantic_concept_id"), v, unresolved);
+                AnfSlot measure = ground(str(resultMap, "measure_semantic_concept_id"), v, unresolved, onDiscovered());
                 if (measure != null) {
                     result = new AnfStatement.Result(
                             num(resultMap, "lower_bound"),
@@ -136,7 +154,7 @@ public final class AnfTools {
             AnfSlot status = null;
             String statusId = str(input, "status_concept_id");
             if (statusId != null && !statusId.isBlank()) {
-                status = ground(statusId, v, unresolved);
+                status = ground(statusId, v, unresolved, onDiscovered());
             }
 
             if (!unresolved.isEmpty()) {
@@ -144,13 +162,14 @@ public final class AnfTools {
                         + String.join(", ", new LinkedHashSet<>(unresolved))
                         + ". Search for the correct concepts and call emit_anf again — do not invent codes.";
             }
-            if (focus == null) {
-                return "topic.focus_concept_id is required and must resolve to a concept.";
+            if (topic == null) {
+                return "topic.topic_concept_id is required and must resolve to a single concept.";
             }
 
             AnfStatement statement = new AnfStatement(
                     type,
-                    new AnfStatement.Topic(focus, roleFillers),
+                    topic,
+                    subjectOfInformation,
                     result,
                     status,
                     List.of(),
@@ -175,7 +194,8 @@ public final class AnfTools {
      * Grounds an identifier to a {@link AnfSlot.Grounded}; on failure records it in
      * {@code unresolved} and returns null (so the caller rejects the emit).
      */
-    private static AnfSlot ground(String id, ViewCalculator v, List<String> unresolved) {
+    private static AnfSlot ground(String id, ViewCalculator v, List<String> unresolved,
+                                  Consumer<AnfSlot> onDiscovered) {
         if (id == null || id.isBlank()) {
             return null;
         }
@@ -184,7 +204,15 @@ public final class AnfTools {
             unresolved.add(id);
             return null;
         }
-        return grounded.get();
+        AnfSlot.Grounded slot = grounded.get();
+        if (onDiscovered != null) {
+            try {
+                onDiscovered.accept(slot);
+            } catch (RuntimeException ignored) {
+                // a UI callback must never break grounding
+            }
+        }
+        return slot;
     }
 
     private static AnfStatement.Type parseType(String s) {
@@ -218,12 +246,6 @@ public final class AnfTools {
         return o instanceof Map ? (Map<String, Object>) o : null;
     }
 
-    @SuppressWarnings("unchecked")
-    private static List<Object> list(Map<String, Object> m, String k) {
-        Object o = m == null ? null : m.get(k);
-        return o instanceof List ? (List<Object>) o : List.of();
-    }
-
     private static Double num(Map<String, Object> m, String k) {
         Object o = m == null ? null : m.get(k);
         return o instanceof Number n ? n.doubleValue() : null;
@@ -245,18 +267,13 @@ public final class AnfTools {
                             "description", "Direction of fit: performance (observed/done), request (ordered), or narrative."),
                     "topic", Map.of(
                             "type", "object",
-                            "description", "The clinical topic — a grounded focus concept, optionally post-coordinated with role-fillers. Carries no polarity or context.",
+                            "description", "The clinical topic — EXACTLY ONE pre-coordinated concept (its SCTID or UUID). One concept per slot: no polarity (that is the result), no subject (that is subject_of_information), no timing or status (those are modifiers). Never compose a focus plus role-fillers — IKE does not post-coordinate; if no single concept fits, search more thoroughly rather than assembling one.",
                             "properties", Map.of(
-                                    "focus_concept_id", Map.of("type", "string",
-                                            "description", "SCTID or UUID of the grounded focus concept."),
-                                    "role_fillers", Map.of("type", "array",
-                                            "description", "Optional post-coordination role-filler pairs (each a grounded role and filler).",
-                                            "items", Map.of("type", "object",
-                                                    "properties", Map.of(
-                                                            "role_concept_id", Map.of("type", "string"),
-                                                            "filler_concept_id", Map.of("type", "string")),
-                                                    "required", List.of("role_concept_id", "filler_concept_id")))),
-                            "required", List.of("focus_concept_id")),
+                                    "topic_concept_id", Map.of("type", "string",
+                                            "description", "SCTID or UUID of the single pre-coordinated topic concept.")),
+                            "required", List.of("topic_concept_id")),
+                    "subject_of_information_concept_id", Map.of("type", "string",
+                            "description", "Optional. SCTID or UUID of the ONE concept naming who or what the statement is about when that is not the patient — e.g. a family-member relationship concept (family history), a fetus, or a donor organ. Omit for the patient (self)."),
                     "result", Map.of(
                             "type", "object",
                             "description", "The measured or requested result as an interval with a grounded measure semantic. Presence is [1, no upper]; absence is [0,0].",
@@ -266,7 +283,7 @@ public final class AnfTools {
                                     "include_lower_bound", Map.of("type", "boolean"),
                                     "include_upper_bound", Map.of("type", "boolean"),
                                     "measure_semantic_concept_id", Map.of("type", "string",
-                                            "description", "SCTID or UUID of the grounded unit/scale concept.")),
+                                            "description", "SCTID or UUID of the grounded unit or scale concept. For a presence/absence result this is the 'Presence (property) (qualifier value)' concept (a qualifier value) — NEVER a unit of measure such as percent, mg/dL, or a count.")),
                             "required", List.of("measure_semantic_concept_id")),
                     "status_concept_id", Map.of("type", "string",
                             "description", "Optional SCTID or UUID of the status concept (e.g. final, preliminary, amended)."),

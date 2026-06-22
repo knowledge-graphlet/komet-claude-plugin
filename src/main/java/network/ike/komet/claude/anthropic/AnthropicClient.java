@@ -29,6 +29,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.BooleanSupplier;
 
 /**
  * A minimal, hand-rolled client for the Anthropic Messages API
@@ -130,6 +131,43 @@ public final class AnthropicClient {
      */
     public String ask(String system, List<AnthropicTool> tools,
                       List<Map<String, Object>> priorMessages, String userMessage) {
+        return ask(system, tools, priorMessages, userMessage, AskListener.NOOP);
+    }
+
+    public String ask(String system, List<AnthropicTool> tools,
+                      List<Map<String, Object>> priorMessages, String userMessage,
+                      AskListener listener) {
+        return ask(system, tools, priorMessages, userMessage, listener, () -> false);
+    }
+
+    /**
+     * Runs a complete tool-use exchange and reports per-turn / per-tool progress,
+     * wall-clock timing, and token/cache usage to {@code listener}.
+     *
+     * <p>Checks the worker thread's interrupt flag at each turn boundary, so a caller
+     * that interrupts the thread (for example to cancel or to shut the area down)
+     * aborts the loop rather than running every remaining turn in the background.
+     *
+     * <p>After each turn's tools run, {@code earlyStop} is polled: when it returns
+     * {@code true} the loop ends immediately, without another model round-trip. A
+     * tool-driven caller (for example a forced-emit tool that fills a sink) uses this
+     * to avoid paying for the model's closing remark once the needed output exists.
+     *
+     * @param system        the system prompt (cached); may be null/blank
+     * @param tools         the read-only tools Claude may call
+     * @param priorMessages prior clean turns; may be empty
+     * @param userMessage   the new user message text
+     * @param listener      the progress observer; {@link AskListener#NOOP} when none
+     * @param earlyStop     polled after each turn's tools execute; {@code true} ends
+     *                      the loop early without a further request
+     * @return the concatenated text of Claude's final answer
+     * @throws AnthropicException if the API call fails after retries or is interrupted
+     */
+    public String ask(String system, List<AnthropicTool> tools,
+                      List<Map<String, Object>> priorMessages, String userMessage,
+                      AskListener listener, BooleanSupplier earlyStop) {
+        AskListener obs = (listener == null) ? AskListener.NOOP : listener;
+        BooleanSupplier stop = (earlyStop == null) ? () -> false : earlyStop;
         Map<String, AnthropicTool> byName = new HashMap<>();
         if (tools != null) {
             for (AnthropicTool t : tools) {
@@ -143,21 +181,42 @@ public final class AnthropicClient {
         }
         messages.add(Map.of("role", "user", "content", userMessage));
 
-        for (int turn = 0; turn < MAX_TURNS; turn++) {
-            Response resp = send(system, tools, messages);
-            messages.add(Map.of("role", "assistant", "content", resp.content()));
+        long start = System.nanoTime();
+        int turn = 0;
+        try {
+            for (turn = 0; turn < MAX_TURNS; turn++) {
+                if (Thread.currentThread().isInterrupted()) {
+                    throw new AnthropicException("Interrupted before turn " + turn);
+                }
+                obs.onTurnStart(turn);
+                long sent = System.nanoTime();
+                Response resp = send(system, tools, messages);
+                obs.onTurnEnd(turn, millisSince(sent), AskListener.Usage.from(resp.usage()));
+                messages.add(Map.of("role", "assistant", "content", resp.content()));
 
-            if (!"tool_use".equals(resp.stop_reason())) {
-                return textOf(resp.content());
+                if (!"tool_use".equals(resp.stop_reason())) {
+                    obs.onDone(resp.stop_reason(), turn + 1, millisSince(start));
+                    return textOf(resp.content());
+                }
+                messages.add(Map.of("role", "user",
+                        "content", toolResults(resp.content(), byName, turn, obs)));
+                if (stop.getAsBoolean()) {
+                    obs.onDone("tool_complete", turn + 1, millisSince(start));
+                    return textOf(resp.content());
+                }
             }
-            messages.add(Map.of("role", "user", "content", toolResults(resp.content(), byName)));
+            obs.onDone("max_turns", MAX_TURNS, millisSince(start));
+            return "(stopped: tool-use loop exceeded " + MAX_TURNS + " turns)";
+        } catch (RuntimeException e) {
+            obs.onError(e, turn, millisSince(start));
+            throw e;
         }
-        return "(stopped: tool-use loop exceeded " + MAX_TURNS + " turns)";
     }
 
     /** Executes every {@code tool_use} block and builds the {@code tool_result} list. */
     private static List<Map<String, Object>> toolResults(List<Map<String, Object>> content,
-                                                         Map<String, AnthropicTool> byName) {
+                                                         Map<String, AnthropicTool> byName,
+                                                         int turn, AskListener obs) {
         List<Map<String, Object>> results = new ArrayList<>();
         for (Map<String, Object> block : content) {
             if (!"tool_use".equals(block.get("type"))) {
@@ -171,6 +230,8 @@ public final class AnthropicClient {
                     ? (Map<String, Object>) m
                     : Map.of();
 
+            obs.onToolCall(turn, name, input);
+            long toolStart = System.nanoTime();
             String out;
             boolean isError = false;
             AnthropicTool tool = byName.get(name);
@@ -185,6 +246,7 @@ public final class AnthropicClient {
                     isError = true;
                 }
             }
+            obs.onToolResult(turn, name, millisSince(toolStart), isError);
 
             Map<String, Object> tr = new LinkedHashMap<>();
             tr.put("type", "tool_result");
@@ -289,6 +351,11 @@ public final class AnthropicClient {
             }
         }
         return sb.toString();
+    }
+
+    /** Elapsed milliseconds since a {@link System#nanoTime()} reading. */
+    private static long millisSince(long startNanos) {
+        return (System.nanoTime() - startNanos) / 1_000_000L;
     }
 
     private static void backoff(int attempt) {

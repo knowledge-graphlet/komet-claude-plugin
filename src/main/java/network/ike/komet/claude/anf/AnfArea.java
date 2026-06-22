@@ -15,6 +15,8 @@
  */
 package network.ike.komet.claude.anf;
 
+import dev.ikm.komet.framework.dnd.DragImageMaker;
+import dev.ikm.komet.framework.dnd.KometClipboard;
 import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.komet.layout.KlArea;
 import dev.ikm.komet.layout.area.AreaGridSettings;
@@ -24,18 +26,36 @@ import dev.ikm.komet.layout_engine.blueprint.SupplementalAreaBlueprint;
 import dev.ikm.komet.preferences.KometPreferences;
 import dev.ikm.komet.preferences.PreferencesService;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
+import dev.ikm.tinkar.entity.EntityHandle;
+import network.ike.komet.claude.tools.GraphTools;
+import javafx.animation.Animation;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
 import javafx.application.Platform;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
+import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.ListCell;
+import javafx.scene.control.ListView;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextArea;
+import javafx.scene.input.Dragboard;
+import javafx.scene.input.MouseEvent;
+import javafx.scene.input.TransferMode;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
+import javafx.util.Duration;
 
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -68,8 +88,31 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
     private TextArea narrative;
     private Button liftButton;
     private ScrollPane formalPane;
+    private Label progressLabel;
+    private ListView<AnfSlot> inventoryView;
+    private final ObservableList<AnfSlot> inventory = FXCollections.observableArrayList();
+    private final Set<Integer> seenNids = new HashSet<>();
+    private Timeline elapsed;
+    private long liftStartNanos;
+    private String activity = "";
+    private AnfStatement currentStatement;
     private ViewProperties toolViewProperties;
     private Runnable onCloseRequest;
+
+    /** Substitution editor: dropping a Komet concept on a slot replaces the lifted one. */
+    private final AnfStatementView.Editor anfEditor = new AnfStatementView.Editor() {
+        @Override
+        public AnfSlot.Grounded resolve(int conceptNid) {
+            ViewCalculator view = viewCalculator();
+            return (view == null) ? null : GraphTools.groundedOf(view, conceptNid);
+        }
+
+        @Override
+        public void onEdited(AnfStatement updated) {
+            currentStatement = updated;
+            formalPane.setContent(AnfStatementView.render(updated, toolViewProperties, this));
+        }
+    };
 
     /**
      * Restore constructor.
@@ -124,15 +167,25 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         HBox controls = new HBox(6, spacer, liftButton);
         controls.setPadding(new Insets(6, 0, 0, 0));
 
-        VBox top = new VBox(4, narrative, controls);
+        progressLabel = new Label();
+        progressLabel.setStyle("-fx-text-fill: #666666;");
+
+        VBox top = new VBox(4, narrative, controls, progressLabel);
         top.setPadding(new Insets(8));
+
+        inventoryView = new ListView<>(inventory);
+        inventoryView.setCellFactory(view -> new ConceptCell());
+        inventoryView.setPlaceholder(new Label("Concepts appear here as they are grounded."));
 
         formalPane = new ScrollPane();
         formalPane.setFitToWidth(true);
         setStatus("Lift a narrative to see its Analysis Normal Form.");
 
+        SplitPane split = new SplitPane(inventoryView, formalPane);
+        split.setDividerPositions(0.34);
+
         pane.setTop(top);
-        pane.setCenter(formalPane);
+        pane.setCenter(split);
     }
 
     private void lift() {
@@ -151,16 +204,50 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
             return;
         }
         setBusy(true);
-        setStatus("Lifting…");
+        inventory.clear();
+        seenNids.clear();
+        formalPane.setContent(null);
+        startElapsed();
+
+        AnfLiftListener listener = new AnfLiftListener() {
+            @Override
+            public void onTurnStart(int turn) {
+                Platform.runLater(() -> setActivity("turn " + (turn + 1) + " · thinking…"));
+            }
+
+            @Override
+            public void onToolCall(int turn, String tool, Map<String, Object> input) {
+                Platform.runLater(() -> setActivity(activityFor(tool, input)));
+            }
+
+            @Override
+            public void onSlotDiscovered(AnfSlot slot) {
+                Platform.runLater(() -> addConcept(slot));
+            }
+
+            @Override
+            public void onDone(String stopReason, int turns, long totalMillis) {
+                Platform.runLater(AnfArea.this::stopElapsed);
+            }
+
+            @Override
+            public void onError(Throwable error, int turns, long totalMillis) {
+                Platform.runLater(() -> {
+                    stopElapsed();
+                    setActivity("failed");
+                });
+            }
+        };
 
         worker.submit(() -> {
             AnfLift.Result result;
             try {
-                result = new AnfLift(view, apiKey, ANF_MODEL).lift(text);
+                result = new AnfLift(view, apiKey, ANF_MODEL).lift(text, listener);
             } catch (Throwable t) {
                 LOG.error("ANF lift failed", t);
                 String msg = (t.getMessage() != null) ? t.getMessage() : t.toString();
                 Platform.runLater(() -> {
+                    stopElapsed();
                     setStatus("Lift failed: " + msg);
                     setBusy(false);
                 });
@@ -168,8 +255,10 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
             }
             AnfLift.Result finalResult = result;
             Platform.runLater(() -> {
+                stopElapsed();
                 if (finalResult.lifted()) {
-                    formalPane.setContent(AnfStatementView.render(finalResult.statement()));
+                    currentStatement = finalResult.statement();
+                    formalPane.setContent(AnfStatementView.render(currentStatement, toolViewProperties, anfEditor));
                 } else {
                     String t = finalResult.assistantText();
                     setStatus((t == null || t.isBlank()) ? "No statement was produced." : t);
@@ -190,6 +279,99 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
     private void setBusy(boolean busy) {
         narrative.setDisable(busy);
         liftButton.setDisable(busy);
+    }
+
+    /** Sets the current activity word shown in the progress strip and refreshes it. */
+    private void setActivity(String text) {
+        this.activity = (text == null) ? "" : text;
+        updateProgress();
+    }
+
+    /** Starts the elapsed-time ticker and shows the strip. */
+    private void startElapsed() {
+        liftStartNanos = System.nanoTime();
+        activity = "starting…";
+        if (elapsed == null) {
+            elapsed = new Timeline(new KeyFrame(Duration.seconds(0.5), e -> updateProgress()));
+            elapsed.setCycleCount(Animation.INDEFINITE);
+        }
+        updateProgress();
+        elapsed.playFromStart();
+    }
+
+    /** Stops the elapsed-time ticker (on completion, error, or unbind) and freezes the strip. */
+    private void stopElapsed() {
+        if (elapsed != null) {
+            elapsed.stop();
+        }
+        updateProgress();
+    }
+
+    private void updateProgress() {
+        if (liftStartNanos == 0) {
+            progressLabel.setText("");
+            return;
+        }
+        long seconds = (System.nanoTime() - liftStartNanos) / 1_000_000_000L;
+        progressLabel.setText(seconds + "s · " + (activity == null ? "" : activity));
+    }
+
+    /** Adds a discovered slot to the inventory, de-duplicating grounded concepts by nid. */
+    private void addConcept(AnfSlot slot) {
+        if (slot instanceof AnfSlot.Grounded grounded) {
+            if (seenNids.add(grounded.nid())) {
+                inventory.add(slot);
+            }
+        } else {
+            inventory.add(slot);
+        }
+    }
+
+    /** A short progress phrase for a tool call, e.g. {@code "search diabetes…"}. */
+    private static String activityFor(String tool, Map<String, Object> input) {
+        Object arg = null;
+        if (input != null) {
+            arg = input.containsKey("query") ? input.get("query") : input.get("id");
+        }
+        return (arg == null) ? tool + "…" : tool + " " + arg + "…";
+    }
+
+    /**
+     * Renders an inventory row as the slot's shared Koncept badge, draggable on the
+     * FIRST click. A KonceptBadge graphic inside a ListView only receives DRAG_DETECTED
+     * after the row is first selected (the cell swallows the initial press), so the drag
+     * is wired at the CELL with a capturing event filter. The filter also runs — and
+     * consumes — ahead of the badge's own drag handler, so every drag (first click or
+     * repeat) takes this one path with a single, consistent pointer offset, identical to
+     * how the card chips drag: the {@link KonceptBadge} convention is a no-offset drag
+     * view, which sits below and right of the pointer so it never hides the cursor.
+     */
+    private final class ConceptCell extends ListCell<AnfSlot> {
+        ConceptCell() {
+            addEventFilter(MouseEvent.DRAG_DETECTED, this::startConceptDrag);
+        }
+
+        /** Starts a Komet concept drag, mirroring KonceptBadge (same image + no-offset drag view). */
+        private void startConceptDrag(MouseEvent event) {
+            if (!(getItem() instanceof AnfSlot.Grounded grounded)) {
+                return;
+            }
+            Node graphic = getGraphic();
+            if (graphic == null) {
+                return;
+            }
+            Dragboard db = startDragAndDrop(TransferMode.COPY);
+            db.setDragView(new DragImageMaker(graphic).getDragImage());
+            EntityHandle.get(grounded.nid()).ifPresent(entity -> db.setContent(new KometClipboard(entity)));
+            event.consume();
+        }
+
+        @Override
+        protected void updateItem(AnfSlot item, boolean empty) {
+            super.updateItem(item, empty);
+            setText(null);
+            setGraphic((empty || item == null) ? null : AnfStatementView.chipFor(item, toolViewProperties));
+        }
     }
 
     @Override
@@ -214,6 +396,9 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
 
     @Override
     public void knowledgeLayoutUnbind() {
+        if (elapsed != null) {
+            elapsed.stop();
+        }
         worker.shutdownNow();
     }
 
