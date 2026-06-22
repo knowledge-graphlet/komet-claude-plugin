@@ -114,6 +114,11 @@ module komet.claude {
             with network.ike.komet.claude.ClaudeCheckArea.Factory,
                  network.ike.komet.claude.ChatArea.Factory,
                  network.ike.komet.claude.anf.AnfArea.Factory;
+    // Standalone tool areas summoned from the Journal "+" (add) menu, with NO entity focus:
+    // the ANF narrative lift. Hosted in a generic ToolCard — no entity badge, no
+    // "No concept in focus" chrome.
+    provides dev.ikm.komet.layout.area.KlToolArea.Factory
+            with network.ike.komet.claude.anf.AnfArea.Factory;
 
     // Plugin-contributed Evrete rules (discovered by EvreteRulesService via the
     // RuleProvider SPI): a "Post state + history to Zulip" component-focus rule.

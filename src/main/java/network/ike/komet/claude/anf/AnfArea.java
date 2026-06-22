@@ -15,8 +15,10 @@
  */
 package network.ike.komet.claude.anf;
 
+import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.komet.layout.KlArea;
 import dev.ikm.komet.layout.area.AreaGridSettings;
+import dev.ikm.komet.layout.area.KlToolArea;
 import dev.ikm.komet.layout.preferences.KlPreferencesFactory;
 import dev.ikm.komet.layout_engine.blueprint.SupplementalAreaBlueprint;
 import dev.ikm.komet.preferences.KometPreferences;
@@ -49,7 +51,7 @@ import java.util.concurrent.Executors;
  * {@link AnfLift}; this area is only the two-pane shell over it (narrative in, formal
  * ANF out). Render-only in v1 — nothing is written back to the store.
  */
-public final class AnfArea extends SupplementalAreaBlueprint {
+public final class AnfArea extends SupplementalAreaBlueprint implements KlToolArea<BorderPane> {
 
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(AnfArea.class);
 
@@ -66,6 +68,8 @@ public final class AnfArea extends SupplementalAreaBlueprint {
     private TextArea narrative;
     private Button liftButton;
     private ScrollPane formalPane;
+    private ViewProperties toolViewProperties;
+    private Runnable onCloseRequest;
 
     /**
      * Restore constructor.
@@ -89,7 +93,20 @@ public final class AnfArea extends SupplementalAreaBlueprint {
     }
 
     private ViewCalculator viewCalculator() {
+        if (toolViewProperties != null) {
+            return toolViewProperties.calculator();
+        }
         return calculatorForContext();
+    }
+
+    @Override
+    public void setToolViewProperties(ViewProperties viewProperties) {
+        this.toolViewProperties = viewProperties;
+    }
+
+    @Override
+    public void setOnCloseRequest(Runnable onCloseRequest) {
+        this.onCloseRequest = onCloseRequest;
     }
 
     private void buildUi() {
@@ -233,7 +250,18 @@ public final class AnfArea extends SupplementalAreaBlueprint {
     /**
      * {@code ServiceLoader}-discoverable factory for {@link AnfArea}.
      */
-    public static final class Factory implements SupplementalAreaBlueprint.Factory<AnfArea> {
+    public static final class Factory implements SupplementalAreaBlueprint.Factory<AnfArea>,
+            KlToolArea.Factory<BorderPane, AnfArea> {
+
+        /**
+         * The label shown for this tool on the Journal "+" (add) menu.
+         *
+         * @return the menu label
+         */
+        @Override
+        public String toolName() {
+            return "Narrative Lift to ANF";
+        }
 
         /**
          * Restores an area from preferences.
