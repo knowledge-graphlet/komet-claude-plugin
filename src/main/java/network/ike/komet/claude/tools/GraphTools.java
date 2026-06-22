@@ -26,12 +26,14 @@ import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.provider.search.Searcher;
 import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.TinkarTerm;
+import network.ike.komet.claude.anf.AnfSlot;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -276,6 +278,37 @@ public final class GraphTools {
             return NONE;
         }
         return nid;
+    }
+
+    /**
+     * Resolves an SCTID or UUID to a grounded ANF slot, or empty when the concept is
+     * not present in the active view. Reuses the same existence-gated resolution as
+     * the read-only tools, so a grounded slot is always a real, named concept — the
+     * anti-hallucination guarantee the narrative lift depends on.
+     *
+     * @param id the SCTID or concept UUID to resolve
+     * @param v  the active view calculator (may be null)
+     * @return the grounded slot, or {@link Optional#empty()} if unresolved
+     */
+    public static Optional<AnfSlot.Grounded> resolveConcept(String id, ViewCalculator v) {
+        if (v == null) {
+            return Optional.empty();
+        }
+        int nid = resolve(id, v);
+        if (nid == NONE) {
+            return Optional.empty();
+        }
+        String label = v.getFullyQualifiedNameText(nid)
+                .orElseGet(() -> v.getPreferredDescriptionTextWithFallbackOrNid(nid));
+        String sctid = sctidOf(v, nid);
+        String identifier;
+        if (sctid != null) {
+            identifier = sctid;
+        } else {
+            UUID[] uuids = PrimitiveData.publicId(nid).asUuidArray();
+            identifier = uuids.length > 0 ? uuids[0].toString() : "nid=" + nid;
+        }
+        return Optional.of(new AnfSlot.Grounded(nid, identifier, label));
     }
 
     private static String nameAndId(ViewCalculator v, int nid) {

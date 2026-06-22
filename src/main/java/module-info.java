@@ -85,6 +85,11 @@ module komet.claude {
     requires java.sql;
 
     exports network.ike.komet.claude;
+    // The ANF lift area lives here. The layout engine's SupplementalAreaRenderer
+    // instantiates the Factory reflectively (Constructor.newInstance) rather than via
+    // ServiceLoader, so the package must be exported for that access to be legal —
+    // exactly as network.ike.komet.claude is for the other area factories.
+    exports network.ike.komet.claude.anf;
 
     // The vendored json4j (Json) discovers optional Serializer/Deserializer providers via
     // ServiceLoader in its static initializer; in a named module that REQUIRES a matching
@@ -102,11 +107,13 @@ module komet.claude {
     // KlArea.Factory makes the embeddable areas available in the knowledge-layout editor palette.
     provides dev.ikm.komet.layout.KlArea.Factory
             with network.ike.komet.claude.ClaudeCheckArea.Factory,
-                 network.ike.komet.claude.ChatArea.Factory;
+                 network.ike.komet.claude.ChatArea.Factory,
+                 network.ike.komet.claude.anf.AnfArea.Factory;
     // Placeable supplemental areas surfaced in the knowledge-layout editor's "Controls" palette.
     provides dev.ikm.komet.layout.area.KlSupplementalArea.Factory
             with network.ike.komet.claude.ClaudeCheckArea.Factory,
-                 network.ike.komet.claude.ChatArea.Factory;
+                 network.ike.komet.claude.ChatArea.Factory,
+                 network.ike.komet.claude.anf.AnfArea.Factory;
 
     // Plugin-contributed Evrete rules (discovered by EvreteRulesService via the
     // RuleProvider SPI): a "Post state + history to Zulip" component-focus rule.
