@@ -33,18 +33,24 @@ public sealed interface AnfSlot permits AnfSlot.Grounded, AnfSlot.Candidate, Anf
     /**
      * A term resolved to an existing, active concept in the knowledge base.
      *
-     * @param nid        the concept's native identifier (local int id)
-     * @param identifier the concept's stable identifier as the store returned it
-     *                   (an SCTID, or a UUID when no SCTID is present)
+     * @param nid        the concept's native identifier (machine-local int id; not durable)
+     * @param publicId   the concept's <em>durable</em> identity — its {@code PublicId} UUID array,
+     *                   written as the comma-joined UUIDs. This is the round-trip key (and what the
+     *                   LifeHash identicon is computed from), independent of any optional terminology
+     *                   identifier; never a single-terminology code such as an SCTID
+     * @param identifier the concept's friendly display identifier as the store returned it
+     *                   (an SCTID, or a UUID when no SCTID is present) — for display and the model
+     *                   grounding contract, not the durable key
      * @param label      the concept's fully-specified or preferred name
      */
-    record Grounded(int nid, String identifier, String label) implements AnfSlot {
+    record Grounded(int nid, String publicId, String identifier, String label) implements AnfSlot {
         /**
          * Validates the grounded slot.
          *
-         * @throws NullPointerException if {@code identifier} or {@code label} is null
+         * @throws NullPointerException if {@code publicId}, {@code identifier} or {@code label} is null
          */
         public Grounded {
+            java.util.Objects.requireNonNull(publicId, "publicId");
             java.util.Objects.requireNonNull(identifier, "identifier");
             java.util.Objects.requireNonNull(label, "label");
         }

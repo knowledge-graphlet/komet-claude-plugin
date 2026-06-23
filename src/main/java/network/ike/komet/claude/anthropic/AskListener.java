@@ -74,6 +74,19 @@ public interface AskListener {
     }
 
     /**
+     * Fired before a transient-failure retry backoff (overload / rate-limit / 5xx / I/O), so a UI can
+     * show retry progress as live status rather than surfacing it as a conversation result.
+     *
+     * @param turn        the zero-based turn index
+     * @param attempt     the 1-based attempt that just failed
+     * @param maxAttempts the total attempt cap
+     * @param waitMillis  the wait before the next attempt, in milliseconds
+     * @param reason      a human-readable cause (e.g. {@code "Anthropic API overloaded (529)"})
+     */
+    default void onRetry(int turn, int attempt, int maxAttempts, long waitMillis, String reason) {
+    }
+
+    /**
      * Fired once when the exchange completes normally — a final text answer or the
      * turn cap.
      *

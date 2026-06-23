@@ -52,10 +52,11 @@ import java.util.regex.Pattern;
  *
  * <h2>Slot encoding (the sealed three-way)</h2>
  * <ul>
- *   <li><b>Grounded</b> — {@code k:Key[label] @id=<identifier>}; the {@code @id} (the model's
- *       SCTID-preferred identifier) is the durable key, re-resolved on parse through the supplied
- *       {@link ConceptResolver}. The {@code Key} and {@code label} are human aids and are not
- *       trusted on parse.</li>
+ *   <li><b>Grounded</b> — {@code k:Key[label] @id=<uuid,uuid,…>}; the {@code @id} is the concept's
+ *       {@code PublicId} UUID array (comma-joined), the durable identity the badge/identicon is drawn
+ *       from — <em>not</em> an SCTID or any single terminology code. It is re-resolved on parse
+ *       through the supplied {@link ConceptResolver}. The {@code Key} and {@code label} are human aids
+ *       and are not trusted on parse.</li>
  *   <li><b>Candidate</b> — {@code candidate[label] disp=<DISPOSITION> near=<id>;<id> text="…"};
  *       no {@code @id}, because a candidate has no concept yet (honest).</li>
  *   <li><b>Clarify</b> — {@code clarify[field] "question"}.</li>
@@ -171,7 +172,7 @@ public final class AnfAdoc {
 
     private static String slotToString(AnfSlot slot) {
         return switch (slot) {
-            case AnfSlot.Grounded g -> "k:" + keyOf(g.label()) + "[" + g.label() + "] @id=" + g.identifier();
+            case AnfSlot.Grounded g -> "k:" + keyOf(g.label()) + "[" + g.label() + "] @id=" + g.publicId();
             case AnfSlot.Candidate c -> {
                 StringBuilder cb = new StringBuilder("candidate[").append(c.provisionalLabel())
                         .append("] disp=").append(c.disposition().name());

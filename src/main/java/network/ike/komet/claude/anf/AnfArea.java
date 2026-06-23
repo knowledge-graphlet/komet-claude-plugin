@@ -109,6 +109,10 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
     private final List<AnfStatement> statements = new ArrayList<>();
     private ComboBox<LiftRecord> recallBox;
     private final ObservableList<LiftRecord> history = FXCollections.observableArrayList();
+    /** The history index of the lift currently shown/edited, so a field edit re-persists the right file. */
+    private int currentLiftIndex = -1;
+    /** Suppresses the recall listener while we update the history list in place (avoids a reload mid-edit). */
+    private boolean suppressRecall = false;
     private ScrollPane detailPane;
     private Timeline elapsed;
     private long liftStartNanos;
@@ -140,6 +144,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
                 if (index >= 0 && index < statements.size()) {
                     statements.set(index, updated);
                     cards.getChildren().set(index, card(updated, index));
+                    repersistCurrent();
                 }
             }
 
@@ -149,6 +154,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
                 // card re-render here would destroy sibling fields that are mid-edit (BLOCKER-1).
                 if (index >= 0 && index < statements.size()) {
                     statements.set(index, updated);
+                    repersistCurrent();
                 }
             }
 
@@ -247,7 +253,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         });
         recallBox.getSelectionModel().selectedItemProperty().addListener(
                 (obs, old, record) -> {
-                    if (record != null) {
+                    if (record != null && !suppressRecall) {
                         loadLift(record);
                     }
                 });
@@ -364,6 +370,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         }
         formalPane.setContent(cards);
         narrative.setText(record.narrative());
+        currentLiftIndex = history.indexOf(record);
         int n = statements.size();
         setActivity(n + (n == 1 ? " statement" : " statements") + " · from history");
     }
@@ -467,6 +474,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         inventory.clear();
         seenNids.clear();
         statements.clear();
+        currentLiftIndex = -1;
         cards.getChildren().clear();
         formalPane.setContent(cards);
         startElapsed();
@@ -576,9 +584,36 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
                 LiftRecord.titleFrom(narrativeText));
         int index = history.size();
         history.add(record);
+        currentLiftIndex = index;
         if (!AnfHistoryStore.append(preferences(), record, index)) {
             LOG.info("ANF history kept in memory only (no backing directory for this node)");
         }
+    }
+
+    /**
+     * Re-persists the currently shown lift after an edit: re-serializes the in-memory statements to
+     * ANF-in-adoc and overwrites the lift's file (and its in-memory record), so a slot edit survives a
+     * restart. The recall listener is suppressed while the history list is updated so the in-place
+     * replacement does not reload the card and discard a sibling field mid-edit.
+     */
+    private void repersistCurrent() {
+        if (currentLiftIndex < 0 || currentLiftIndex >= history.size()) {
+            return;
+        }
+        LiftRecord previous = history.get(currentLiftIndex);
+        List<String> blocks = new ArrayList<>(statements.size());
+        for (AnfStatement statement : statements) {
+            blocks.add(AnfAdoc.toAdoc(statement));
+        }
+        LiftRecord updated = new LiftRecord(previous.narrative(), blocks,
+                previous.epochMillis(), previous.title());
+        suppressRecall = true;
+        try {
+            history.set(currentLiftIndex, updated);
+        } finally {
+            suppressRecall = false;
+        }
+        AnfHistoryStore.append(preferences(), updated, currentLiftIndex);
     }
 
     /** A history row: the lift's title (truncated narrative) over its statement count. */

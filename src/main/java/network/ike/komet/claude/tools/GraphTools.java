@@ -399,6 +399,10 @@ public final class GraphTools {
             return NONE;
         }
         String trimmed = id.trim();
+        // A comma-joined PublicId UUID array — the durable ANF-in-adoc @id key.
+        if (trimmed.indexOf(',') >= 0) {
+            return resolvePublicIdArray(trimmed, v);
+        }
         UUID uuid;
         try {
             uuid = UUID.fromString(trimmed);
@@ -411,6 +415,36 @@ public final class GraphTools {
         }
         int nid = toConceptNid(EntityService.get().nidForPublicId(PublicIds.of(uuid)));
         // A nid may be minted for an unknown id; treat "no name" as not present.
+        if (v.getFullyQualifiedNameText(nid).isEmpty() && v.getDescriptionText(nid).isEmpty()) {
+            return NONE;
+        }
+        return nid;
+    }
+
+    /**
+     * Resolves a comma-joined {@code PublicId} UUID array (the ANF-in-adoc {@code @id} key) to a
+     * concept nid, or {@link #NONE} when a part is not a valid UUID or the concept is not named in
+     * this view. Rebuilding the {@code PublicId} from the full array reconstructs the same concept
+     * the badge was drawn for.
+     *
+     * @param array the comma-joined UUIDs
+     * @param v     the active view
+     * @return the concept nid, or {@link #NONE}
+     */
+    private static int resolvePublicIdArray(String array, ViewCalculator v) {
+        String[] parts = array.split(",");
+        java.util.List<UUID> uuids = new java.util.ArrayList<>(parts.length);
+        for (String part : parts) {
+            try {
+                uuids.add(UUID.fromString(part.trim()));
+            } catch (IllegalArgumentException notUuid) {
+                return NONE;
+            }
+        }
+        if (uuids.isEmpty()) {
+            return NONE;
+        }
+        int nid = toConceptNid(EntityService.get().nidForPublicId(PublicIds.of(uuids.toArray(new UUID[0]))));
         if (v.getFullyQualifiedNameText(nid).isEmpty() && v.getDescriptionText(nid).isEmpty()) {
             return NONE;
         }
@@ -494,15 +528,39 @@ public final class GraphTools {
         int conceptNid = toConceptNid(nid);
         String label = v.getFullyQualifiedNameText(conceptNid)
                 .orElseGet(() -> v.getPreferredDescriptionTextWithFallbackOrNid(conceptNid));
+        UUID[] uuids = PrimitiveData.publicId(conceptNid).asUuidArray();
+        String publicId = publicIdKey(uuids, conceptNid);
         String sctid = sctidOf(v, conceptNid);
         String identifier;
         if (sctid != null) {
             identifier = sctid;
         } else {
-            UUID[] uuids = PrimitiveData.publicId(conceptNid).asUuidArray();
             identifier = uuids.length > 0 ? uuids[0].toString() : "nid=" + conceptNid;
         }
-        return new AnfSlot.Grounded(conceptNid, identifier, label);
+        return new AnfSlot.Grounded(conceptNid, publicId, identifier, label);
+    }
+
+    /**
+     * The durable round-trip key for a concept: its {@code PublicId} UUID array as comma-joined
+     * UUIDs. Resolving these back through {@code PublicIds.of(...)} reconstructs the same concept
+     * (and the same identicon) under any later coordinate — identity, not a terminology code.
+     *
+     * @param uuids      the concept's UUID array
+     * @param conceptNid the concept nid, for the degenerate no-UUID fallback
+     * @return the comma-joined UUID key (never null)
+     */
+    private static String publicIdKey(UUID[] uuids, int conceptNid) {
+        if (uuids.length == 0) {
+            return "nid=" + conceptNid;
+        }
+        StringBuilder key = new StringBuilder();
+        for (int i = 0; i < uuids.length; i++) {
+            if (i > 0) {
+                key.append(',');
+            }
+            key.append(uuids[i]);
+        }
+        return key.toString();
     }
 
     /**

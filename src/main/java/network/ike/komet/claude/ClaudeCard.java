@@ -32,6 +32,9 @@ import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
+import javafx.animation.Animation;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Alert;
@@ -62,6 +65,8 @@ import javafx.stage.Window;
 import jfx.incubator.scene.control.richtext.RichTextArea;
 import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.anthropic.AnthropicTool;
+import network.ike.komet.claude.anthropic.AskListener;
+import javafx.util.Duration;
 import network.ike.komet.claude.json.Json;
 import network.ike.komet.claude.tools.GraphTools;
 import network.ike.komet.claude.ui.MarkdownRichText;
@@ -133,6 +138,10 @@ public final class ClaudeCard extends AbstractHostCard {
     private RichTextArea transcript;
     private TextField input;
     private Button sendButton;
+    private Label statusLabel;
+    private Button retryButton;
+    /** 1 Hz tick that advances the elapsed clock in the status strip while a request is in flight. */
+    private Timeline statusTimer;
     /** All conversations (left rail); the active one drives the transcript. */
     private final ObservableList<Conversation> conversations = FXCollections.observableArrayList();
     private Conversation active;
@@ -152,6 +161,18 @@ public final class ClaudeCard extends AbstractHostCard {
         String name;
         boolean named;
         volatile boolean busy;
+        /** Live transport activity shown in the status strip while busy (set off-thread, read on FX). */
+        volatile String activity;
+        /** {@link System#nanoTime()} when the in-flight request started, for the elapsed clock. */
+        volatile long startNanos;
+        /** Settled status after a request: "✓ Replied in …" or "✕ …"; null before the first send. */
+        String outcome;
+        /** Whether {@link #outcome} is a failure (drives the failed styling + the Retry button). */
+        boolean outcomeFailed;
+        /** The held user text of a failed send, re-dispatched by Retry; null when nothing is pending. */
+        String pendingRetryText;
+        /** The in-flight worker task, so deleting a busy conversation can cancel it. */
+        volatile java.util.concurrent.Future<?> task;
         final List<MarkdownRichText.Entry> entries = new ArrayList<>();
         final List<Map<String, Object>> apiMessages = new ArrayList<>();
         final StringBuilder markdown = new StringBuilder();
@@ -279,6 +300,23 @@ public final class ClaudeCard extends AbstractHostCard {
         HBox inputBar = new HBox(6, input, sendButton);
         inputBar.setPadding(new Insets(6));
 
+        // Status strip: transient transport state (working / tool / retrying / elapsed / done / failed)
+        // lives here, NOT in the conversation transcript. A Retry re-sends the held request in place.
+        statusLabel = new Label();
+        statusLabel.setStyle("-fx-font-size: 11px;");
+        Region statusSpacer = new Region();
+        HBox.setHgrow(statusSpacer, Priority.ALWAYS);
+        retryButton = new Button("Retry");
+        retryButton.setOnAction(e -> retryActive());
+        setRetryVisible(false);
+        HBox statusBar = new HBox(8, statusLabel, statusSpacer, retryButton);
+        statusBar.setAlignment(Pos.CENTER_LEFT);
+        statusBar.setPadding(new Insets(2, 8, 0, 8));
+        VBox bottom = new VBox(statusBar, inputBar);
+
+        statusTimer = new Timeline(new KeyFrame(Duration.seconds(1), e -> updateStatusArea()));
+        statusTimer.setCycleCount(Animation.INDEFINITE);
+
         Label railTitle = new Label("Conversations");
         railTitle.setStyle("-fx-font-weight: bold;");
         Region railSpacer = new Region();
@@ -333,7 +371,7 @@ public final class ClaudeCard extends AbstractHostCard {
 
         BorderPane content = new BorderPane();
         content.setCenter(split);
-        content.setBottom(inputBar);
+        content.setBottom(bottom);
         content.setPrefSize(900, 680);
         setCardContent(content);
 
@@ -435,60 +473,219 @@ public final class ClaudeCard extends AbstractHostCard {
         if (key == null || key.isBlank()) {
             return;
         }
-
         Conversation conv = active;
         if (conv == null || conv.busy) {
             return;
         }
 
-        renderUser(conv, text);
         if (!conv.named) {
             conv.name = text.length() > 40 ? text.substring(0, 40).trim() + "…" : text;
             conv.named = true;
         }
         input.clear();
-        conv.busy = true;
-        conversationList.refresh();
-        updateInputState();
+        dispatch(conv, text, key, currentModel());
+    }
 
-        String model = userPreferences().get(PREF_MODEL, AnthropicClient.DEFAULT_MODEL);
+    /**
+     * Re-sends the active conversation's held failed request (the Retry button). The user's message is
+     * already in the transcript from the original send, so this only re-dispatches — nothing is added.
+     */
+    private void retryActive() {
+        Conversation conv = active;
+        if (conv == null || conv.busy || conv.pendingRetryText == null) {
+            return;
+        }
+        String key = hasApiKey() ? apiKey() : promptForApiKey();
+        if (key == null || key.isBlank()) {
+            return;
+        }
+        dispatch(conv, conv.pendingRetryText, key, currentModel());
+    }
+
+    /** The configured model id for a new request. */
+    private String currentModel() {
+        return userPreferences().get(PREF_MODEL, AnthropicClient.DEFAULT_MODEL);
+    }
+
+    /**
+     * Sends (or re-sends) {@code text} on {@code conv}: flips it busy, drives the status strip from the
+     * exchange's live progress (turn / tool / retry / elapsed), and on completion records the assistant
+     * turn — or, on failure, holds the text for Retry and shows the failure as <em>status</em>, never as
+     * a transcript message.
+     */
+    private void dispatch(Conversation conv, String text, String key, String model) {
+        // Render the user's message optimistically, remembering where to pop it back to if the send
+        // fails — a failed turn must not linger in the transcript (or diverge from the saved history).
+        int entryMark = conv.entries.size();
+        int markdownMark = conv.markdown.length();
+        renderUser(conv, text);
+
+        conv.busy = true;
+        conv.activity = "Working";
+        conv.startNanos = System.nanoTime();
+        conv.outcome = null;
+        conv.outcomeFailed = false;
+        conv.pendingRetryText = null;
+        conversationList.refresh();
+        if (conv == active) {
+            updateInputState();
+            updateStatusArea();
+        }
+        startStatusTimer();
+
         AnthropicClient client = new AnthropicClient(key, model, MAX_TOKENS);
         List<Map<String, Object>> history = List.copyOf(conv.apiMessages);
+        AskListener listener = new AskListener() {
+            @Override
+            public void onTurnStart(int turn) {
+                setActivity(conv, "Working");
+            }
 
-        worker.submit(() -> {
-            String reply;
-            boolean error = false;
+            @Override
+            public void onToolCall(int turn, String tool, Map<String, Object> args) {
+                setActivity(conv, "Calling " + tool + "…");
+            }
+
+            @Override
+            public void onRetry(int turn, int attempt, int maxAttempts, long waitMillis, String reason) {
+                setActivity(conv, reason + " — retrying " + attempt + "/" + maxAttempts
+                        + " in " + Math.max(1, Math.round(waitMillis / 1000.0)) + "s…");
+            }
+        };
+
+        conv.task = worker.submit(() -> {
+            String reply = null;
+            String errorMessage = null;
             try {
-                reply = client.ask(systemPrompt, tools, history, text);
+                reply = client.ask(systemPrompt, tools, history, text, listener);
             } catch (Throwable t) {
-                // Catch Throwable, not just RuntimeException: a non-runtime failure in the ask path (e.g. a
-                // class-init / ServiceConfigurationError) must still clear busy and surface in the transcript.
+                // Catch Throwable: a non-runtime failure (e.g. class-init / ServiceConfigurationError)
+                // must still settle the status strip, not wedge the conversation busy.
                 LOG.error("Claude request failed", t);
                 Throwable root = t;
                 while (root.getCause() != null) {
                     root = root.getCause();
                 }
                 String msg = t.getMessage() != null ? t.getMessage() : t.toString();
-                reply = (root != t) ? msg + "  (cause: " + root + ")" : msg;
-                error = true;
+                errorMessage = (root != t && root.getMessage() != null)
+                        ? msg + " (" + root.getMessage() + ")" : msg;
             }
             String finalReply = reply;
-            boolean finalError = error;
+            String finalError = errorMessage;
+            long elapsedMillis = (System.nanoTime() - conv.startNanos) / 1_000_000L;
             Platform.runLater(() -> {
-                renderAssistant(conv, finalReply, finalError);
-                if (!finalError) {
+                conv.busy = false;
+                conv.activity = null;
+                conv.task = null;
+                // The conversation may have been deleted while in flight — do not render or persist it
+                // (a save here would resurrect the deleted file on disk).
+                if (!conversations.contains(conv)) {
+                    stopStatusTimerIfIdle();
+                    return;
+                }
+                if (finalError != null) {
+                    // A failed turn is not part of the conversation: pop the optimistic user bubble so the
+                    // transcript stays equal to the committed (and persisted) history. Hold it for Retry.
+                    truncateEntries(conv, entryMark, markdownMark);
+                    conv.outcome = "✕ " + finalError;
+                    conv.outcomeFailed = true;
+                    conv.pendingRetryText = text;
+                } else {
+                    renderAssistant(conv, finalReply);
                     conv.apiMessages.add(Map.of("role", "user", "content", text));
                     conv.apiMessages.add(Map.of("role", "assistant", "content", finalReply));
                     saveConversation(conv);
+                    conv.outcome = "✓ Replied in " + formatElapsed(elapsedMillis);
+                    conv.outcomeFailed = false;
+                    conv.pendingRetryText = null;
                 }
-                conv.busy = false;
                 conversationList.refresh();
                 if (conv == active) {
                     updateInputState();
+                    updateStatusArea();
                     input.requestFocus();
                 }
+                stopStatusTimerIfIdle();
             });
         });
+    }
+
+    /** Pops entries/markdown back to a mark — removes a failed turn's optimistic user bubble. */
+    private void truncateEntries(Conversation conv, int entryMark, int markdownMark) {
+        while (conv.entries.size() > entryMark) {
+            conv.entries.remove(conv.entries.size() - 1);
+        }
+        if (conv.markdown.length() > markdownMark) {
+            conv.markdown.setLength(markdownMark);
+        }
+        if (conv == active) {
+            refreshTranscript();
+        }
+    }
+
+    /** Sets the live activity for {@code conv} (off-thread safe) and refreshes the strip if it is active. */
+    private void setActivity(Conversation conv, String activity) {
+        conv.activity = activity;
+        Platform.runLater(() -> {
+            if (conv == active) {
+                updateStatusArea();
+            }
+        });
+    }
+
+    /** Renders the status strip for the active conversation (the working clock, or the settled outcome). */
+    private void updateStatusArea() {
+        if (active != null && active.busy) {
+            long seconds = Math.max(0, (System.nanoTime() - active.startNanos) / 1_000_000_000L);
+            String base = (active.activity != null) ? active.activity : "Working";
+            statusLabel.setText(base + " · " + seconds + "s");
+            statusLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: -fx-text-base-color;");
+            statusLabel.setTooltip(new Tooltip(statusLabel.getText()));
+            setRetryVisible(false);
+        } else if (active != null && active.outcome != null) {
+            statusLabel.setText(active.outcome);
+            statusLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: "
+                    + (active.outcomeFailed ? "#c62828" : "#2e7d32") + ";");
+            // The failure message (cause + status-page URL) can outrun the strip width; the tooltip keeps
+            // the full text reachable since failures are not in the transcript.
+            statusLabel.setTooltip(new Tooltip(active.outcome));
+            boolean canRetry = active.outcomeFailed && active.pendingRetryText != null;
+            setRetryVisible(canRetry);
+            if (canRetry) {
+                String preview = active.pendingRetryText.length() > 60
+                        ? active.pendingRetryText.substring(0, 60).trim() + "…" : active.pendingRetryText;
+                retryButton.setTooltip(new Tooltip("Resend: " + preview));
+            }
+        } else {
+            statusLabel.setText("");
+            statusLabel.setStyle("-fx-font-size: 11px;");
+            statusLabel.setTooltip(null);
+            setRetryVisible(false);
+        }
+    }
+
+    private void setRetryVisible(boolean visible) {
+        retryButton.setVisible(visible);
+        retryButton.setManaged(visible);
+    }
+
+    /** Starts the 1 Hz elapsed clock if it is not already running. */
+    private void startStatusTimer() {
+        if (statusTimer != null && statusTimer.getStatus() != Animation.Status.RUNNING) {
+            statusTimer.play();
+        }
+    }
+
+    /** Stops the elapsed clock once no conversation is in flight. */
+    private void stopStatusTimerIfIdle() {
+        if (statusTimer != null && conversations.stream().noneMatch(c -> c.busy)) {
+            statusTimer.stop();
+        }
+    }
+
+    /** Formats an elapsed duration compactly: {@code "820 ms"} or {@code "2.3 s"}. */
+    private static String formatElapsed(long millis) {
+        return (millis < 1000) ? millis + " ms" : String.format("%.1f s", millis / 1000.0);
     }
 
     /**
@@ -516,6 +713,7 @@ public final class ClaudeCard extends AbstractHostCard {
         }
         refreshTranscript();
         updateInputState();
+        updateStatusArea();
     }
 
     /** Creates a fresh conversation (with the intro) and makes it active. */
@@ -569,6 +767,11 @@ public final class ClaudeCard extends AbstractHostCard {
         }
         int idx = conversations.indexOf(toDelete);
         conversations.remove(toDelete);
+        // Cancel any in-flight request: the worker is interrupt-aware, and the completion handler's
+        // liveness guard already skips persistence for a conversation no longer in the list.
+        if (toDelete.task != null) {
+            toDelete.task.cancel(true);
+        }
         deleteConversationFile(toDelete);
         if (conversations.isEmpty()) {
             newConversation();
@@ -678,15 +881,9 @@ public final class ClaudeCard extends AbstractHostCard {
         }
     }
 
-    private void renderAssistant(Conversation conv, String markdown, boolean error) {
-        if (error) {
-            String text = markdown == null ? "Unknown error" : markdown;
-            conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ERROR, text, false));
-            conv.markdown.append("**Error:** ").append(text).append("\n\n");
-        } else {
-            conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT, markdown, true));
-            conv.markdown.append("**Komet Assistant:** ").append(markdown).append("\n\n");
-        }
+    private void renderAssistant(Conversation conv, String markdown) {
+        conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT, markdown, true));
+        conv.markdown.append("**Komet Assistant:** ").append(markdown).append("\n\n");
         if (conv == active) {
             refreshTranscript();
         }
@@ -789,6 +986,9 @@ public final class ClaudeCard extends AbstractHostCard {
     public void knowledgeLayoutUnbind() {
         super.knowledgeLayoutUnbind();
         worker.shutdownNow();
+        if (statusTimer != null) {
+            statusTimer.stop();
+        }
     }
 
     /*******************************************************************************

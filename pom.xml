@@ -74,6 +74,20 @@
     </dependencyManagement>
 
     <dependencies>
+        <!-- JUnit 5 for unit tests (e.g. the AnthropicClient retry policy). Versions managed by the
+             parent; surefire patches the test classes into this JPMS module (no test module-info),
+             matching the knowledge-layout pattern. -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <scope>test</scope>
+        </dependency>
+
         <!-- Knowledge-layout SPI host: KlToolArea / KlSupplementalArea +
              SupplementalAreaBlueprint, KlArea, AreaGridSettings, KlPreferencesFactory.
              The tool area is contributed via ServiceLoader and rendered in the Journal
