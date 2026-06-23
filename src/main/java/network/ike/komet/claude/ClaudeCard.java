@@ -15,9 +15,13 @@
  */
 package network.ike.komet.claude;
 
+import dev.ikm.komet.framework.view.ObservableView;
+import dev.ikm.komet.framework.view.ObservableViewWithOverride;
 import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.komet.layout.KlArea;
 import dev.ikm.komet.layout.area.AreaGridSettings;
+import dev.ikm.komet.layout.controls.FilterOptionsPopup;
+import dev.ikm.komet.layout.controls.ViewOptionsPopupHelper;
 import dev.ikm.komet.layout.preferences.KlPreferencesFactory;
 import dev.ikm.komet.layout_engine.blueprint.CardBlueprint;
 import dev.ikm.komet.layout_engine.host.AbstractHostCard;
@@ -40,6 +44,7 @@ import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
+import javafx.scene.control.MenuButton;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.ProgressIndicator;
@@ -206,6 +211,27 @@ public final class ClaudeCard extends AbstractHostCard {
     /** The assistant controls live in the card toolbar (the close is in the base chrome). */
     @Override
     protected void buildToolbarControls(HBox toolBar) {
+        // Coordinate control: the standard overridable View popup, wired to this card's own coordinate of
+        // record — so the assistant's view (the one the tools query) is visible and overridable, like the
+        // tiles, the journal, and the knowledge base.
+        MenuButton coordinateButton = new MenuButton();
+        coordinateButton.getStyleClass().add("coordinate");
+        coordinateButton.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
+        coordinateButton.setTooltip(new Tooltip("Coordinates"));
+        ViewOptionsPopupHelper.setupViewCoordinateOptionsPopup(getCardViewProperties(),
+                FilterOptionsPopup.FILTER_TYPE.CHAPTER_WINDOW, fxObject(), coordinateButton, () -> { });
+        ObservableView cardView = getCardViewProperties().nodeView();
+        Runnable syncOverrideIndicator = () -> {
+            boolean overridden = cardView instanceof ObservableViewWithOverride overrideView
+                    && !overrideView.getValue().equals(overrideView.getOriginalValue());
+            coordinateButton.getStyleClass().remove("override");
+            if (overridden) {
+                coordinateButton.getStyleClass().add("override");
+            }
+        };
+        syncOverrideIndicator.run();
+        cardView.subscribe(syncOverrideIndicator);
+
         Button toggleRail = new Button("☰");
         toggleRail.setTooltip(new Tooltip("Show/hide conversations"));
         toggleRail.setOnAction(e -> setRailVisible(!railVisible));
@@ -222,7 +248,7 @@ public final class ClaudeCard extends AbstractHostCard {
         for (Button b : List.of(toggleRail, fontDown, fontUp, saveButton, keyButton)) {
             b.getStyleClass().add("claude-card-toolbar-button");
         }
-        toolBar.getChildren().addAll(toggleRail, fontDown, fontUp, saveButton, keyButton);
+        toolBar.getChildren().addAll(coordinateButton, toggleRail, fontDown, fontUp, saveButton, keyButton);
     }
 
     @Override

@@ -15,18 +15,18 @@
  */
 package network.ike.komet.claude.anf;
 
-import dev.ikm.komet.framework.dnd.DragImageMaker;
-import dev.ikm.komet.framework.dnd.KometClipboard;
+import dev.ikm.komet.framework.controls.KonceptBadge;
+import dev.ikm.komet.framework.dnd.KonceptDragSource;
 import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.komet.layout.KlArea;
 import dev.ikm.komet.layout.area.AreaGridSettings;
 import dev.ikm.komet.layout.area.KlToolArea;
+import dev.ikm.komet.layout.controls.KlConceptField;
 import dev.ikm.komet.layout.preferences.KlPreferencesFactory;
 import dev.ikm.komet.layout_engine.blueprint.SupplementalAreaBlueprint;
 import dev.ikm.komet.preferences.KometPreferences;
 import dev.ikm.komet.preferences.PreferencesService;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
-import dev.ikm.tinkar.entity.EntityHandle;
 import network.ike.komet.claude.tools.GraphTools;
 import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
@@ -35,25 +35,29 @@ import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
+import javafx.geometry.Orientation;
+import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextArea;
-import javafx.scene.input.Dragboard;
 import javafx.scene.input.MouseEvent;
-import javafx.scene.input.TransferMode;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.util.Duration;
+import javafx.util.StringConverter;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -85,34 +89,101 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         return t;
     });
 
+    /** A separate thread for editable-field type-ahead searches, so they never queue behind a lift. */
+    private final ExecutorService searchExecutor = Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "komet-anf-search");
+        t.setDaemon(true);
+        return t;
+    });
+
+    private KlConceptField.Completer conceptCompleter;
+
     private TextArea narrative;
     private Button liftButton;
     private ScrollPane formalPane;
+    private VBox cards;
     private Label progressLabel;
     private ListView<AnfSlot> inventoryView;
     private final ObservableList<AnfSlot> inventory = FXCollections.observableArrayList();
     private final Set<Integer> seenNids = new HashSet<>();
+    private final List<AnfStatement> statements = new ArrayList<>();
+    private ComboBox<LiftRecord> recallBox;
+    private final ObservableList<LiftRecord> history = FXCollections.observableArrayList();
+    private ScrollPane detailPane;
     private Timeline elapsed;
     private long liftStartNanos;
     private String activity = "";
-    private AnfStatement currentStatement;
     private ViewProperties toolViewProperties;
     private Runnable onCloseRequest;
 
-    /** Substitution editor: dropping a Komet concept on a slot replaces the lifted one. */
-    private final AnfStatementView.Editor anfEditor = new AnfStatementView.Editor() {
-        @Override
-        public AnfSlot.Grounded resolve(int conceptNid) {
-            ViewCalculator view = viewCalculator();
-            return (view == null) ? null : GraphTools.groundedOf(view, conceptNid);
-        }
+    /**
+     * The drop-substitution editor for the statement card at {@code index}: dropping a Komet
+     * concept on one of its slots replaces that concept and re-renders only that card.
+     *
+     * @param index the statement's position in {@link #statements}
+     * @return an editor bound to that card
+     */
+    private AnfStatementView.Editor editorFor(int index) {
+        return new AnfStatementView.Editor() {
+            @Override
+            public AnfSlot.Grounded resolve(int conceptNid) {
+                ViewCalculator view = viewCalculator();
+                // Active-only grounding (#739): dropping a retired concept onto a slot is rejected.
+                if (view == null || !GraphTools.isActive(view, conceptNid)) {
+                    return null;
+                }
+                return GraphTools.groundedOf(view, conceptNid);
+            }
 
-        @Override
-        public void onEdited(AnfStatement updated) {
-            currentStatement = updated;
-            formalPane.setContent(AnfStatementView.render(updated, toolViewProperties, this));
+            @Override
+            public void onEdited(AnfStatement updated) {
+                if (index >= 0 && index < statements.size()) {
+                    statements.set(index, updated);
+                    cards.getChildren().set(index, card(updated, index));
+                }
+            }
+
+            @Override
+            public void onFieldEdited(AnfStatement updated) {
+                // Update the in-memory model only — the field already shows its own new state, so a
+                // card re-render here would destroy sibling fields that are mid-edit (BLOCKER-1).
+                if (index >= 0 && index < statements.size()) {
+                    statements.set(index, updated);
+                }
+            }
+
+            @Override
+            public KlConceptField.Completer completer() {
+                return conceptCompleter();
+            }
+
+            @Override
+            public void showDetail(AnfSlot slot) {
+                AnfArea.this.showDetail(slot);
+            }
+        };
+    }
+
+    /** The shared type-ahead completer for editable fields (search runs off the FX thread). */
+    private KlConceptField.Completer conceptCompleter() {
+        if (conceptCompleter == null) {
+            conceptCompleter = (query, max, onResults) -> {
+                ViewCalculator view = viewCalculator();
+                if (view == null) {
+                    onResults.accept(List.of());
+                    return;
+                }
+                searchExecutor.submit(() -> {
+                    List<KlConceptField.Completer.Result> rows = new ArrayList<>();
+                    for (AnfSlot.Grounded grounded : GraphTools.searchConcepts(query, view, max)) {
+                        rows.add(new KlConceptField.Completer.Result(grounded.nid(), grounded.label()));
+                    }
+                    Platform.runLater(() -> onResults.accept(rows));
+                });
+            };
         }
-    };
+        return conceptCompleter;
+    }
 
     /**
      * Restore constructor.
@@ -155,37 +226,226 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
     private void buildUi() {
         BorderPane pane = fxObject();
 
+        // Recall: a compact dropdown of past lifts, so the narrative keeps full width.
+        recallBox = new ComboBox<>(history);
+        recallBox.setPromptText("Recall a past lift…");
+        recallBox.setMaxWidth(260);
+        recallBox.setVisibleRowCount(12);
+        // Dropdown rows show the rich cell (title + count); the selected value shows as a single
+        // line of title text via the converter — a rich VBox button cell grows to fill the bar.
+        recallBox.setCellFactory(view -> new HistoryCell());
+        recallBox.setConverter(new StringConverter<>() {
+            @Override
+            public String toString(LiftRecord record) {
+                return record == null ? "" : record.title();
+            }
+
+            @Override
+            public LiftRecord fromString(String string) {
+                return null;
+            }
+        });
+        recallBox.getSelectionModel().selectedItemProperty().addListener(
+                (obs, old, record) -> {
+                    if (record != null) {
+                        loadLift(record);
+                    }
+                });
+
         narrative = new TextArea();
         narrative.setPromptText("Paste or dictate a clinical narrative, then Lift…");
         narrative.setWrapText(true);
-        narrative.setPrefRowCount(3);
+        narrative.setPrefRowCount(4);
 
         liftButton = new Button("Lift to ANF");
         liftButton.setOnAction(event -> lift());
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox controls = new HBox(6, spacer, liftButton);
-        controls.setPadding(new Insets(6, 0, 0, 0));
+        HBox controls = new HBox(8, recallBox, spacer, liftButton);
+        controls.setAlignment(Pos.CENTER_LEFT);
 
         progressLabel = new Label();
         progressLabel.setStyle("-fx-text-fill: #666666;");
 
-        VBox top = new VBox(4, narrative, controls, progressLabel);
+        // TOP: narrative full width (input and recall), with the recall + lift controls above it.
+        VBox top = new VBox(6, controls, narrative, progressLabel);
         top.setPadding(new Insets(8));
 
+        // MIDDLE-LEFT: grounded/proposed concepts.
         inventoryView = new ListView<>(inventory);
         inventoryView.setCellFactory(view -> new ConceptCell());
         inventoryView.setPlaceholder(new Label("Concepts appear here as they are grounded."));
+        inventoryView.getSelectionModel().selectedItemProperty().addListener(
+                (obs, old, slot) -> {
+                    if (slot != null) {
+                        showDetail(slot);
+                    }
+                });
+        VBox conceptsPane = new VBox(2, sectionTitle("Concepts"), inventoryView);
+        VBox.setVgrow(inventoryView, Priority.ALWAYS);
 
+        // MIDDLE-RIGHT: the performance statement(s).
+        cards = new VBox(8);
+        cards.setPadding(new Insets(4));
         formalPane = new ScrollPane();
         formalPane.setFitToWidth(true);
         setStatus("Lift a narrative to see its Analysis Normal Form.");
+        VBox statementPane = new VBox(2, sectionTitle("Performance statement"), formalPane);
+        VBox.setVgrow(formalPane, Priority.ALWAYS);
 
-        SplitPane split = new SplitPane(inventoryView, formalPane);
-        split.setDividerPositions(0.34);
+        SplitPane middle = new SplitPane(conceptsPane, statementPane);
+        middle.setDividerPositions(0.34);
+
+        // BOTTOM: detail of the selected concept (from the Concepts list or a statement chip).
+        detailPane = new ScrollPane();
+        detailPane.setFitToWidth(true);
+        detailPane.setContent(detailPlaceholder());
+        VBox detailWrap = new VBox(2, sectionTitle("Concept detail"), detailPane);
+        VBox.setVgrow(detailPane, Priority.ALWAYS);
+
+        SplitPane center = new SplitPane(middle, detailWrap);
+        center.setOrientation(Orientation.VERTICAL);
+        center.setDividerPositions(0.6);
 
         pane.setTop(top);
-        pane.setCenter(split);
+        pane.setCenter(center);
+        pane.setBottom(legend());
+
+        restoreHistory();
+    }
+
+    private static Label sectionTitle(String text) {
+        Label title = new Label(text);
+        title.setStyle("-fx-font-weight: bold; -fx-text-fill: #666666; -fx-font-size: 11;");
+        title.setPadding(new Insets(4, 0, 0, 4));
+        return title;
+    }
+
+    /** Loads the persisted lift history into the list, once (idempotent across the restore hooks). */
+    private void restoreHistory() {
+        if (!history.isEmpty()) {
+            return;
+        }
+        List<LiftRecord> restored = AnfHistoryStore.restore(preferences());
+        if (!restored.isEmpty()) {
+            history.setAll(restored);
+        }
+    }
+
+    /** Opens the inline detail (descriptions + axioms for grounded; provisional data for proposed). */
+    private void showDetail(AnfSlot slot) {
+        detailPane.setContent(ConceptDetailPane.render(slot, toolViewProperties));
+    }
+
+    /** Re-resolves a written identifier against the current view, for parsing a history lift's blocks. */
+    private AnfAdoc.ConceptResolver resolver() {
+        ViewCalculator view = viewCalculator();
+        return (view == null)
+                ? id -> java.util.Optional.empty()
+                : id -> GraphTools.resolveConcept(id, view);
+    }
+
+    /** Reloads a persisted lift: re-parses its adoc blocks and rebuilds the cards + inventory. */
+    private void loadLift(LiftRecord record) {
+        inventory.clear();
+        seenNids.clear();
+        statements.clear();
+        cards.getChildren().clear();
+        detailPane.setContent(detailPlaceholder());
+        AnfAdoc.ConceptResolver resolver = resolver();
+        for (String block : record.anfBlocks()) {
+            AnfStatement statement = AnfAdoc.parse(block, resolver);
+            if (statement != null) {
+                appendCard(statement);
+                for (AnfSlot slot : slotsOf(statement)) {
+                    addConcept(slot);
+                }
+            }
+        }
+        formalPane.setContent(cards);
+        narrative.setText(record.narrative());
+        int n = statements.size();
+        setActivity(n + (n == 1 ? " statement" : " statements") + " · from history");
+    }
+
+    private Node detailPlaceholder() {
+        Label l = new Label("Select a concept to see its descriptions and axioms.");
+        l.setWrapText(true);
+        l.setPadding(new Insets(10));
+        l.setStyle("-fx-text-fill: #999999;");
+        return l;
+    }
+
+    /** The grounded/candidate/clarify key, as a single footer row across the bottom of the tile. */
+    private Node legend() {
+        HBox box = new HBox(20,
+                legendRow("●", "#2a5a8a", "grounded — exists"),
+                legendRow("◌", "#b5651d", "candidate — proposed"),
+                legendRow("?", "#6a4c93", "clarify — question"));
+        box.setAlignment(Pos.CENTER_LEFT);
+        box.setPadding(new Insets(4, 10, 4, 10));
+        box.setStyle("-fx-border-color: #eeeeee; -fx-border-width: 1 0 0 0; -fx-background-color: #fafafa;");
+        return box;
+    }
+
+    private Node legendRow(String glyph, String color, String text) {
+        Label g = new Label(glyph);
+        g.setStyle("-fx-text-fill: " + color + "; -fx-font-weight: bold;");
+        Label t = new Label(text);
+        t.setStyle("-fx-text-fill: #888888; -fx-font-size: 10;");
+        return new HBox(5, g, t);
+    }
+
+    /** All concept slots of a statement, for repopulating the inventory when a lift is reloaded. */
+    private static List<AnfSlot> slotsOf(AnfStatement s) {
+        List<AnfSlot> slots = new ArrayList<>();
+        addSlot(slots, s.topic());
+        addSlot(slots, s.subjectOfInformation());
+        switch (s.circumstance()) {
+            case Circumstance.Performance p -> {
+                addMeasure(slots, p.result());
+                addSlot(slots, p.status());
+                addSlot(slots, p.healthRisk());
+                addMeasure(slots, p.normalRange());
+                addSlot(slots, p.bodySite());
+                addSlot(slots, p.method());
+                addSlot(slots, p.laterality());
+                slots.addAll(p.purpose());
+                addMeasure(slots, p.timing());
+            }
+            case Circumstance.Request r -> {
+                addMeasure(slots, r.requestedResult());
+                addSlot(slots, r.priority());
+                addSlot(slots, r.method());
+                slots.addAll(r.conditionalTrigger());
+                slots.addAll(r.purpose());
+                addMeasure(slots, r.timing());
+                if (r.repetition() != null) {
+                    addMeasure(slots, r.repetition().periodStart());
+                    addMeasure(slots, r.repetition().periodDuration());
+                    addMeasure(slots, r.repetition().eventSeparation());
+                    addMeasure(slots, r.repetition().eventDuration());
+                    addMeasure(slots, r.repetition().eventFrequency());
+                }
+            }
+            case Circumstance.Narrative n -> {
+                slots.addAll(n.purpose());
+                addMeasure(slots, n.timing());
+            }
+        }
+        return slots;
+    }
+
+    private static void addSlot(List<AnfSlot> slots, AnfSlot slot) {
+        if (slot != null) {
+            slots.add(slot);
+        }
+    }
+
+    private static void addMeasure(List<AnfSlot> slots, AnfStatement.Result result) {
+        if (result != null) {
+            slots.add(result.measureSemantic());
+        }
     }
 
     private void lift() {
@@ -206,7 +466,9 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         setBusy(true);
         inventory.clear();
         seenNids.clear();
-        formalPane.setContent(null);
+        statements.clear();
+        cards.getChildren().clear();
+        formalPane.setContent(cards);
         startElapsed();
 
         AnfLiftListener listener = new AnfLiftListener() {
@@ -223,6 +485,11 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
             @Override
             public void onSlotDiscovered(AnfSlot slot) {
                 Platform.runLater(() -> addConcept(slot));
+            }
+
+            @Override
+            public void onStatementEmitted(AnfStatement statement, int index) {
+                Platform.runLater(() -> appendCard(statement));
             }
 
             @Override
@@ -256,16 +523,82 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
             AnfLift.Result finalResult = result;
             Platform.runLater(() -> {
                 stopElapsed();
-                if (finalResult.lifted()) {
-                    currentStatement = finalResult.statement();
-                    formalPane.setContent(AnfStatementView.render(currentStatement, toolViewProperties, anfEditor));
-                } else {
+                if (!finalResult.lifted()) {
+                    // The cards streamed in via onStatementEmitted; nothing landed, so show the
+                    // model's text (a clarification or an error) in place of the empty card list.
                     String t = finalResult.assistantText();
                     setStatus((t == null || t.isBlank()) ? "No statement was produced." : t);
+                } else {
+                    int n = statements.size();
+                    setActivity(n + (n == 1 ? " statement lifted" : " statements lifted"));
+                    if (finalResult.truncated()) {
+                        Label note = new Label("⚠ Lift stopped at the turn cap — more statements "
+                                + "may have been intended.");
+                        note.setWrapText(true);
+                        note.setStyle("-fx-text-fill: #b5651d; -fx-padding: 6;");
+                        cards.getChildren().add(note);
+                    }
+                    persistLift(text);
                 }
                 setBusy(false);
             });
         });
+    }
+
+    /** Appends a streamed statement as a card, in emit order. */
+    private void appendCard(AnfStatement statement) {
+        int index = statements.size();
+        statements.add(statement);
+        cards.getChildren().add(card(statement, index));
+    }
+
+    /** Renders one statement card, wired to its per-index drop-substitution editor. */
+    private Node card(AnfStatement statement, int index) {
+        Node node = AnfStatementView.render(statement, toolViewProperties, editorFor(index));
+        if (node instanceof Region region) {
+            region.setStyle("-fx-border-color: #eeeeee; -fx-border-width: 0 0 1 0;");
+        }
+        return node;
+    }
+
+    /**
+     * Records the just-completed lift in the history and persists it as ANF-in-adoc. This is a
+     * preference-node write (the area's own state), not a knowledge-graph write, so it is within
+     * the v1 render-only rule. Persistence failure (e.g. no backing directory) keeps the lift in
+     * memory for the session.
+     */
+    private void persistLift(String narrativeText) {
+        List<String> blocks = new ArrayList<>(statements.size());
+        for (AnfStatement statement : statements) {
+            blocks.add(AnfAdoc.toAdoc(statement));
+        }
+        LiftRecord record = new LiftRecord(narrativeText, blocks, System.currentTimeMillis(),
+                LiftRecord.titleFrom(narrativeText));
+        int index = history.size();
+        history.add(record);
+        if (!AnfHistoryStore.append(preferences(), record, index)) {
+            LOG.info("ANF history kept in memory only (no backing directory for this node)");
+        }
+    }
+
+    /** A history row: the lift's title (truncated narrative) over its statement count. */
+    private final class HistoryCell extends ListCell<LiftRecord> {
+        @Override
+        protected void updateItem(LiftRecord item, boolean empty) {
+            super.updateItem(item, empty);
+            if (empty || item == null) {
+                setText(null);
+                setGraphic(null);
+                return;
+            }
+            Label title = new Label(item.title());
+            title.setWrapText(true);
+            int n = item.anfBlocks().size();
+            Label subtitle = new Label(n + (n == 1 ? " statement" : " statements"));
+            subtitle.setStyle("-fx-text-fill: #999999; -fx-font-size: 10;");
+            setText(null);
+            setGraphic(new VBox(1, title, subtitle));
+        }
     }
 
     private void setStatus(String message) {
@@ -351,32 +684,42 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
             addEventFilter(MouseEvent.DRAG_DETECTED, this::startConceptDrag);
         }
 
-        /** Starts a Komet concept drag, mirroring KonceptBadge (same image + no-offset drag view). */
+        /**
+         * Starts a concept drag via the shared {@link KonceptDragSource} (scene-guarded,
+         * unconditional payload, right-of-identicon drag view). The drag is wired at the CELL
+         * because a {@link KonceptBadge} graphic only receives {@code DRAG_DETECTED} after the
+         * row is first selected; the cell's filter runs ahead of that on the first click.
+         */
         private void startConceptDrag(MouseEvent event) {
-            if (!(getItem() instanceof AnfSlot.Grounded grounded)) {
-                return;
+            if (getItem() instanceof AnfSlot.Grounded grounded
+                    && getGraphic() instanceof KonceptBadge badge) {
+                KonceptDragSource.start(this, badge, grounded.nid(), event);
             }
-            Node graphic = getGraphic();
-            if (graphic == null) {
-                return;
-            }
-            Dragboard db = startDragAndDrop(TransferMode.COPY);
-            db.setDragView(new DragImageMaker(graphic).getDragImage());
-            EntityHandle.get(grounded.nid()).ifPresent(entity -> db.setContent(new KometClipboard(entity)));
-            event.consume();
         }
 
         @Override
         protected void updateItem(AnfSlot item, boolean empty) {
+            AnfSlot previous = getItem();
             super.updateItem(item, empty);
             setText(null);
-            setGraphic((empty || item == null) ? null : AnfStatementView.chipFor(item, toolViewProperties));
+            if (empty || item == null) {
+                setGraphic(null);
+            } else if (item != previous || getGraphic() == null) {
+                // Rebuild the badge ONLY when the row's concept actually changes (or the cell was empty) —
+                // not on every updateItem (scroll/layout/selection, and the list growing as a lift streams
+                // in). Recreating it each call churns nodes needlessly and lets a drag's press-target badge
+                // be swapped out mid-gesture.
+                setGraphic(AnfStatementView.chipFor(item, toolViewProperties));
+            }
         }
     }
 
     @Override
     protected void subAreaRestoreFromPreferencesOrDefault() {
-        // In-memory only; v1 persists nothing.
+        // Restore the persisted lift history (ANF-in-adoc files in this node's backing directory).
+        // The history list is populated; no lift is auto-loaded until the user selects one.
+        // (Also attempted in buildUi; idempotent.)
+        Platform.runLater(this::restoreHistory);
     }
 
     @Override
@@ -400,6 +743,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
             elapsed.stop();
         }
         worker.shutdownNow();
+        searchExecutor.shutdownNow();
     }
 
     /**

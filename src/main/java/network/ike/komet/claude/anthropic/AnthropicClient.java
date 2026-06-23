@@ -58,8 +58,8 @@ public final class AnthropicClient {
     /** Default model id when none is configured: Claude Sonnet 4.6. */
     public static final String DEFAULT_MODEL = "claude-sonnet-4-6";
 
-    /** Upper bound on tool-use iterations before giving up. */
-    private static final int MAX_TURNS = 16;
+    /** Default upper bound on tool-use iterations when none is configured. */
+    public static final int DEFAULT_MAX_TURNS = 16;
 
     /** Retry attempts for transient (429 / 5xx / I/O) failures. */
     private static final int MAX_ATTEMPTS = 4;
@@ -70,18 +70,35 @@ public final class AnthropicClient {
     private final String apiKey;
     private final String model;
     private final int maxTokens;
+    private final int maxTurns;
 
     /**
-     * Creates a client.
+     * Creates a client with the default tool-use turn cap ({@link #DEFAULT_MAX_TURNS}).
      *
      * @param apiKey    the Anthropic API key (sent as {@code x-api-key})
      * @param model     the model id; {@link #DEFAULT_MODEL} when null/blank
      * @param maxTokens the response token cap; a sane default when not positive
      */
     public AnthropicClient(String apiKey, String model, int maxTokens) {
+        this(apiKey, model, maxTokens, DEFAULT_MAX_TURNS);
+    }
+
+    /**
+     * Creates a client with an explicit tool-use turn cap. A multi-statement caller (for
+     * example the ANF lift, which may emit many statements across turns) passes a higher cap;
+     * interactive callers keep the default so a single client's cap never inflates another's.
+     *
+     * @param apiKey    the Anthropic API key (sent as {@code x-api-key})
+     * @param model     the model id; {@link #DEFAULT_MODEL} when null/blank
+     * @param maxTokens the response token cap; a sane default when not positive
+     * @param maxTurns  the upper bound on tool-use iterations; {@link #DEFAULT_MAX_TURNS} when
+     *                  not positive
+     */
+    public AnthropicClient(String apiKey, String model, int maxTokens, int maxTurns) {
         this.apiKey = Objects.requireNonNull(apiKey, "apiKey");
         this.model = (model == null || model.isBlank()) ? DEFAULT_MODEL : model;
         this.maxTokens = maxTokens > 0 ? maxTokens : 8192;
+        this.maxTurns = maxTurns > 0 ? maxTurns : DEFAULT_MAX_TURNS;
     }
 
     /**
@@ -184,7 +201,7 @@ public final class AnthropicClient {
         long start = System.nanoTime();
         int turn = 0;
         try {
-            for (turn = 0; turn < MAX_TURNS; turn++) {
+            for (turn = 0; turn < maxTurns; turn++) {
                 if (Thread.currentThread().isInterrupted()) {
                     throw new AnthropicException("Interrupted before turn " + turn);
                 }
@@ -205,8 +222,8 @@ public final class AnthropicClient {
                     return textOf(resp.content());
                 }
             }
-            obs.onDone("max_turns", MAX_TURNS, millisSince(start));
-            return "(stopped: tool-use loop exceeded " + MAX_TURNS + " turns)";
+            obs.onDone("max_turns", maxTurns, millisSince(start));
+            return "(stopped: tool-use loop exceeded " + maxTurns + " turns)";
         } catch (RuntimeException e) {
             obs.onError(e, turn, millisSince(start));
             throw e;

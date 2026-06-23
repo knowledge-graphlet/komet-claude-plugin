@@ -20,8 +20,12 @@ import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.service.PrimitiveDataSearchResult;
 import dev.ikm.tinkar.common.util.uuid.UuidUtil;
 import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
+import dev.ikm.tinkar.coordinate.view.ViewCoordinateRecord;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
+import dev.ikm.tinkar.entity.Entity;
+import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
+import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.provider.search.Searcher;
@@ -93,7 +97,7 @@ public final class GraphTools {
      */
     public List<AnthropicTool> tools() {
         return List.of(concept(), children(), parents(), descendants(),
-                ancestors(), isA(), axioms(), search(), viewInfo());
+                ancestors(), isA(), axioms(), search(), viewInfo(), debugConcept());
     }
 
     // ── Tools ───────────────────────────────────────────────────────────
@@ -113,8 +117,16 @@ public final class GraphTools {
                     if (nid == NONE) {
                         return notFound(str(in, "id"));
                     }
-                    fireDiscovered(groundedOf(v, nid));
-                    return nameAndId(v, nid) + "\nParents:\n"
+                    // Active-only grounding (#739): a retired concept is reported but NOT discovered
+                    // into the inventory, and the model is told not to ground to it.
+                    boolean active = isActive(v, toConceptNid(nid));
+                    if (active) {
+                        fireDiscovered(groundedOf(v, nid));
+                    }
+                    String retiredNote = active ? ""
+                            : "\n(INACTIVE — retired in this view; do not ground to this concept; "
+                              + "find an ACTIVE concept or propose a candidate)";
+                    return nameAndId(v, nid) + retiredNote + "\nParents:\n"
                             + renderIds(v, v.parentsOf(nid).intStream().toArray(), DEFAULT_LIMIT);
                 });
     }
@@ -220,6 +232,78 @@ public final class GraphTools {
                 });
     }
 
+    private AnthropicTool debugConcept() {
+        return tool("debug_concept",
+                "DIAGNOSTIC. For one concept, dump (a) the raw navigation + axiom semantics straight from "
+                        + "the store under the standard patterns, (b) what THIS view's calculator returns, and "
+                        + "(c) the view's coordinate. Use when parents or axioms come back empty for a concept "
+                        + "visible in Komet's panels — it proves whether the data is missing or this view's "
+                        + "coordinate is wrong (e.g. the assistant is on the default view, not the journal view).",
+                idSchema(),
+                in -> {
+                    ViewCalculator v = view();
+                    if (v == null) {
+                        return NO_VIEW;
+                    }
+                    int nid = resolve(str(in, "id"), v);
+                    if (nid == NONE) {
+                        return notFound(str(in, "id"));
+                    }
+                    EntityService es = EntityService.get();
+                    StringBuilder sb = new StringBuilder(nameAndId(v, nid)).append("\n\n");
+
+                    int[] rawInfNav = es.semanticNidsForComponentOfPattern(
+                            nid, TinkarTerm.INFERRED_NAVIGATION_PATTERN.nid());
+                    int[] rawStaNav = es.semanticNidsForComponentOfPattern(
+                            nid, TinkarTerm.STATED_NAVIGATION_PATTERN.nid());
+                    int[] rawInfAx = es.semanticNidsForComponentOfPattern(
+                            nid, TinkarTerm.EL_PLUS_PLUS_INFERRED_AXIOMS_PATTERN.nid());
+                    int[] rawStaAx = es.semanticNidsForComponentOfPattern(
+                            nid, TinkarTerm.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN.nid());
+                    sb.append("RAW store semantics (no view filter):\n")
+                            .append("  inferred-nav: ").append(rawInfNav.length).append('\n')
+                            .append("  stated-nav: ").append(rawStaNav.length).append('\n')
+                            .append("  inferred-axiom: ").append(rawInfAx.length).append('\n')
+                            .append("  stated-axiom: ").append(rawStaAx.length).append('\n');
+                    if (rawInfNav.length > 0) {
+                        Latest<SemanticEntityVersion> latest = v.stampCalculator().latest(rawInfNav[0]);
+                        sb.append("  inferred-nav[0] latest present under THIS view's STAMP? ")
+                                .append(latest.isPresent()).append('\n');
+                    }
+
+                    int parents = v.parentsOf(nid).size();
+                    Latest<DiTreeEntity> infAx = v.logicCalculator()
+                            .getInferredLogicalExpressionForEntity(nid, v.stampCalculator());
+                    Latest<DiTreeEntity> staAx = v.logicCalculator()
+                            .getStatedLogicalExpressionForEntity(nid, v.stampCalculator());
+                    sb.append("\nTHIS view's calculator returns:\n")
+                            .append("  parents: ").append(parents).append('\n')
+                            .append("  inferred axioms present: ").append(infAx.isPresent()).append('\n')
+                            .append("  stated axioms present: ").append(staAx.isPresent()).append('\n');
+
+                    ViewCoordinateRecord vc = v.viewCoordinateRecord();
+                    sb.append("\nView coordinate:\n");
+                    try {
+                        sb.append(vc.toUserString()).append('\n');
+                    } catch (RuntimeException e) {
+                        sb.append(vc).append('\n');
+                    }
+
+                    sb.append("\nVERDICT: ");
+                    if ((rawInfNav.length > 0 && parents == 0) || (rawInfAx.length > 0 && !infAx.isPresent())) {
+                        sb.append("RAW DATA EXISTS BUT THIS VIEW RETURNS EMPTY — the tools are on the wrong view "
+                                + "coordinate (its STAMP path/module filter excludes the loaded data; likely the "
+                                + "DEFAULT view, not the journal view).");
+                    } else if (rawInfNav.length == 0 && rawInfAx.length == 0) {
+                        sb.append("No raw nav/axiom data under the standard patterns — data genuinely absent for "
+                                + "this concept.");
+                    } else {
+                        sb.append("This view matches the raw data — coordinate is correct.");
+                    }
+                    return sb.toString();
+                });
+    }
+
     private AnthropicTool search() {
         return tool("search",
                 "Full-text search concept descriptions (Lucene). Returns matching concepts with "
@@ -245,8 +329,14 @@ public final class GraphTools {
                         LinkedHashSet<Integer> seen = new LinkedHashSet<>();
                         StringBuilder sb = new StringBuilder();
                         for (PrimitiveDataSearchResult r : results) {
-                            if (seen.add(r.nid())) {
-                                sb.append("  - ").append(nameAndId(v, r.nid())).append('\n');
+                            // A full-text hit is a DESCRIPTION semantic (r.nid()); walk it up to the
+                            // concept it describes. Return (and de-duplicate by) the concept, never the
+                            // description, so the model grounds concepts — several matching descriptions
+                            // of one concept collapse to a single result.
+                            int conceptNid = toConceptNid(r.nid());
+                            // Active-only: never offer a retired concept as a grounding option (#739).
+                            if (conceptNid != 0 && isActive(v, conceptNid) && seen.add(conceptNid)) {
+                                sb.append("  - ").append(nameAndId(v, conceptNid)).append('\n');
                             }
                         }
                         if (seen.isEmpty()) {
@@ -319,10 +409,34 @@ public final class GraphTools {
                 return NONE;
             }
         }
-        int nid = EntityService.get().nidForPublicId(PublicIds.of(uuid));
+        int nid = toConceptNid(EntityService.get().nidForPublicId(PublicIds.of(uuid)));
         // A nid may be minted for an unknown id; treat "no name" as not present.
         if (v.getFullyQualifiedNameText(nid).isEmpty() && v.getDescriptionText(nid).isEmpty()) {
             return NONE;
+        }
+        return nid;
+    }
+
+    /**
+     * Canonicalizes a nid to the <strong>concept</strong> it identifies. A description (or any other
+     * semantic) walks up to the component it describes via
+     * {@link SemanticEntity#topEnclosingComponentNid()}; a concept is returned unchanged. Full-text
+     * search matches description semantics, and an identifier the model offers may be a description's —
+     * but a description is not a valid ANF slot filler and cannot be dropped onto a concept target, so
+     * every grounded slot must be the concept itself. This is the "a description walks up to its
+     * concept" rule applied at the grounding boundary.
+     *
+     * @param nid any component nid
+     * @return the concept nid (the nid itself when it is already a concept or cannot be resolved)
+     */
+    private static int toConceptNid(int nid) {
+        try {
+            Entity<?> entity = EntityHandle.getEntityOrThrow(nid);
+            if (entity instanceof SemanticEntity<?> semantic) {
+                return semantic.topEnclosingComponentNid();
+            }
+        } catch (RuntimeException ignored) {
+            // not resolvable as an entity; fall back to the nid as given
         }
         return nid;
     }
@@ -345,7 +459,26 @@ public final class GraphTools {
         if (nid == NONE) {
             return Optional.empty();
         }
+        // Active-only grounding: a retired concept must never ground into the ANF — the lift
+        // grounds to an ACTIVE concept or proposes a candidate (ike-issues#739).
+        if (!isActive(v, toConceptNid(nid))) {
+            return Optional.empty();
+        }
         return Optional.of(groundedOf(v, nid));
+    }
+
+    /**
+     * Whether a concept's latest version is active in this view — the gate for active-only
+     * grounding (ike-issues#739). Delegates to the existing
+     * {@link dev.ikm.tinkar.coordinate.stamp.calculator.StampCalculator#isLatestActive(int)}
+     * (which honours the view's stamp coordinate); not a reimplementation.
+     *
+     * @param v   the view calculator; {@code null} yields {@code false}
+     * @param nid the concept nid
+     * @return {@code true} if the concept's latest version is active
+     */
+    public static boolean isActive(ViewCalculator v, int nid) {
+        return v != null && v.stampCalculator().isLatestActive(nid);
     }
 
     /**
@@ -358,17 +491,61 @@ public final class GraphTools {
      * @return the grounded slot
      */
     public static AnfSlot.Grounded groundedOf(ViewCalculator v, int nid) {
-        String label = v.getFullyQualifiedNameText(nid)
-                .orElseGet(() -> v.getPreferredDescriptionTextWithFallbackOrNid(nid));
-        String sctid = sctidOf(v, nid);
+        int conceptNid = toConceptNid(nid);
+        String label = v.getFullyQualifiedNameText(conceptNid)
+                .orElseGet(() -> v.getPreferredDescriptionTextWithFallbackOrNid(conceptNid));
+        String sctid = sctidOf(v, conceptNid);
         String identifier;
         if (sctid != null) {
             identifier = sctid;
         } else {
-            UUID[] uuids = PrimitiveData.publicId(nid).asUuidArray();
-            identifier = uuids.length > 0 ? uuids[0].toString() : "nid=" + nid;
+            UUID[] uuids = PrimitiveData.publicId(conceptNid).asUuidArray();
+            identifier = uuids.length > 0 ? uuids[0].toString() : "nid=" + conceptNid;
         }
-        return new AnfSlot.Grounded(nid, identifier, label);
+        return new AnfSlot.Grounded(conceptNid, identifier, label);
+    }
+
+    /**
+     * Full-text searches concepts for an interactive type-ahead, returning concept-canonical grounded
+     * slots (description hits walk up to their concept, deduped). Reuses the same resolution the
+     * assistant's {@code search} tool does, so a typed field and the lift ground identically.
+     *
+     * @param query the search text
+     * @param v     the active view; null yields no results
+     * @param max   the maximum number of concepts to return
+     * @return the matching grounded concepts, in score order (never null)
+     */
+    public static List<AnfSlot.Grounded> searchConcepts(String query, ViewCalculator v, int max) {
+        if (v == null || query == null || query.isBlank() || max <= 0) {
+            return List.of();
+        }
+        List<AnfSlot.Grounded> rows = new java.util.ArrayList<>();
+        Searcher searcher = null;
+        try {
+            searcher = new Searcher();
+            PrimitiveDataSearchResult[] hits = searcher.search(query.trim(), max * 4);
+            LinkedHashSet<Integer> seen = new LinkedHashSet<>();
+            for (PrimitiveDataSearchResult hit : hits) {
+                int conceptNid = toConceptNid(hit.nid());
+                if (conceptNid != 0 && seen.add(conceptNid)) {
+                    rows.add(groundedOf(v, conceptNid));
+                    if (rows.size() >= max) {
+                        break;
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // search is best-effort for an interactive field; return what we have
+        } finally {
+            if (searcher != null) {
+                try {
+                    searcher.close();
+                } catch (Exception ignored) {
+                    // best-effort close of the Lucene reader
+                }
+            }
+        }
+        return rows;
     }
 
     /** Reports a discovered slot to the callback, never letting a callback error break a tool. */

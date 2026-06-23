@@ -29,6 +29,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
@@ -48,6 +50,12 @@ public final class AnfLift {
     private static final Logger LOG = LoggerFactory.getLogger(AnfLift.class);
 
     private static final int MAX_TOKENS = 8192;
+    /**
+     * Tool-use turn cap for a lift: higher than the interactive default because a compound
+     * narrative emits one statement per turn plus grounding turns. A backstop, not the normal
+     * stop — the model signals completion with {@code finish_lift}.
+     */
+    private static final int LIFT_MAX_TURNS = 40;
     private static final String SPEC_RESOURCE = "/network/ike/komet/claude/anf-lift-spec.md";
     private static final String FALLBACK_SYSTEM =
             "You lift a clinical narrative into Analysis Normal Form. Ground every clinical term with "
@@ -73,20 +81,30 @@ public final class AnfLift {
     }
 
     /**
-     * The outcome of a lift: the validated statement (or null if the model did not
-     * emit one) and the model's final text (a clarification, or an error message).
+     * The outcome of a lift: the validated statements in emit order (possibly several,
+     * possibly none), whether the lift was truncated at the tool-use turn cap (so the set may
+     * be incomplete), and the model's final text (a clarification or an error message).
      *
-     * @param statement     the grounded statement, or null
+     * @param statements    the grounded statements in emit order; never null (possibly empty)
+     * @param truncated     true if the lift stopped at the turn cap, so more statements may
+     *                      have been intended than were recorded
      * @param assistantText the model's final text
      */
-    public record Result(AnfStatement statement, String assistantText) {
+    public record Result(List<AnfStatement> statements, boolean truncated, String assistantText) {
         /**
-         * Whether a validated statement was produced.
+         * Validates and defensively copies the result.
+         */
+        public Result {
+            statements = (statements == null) ? List.of() : List.copyOf(statements);
+        }
+
+        /**
+         * Whether at least one validated statement was produced.
          *
-         * @return true if {@link #statement()} is non-null
+         * @return true if {@link #statements()} is non-empty
          */
         public boolean lifted() {
-            return statement != null;
+            return !statements.isEmpty();
         }
     }
 
@@ -112,6 +130,9 @@ public final class AnfLift {
      */
     public Result lift(String narrative, AnfLiftListener listener) {
         AnfLiftListener obs = (listener == null) ? AnfLiftListener.NOOP : listener;
+        List<AnfStatement> statements = new CopyOnWriteArrayList<>();
+        AtomicBoolean finished = new AtomicBoolean(false);
+        AtomicReference<String> stopReason = new AtomicReference<>("");
         int[] sums = new int[4];
         AnfLiftListener combined = new AnfLiftListener() {
             @Override
@@ -144,14 +165,26 @@ public final class AnfLift {
 
             @Override
             public void onSlotDiscovered(AnfSlot slot) {
+                if (slot instanceof AnfSlot.Grounded grounded) {
+                    LOG.info("ANF discovered nid={} id={} label={}",
+                            grounded.nid(), grounded.identifier(), grounded.label());
+                }
                 obs.onSlotDiscovered(slot);
             }
 
             @Override
-            public void onDone(String stopReason, int turns, long totalMillis) {
-                LOG.info("ANF done stop={} turns={} total_ms={} in_sum={} out_sum={} cache_read_sum={}",
-                        stopReason, turns, totalMillis, sums[0], sums[1], sums[2]);
-                obs.onDone(stopReason, turns, totalMillis);
+            public void onStatementEmitted(AnfStatement statement, int index) {
+                LOG.info("ANF statement index={} type={}", index, statement.statementType());
+                obs.onStatementEmitted(statement, index);
+            }
+
+            @Override
+            public void onDone(String reason, int turns, long totalMillis) {
+                stopReason.set(reason == null ? "" : reason);
+                LOG.info("ANF done stop={} turns={} statements={} total_ms={} in_sum={} out_sum={} "
+                                + "cache_read_sum={}",
+                        reason, turns, statements.size(), totalMillis, sums[0], sums[1], sums[2]);
+                obs.onDone(reason, turns, totalMillis);
             }
 
             @Override
@@ -163,23 +196,34 @@ public final class AnfLift {
         };
 
         Consumer<AnfSlot> onDiscovered = combined::onSlotDiscovered;
-        AtomicReference<AnfStatement> sink = new AtomicReference<>();
+        // The sink accumulates every emitted statement and de-duplicates structurally-equal
+        // ones (a duplicate emit is idempotent), fanning each newly-recorded statement out to
+        // the listener so the UI can render it as it lands.
+        AnfTools.StatementSink sink = statement -> {
+            if (statements.contains(statement)) {
+                return false;
+            }
+            statements.add(statement);
+            combined.onStatementEmitted(statement, statements.size() - 1);
+            return true;
+        };
         List<AnthropicTool> tools = new ArrayList<>(new GraphTools(() -> view, onDiscovered).tools());
         tools.add(AnfTools.emitAnf(() -> view, sink, onDiscovered));
+        tools.add(AnfTools.finishLift(() -> finished.set(true)));
 
-        AnthropicClient client = new AnthropicClient(apiKey, model, MAX_TOKENS);
+        AnthropicClient client = new AnthropicClient(apiKey, model, MAX_TOKENS, LIFT_MAX_TURNS);
         String text;
         try {
-            // Stop as soon as the statement is recorded — the model's closing turn after
-            // emit_anf is a discarded round-trip (~20% of wall-clock). This is correct while
-            // a lift yields ONE statement (single sink); a multi-statement lift will instead
-            // stop when the model itself is done.
-            text = client.ask(systemPrompt(), tools, List.of(), narrative, combined,
-                    () -> sink.get() != null);
+            // Stop when the model signals completion via finish_lift (a positive done-signal,
+            // distinct from the turn cap) rather than after the first emit — a lift now yields a
+            // SET of statements. The early-stop machinery is preserved; only the predicate changed
+            // from "a statement exists" to "the model says it is done".
+            text = client.ask(systemPrompt(), tools, List.of(), narrative, combined, finished::get);
         } catch (RuntimeException e) {
             text = "Lift failed: " + (e.getMessage() == null ? e.toString() : e.getMessage());
         }
-        return new Result(sink.get(), text);
+        boolean truncated = "max_turns".equals(stopReason.get());
+        return new Result(statements, truncated, text);
     }
 
     /** Loads the distilled ANF lift spec from the classpath, falling back inline. */

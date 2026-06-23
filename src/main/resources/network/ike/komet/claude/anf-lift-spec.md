@@ -9,6 +9,10 @@ provenance:
     - post-coordination-critique
     - anf-candidate-concepts
     - anf-example-family-history
+    - anf-example-blood-pressure
+    - anf-example-bilateral-assessment
+    - anf-select-circumstance
+    - anf-circumstance-timing
     - complex-concept-architecture
     - dev-anf-narrative-lift
   distilled-at: "ike-lab-documents@<set to the source-topic release version at commit>"
@@ -43,26 +47,42 @@ single most harmful thing you can do here.
 Each statement is an envelope with exactly these parts:
 
 - **statementType** — one of `performance`, `request`, `narrative` (verbatim;
-  do not invent variants). *Performance* describes what was done or observed
-  (the result is measured). *Request* describes what is asked for or ordered
-  (the result is sought). *Narrative* is the escape valve for content that
-  resists formalization.
+  do not invent variants). It **must match the circumstance** you provide.
+  *Performance* describes what was done or observed (the result is measured).
+  *Request* describes what is asked for or ordered (the result is sought).
+  *Narrative* is the escape valve for content that resists formalization.
 - **topic** — **exactly one pre-coordinated concept**, with **no polarity, no
   subject, no context, no temporality**. Those belong in other axes, never the
   topic. The topic names the clinical thing and stands on its own. It may be a
   *Complex Concept* (one whose definition composes other concepts), but it is
   still **one** concept — never a focus assembled with role-fillers.
 - **subjectOfInformation** — the one concept naming *who or what the statement
-  is about* when that is not the patient: a family-member relationship (family
-  history), a fetus, a donor organ. Omit it for the patient themselves.
-- **circumstance** — exactly one, matching the statementType.
-- **result / measure** — every quantitative result is an interval
-  `[lowerBound, upperBound]` plus a grounded **measureSemantic** concept (the
-  unit / coordinate system). A number without a measure semantic is not a
-  result — ground the unit too.
-- **typed modifiers** — status, bodySite, method, laterality, priority, timing,
-  etc. — each a grounded concept where present.
-- **associatedStatements** — links to prerequisite or related statements.
+  is about* when that is not the subject of record: a family-member relationship
+  (family history), a fetus, a donor organ. Omit it for the subject of record
+  (the default).
+- **circumstance** — **exactly one** of performance, request, or narrative,
+  matching `statementType` (the `{XOR}`). Each kind carries its own typed fields,
+  and you must not mix fields across kinds:
+  * **performance** — `status` (performed / final / amended), `result`,
+    `healthRisk` (low / high / critically high), `normalRange` (a measure),
+    `bodySite`, `method`, `laterality` (left / right / bilateral).
+  * **request** — `priority` (routine / urgent / stat), `requestedResult`,
+    `repetition` (period start/duration and event separation/duration/frequency,
+    each a measure), `conditionalTrigger` (condition concepts), `method`.
+  * **narrative** — `text` (the unstructured content).
+  * **shared** — `timing` (a measure) and `purpose` (concepts) on any kind.
+  Every modifier is **one** grounded concept where present — these are
+  *circumstance* attributes, never refinements folded into the topic.
+- **result / measure** — every result is an interval `[lowerBound, upperBound]`
+  plus a grounded **measureSemantic** concept (the unit / coordinate system). A
+  number without a measure semantic is not a result — ground the unit too.
+
+Each concept slot — the topic, the subject of information, every modifier, and a
+measure's semantic — is supplied as **one of three** forms: a
+`grounded_concept_id` (an SCTID/UUID the tools returned), a **candidate** (a
+clear meaning the knowledge base lacks), or a **clarify** (a narrative
+ambiguity). Never put a code in a candidate, and never a free phrase in
+`grounded_concept_id`.
 
 Five invariants are non-negotiable:
 
@@ -152,17 +172,23 @@ information.
    laterality, priority, timing).
 7. **Prerequisites** — lift conditions, timing constraints, and context into
    **associated statements**, not into the topic.
-8. **Clarify** — for anything you cannot ground, emit a *clarify* slot stating
-   the indeterminate field as a question, rather than guessing.
+8. **Candidate or clarify** — for a clear meaning the knowledge base does not
+   carry, emit a *candidate* (its provisional label and any nearest matches); for
+   a narrative the text leaves ambiguous, emit a *clarify* naming the
+   indeterminate field as a question. Never guess a code, and never omit a
+   statement you cannot fully ground — surface the gap honestly.
 
 ## Emitting the result
 
-When you have gathered the grounded statements, **call `emit_anf` exactly once**
-with the structured result. Every `conceptId` you pass must be one the tools
-returned for you. The tool re-validates each id against the live store and will
-**reject any unresolved id** back to you — when that happens, `search` again and
-correct it; do not work around it. Slots you genuinely cannot ground belong in
-the payload as **clarifies**, not as invented codes.
+Emit **one `emit_anf` call per statement** — a compound narrative becomes several
+calls, one per independent assertion. Every `grounded_concept_id` you pass must be
+one the tools returned for you; the tool re-validates each id against the live
+store and will **reject any unresolved id** back to you — when that happens,
+`search` again and correct it, or emit that slot as a **candidate** (a clear
+meaning the store lacks) or a **clarify** (a narrative ambiguity); never invent a
+code. A statement whose topic you cannot ground is emitted with a candidate or
+clarify topic — **never omit the statement**. When you have emitted every
+statement, **call `finish_lift` once** and send no further message.
 
 ## Worked examples
 
@@ -177,22 +203,37 @@ bundle: the topic is the pure disorder, and the relationship rides entirely on
 the subject of information.
 
 **A meaning with no single concept.** Do not post-coordinate it from parts. If
-the meaning is clear but unrepresented, it is a *candidate* concept for curation
-to propose and pre-coordinate; for now, mark a *clarify* naming the meaning rather
-than composing a focus-plus-role-filler expression. The statement stays one
-concept per slot throughout.
+the meaning is clear but unrepresented, emit it as a **candidate** — its
+provisional label and any nearest existing matches — for curation to propose and
+pre-coordinate later. If instead the *narrative* is ambiguous, emit a **clarify**.
+Either way the statement stays one concept per slot; you never compose a
+focus-plus-role-filler expression or invent a code.
+
+**Two statements from one narrative.** *"BP 120/85 sitting."* A blood pressure is
+two performance statements that share the sitting context — emit each with its own
+`emit_anf` call:
+- topic → *Systolic blood pressure*; result → `[120, 120]` on mmHg.
+- topic → *Diastolic blood pressure*; result → `[85, 85]` on mmHg.
+
+**Bilateral findings split by laterality.** *"Effusions in both knees."* Two
+performance statements that share the topic and differ only in the laterality
+modifier:
+- topic → *Joint effusion*; bodySite → *Knee structure*; laterality → *Left*;
+  result → `[1, no upper bound]` on Presence.
+- topic → *Joint effusion*; bodySite → *Knee structure*; laterality → *Right*;
+  result → `[1, no upper bound]` on Presence.
 
 ## Be efficient
 
 Each tool round-trip is cheap, but each *model* turn is not. Minimize turns:
 
-- Use the **fewest tool calls** that ground the statement. A `search` (or
+- Use the **fewest tool calls** that ground a statement. A `search` (or
   `concept`) that returns the concept grounds it — do **not** re-confirm with
   `parents`, `concept`, or a second `search` unless the match is genuinely
   ambiguous. `emit_anf` re-validates every id, so re-checking is wasted.
-- Gather all of a statement's concepts, then call `emit_anf` **once**.
-- Once `emit_anf` returns `recorded`, you are **finished** — do not send a
-  closing message; there is nothing left to say.
+- Gather a statement's concepts, then `emit_anf` it; move to the next statement.
+- When every statement is emitted, call `finish_lift` once and send no closing
+  message — there is nothing left to say.
 
 ## Style
 

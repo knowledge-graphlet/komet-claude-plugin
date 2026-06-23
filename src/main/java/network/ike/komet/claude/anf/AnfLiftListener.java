@@ -30,13 +30,25 @@ import network.ike.komet.claude.anthropic.AskListener;
 public interface AnfLiftListener extends AskListener {
 
     /**
-     * Fired when the lift grounds (or, later, proposes) a slot — as the model confirms
-     * a concept with the {@code concept} tool, and as {@code emit_anf} validates the
-     * final statement.
+     * Fired when the lift grounds, proposes, or surfaces a slot — as the model confirms a
+     * concept with the {@code concept} tool, and as {@code emit_anf} validates a statement.
+     * The slot may be a {@link AnfSlot.Grounded}, an {@link AnfSlot.Candidate}, or an
+     * {@link AnfSlot.Clarify}.
      *
-     * @param slot the discovered slot (always a {@link AnfSlot.Grounded} in Demo 0)
+     * @param slot the discovered slot
      */
     default void onSlotDiscovered(AnfSlot slot) {
+    }
+
+    /**
+     * Fired when {@code emit_anf} validates and records one statement of a multi-statement
+     * lift, so a streaming UI can render statement {@code #index} as it lands rather than only
+     * when the whole lift completes.
+     *
+     * @param statement the validated statement
+     * @param index     its zero-based position in the lift's statement list
+     */
+    default void onStatementEmitted(AnfStatement statement, int index) {
     }
 
     /** The do-nothing lift listener. */
