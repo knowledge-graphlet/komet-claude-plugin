@@ -16,6 +16,7 @@
 package network.ike.komet.claude.ui;
 
 import dev.ikm.komet.framework.Identicon;
+import dev.ikm.komet.framework.dnd.KonceptDragSource;
 import dev.ikm.komet.markdown.richtext.InlineDecorator;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
@@ -194,6 +195,10 @@ final class ConceptChipInlineDecorator implements InlineDecorator {
             chip.setAlignment(Pos.CENTER_LEFT);
             chip.setSpacing(3);
             chip.setStyle(CHIP_STYLE);
+
+            // A transcript chip is a concept drag source, like every other identicon-bearing chip:
+            // the cursor sits just right of the identicon on the drag image's bottom border (#736).
+            KonceptDragSource.install(chip, nid);
 
             StringBuilder tip = new StringBuilder();
             if (inactive) {

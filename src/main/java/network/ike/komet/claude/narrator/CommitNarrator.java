@@ -28,7 +28,7 @@ import dev.ikm.tinkar.events.EvtBus;
 import dev.ikm.tinkar.events.EvtBusFactory;
 import dev.ikm.tinkar.events.FrameworkTopics;
 import dev.ikm.tinkar.events.Subscriber;
-import network.ike.komet.claude.ClaudeAssistantArea;
+import network.ike.komet.claude.ClaudeCard;
 import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.tools.GraphTools;
 import org.slf4j.Logger;
@@ -90,12 +90,12 @@ public final class CommitNarrator {
     }
 
     private static String apiKey() {
-        return PreferencesService.userPreferences().get(ClaudeAssistantArea.PREF_API_KEY, "");
+        return PreferencesService.userPreferences().get(ClaudeCard.PREF_API_KEY, "");
     }
 
     private static String model() {
         return PreferencesService.userPreferences()
-                .get(ClaudeAssistantArea.PREF_MODEL, AnthropicClient.DEFAULT_MODEL);
+                .get(ClaudeCard.PREF_MODEL, AnthropicClient.DEFAULT_MODEL);
     }
 
     /** Subscribes the narrator to commit events. */

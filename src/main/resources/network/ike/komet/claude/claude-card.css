@@ -1,0 +1,31 @@
+/*
+ * Claude Assistant card theme: re-skins the shared knowledge-layout card chrome
+ * (dynamic-card.css, #34465f) in Anthropic coral. The .claude-card descendant
+ * selectors out-specify the base rules; this stylesheet is loaded after it.
+ */
+
+.claude-card .dynamic-card-tab {
+    -fx-background-color: #d97757;
+    -fx-border-color: #d97757;
+}
+
+.claude-card .dynamic-card-toolbar {
+    -fx-background-color: #d97757;
+}
+
+.claude-card .dynamic-card-body {
+    -fx-border-color: #d97757;
+}
+
+/* Assistant controls in the card toolbar — translucent-white on the coral bar. */
+.claude-card-toolbar-button {
+    -fx-background-color: rgba(255, 255, 255, 0.20);
+    -fx-text-fill: white;
+    -fx-background-radius: 4;
+    -fx-font-weight: bold;
+    -fx-padding: 3 8;
+}
+
+.claude-card-toolbar-button:hover {
+    -fx-background-color: rgba(255, 255, 255, 0.32);
+}
