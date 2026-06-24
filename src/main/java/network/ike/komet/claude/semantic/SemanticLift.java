@@ -23,8 +23,6 @@ import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.anthropic.AskListener;
 import network.ike.komet.claude.tools.GraphTools;
 
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -51,16 +49,6 @@ public final class SemanticLift {
     private static final int MAX_TOKENS = 8192;
     /** Tool-use turn cap: a backstop, not the normal stop — the model signals completion with {@code finish_semantic}. */
     private static final int LIFT_MAX_TURNS = 40;
-    private static final String INVARIANTS_RESOURCE = "/network/ike/komet/claude/semantic-lift-invariants.md";
-    private static final String GUIDANCE_RESOURCE = "/network/ike/komet/claude/semantic-lift-guidance.md";
-    private static final String FALLBACK_INVARIANTS =
-            "You build a structured semantic for a pattern by grounding a request against the open "
-            + "knowledge base. Produce it ONLY by calling emit_semantic. Never invent an identifier; every "
-            + "component reference must be one the tools returned, and emit_semantic rejects any that does "
-            + "not resolve. Honor each field's datatype. You are read-only.";
-    private static final String FALLBACK_GUIDANCE =
-            "Work field by field, using each field's meaning, purpose, and datatype to decide what belongs "
-            + "there. Fill the fields the request supports; leave the others empty.";
 
     private final ViewCalculator view;
     private final String apiKey;
@@ -209,22 +197,15 @@ public final class SemanticLift {
         return new Result(instances, truncated, text);
     }
 
-    /** Assembles the three-layer system prompt: fixed invariants, editable guidance, field digest. */
+    /**
+     * Assembles the three-layer system prompt from the shared {@link SemanticPrompts}: the fixed
+     * invariants, the user-editable general guidance (override or default), and the computed field
+     * digest. Sharing {@code SemanticPrompts} is what makes the tile's edited guidance take effect
+     * in a lift.
+     */
     private static String systemPrompt(PatternFields fields) {
-        return loadResource(INVARIANTS_RESOURCE, FALLBACK_INVARIANTS)
-                + "\n\n" + loadResource(GUIDANCE_RESOURCE, FALLBACK_GUIDANCE)
+        return SemanticPrompts.invariants()
+                + "\n\n" + SemanticPrompts.effectiveGuidance()
                 + "\n\n" + fields.digest();
-    }
-
-    /** Loads a classpath resource as UTF-8, falling back to an inline default. */
-    private static String loadResource(String resource, String fallback) {
-        try (InputStream in = SemanticLift.class.getResourceAsStream(resource)) {
-            if (in != null) {
-                return new String(in.readAllBytes(), StandardCharsets.UTF_8);
-            }
-        } catch (Exception ignored) {
-            // fall through to the inline fallback
-        }
-        return fallback;
     }
 }

@@ -116,6 +116,25 @@ public final class MarkdownRichText {
         return new MarkdownStyledModel(paragraphs, plain);
     }
 
+    /**
+     * Renders a single Markdown string to a view-only model <em>without</em> a role label — for a
+     * standalone document such as a prompt pane, rather than a labelled transcript turn. Concept
+     * chips still apply where the text carries identifiers, via the same shared renderer.
+     *
+     * @param markdown the Markdown source (null is treated as empty)
+     * @return a model suitable for {@code RichTextArea.setModel(...)}
+     */
+    public StyledTextModel renderMarkdown(String markdown) {
+        List<RichParagraph> paragraphs = new ArrayList<>();
+        List<String> plain = new ArrayList<>();
+        renderer.render(markdown == null ? "" : markdown,
+                StyleAttributeMap.builder().setFontSize(base).build(), paragraphs, plain);
+        if (paragraphs.isEmpty()) {
+            return MarkdownStyledModel.empty();
+        }
+        return new MarkdownStyledModel(paragraphs, plain);
+    }
+
     private StyleAttributeMap baseStyle(Role role) {
         StyleAttributeMap.Builder b = StyleAttributeMap.builder().setFontSize(base);
         if (role == Role.ERROR) {

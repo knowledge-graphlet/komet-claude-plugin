@@ -90,6 +90,9 @@ module komet.claude {
     // ServiceLoader, so the package must be exported for that access to be legal —
     // exactly as network.ike.komet.claude is for the other area factories.
     exports network.ike.komet.claude.anf;
+    // The Semantic Lift area lives here; exported for the same reflective Factory instantiation
+    // the layout engine's SupplementalAreaRenderer uses (as for network.ike.komet.claude.anf).
+    exports network.ike.komet.claude.semantic;
 
     // The vendored json4j (Json) discovers optional Serializer/Deserializer providers via
     // ServiceLoader in its static initializer; in a named module that REQUIRES a matching
@@ -108,17 +111,20 @@ module komet.claude {
     provides dev.ikm.komet.layout.KlArea.Factory
             with network.ike.komet.claude.ClaudeCheckArea.Factory,
                  network.ike.komet.claude.ChatArea.Factory,
-                 network.ike.komet.claude.anf.AnfArea.Factory;
+                 network.ike.komet.claude.anf.AnfArea.Factory,
+                 network.ike.komet.claude.semantic.SemanticLiftArea.Factory;
     // Placeable supplemental areas surfaced in the knowledge-layout editor's "Controls" palette.
     provides dev.ikm.komet.layout.area.KlSupplementalArea.Factory
             with network.ike.komet.claude.ClaudeCheckArea.Factory,
                  network.ike.komet.claude.ChatArea.Factory,
-                 network.ike.komet.claude.anf.AnfArea.Factory;
+                 network.ike.komet.claude.anf.AnfArea.Factory,
+                 network.ike.komet.claude.semantic.SemanticLiftArea.Factory;
     // Standalone tool areas summoned from the Journal "+" (add) menu, with NO entity focus:
     // the ANF narrative lift. Hosted in a generic ToolCard — no entity badge, no
     // "No concept in focus" chrome.
     provides dev.ikm.komet.layout.area.KlToolArea.Factory
-            with network.ike.komet.claude.anf.AnfArea.Factory;
+            with network.ike.komet.claude.anf.AnfArea.Factory,
+                 network.ike.komet.claude.semantic.SemanticLiftArea.Factory;
 
     // Plugin-contributed Evrete rules (discovered by EvreteRulesService via the
     // RuleProvider SPI): a "Post state + history to Zulip" component-focus rule.
