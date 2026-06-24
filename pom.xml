@@ -59,6 +59,10 @@
         <!-- Main-line Komet BOM; manages komet module + tinkar versions.
              Matches ike-komet-wsr on main. -->
         <komet-bom.version>3.0.7-view-options-popup-SNAPSHOT</komet-bom.version>
+        <!-- Tinkar starter dataset for the integration (*IT) grounding suite, loaded into an
+             ephemeral store. Pinned to the version komet/framework uses (komet/pom.xml); ike-parent
+             does not manage it. -->
+        <tinkar-starter-data.version>1.1.2</tinkar-starter-data.version>
     </properties>
 
     <dependencyManagement>
@@ -85,6 +89,28 @@
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-engine</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Integration-test datastore providers: the *IT grounding suite loads the Tinkar starter
+             data into an ephemeral store and grounds against real components (the coordinate/
+             grounding testing discipline). The providers ship only module-info `provides` (no
+             META-INF/services), so the *IT classpath run (the parent runs tests with
+             useModulePath=false) discovers them via the legacy META-INF/services files in
+             src/test/resources. Mirrors complex-clause-plugin's classpath IT setup. -->
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>data-ephemeral-provider</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>entity-provider</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>executor-provider</artifactId>
             <scope>test</scope>
         </dependency>
 
@@ -174,6 +200,71 @@
                 <configuration>
                     <parameters>true</parameters>
                 </configuration>
+            </plugin>
+
+            <!-- Copy the Tinkar starter dataset into target/data so the *IT grounding suite can
+                 load it into an ephemeral store (the same artifact + stripped layout komet/framework
+                 uses: target/data/tinkar-starter-data-reasoned-pb.zip). -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>copy-starter-data</id>
+                        <phase>process-test-resources</phase>
+                        <goals>
+                            <goal>copy</goal>
+                        </goals>
+                        <configuration>
+                            <artifactItems>
+                                <artifactItem>
+                                    <groupId>dev.ikm.data.tinkar</groupId>
+                                    <artifactId>tinkar-starter-data</artifactId>
+                                    <version>${tinkar-starter-data.version}</version>
+                                    <classifier>reasoned-pb</classifier>
+                                    <type>zip</type>
+                                    <overWrite>false</overWrite>
+                                    <outputDirectory>${project.build.directory}/data</outputDirectory>
+                                </artifactItem>
+                            </artifactItems>
+                            <stripVersion>true</stripVersion>
+                            <outputDirectory>${project.build.directory}/data</outputDirectory>
+                            <overWriteReleases>false</overWriteReleases>
+                            <overWriteSnapshots>true</overWriteSnapshots>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Failsafe runs the *IT integration suite (datastore-backed grounding, and the
+                 API-key-gated live lift). Bound here because ike-parent declares failsafe only in
+                 pluginManagement. Explicit argLine (preview + java.base opens, no @{failsafeArgLine},
+                 which the plugin's jacoco setup does not define); useModulePath=false and forkCount
+                 are inherited from the parent. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                        <configuration>
+                            <includes>
+                                <include>**/*IT.java</include>
+                            </includes>
+                            <argLine>
+                                --enable-preview
+                                --enable-native-access=ALL-UNNAMED
+                                --add-opens java.base/java.lang=ALL-UNNAMED
+                                --add-opens java.base/java.util=ALL-UNNAMED
+                                --add-opens java.base/java.lang.reflect=ALL-UNNAMED
+                                --add-opens java.base/java.io=ALL-UNNAMED
+                            </argLine>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>
