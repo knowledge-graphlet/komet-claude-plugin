@@ -58,7 +58,7 @@
     <properties>
         <!-- Main-line Komet BOM; manages komet module + tinkar versions.
              Matches ike-komet-wsr on main. -->
-        <komet-bom.version>3.0.7-SNAPSHOT</komet-bom.version>
+        <komet-bom.version>3.0.7-issue-22-SNAPSHOT</komet-bom.version>
         <!-- Tinkar starter dataset for the integration (*IT) grounding suite, loaded into an
              ephemeral store. Pinned to the version komet/framework uses (komet/pom.xml); ike-parent
              does not manage it. -->
