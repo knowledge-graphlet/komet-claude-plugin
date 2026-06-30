@@ -18,6 +18,7 @@ package network.ike.komet.claude.ui;
 import dev.ikm.komet.framework.Identicon;
 import dev.ikm.komet.framework.dnd.KonceptDragSource;
 import dev.ikm.komet.markdown.richtext.InlineDecorator;
+import dev.ikm.komet.markdown.richtext.InlinePiece;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
@@ -28,9 +29,10 @@ import javafx.scene.control.Tooltip;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.HBox;
 import javafx.scene.paint.Color;
-import jfx.incubator.scene.control.richtext.model.RichParagraph;
 import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.regex.Matcher;
@@ -78,39 +80,40 @@ final class ConceptChipInlineDecorator implements InlineDecorator {
     }
 
     /**
-     * Emits {@code text}, keeping each matched identifier inline (so the digits the user asked
-     * for stay visible) and following each resolved identifier with its concept chip.
+     * Decomposes {@code text} into pieces, keeping each matched identifier inline (so the digits
+     * the user asked for stay visible) as a text piece and following each resolved identifier with
+     * its concept chip as a node piece. Returning pieces (rather than writing into a paragraph
+     * builder) is what lets the chips render inside table cells as well as in flowing text.
      */
     @Override
-    public void emit(RichParagraph.Builder b, String text, StyleAttributeMap style) {
+    public List<InlinePiece> decorate(String text, StyleAttributeMap style) {
         if (text == null || text.isEmpty()) {
-            return;
+            return List.of();
         }
+        List<InlinePiece> pieces = new ArrayList<>();
         Matcher m = TOKEN.matcher(text);
         int last = 0;
         while (m.find()) {
             // Text up to and including the identifier (the id stays visible).
-            addSegment(b, text.substring(last, m.end()), style);
+            addText(pieces, text.substring(last, m.end()), style);
             PublicId id = resolve(m);
             if (id != null) {
                 String sctid = m.group(3);
-                b.addInlineNode(() -> conceptChip(id, sctid));
+                // The id itself is already in the preceding text piece, so the chip's plain-text
+                // projection is empty to avoid duplicating it on copy.
+                pieces.add(new InlinePiece.NodeRun(() -> conceptChip(id, sctid), ""));
             }
             last = m.end();
         }
         if (last < text.length()) {
-            addSegment(b, text.substring(last), style);
+            addText(pieces, text.substring(last), style);
         }
+        return pieces;
     }
 
-    private static void addSegment(RichParagraph.Builder b, String text, StyleAttributeMap style) {
-        if (text.isEmpty()) {
-            return;
-        }
-        if (style == null || style.isEmpty()) {
-            b.addSegment(text);
-        } else {
-            b.addSegment(text, style);
+    private static void addText(List<InlinePiece> pieces, String text, StyleAttributeMap style) {
+        if (!text.isEmpty()) {
+            pieces.add(new InlinePiece.TextRun(text, style));
         }
     }
 
