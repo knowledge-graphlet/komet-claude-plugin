@@ -63,6 +63,22 @@ import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import javafx.stage.Window;
 import jfx.incubator.scene.control.richtext.RichTextArea;
+import jfx.incubator.scene.control.richtext.TextPos;
+import jfx.incubator.scene.control.richtext.model.StyledTextModel;
+import javafx.scene.control.TextArea;
+import javafx.scene.input.DataFormat;
+import javafx.scene.input.DragEvent;
+import javafx.scene.input.Dragboard;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
+import javafx.scene.input.TransferMode;
+import dev.ikm.komet.framework.dnd.KometClipboard;
+import dev.ikm.komet.markdown.richtext.RichTextSearch;
+import dev.ikm.tinkar.common.service.PrimitiveData;
+import java.util.HashMap;
+import java.util.OptionalInt;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.anthropic.AskListener;
@@ -136,9 +152,22 @@ public final class ClaudeCard extends AbstractHostCard {
     private StringBuilder transcriptMarkdown;
 
     private RichTextArea transcript;
-    private TextField input;
+    private TextArea input;
     private Button sendButton;
+    private BorderPane content;
     private Label statusLabel;
+
+    // Find-in-conversation state (🔍 / Cmd-Ctrl+F), over the transcript.
+    private HBox findBar;
+    private TextField findField;
+    private Label findCount;
+    private List<RichTextSearch.Match> matches = List.of();
+    private int matchPos = -1;
+
+    // Concept-drop tokens: a dropped Koncept inserts «name» at the caret; the token maps to its
+    // component nid, resolved to the concept UUID on send so the transcript renders the real chip.
+    private final Map<String, Integer> tokenToNid = new HashMap<>();
+    private static final Pattern CONCEPT_TOKEN = Pattern.compile("«([^«»]*)»");
     private Button retryButton;
     /** 1 Hz tick that advances the elapsed clock in the status strip while a request is in flight. */
     private Timeline statusTimer;
@@ -290,14 +319,31 @@ public final class ClaudeCard extends AbstractHostCard {
         transcript.setEditable(false);
         transcript.setWrapText(true);
 
-        input = new TextField();
-        input.setPromptText("Ask about the concepts in your open knowledge base…");
-        input.setOnAction(e -> onSend());
+        input = new TextArea();
+        input.setPromptText("Ask about the concepts in your open knowledge base… (drop a concept to insert it)");
+        input.setWrapText(true);
+        input.setPrefRowCount(2);
+        input.setPrefHeight(56);
+        input.setMaxHeight(160);
+        // Enter sends; Shift+Enter inserts a newline (the input is multi-line and accepts concept drops).
+        input.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            if (e.getCode() == KeyCode.ENTER && !e.isShiftDown()) {
+                onSend();
+                e.consume();
+            }
+        });
+        installConceptDrop(input);
         HBox.setHgrow(input, Priority.ALWAYS);
+
         sendButton = new Button("Send");
-        sendButton.setDefaultButton(true);
         sendButton.setOnAction(e -> onSend());
-        HBox inputBar = new HBox(6, input, sendButton);
+
+        Button findButton = new Button("🔍");
+        findButton.setTooltip(new Tooltip("Find in conversation (⌘F)"));
+        findButton.setOnAction(e -> toggleFind());
+
+        HBox inputBar = new HBox(6, findButton, input, sendButton);
+        inputBar.setAlignment(Pos.BOTTOM_LEFT);
         inputBar.setPadding(new Insets(6));
 
         // Status strip: transient transport state (working / tool / retrying / elapsed / done / failed)
@@ -369,10 +415,18 @@ public final class ClaudeCard extends AbstractHostCard {
         split = new SplitPane(transcript);
         SplitPane.setResizableWithParent(conversationRail, Boolean.FALSE);
 
-        BorderPane content = new BorderPane();
+        content = new BorderPane();
         content.setCenter(split);
         content.setBottom(bottom);
         content.setPrefSize(900, 680);
+        buildFindBar();
+        // Cmd/Ctrl+F opens the transcript find bar.
+        content.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            if (e.isShortcutDown() && e.getCode() == KeyCode.F) {
+                showFind();
+                e.consume();
+            }
+        });
         setCardContent(content);
 
         setRailVisible(railVisible);
@@ -404,6 +458,192 @@ public final class ClaudeCard extends AbstractHostCard {
             vc = null;
         }
         transcript.setModel(new MarkdownRichText(vc, baseFontSize).toModel(entries));
+        if (findBar != null && content != null && content.getTop() == findBar) {
+            updateMatches();
+        }
+    }
+
+    /*******************************************************************************
+     *  Concept drop + Find                                                        *
+     ******************************************************************************/
+
+    /** The composed message: input text with each «name» concept token replaced by the concept's
+     *  UUID, so the assistant grounds it and the transcript renders the chip inline. */
+    private String composeMessage() {
+        String raw = input.getText() == null ? "" : input.getText();
+        Matcher m = CONCEPT_TOKEN.matcher(raw);
+        StringBuilder sb = new StringBuilder();
+        while (m.find()) {
+            Integer nid = tokenToNid.get(m.group());
+            String replacement = (nid != null) ? (" " + uuidToken(nid) + " ") : m.group();
+            m.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+        }
+        m.appendTail(sb);
+        return sb.toString().trim();
+    }
+
+    private static String uuidToken(int nid) {
+        try {
+            return PrimitiveData.publicId(nid).asUuidArray()[0].toString();
+        } catch (RuntimeException e) {
+            return "nid=" + nid;
+        }
+    }
+
+    private void installConceptDrop(TextArea area) {
+        // Filters run before the TextArea's own drag handling, so a concept drop inserts a token
+        // instead of the dragboard's plain-text PublicId being typed in.
+        area.addEventFilter(DragEvent.DRAG_OVER, e -> {
+            if (hasConcept(e.getDragboard())) {
+                e.acceptTransferModes(TransferMode.COPY);
+                e.consume();
+            }
+        });
+        area.addEventFilter(DragEvent.DRAG_DROPPED, e -> {
+            if (!hasConcept(e.getDragboard())) {
+                return;
+            }
+            OptionalInt nid = KometClipboard.conceptNid(e.getDragboard());
+            if (nid.isEmpty()) {
+                nid = KometClipboard.entityNidFrom(e.getDragboard());
+            }
+            if (nid.isPresent()) {
+                insertConceptToken(nid.getAsInt());
+                e.setDropCompleted(true);
+            }
+            e.consume();
+        });
+    }
+
+    private static boolean hasConcept(Dragboard dragboard) {
+        for (DataFormat format : KometClipboard.CONCEPT_TYPES) {
+            if (dragboard.hasContent(format)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void insertConceptToken(int nid) {
+        String token = "«" + conceptName(nid) + "»";
+        tokenToNid.put(token, nid);
+        int pos = input.getCaretPosition();
+        input.insertText(pos, token);
+        input.requestFocus();
+    }
+
+    private String conceptName(int nid) {
+        try {
+            ViewCalculator vc = viewCalculator();
+            if (vc != null) {
+                return vc.getFullyQualifiedNameText(nid)
+                        .orElseGet(() -> vc.getPreferredDescriptionTextWithFallbackOrNid(nid));
+            }
+        } catch (RuntimeException e) {
+            // No usable view — fall back to the nid marker.
+        }
+        return "nid=" + nid;
+    }
+
+    private void buildFindBar() {
+        findField = new TextField();
+        findField.setPromptText("Find in conversation…");
+        HBox.setHgrow(findField, Priority.ALWAYS);
+        findCount = new Label("");
+
+        Button prev = new Button("▲");
+        Button next = new Button("▼");
+        Button close = new Button("✕");
+        prev.setOnAction(e -> step(-1));
+        next.setOnAction(e -> step(1));
+        close.setOnAction(e -> hideFind());
+
+        findField.textProperty().addListener((obs, old, val) -> updateMatches());
+        findField.setOnAction(e -> step(1));
+        findField.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ESCAPE) {
+                hideFind();
+                e.consume();
+            } else if (e.getCode() == KeyCode.ENTER && e.isShiftDown()) {
+                step(-1);
+                e.consume();
+            }
+        });
+
+        findBar = new HBox(6, findField, findCount, prev, next, close);
+        findBar.setAlignment(Pos.CENTER_LEFT);
+        findBar.setPadding(new Insets(6));
+    }
+
+    /** Toggles the find bar (the 🔍 button); mirror of Cmd/Ctrl+F. */
+    private void toggleFind() {
+        if (content != null && content.getTop() == findBar) {
+            hideFind();
+        } else {
+            showFind();
+        }
+    }
+
+    private void showFind() {
+        if (content == null) {
+            return;
+        }
+        if (content.getTop() != findBar) {
+            content.setTop(findBar);
+        }
+        findField.requestFocus();
+        findField.selectAll();
+        updateMatches();
+    }
+
+    private void hideFind() {
+        if (content != null) {
+            content.setTop(null);
+        }
+        if (transcript != null) {
+            transcript.clearSelection();
+        }
+        matches = List.of();
+        matchPos = -1;
+        if (input != null) {
+            input.requestFocus();
+        }
+    }
+
+    /** Re-searches the current transcript for the find text and selects the first match. */
+    private void updateMatches() {
+        if (transcript == null) {
+            return;
+        }
+        matches = RichTextSearch.findAll(transcript.getModel(), findField.getText());
+        if (matches.isEmpty()) {
+            matchPos = -1;
+            String query = findField.getText();
+            findCount.setText(query == null || query.isEmpty() ? "" : "No results");
+            transcript.clearSelection();
+        } else {
+            matchPos = 0;
+            selectCurrent();
+        }
+    }
+
+    /** Moves to the next ({@code +1}) or previous ({@code -1}) match, wrapping around. */
+    private void step(int delta) {
+        if (matches.isEmpty()) {
+            return;
+        }
+        matchPos = (matchPos + delta + matches.size()) % matches.size();
+        selectCurrent();
+    }
+
+    private void selectCurrent() {
+        RichTextSearch.Match match = matches.get(matchPos);
+        StyledTextModel model = transcript.getModel();
+        int len = model.getParagraphLength(match.paragraphIndex());
+        TextPos anchor = TextPos.ofLeading(match.paragraphIndex(), Math.min(match.start(), len));
+        TextPos caret = TextPos.ofLeading(match.paragraphIndex(), Math.min(match.end(), len));
+        transcript.select(anchor, caret);
+        findCount.setText((matchPos + 1) + " / " + matches.size());
     }
 
     /** Adjusts the transcript font size by {@code delta} px (clamped), persists it, and re-renders. */
@@ -465,7 +705,7 @@ public final class ClaudeCard extends AbstractHostCard {
      ******************************************************************************/
 
     private void onSend() {
-        String text = input.getText() == null ? "" : input.getText().trim();
+        String text = composeMessage();
         if (text.isEmpty()) {
             return;
         }
@@ -483,6 +723,7 @@ public final class ClaudeCard extends AbstractHostCard {
             conv.named = true;
         }
         input.clear();
+        tokenToNid.clear();
         dispatch(conv, text, key, currentModel());
     }
 

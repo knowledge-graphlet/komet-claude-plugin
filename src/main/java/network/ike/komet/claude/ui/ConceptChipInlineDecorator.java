@@ -81,8 +81,9 @@ final class ConceptChipInlineDecorator implements InlineDecorator {
 
     /**
      * Decomposes {@code text} into pieces, keeping each matched identifier inline (so the digits
-     * the user asked for stay visible) and following each resolved identifier with its concept
-     * chip.
+     * the user asked for stay visible) as a text piece and following each resolved identifier with
+     * its concept chip as a node piece. Returning pieces (rather than writing into a paragraph
+     * builder) is what lets the chips render inside table cells as well as in flowing text.
      */
     @Override
     public List<InlinePiece> decorate(String text, StyleAttributeMap style) {
@@ -94,19 +95,26 @@ final class ConceptChipInlineDecorator implements InlineDecorator {
         int last = 0;
         while (m.find()) {
             // Text up to and including the identifier (the id stays visible).
-            pieces.add(new InlinePiece.TextRun(text.substring(last, m.end()), style));
+            addText(pieces, text.substring(last, m.end()), style);
             PublicId id = resolve(m);
             if (id != null) {
                 String sctid = m.group(3);
-                String matched = text.substring(m.start(), m.end());
-                pieces.add(new InlinePiece.NodeRun(() -> conceptChip(id, sctid), matched));
+                // The id itself is already in the preceding text piece, so the chip's plain-text
+                // projection is empty to avoid duplicating it on copy.
+                pieces.add(new InlinePiece.NodeRun(() -> conceptChip(id, sctid), ""));
             }
             last = m.end();
         }
         if (last < text.length()) {
-            pieces.add(new InlinePiece.TextRun(text.substring(last), style));
+            addText(pieces, text.substring(last), style);
         }
         return pieces;
+    }
+
+    private static void addText(List<InlinePiece> pieces, String text, StyleAttributeMap style) {
+        if (!text.isEmpty()) {
+            pieces.add(new InlinePiece.TextRun(text, style));
+        }
     }
 
     /** True if the component's latest version in the current view is inactive (retired). */
