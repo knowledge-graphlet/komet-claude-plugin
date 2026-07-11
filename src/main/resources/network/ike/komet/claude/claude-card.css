@@ -29,3 +29,33 @@
 .claude-card-toolbar-button:hover {
     -fx-background-color: rgba(255, 255, 255, 0.32);
 }
+
+/*
+ * Document surface (the block-stack transcript, #808): the stack is the one white
+ * page; per-block RichTextAreas sit flush on it (no per-block chrome), so the
+ * stacked blocks read as one continuous document.
+ */
+.claude-doc-surface {
+    -fx-background-color: white;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
+.claude-doc-surface > .viewport {
+    -fx-background-color: white;
+}
+
+.claude-doc-stack {
+    -fx-background-color: white;
+}
+
+.claude-doc-stack .doc-prose-block {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-border-width: 0;
+    -fx-padding: 0;
+}
+
+.claude-doc-stack .doc-turn-header {
+    -fx-padding: 2 0 0 0;
+}

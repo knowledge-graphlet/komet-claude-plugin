@@ -59,13 +59,10 @@ import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import javafx.stage.Window;
-import jfx.incubator.scene.control.richtext.RichTextArea;
-import jfx.incubator.scene.control.richtext.TextPos;
-import jfx.incubator.scene.control.richtext.model.StyledTextModel;
-import javafx.scene.control.TextArea;
 import javafx.scene.input.DataFormat;
 import javafx.scene.input.DragEvent;
 import javafx.scene.input.Dragboard;
@@ -73,18 +70,26 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.TransferMode;
 import dev.ikm.komet.framework.dnd.KometClipboard;
-import dev.ikm.komet.markdown.richtext.RichTextSearch;
+import dev.ikm.tinkar.common.id.PublicId;
+import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
-import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.OptionalInt;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.anthropic.AskListener;
 import javafx.util.Duration;
+import network.ike.komet.claude.doc.BlockFactory;
+import network.ike.komet.claude.doc.DocumentSurface;
+import network.ike.komet.claude.doc.DocumentSurfaceArea;
+import network.ike.komet.claude.doc.JournalStore;
 import network.ike.komet.claude.json.Json;
 import network.ike.komet.claude.tools.GraphTools;
+import jfx.incubator.scene.control.richtext.RichTextArea;
+import jfx.incubator.scene.control.richtext.TextPos;
+import dev.ikm.komet.markdown.richtext.ConceptChipTextModel;
+import network.ike.komet.claude.ui.ComposeChips;
+import network.ike.komet.claude.ui.KonceptTokens;
 import network.ike.komet.claude.ui.MarkdownRichText;
 
 import java.io.File;
@@ -151,23 +156,32 @@ public final class ClaudeCard extends AbstractHostCard {
     /** Live ref to the active conversation's Save markdown (reassigned on switch). */
     private StringBuilder transcriptMarkdown;
 
-    private RichTextArea transcript;
-    private TextArea input;
+    /** The printable document area (#839): a first-class KlArea wrapping the block-stack surface,
+     *  owning its own preferences + the "expand to full surface" affordance (KlExpandable). */
+    private DocumentSurfaceArea documentArea;
+    /** The block-stack Document surface (#808), hosted by {@link #documentArea}; the card drives it. */
+    private DocumentSurface surface;
+    /** The chronology store the conversation journal persists through (#807). */
+    private JournalStore journalStore;
+    /** The rich compose surface (#789): prose with live inline concept chips, over {@link #composeModel}. */
+    private RichTextArea input;
+    /** The compose surface's editable model; chips serialize to k: tokens on send. */
+    private ConceptChipTextModel composeModel;
+    /** Prompt hint overlaid on the empty compose surface (RichTextArea has no prompt text). */
+    private Label composeHint;
+    /** The position the caret was last moved to while a concept hovers, to de-jitter drag tracking. */
+    private TextPos dropHint;
     private Button sendButton;
     private BorderPane content;
     private Label statusLabel;
 
-    // Find-in-conversation state (🔍 / Cmd-Ctrl+F), over the transcript.
+    // Find-in-conversation state (🔍 / Cmd-Ctrl+F), over the document surface.
     private HBox findBar;
     private TextField findField;
     private Label findCount;
-    private List<RichTextSearch.Match> matches = List.of();
+    private List<DocumentSurface.DocumentMatch> matches = List.of();
     private int matchPos = -1;
 
-    // Concept-drop tokens: a dropped Koncept inserts «name» at the caret; the token maps to its
-    // component nid, resolved to the concept UUID on send so the transcript renders the real chip.
-    private final Map<String, Integer> tokenToNid = new HashMap<>();
-    private static final Pattern CONCEPT_TOKEN = Pattern.compile("«([^«»]*)»");
     private Button retryButton;
     /** 1 Hz tick that advances the elapsed clock in the status strip while a request is in flight. */
     private Timeline statusTimer;
@@ -205,6 +219,11 @@ public final class ClaudeCard extends AbstractHostCard {
         final List<MarkdownRichText.Entry> entries = new ArrayList<>();
         final List<Map<String, Object>> apiMessages = new ArrayList<>();
         final StringBuilder markdown = new StringBuilder();
+        /** Turn index where the current exchange (the last user question) begins; scroll anchor. */
+        int turnStartTurn;
+        /** The conversation's journal-anchor id (#807); set on the worker after the first
+         *  persisted exchange, read on FX for save — hence volatile. Null until then. */
+        volatile PublicId journalAnchor;
 
         Conversation(String id, String name) {
             this.id = id;
@@ -217,8 +236,10 @@ public final class ClaudeCard extends AbstractHostCard {
         }
     }
 
-    /** Serialized form of a {@link Conversation} (json4j). */
-    private record ConversationDto(String id, String name, List<Map<String, Object>> turns) {
+    /** Serialized form of a {@link Conversation} (json4j); {@code journalAnchor} is the journal's
+     *  anchor UUID, or null for a conversation that predates (or never reached) the journal. */
+    private record ConversationDto(String id, String name, List<Map<String, Object>> turns,
+                                   String journalAnchor) {
     }
 
     private ClaudeCard(KometPreferences preferences) {
@@ -236,6 +257,7 @@ public final class ClaudeCard extends AbstractHostCard {
         // Tools read the live card view each call via the method reference, so they always reflect the
         // journal's current coordinate (after bind).
         this.tools = new GraphTools(this::viewCalculator).tools();
+        this.journalStore = new JournalStore(this::safeViewCalculator);
         fxObject().getStyleClass().add("claude-card");
         URL css = ClaudeCard.class.getResource("claude-card.css");
         if (css != null) {
@@ -247,6 +269,15 @@ public final class ClaudeCard extends AbstractHostCard {
     private ViewCalculator viewCalculator() {
         ViewProperties vp = getCardViewProperties();
         return vp != null ? vp.calculator() : null;
+    }
+
+    /** {@link #viewCalculator()} that answers {@code null} instead of throwing before bind. */
+    private ViewCalculator safeViewCalculator() {
+        try {
+            return viewCalculator();
+        } catch (RuntimeException e) {
+            return null;
+        }
     }
 
     /*******************************************************************************
@@ -295,10 +326,15 @@ public final class ClaudeCard extends AbstractHostCard {
         saveButton.setOnAction(e -> saveTranscript());
         Button keyButton = new Button("API key…");
         keyButton.setOnAction(e -> promptForApiKey());
+
+        // Paged document print (#838/#839) is reached through the document area's hover-revealed
+        // "expand to full surface" corner icon (KlExpandable); Print and print-settings live in that
+        // full-surface view — no top-toolbar button.
         for (Button b : List.of(toggleRail, fontDown, fontUp, saveButton, keyButton)) {
             b.getStyleClass().add("claude-card-toolbar-button");
         }
-        toolBar.getChildren().addAll(coordinateButton, toggleRail, fontDown, fontUp, saveButton, keyButton);
+        toolBar.getChildren().addAll(coordinateButton, toggleRail, fontDown, fontUp,
+                saveButton, keyButton);
     }
 
     @Override
@@ -311,29 +347,79 @@ public final class ClaudeCard extends AbstractHostCard {
         refreshTranscript();
     }
 
-    /** Builds the chat body (conversations rail | transcript, over the input bar) as the card content. */
+    /**
+     * Re-renders the document area's promoted paged view after the active conversation's turns
+     * change, so the full-surface preview never lags the live surface.
+     */
+    private void refreshPreviewIfOpen() {
+        if (documentArea != null) {
+            documentArea.refreshExpandedView();
+        }
+    }
+
+    @Override
+    protected void subCardSave() {
+        // Print settings persist on the document area's own preferences node now (#839).
+        if (documentArea != null) {
+            documentArea.saveSettings();
+        }
+    }
+
+    @Override
+    protected void subCardRestore() {
+        // The document area restores its own print settings when created in buildBody (#839).
+    }
+
+    /** Builds the chat body (conversations rail | document surface, over the input bar) as the card content. */
     private void buildBody() {
         baseFontSize = readFontSizePref();
 
-        transcript = new RichTextArea();
-        transcript.setEditable(false);
-        transcript.setWrapText(true);
+        // The block-stack Document surface (#808), first-classed as a KlArea (#839): the area owns
+        // its own preferences node and the hover-revealed "expand to full surface" affordance
+        // (KlExpandable), whose full-surface view is the paged print layout with the preferences
+        // toggle. The card keeps the conversation and drives the surface through the area.
+        // A STABLE child node (deterministic by class), so print settings persist across sessions —
+        // the create factory would mint a fresh sequentially-unique node each launch.
+        documentArea = DocumentSurfaceArea.restore(preferences().node(DocumentSurfaceArea.class));
+        documentArea.setRunningHeadSupplier(() -> active == null || active.name == null ? "" : active.name);
+        documentArea.restoreSettings();
+        surface = documentArea.surface();
 
-        input = new TextArea();
-        input.setPromptText("Ask about the concepts in your open knowledge base… (drop a concept to insert it)");
+        composeModel = new ConceptChipTextModel();
+        input = new RichTextArea(composeModel);
         input.setWrapText(true);
-        input.setPrefRowCount(2);
         input.setPrefHeight(56);
         input.setMaxHeight(160);
-        // Enter sends; Shift+Enter inserts a newline (the input is multi-line and accepts concept drops).
+        applyComposeFontSize();   // input prose and the compose chips share one readable size
+        // Selected chips paint the token-field fill (accent pill, white label): the control's own
+        // selection highlight draws behind the opaque pill, so the chip carries its own state.
+        composeModel.setChipSelectionHandler(ComposeChips::setSelected);
+        input.selectionProperty().addListener((obs, was, sel) ->
+                composeModel.updateSelection(input.getAnchorPosition(), input.getCaretPosition()));
+        // Enter sends; Shift+Enter inserts a newline. The newline is inserted HERE: the incubator
+        // binds only plain ENTER to its line break, so a shifted press would otherwise do nothing.
         input.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
-            if (e.getCode() == KeyCode.ENTER && !e.isShiftDown()) {
-                onSend();
+            if (e.getCode() == KeyCode.ENTER) {
+                if (e.isShiftDown()) {
+                    input.insertLineBreak();
+                } else {
+                    onSend();
+                }
                 e.consume();
             }
         });
         installConceptDrop(input);
-        HBox.setHgrow(input, Priority.ALWAYS);
+
+        // RichTextArea has no prompt text; overlay a hint on the empty model instead.
+        composeHint = new Label(
+                "Ask about the concepts in your open knowledge base… (drop a concept to add it as a chip)");
+        composeHint.setMouseTransparent(true);
+        composeHint.setStyle("-fx-text-fill: #9a9a9a;");
+        composeHint.setPadding(new Insets(4, 8, 0, 8));
+        composeModel.addListener(change -> composeHint.setVisible(composeModel.isEmpty()));
+        StackPane composeStack = new StackPane(input, composeHint);
+        StackPane.setAlignment(composeHint, Pos.TOP_LEFT);
+        HBox.setHgrow(composeStack, Priority.ALWAYS);
 
         sendButton = new Button("Send");
         sendButton.setOnAction(e -> onSend());
@@ -342,7 +428,7 @@ public final class ClaudeCard extends AbstractHostCard {
         findButton.setTooltip(new Tooltip("Find in conversation (⌘F)"));
         findButton.setOnAction(e -> toggleFind());
 
-        HBox inputBar = new HBox(6, findButton, input, sendButton);
+        HBox inputBar = new HBox(6, findButton, composeStack, sendButton);
         inputBar.setAlignment(Pos.BOTTOM_LEFT);
         inputBar.setPadding(new Insets(6));
 
@@ -412,7 +498,7 @@ public final class ClaudeCard extends AbstractHostCard {
 
         railVisible = readRailVisiblePref();
         railDivider = readRailDividerPref();
-        split = new SplitPane(transcript);
+        split = new SplitPane(documentArea.fxObject());
         SplitPane.setResizableWithParent(conversationRail, Boolean.FALSE);
 
         content = new BorderPane();
@@ -445,19 +531,22 @@ public final class ClaudeCard extends AbstractHostCard {
         }
     }
 
-    /** Rebuilds the transcript's view-only model from the accumulated entries. */
+    /** Rebuilds the document surface from the accumulated entries (chips re-resolve on the
+     *  current coordinate; font-size changes re-render). */
     private void refreshTranscript() {
-        if (transcript == null || entries == null) {
+        if (surface == null || entries == null) {
             return;
         }
-        ViewCalculator vc;
-        try {
-            vc = viewCalculator();
-        } catch (RuntimeException e) {
-            // No usable view yet — chips fall back to bare identicons until one is available.
-            vc = null;
-        }
-        transcript.setModel(new MarkdownRichText(vc, baseFontSize).toModel(entries));
+        // No usable view yet → chips fall back to bare identicons until one is available.
+        surface.setBlockFactory(new BlockFactory(safeViewCalculator(), baseFontSize));
+        surface.setTurns(entries);
+        refreshMatchesIfFinding();
+        refreshPreviewIfOpen();
+    }
+
+    /** Re-runs the find search when the find bar is open — every surface mutation (rebuild,
+     *  append, truncate) must refresh, or match indexes point at stale blocks. */
+    private void refreshMatchesIfFinding() {
         if (findBar != null && content != null && content.getTop() == findBar) {
             updateMatches();
         }
@@ -467,55 +556,68 @@ public final class ClaudeCard extends AbstractHostCard {
      *  Concept drop + Find                                                        *
      ******************************************************************************/
 
-    /** The composed message: input text with each «name» concept token replaced by the concept's
-     *  UUID, so the assistant grounds it and the transcript renders the chip inline. */
+    /**
+     * The composed message: the compose model's token-text projection — prose verbatim, each live
+     * chip as its id-bearing {@code k:} token — so the assistant grounds it and the echoed turn
+     * re-chips through the transcript decorator's identical grammar.
+     */
     private String composeMessage() {
-        String raw = input.getText() == null ? "" : input.getText();
-        Matcher m = CONCEPT_TOKEN.matcher(raw);
-        StringBuilder sb = new StringBuilder();
-        while (m.find()) {
-            Integer nid = tokenToNid.get(m.group());
-            String replacement = (nid != null) ? (" " + uuidToken(nid) + " ") : m.group();
-            m.appendReplacement(sb, Matcher.quoteReplacement(replacement));
-        }
-        m.appendTail(sb);
-        return sb.toString().trim();
+        return composeModel.toTokenText().trim();
     }
 
-    private static String uuidToken(int nid) {
-        try {
-            return PrimitiveData.publicId(nid).asUuidArray()[0].toString();
-        } catch (RuntimeException e) {
-            return "nid=" + nid;
-        }
-    }
-
-    private void installConceptDrop(TextArea area) {
-        // Filters run before the TextArea's own drag handling, so a concept drop inserts a token
-        // instead of the dragboard's plain-text PublicId being typed in.
+    private void installConceptDrop(RichTextArea area) {
+        // Filters run before the RichTextArea's own drag handling, so a concept drop lands as a
+        // live chip instead of the dragboard's plain-text PublicId being typed in.
         area.addEventFilter(DragEvent.DRAG_OVER, e -> {
             if (hasConcept(e.getDragboard())) {
                 e.acceptTransferModes(TransferMode.COPY);
+                // Track the pointer with the caret so the insertion point is visible while hovering,
+                // but only when it actually MOVES to a new position — re-selecting the same spot on
+                // every DRAG_OVER (they fire continuously) makes the caret jitter.
+                TextPos under = area.getTextPosition(e.getScreenX(), e.getScreenY());
+                if (under != null && !under.equals(dropHint)) {
+                    dropHint = under;
+                    area.select(under);
+                }
                 e.consume();
             }
         });
+        // Drag left without dropping — forget the tracked position so the next drag's first move is
+        // never suppressed by a stale one.
+        area.addEventFilter(DragEvent.DRAG_EXITED, e -> dropHint = null);
         area.addEventFilter(DragEvent.DRAG_DROPPED, e -> {
             if (!hasConcept(e.getDragboard())) {
                 return;
             }
-            OptionalInt nid = KometClipboard.conceptNid(e.getDragboard());
-            if (nid.isEmpty()) {
-                nid = KometClipboard.entityNidFrom(e.getDragboard());
+            // A multi-concept drag (navigator multi-select) carries the whole set; a single drag
+            // carries one component proxy. Accept either.
+            int[] nids = KometClipboard.conceptNidsFrom(e.getDragboard());
+            if (nids.length == 0) {
+                OptionalInt nid = KometClipboard.conceptNid(e.getDragboard());
+                if (nid.isEmpty()) {
+                    nid = KometClipboard.entityNidFrom(e.getDragboard());
+                }
+                if (nid.isPresent()) {
+                    nids = new int[]{nid.getAsInt()};
+                }
             }
-            if (nid.isPresent()) {
-                insertConceptToken(nid.getAsInt());
+            if (nids.length > 0) {
+                // The chips land where they were DROPPED — mid-text, at the end, wherever the pointer
+                // is — not at whatever position the caret last held (which, on an unfocused compose
+                // box, was the start).
+                TextPos at = area.getTextPosition(e.getScreenX(), e.getScreenY());
+                insertConceptsAt(at, nids);
                 e.setDropCompleted(true);
             }
+            dropHint = null;
             e.consume();
         });
     }
 
     private static boolean hasConcept(Dragboard dragboard) {
+        if (dragboard.hasContent(KometClipboard.KOMET_CONCEPT_LIST)) {
+            return true;
+        }
         for (DataFormat format : KometClipboard.CONCEPT_TYPES) {
             if (dragboard.hasContent(format)) {
                 return true;
@@ -524,12 +626,75 @@ public final class ClaudeCard extends AbstractHostCard {
         return false;
     }
 
-    private void insertConceptToken(int nid) {
-        String token = "«" + conceptName(nid) + "»";
-        tokenToNid.put(token, nid);
-        int pos = input.getCaretPosition();
-        input.insertText(pos, token);
+    /**
+     * Inserts one or more dropped concepts at {@code at} as live chips (#789). Several concepts are
+     * joined as a natural-language list with the Oxford comma — {@code A}; {@code A and B};
+     * {@code A, B, and C} — and a trailing space so the user keeps typing. Each chip renders via the
+     * shared transcript pill and serializes on send as its id-bearing {@code k:} token.
+     *
+     * @param at   where the chips land (the drop point); {@code null} falls back to the caret, then
+     *             the document end
+     * @param nids the dropped concepts, in order
+     */
+    private void insertConceptsAt(TextPos at, int[] nids) {
+        if (at == null) {
+            at = input.getCaretPosition();
+        }
+        if (at == null) {
+            at = composeModel.getDocumentEnd();
+        }
+        TextPos pos = at;
+        for (int i = 0; i < nids.length; i++) {
+            if (i > 0) {
+                pos = composeModel.insertText(pos, listSeparator(i, nids.length));
+            }
+            TextPos afterChip = insertChipReturning(pos, nids[i]);
+            if (afterChip != null) {
+                pos = afterChip;
+            }
+        }
+        pos = composeModel.insertText(pos, " ");
+        input.select(pos);
         input.requestFocus();
+    }
+
+    /**
+     * The separator before item {@code i} of {@code n} in an Oxford-comma list join: {@code ", "}
+     * between earlier items, {@code " and "} before the second of two, {@code ", and "} before the
+     * last of three or more.
+     */
+    private static String listSeparator(int i, int n) {
+        if (i == n - 1) {
+            return n == 2 ? " and " : ", and ";
+        }
+        return ", ";
+    }
+
+    /**
+     * Inserts one live chip at {@code at} and returns the position just after it, or {@code null}
+     * when the concept has no resolvable identity (nothing composed). The supplier re-reads the live
+     * view and font size per render, so a chip re-renders current after a view or font change.
+     */
+    private TextPos insertChipReturning(TextPos at, int nid) {
+        PublicId pid;
+        try {
+            pid = PrimitiveData.publicId(nid);
+        } catch (RuntimeException e) {
+            return null;
+        }
+        return composeModel.insertChip(at, konceptToken(nid),
+                () -> ComposeChips.chip(pid, safeViewCalculator(), baseFontSize));
+    }
+
+    /** The id-bearing {@code k:} token for a concept: UUID-keyed, labelled with the resolved name. */
+    private String konceptToken(int nid) {
+        String label = conceptName(nid);
+        try {
+            String uuid = PrimitiveData.publicId(nid).asUuidArray()[0].toString();
+            return KonceptTokens.token("uuid", uuid, label);
+        } catch (RuntimeException e) {
+            return KonceptTokens.token("nid", Integer.toString(nid), label);
+        }
     }
 
     private String conceptName(int nid) {
@@ -600,8 +765,8 @@ public final class ClaudeCard extends AbstractHostCard {
         if (content != null) {
             content.setTop(null);
         }
-        if (transcript != null) {
-            transcript.clearSelection();
+        if (surface != null) {
+            surface.clearSelection();
         }
         matches = List.of();
         matchPos = -1;
@@ -610,17 +775,17 @@ public final class ClaudeCard extends AbstractHostCard {
         }
     }
 
-    /** Re-searches the current transcript for the find text and selects the first match. */
+    /** Re-searches the document surface for the find text and selects the first match. */
     private void updateMatches() {
-        if (transcript == null) {
+        if (surface == null) {
             return;
         }
-        matches = RichTextSearch.findAll(transcript.getModel(), findField.getText());
+        matches = surface.findAll(findField.getText());
         if (matches.isEmpty()) {
             matchPos = -1;
             String query = findField.getText();
             findCount.setText(query == null || query.isEmpty() ? "" : "No results");
-            transcript.clearSelection();
+            surface.clearSelection();
         } else {
             matchPos = 0;
             selectCurrent();
@@ -637,12 +802,7 @@ public final class ClaudeCard extends AbstractHostCard {
     }
 
     private void selectCurrent() {
-        RichTextSearch.Match match = matches.get(matchPos);
-        StyledTextModel model = transcript.getModel();
-        int len = model.getParagraphLength(match.paragraphIndex());
-        TextPos anchor = TextPos.ofLeading(match.paragraphIndex(), Math.min(match.start(), len));
-        TextPos caret = TextPos.ofLeading(match.paragraphIndex(), Math.min(match.end(), len));
-        transcript.select(anchor, caret);
+        surface.select(matches.get(matchPos));
         findCount.setText((matchPos + 1) + " / " + matches.size());
     }
 
@@ -650,7 +810,22 @@ public final class ClaudeCard extends AbstractHostCard {
     private void adjustFont(double delta) {
         baseFontSize = Math.max(9, Math.min(28, baseFontSize + delta));
         userPreferences().put(PREF_FONT_SIZE, Double.toString(baseFontSize));
+        applyComposeFontSize();
         refreshTranscript();
+    }
+
+    /**
+     * Renders the compose input's prose at {@code baseFontSize} — the transcript body size — so the
+     * input text and its inline chips (built at the same size via {@link ComposeChips#chip}) read as
+     * one, rather than the incubator's small default clashing with the chips. The prose resizes at
+     * once; a chip already in the box (a cached segment) re-materializes at the new size only when
+     * its cell next rebuilds — the following keystroke or insert — which is acceptable for the rare
+     * mid-compose font change.
+     */
+    private void applyComposeFontSize() {
+        if (input != null) {
+            input.setStyle("-fx-font-size: " + Math.round(baseFontSize) + "px;");
+        }
     }
 
     private double readFontSizePref() {
@@ -719,17 +894,19 @@ public final class ClaudeCard extends AbstractHostCard {
         }
 
         if (!conv.named) {
-            conv.name = text.length() > 40 ? text.substring(0, 40).trim() + "…" : text;
+            // Rail names show the human projection: chips read as their labels, not raw k: tokens.
+            String display = KonceptTokens.display(text);
+            conv.name = display.length() > 40 ? display.substring(0, 40).trim() + "…" : display;
             conv.named = true;
         }
-        input.clear();
-        tokenToNid.clear();
+        composeModel.clear();
         dispatch(conv, text, key, currentModel());
     }
 
     /**
-     * Re-sends the active conversation's held failed request (the Retry button). The user's message is
-     * already in the transcript from the original send, so this only re-dispatches — nothing is added.
+     * Re-sends the active conversation's held failed request (the Retry button). The failed send's
+     * optimistic user turn was popped by the rollback, so the re-dispatch renders it afresh —
+     * exactly like a first send.
      */
     private void retryActive() {
         Conversation conv = active;
@@ -799,6 +976,16 @@ public final class ClaudeCard extends AbstractHostCard {
             String errorMessage = null;
             try {
                 reply = client.ask(systemPrompt, tools, history, text, listener);
+                // Chronology persistence (#807), write-after-success and off the FX thread: the
+                // completed exchange becomes two prose elements + one new manifest version
+                // (appendExchange bootstraps the vocabulary itself). A store failure degrades to
+                // JSON-only — the conversation itself must never be lost to it.
+                try {
+                    conv.journalAnchor =
+                            journalStore.appendExchange(conv.journalAnchor, conv.name, text, reply);
+                } catch (Throwable je) {
+                    LOG.warn("Journal write failed; conversation persists as JSON only", je);
+                }
             } catch (Throwable t) {
                 // Catch Throwable: a non-runtime failure (e.g. class-init / ServiceConfigurationError)
                 // must still settle the status strip, not wedge the conversation busy.
@@ -860,7 +1047,9 @@ public final class ClaudeCard extends AbstractHostCard {
             conv.markdown.setLength(markdownMark);
         }
         if (conv == active) {
-            refreshTranscript();
+            surface.truncateTurns(entryMark);
+            refreshMatchesIfFinding();
+            refreshPreviewIfOpen();
         }
     }
 
@@ -1050,7 +1239,15 @@ public final class ClaudeCard extends AbstractHostCard {
             return;
         }
         try {
-            String json = Json.stringify(Map.of("id", conv.id, "name", conv.name, "turns", conv.apiMessages));
+            Map<String, Object> dto = new LinkedHashMap<>();
+            dto.put("id", conv.id);
+            dto.put("name", conv.name);
+            dto.put("turns", conv.apiMessages);
+            PublicId anchor = conv.journalAnchor;
+            if (anchor != null) {
+                dto.put("journalAnchor", anchor.asUuidArray()[0].toString());
+            }
+            String json = Json.stringify(dto);
             Files.writeString(dir.resolve("conversation-" + conv.id + ".json"), json, StandardCharsets.UTF_8);
         } catch (Exception e) {
             LOG.warn("Could not save conversation {}", conv.id, e);
@@ -1079,22 +1276,88 @@ public final class ClaudeCard extends AbstractHostCard {
             ConversationDto dto = Json.parse(Files.readString(file, StandardCharsets.UTF_8), ConversationDto.class);
             Conversation conv = new Conversation(dto.id(), dto.name());
             conv.named = true;
+            // apiMessages (the LLM context) always come from the JSON, journal or not.
             if (dto.turns() != null) {
                 conv.apiMessages.addAll(dto.turns());
             }
-            for (Map<String, Object> turn : conv.apiMessages) {
-                String content = String.valueOf(turn.get("content"));
-                if ("user".equals(String.valueOf(turn.get("role")))) {
-                    conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.USER, content, false));
-                    conv.markdown.append("**You:** ").append(content).append("\n\n");
-                } else {
-                    conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT, content, true));
-                    conv.markdown.append("**Komet Assistant:** ").append(content).append("\n\n");
+            if (dto.journalAnchor() != null && !dto.journalAnchor().isBlank()) {
+                try {
+                    conv.journalAnchor = PublicIds.of(UUID.fromString(dto.journalAnchor()));
+                } catch (RuntimeException e) {
+                    LOG.warn("Conversation {} carries an unparseable journal anchor '{}'",
+                            dto.id(), dto.journalAnchor(), e);
                 }
             }
+            // JSON-first display (fast, store-free), then the journal reconcile: the journal is the
+            // document of record (#807), but its per-element chronology reads happen OFF the FX
+            // thread, and it only replaces the display when it covers at least the JSON history —
+            // a journal missing turns (one failed append) must not hide them.
+            for (Map<String, Object> turn : conv.apiMessages) {
+                String content = String.valueOf(turn.get("content"));
+                boolean user = "user".equals(String.valueOf(turn.get("role")));
+                appendLoadedEntry(conv, content, !user);
+            }
             conversations.add(conv);
+            reconcileFromJournalAsync(conv);
         } catch (Exception e) {
             LOG.warn("Could not load conversation {}", file, e);
+        }
+    }
+
+    /**
+     * Rebuilds {@code conv}'s display entries from its journal chronologies, asynchronously: the
+     * store reads run on the worker; the swap runs on FX and only when the journal covers at least
+     * the JSON-derived history and nothing changed the conversation in the meantime (no in-flight
+     * send, no new turns, not deleted).
+     */
+    private void reconcileFromJournalAsync(Conversation conv) {
+        if (conv.journalAnchor == null) {
+            return;
+        }
+        int entriesAtLoad = conv.entries.size();
+        worker.submit(() -> {
+            Optional<List<JournalStore.TurnRecord>> turns;
+            try {
+                turns = journalStore.load(conv.journalAnchor);
+            } catch (RuntimeException e) {
+                LOG.warn("Journal rebuild failed for conversation {}; keeping JSON turns", conv.id, e);
+                return;
+            }
+            if (turns.isEmpty() || turns.get().size() < entriesAtLoad) {
+                if (turns.isPresent()) {
+                    LOG.warn("Journal {} covers {} turns but JSON has {}; keeping JSON display",
+                            conv.journalAnchor.idString(), turns.get().size(), entriesAtLoad);
+                }
+                return;
+            }
+            List<JournalStore.TurnRecord> records = turns.get();
+            Platform.runLater(() -> {
+                if (!conversations.contains(conv) || conv.busy
+                        || conv.entries.size() != entriesAtLoad) {
+                    return;   // deleted, mid-send, or already grown — the live state wins
+                }
+                conv.entries.clear();
+                conv.markdown.setLength(0);
+                for (JournalStore.TurnRecord turn : records) {
+                    appendLoadedEntry(conv, turn.markdown(), turn.assistantAuthored());
+                }
+                if (conv == active) {
+                    refreshTranscript();
+                }
+                LOG.info("Rebuilt conversation '{}' from journal {} ({} turns)",
+                        conv.name, conv.journalAnchor.idString(), records.size());
+            });
+        });
+    }
+
+    /** Appends one restored turn to the conversation's entries and Save markdown. */
+    private void appendLoadedEntry(Conversation conv, String content, boolean assistant) {
+        if (assistant) {
+            conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT, content, true));
+            conv.markdown.append("**Komet Assistant:** ").append(content).append("\n\n");
+        } else {
+            conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.USER, content, false));
+            conv.markdown.append("**You:** ").append(content).append("\n\n");
         }
     }
 
@@ -1115,18 +1378,32 @@ public final class ClaudeCard extends AbstractHostCard {
      ******************************************************************************/
 
     private void renderUser(Conversation conv, String text) {
-        conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.USER, text, false));
+        // The exchange begins at the turn this entry is about to occupy (the current end).
+        conv.turnStartTurn = conv.entries.size();
+        MarkdownRichText.Entry entry =
+                new MarkdownRichText.Entry(MarkdownRichText.Role.USER, text, false);
+        conv.entries.add(entry);
         conv.markdown.append("**You:** ").append(text).append("\n\n");
         if (conv == active) {
-            refreshTranscript();
+            surface.appendTurn(entry);
+            surface.scrollToTurn(conv.turnStartTurn);
+            refreshMatchesIfFinding();
+            refreshPreviewIfOpen();
         }
     }
 
     private void renderAssistant(Conversation conv, String markdown) {
-        conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT, markdown, true));
+        MarkdownRichText.Entry entry =
+                new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT, markdown, true);
+        conv.entries.add(entry);
         conv.markdown.append("**Komet Assistant:** ").append(markdown).append("\n\n");
         if (conv == active) {
-            refreshTranscript();
+            surface.appendTurn(entry);
+            // Keep the exchange's first block (the user's question) at the top, so the reply reads
+            // top-down from there rather than the view snapping to the very end.
+            surface.scrollToTurn(conv.turnStartTurn);
+            refreshMatchesIfFinding();
+            refreshPreviewIfOpen();
         }
     }
 
@@ -1229,6 +1506,10 @@ public final class ClaudeCard extends AbstractHostCard {
         worker.shutdownNow();
         if (statusTimer != null) {
             statusTimer.stop();
+        }
+        // Collapse the document area's full-surface overlay if promoted, and tear the area down.
+        if (documentArea != null) {
+            documentArea.knowledgeLayoutUnbind();
         }
     }
 

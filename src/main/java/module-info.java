@@ -142,4 +142,10 @@ module komet.claude {
     // `opens … to org.evrete.*` is NOT sufficient for Evrete's lookup (otherwise a
     // runtime IllegalAccessException unreflecting the rule method breaks the engine).
     opens network.ike.komet.claude.zulip.rules;
+
+    // The Encodable framework (dev.ikm.tinkar.common) reflectively invokes PrintSettings'
+    // static @Decoder to restore print settings from the preferences byte array. That invoke
+    // needs the package open (the exported AreaGridSettings gets this via `exports`; this
+    // internal settings type uses `opens` so it stays off the public API surface).
+    opens network.ike.komet.claude.doc.print.settings;
 }

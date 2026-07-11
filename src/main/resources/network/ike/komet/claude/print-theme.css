@@ -1,0 +1,58 @@
+/*
+ * Copyright © 2026 Knowledge Graphlet / IKE Network
+ *
+ * Licensed under the Apache License, Version 2.0. See the LICENSE header in the Java sources.
+ *
+ * Print/preview theme for the paged DocumentSurface. Loaded on the page Region itself (not the app
+ * scene), so it styles the page subtree identically in the on-screen preview and the PrinterJob
+ * output. Deliberately paper-oriented: white ground, dark text, muted furniture.
+ */
+
+/* White paper. (The preview's drop shadow is applied in code, so it never prints.) */
+.print-page {
+    -fx-background-color: white;
+}
+
+.print-content {
+    -fx-background-color: transparent;
+}
+
+/* Furniture: running head + page numbers — small and muted. */
+.print-running-head,
+.print-page-number {
+    -fx-text-fill: #444444;
+    -fx-font-size: 9pt;
+}
+
+/* A hairline rule under the running head separates it from the body. */
+.print-running-head {
+    -fx-border-color: transparent transparent #cccccc transparent;
+    -fx-border-width: 0 0 0.5 0;
+}
+
+/* Turn header ("You" / "Komet Assistant"): bold, with air above so turns read as units. */
+.doc-turn-header {
+    -fx-padding: 10 0 3 0;
+    -fx-font-weight: bold;
+}
+
+/* Prose blocks (view-only RichTextArea): print on the white ground with no control chrome. */
+.doc-prose-block,
+.doc-prose-block .content {
+    -fx-background-color: transparent;
+}
+
+/* GFM tables: keep the light header fill and gridlines in print. */
+.md-table-header {
+    -fx-background-color: #f6f8fa;
+}
+
+/*
+ * Default theme = the platform sans body (the renderer applies a null family), so no font rules
+ * here. Manuscript theme = a serif body (the renderer threads a serif family through prose); match
+ * the furniture to it.
+ */
+.print-theme-manuscript .print-running-head,
+.print-theme-manuscript .print-page-number {
+    -fx-font-family: serif;
+}

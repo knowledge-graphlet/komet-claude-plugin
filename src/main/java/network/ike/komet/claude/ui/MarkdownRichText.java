@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.ui;
 
+import dev.ikm.komet.markdown.richtext.DocumentSegment;
 import dev.ikm.komet.markdown.richtext.MarkdownRichTextRenderer;
 import dev.ikm.komet.markdown.richtext.MarkdownStyledModel;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
@@ -35,8 +36,11 @@ import java.util.List;
  * {@link dev.ikm.komet.markdown.richtext.InlineDecorator} handed to the renderer: any concept
  * identifier the assistant reports — an SCTID, UUID, or {@code nid=…} — is followed by a
  * <em>concept chip</em> (LifeHash identicon + store-resolved name), existence-gated against
- * the live store and struck through when the component is inactive (#586). The renderer is the
- * generic, reusable Markdown engine; this class only composes the role-labelled transcript.
+ * the live store and struck through when the component is inactive (#586). Block structure is
+ * dispatched the same way: a {@code koncept-tree} fenced block routes to
+ * {@link KonceptTreeBlockRenderer}, which builds a real interactive {@code TreeView} of Koncept
+ * chips rather than ASCII box art (#801/#805). The renderer is the generic, reusable Markdown
+ * engine; this class only composes the role-labelled transcript.
  */
 public final class MarkdownRichText {
 
@@ -56,6 +60,24 @@ public final class MarkdownRichText {
             this.label = label;
             this.color = color;
         }
+
+        /**
+         * The role's display label (e.g. {@code "You"}).
+         *
+         * @return the label shown for turns of this role
+         */
+        public String label() {
+            return label;
+        }
+
+        /**
+         * The role's accent colour.
+         *
+         * @return the colour the role's label renders in
+         */
+        public Color color() {
+            return color;
+        }
     }
 
     /**
@@ -74,13 +96,29 @@ public final class MarkdownRichText {
     private final MarkdownRichTextRenderer renderer;
 
     /**
+     * Equivalent to {@link #MarkdownRichText(ViewCalculator, double, String)} with the
+     * platform-default prose font family.
+     *
      * @param viewCalc the live view for resolving concept names for chips; if null, chips
      *                 fall back to a bare identicon
      * @param base     base body font size in px (see {@link #DEFAULT_BASE})
      */
     public MarkdownRichText(ViewCalculator viewCalc, double base) {
+        this(viewCalc, base, null);
+    }
+
+    /**
+     * @param viewCalc   the live view for resolving concept names for chips; if null, chips
+     *                   fall back to a bare identicon
+     * @param base       base body font size in px (see {@link #DEFAULT_BASE})
+     * @param fontFamily the base prose font family (e.g. a serif family for a print rendering);
+     *                   {@code null} uses the platform default. Code stays monospaced.
+     */
+    public MarkdownRichText(ViewCalculator viewCalc, double base, String fontFamily) {
         this.base = base;
-        this.renderer = new MarkdownRichTextRenderer(base, new ConceptChipInlineDecorator(viewCalc, base));
+        this.renderer = new MarkdownRichTextRenderer(base, fontFamily,
+                new ConceptChipInlineDecorator(viewCalc, base),
+                new KonceptTreeBlockRenderer(viewCalc, base));
     }
 
     /**
@@ -114,6 +152,26 @@ public final class MarkdownRichText {
             return MarkdownStyledModel.empty();
         }
         return new MarkdownStyledModel(paragraphs, plain);
+    }
+
+    /**
+     * Renders one turn's content as {@link DocumentSegment}s — the block-stack projection consumed
+     * by the Document surface: prose runs back per-block view-only {@code RichTextArea}s;
+     * recognised fenced blocks and tables become direct stack children. The same decorator and
+     * block renderer apply, so chips and the koncept-tree render identically to {@link #toModel}.
+     *
+     * @param entry the turn to render
+     * @return the turn's segments in order; empty when the content renders to nothing
+     */
+    public List<DocumentSegment> toSegments(Entry entry) {
+        if (entry.markdown()) {
+            return renderer.renderSegments(entry.content(), baseStyle(entry.role()));
+        }
+        List<RichParagraph> paragraphs = new ArrayList<>();
+        List<String> plain = new ArrayList<>();
+        renderer.renderPlainText(entry.content(), baseStyle(entry.role()), paragraphs, plain);
+        return paragraphs.isEmpty() ? List.of()
+                : List.of(new DocumentSegment.ProseRun(paragraphs, plain));
     }
 
     /**
