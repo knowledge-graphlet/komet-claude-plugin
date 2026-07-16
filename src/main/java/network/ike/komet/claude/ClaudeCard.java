@@ -412,7 +412,7 @@ public final class ClaudeCard extends AbstractHostCard {
 
         // RichTextArea has no prompt text; overlay a hint on the empty model instead.
         composeHint = new Label(
-                "Ask about the concepts in your open knowledge base… (drop a concept to add it as a chip)");
+                "Ask about the concepts in your open knowledge base… (Drop a concept to add it as a Komet Badge)");
         composeHint.setMouseTransparent(true);
         composeHint.setStyle("-fx-text-fill: #9a9a9a;");
         composeHint.setPadding(new Insets(4, 8, 0, 8));
