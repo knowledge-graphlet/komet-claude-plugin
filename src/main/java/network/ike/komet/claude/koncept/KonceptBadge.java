@@ -38,7 +38,9 @@ import java.io.UncheckedIOException;
  * (Java2D), so a renderer that can only show images (Zulip / email) still gets the whole badge as
  * one picture. Honest about the component {@link KonceptKind} (ike-issues#638): a concept is the
  * bare identicon + label; every other kind prepends its coloured letter sigil; a stamp is the gray
- * {@link StampSigilGeometry} pentagon plus its compact provenance text (no identicon, no name-pill).
+ * {@link StampSigilGeometry} pentagon, then the STAMP's own identicon, then its compact provenance
+ * text in place of a name (never the blue name-pill) — the sigil always immediately precedes an
+ * identicon, never bare, and the identicon tells one STAMP from another at a glance.
  *
  * <p>Appearance matches the JavaFX / adoc spec (ike-issues#742): normal-weight label, subtle pill
  * radius, no border. Rendered at {@link #SCALE}× for high-DPI crispness. A future {@code koncept-core}
@@ -80,14 +82,15 @@ public final class KonceptBadge {
     /**
      * Renders the badge for an identicon + label, honest about the component {@code kind}
      * (ike-issues#638): a {@link KonceptKind#CONCEPT} is the bare identicon + label pill; a
-     * {@link KonceptKind#STAMP} is the gray {@link #stampPng(String) pentagon chip} carrying its
-     * compact provenance text; every other kind prepends its coloured letter sigil
-     * ({@code D}/{@code S}/{@code P}/{@code ?}).
+     * {@link KonceptKind#STAMP} is the gray {@link #stampPng(byte[], String) pentagon chip} —
+     * pentagon, then the STAMP's own identicon, then its compact provenance text; every other kind
+     * prepends its coloured letter sigil ({@code D}/{@code S}/{@code P}/{@code ?}).
      *
      * <p>Appearance reconciled to the JavaFX/adoc spec (ike-issues#742): normal-weight label, subtle
      * pill radius, no border. (Java2D has no small-caps, so the label is drawn verbatim.)
      *
-     * @param identiconPng the LifeHash identicon PNG bytes (any size; drawn pixel-crisp)
+     * @param identiconPng the component's LifeHash identicon PNG bytes (any size; drawn
+     *                     pixel-crisp) — for a stamp, the STAMP's own identicon
      * @param label        the concept label, or — for a stamp — its compact provenance text
      * @param kind         the component kind; {@code null} is treated as {@link KonceptKind#CONCEPT}
      * @return the composited badge PNG bytes
@@ -96,7 +99,7 @@ public final class KonceptBadge {
     public static byte[] png(byte[] identiconPng, String label, KonceptKind kind) {
         KonceptKind resolved = (kind == null) ? KonceptKind.CONCEPT : kind;
         if (resolved.isStamp()) {
-            return stampPng(label);
+            return stampPng(identiconPng, label);
         }
         final int pad = 4 * SCALE;
         final int icon = 13 * SCALE;
@@ -169,18 +172,33 @@ public final class KonceptBadge {
 
     /**
      * The STAMP kind badge: the locked gray pentagon (from the shared {@link StampSigilGeometry}) in
-     * a gray metadata chip, followed by the compact provenance text — no identicon, no name. A stamp
-     * is provenance, never a name-pill (ike-issues#638). The pentagon geometry is the byte-identical
-     * port of the JavaFX {@code StampSigil}, so the same pentagon renders in every medium.
+     * a gray metadata chip, then the STAMP's own identicon, then the compact provenance text in
+     * place of a name — the sigil always immediately precedes an identicon, never bare, and the
+     * identicon tells one STAMP from another at a glance (revised ike-issues#638). The pentagon
+     * geometry is the byte-identical port of the JavaFX {@code StampSigil}, so the same pentagon
+     * renders in every medium. Without identicon bytes the chip falls back to pentagon + text — the
+     * no-computable-identity fallback, matching the adoc renderer.
      *
-     * @param label the compact stamp text ({@code status · date-time · author})
+     * @param identiconPng the STAMP's own LifeHash identicon PNG bytes, or {@code null}/empty when
+     *                     no identity is computable
+     * @param label        the compact stamp text ({@code status · date-time · author})
      * @return the composited stamp-badge PNG bytes
      */
-    private static byte[] stampPng(String label) {
+    private static byte[] stampPng(byte[] identiconPng, String label) {
         final int box = 16 * SCALE;
         final int pad = 4 * SCALE;
+        final int icon = 13 * SCALE;
         final int gap = 5 * SCALE;
         final Font labelFont = new Font(Font.SANS_SERIF, Font.PLAIN, 11 * SCALE);
+
+        BufferedImage identicon = null;
+        if (identiconPng != null && identiconPng.length > 0) {
+            try {
+                identicon = ImageIO.read(new ByteArrayInputStream(identiconPng));
+            } catch (IOException e) {
+                throw new UncheckedIOException("Failed to decode identicon for stamp badge", e);
+            }
+        }
 
         BufferedImage probe = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
         Graphics2D pg = probe.createGraphics();
@@ -191,8 +209,9 @@ public final class KonceptBadge {
         int textH = ascent + fm.getDescent();
         pg.dispose();
 
+        int iconW = (identicon != null) ? icon + gap : 0;
         int contentH = Math.max(box, textH);
-        int w = pad + box + gap + textW + pad;
+        int w = pad + box + gap + iconW + textW + pad;
         int h = pad + contentH + pad;
 
         BufferedImage badge = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
@@ -204,12 +223,21 @@ public final class KonceptBadge {
         g.setColor(STAMP_CHIP_FILL);
         g.fillRoundRect(0, 0, w - 1, h - 1, PILL_ARC * SCALE, PILL_ARC * SCALE);
 
-        // The pentagon leads (in place of an identicon); the compact provenance text follows.
+        // The pentagon leads, the STAMP's identicon follows it, and the provenance text closes.
         drawPentagon(g, pad + box / 2.0, h / 2.0, (box / 2.0) * STAMP_RADIUS_FRACTION);
+
+        int x = pad + box + gap;
+        if (identicon != null) {
+            // Same bilinear rationale as the concept badge: at this size the cells are sub-pixel.
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                    RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.drawImage(identicon, x, (h - icon) / 2, icon, icon, null);
+            x += icon + gap;
+        }
 
         g.setColor(STAMP_TEXT_COLOR);
         g.setFont(labelFont);
-        g.drawString(label, pad + box + gap, (h - textH) / 2 + ascent);
+        g.drawString(label, x, (h - textH) / 2 + ascent);
         g.dispose();
 
         return encode(badge);

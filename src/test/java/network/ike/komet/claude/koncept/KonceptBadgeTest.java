@@ -33,8 +33,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Headless pixel tests for the Java2D Zulip/email {@link KonceptBadge} — the cross-medium kind sigil
- * + the locked stamp pentagon with its compact provenance text (ike-issues#638) and the appearance
- * fixes (#742). Renders to {@link BufferedImage} only — no display, no JavaFX.
+ * + the locked stamp pentagon with the STAMP's own identicon and compact provenance text (revised
+ * ike-issues#638) and the appearance fixes (#742). Renders to {@link BufferedImage} only — no
+ * display, no JavaFX.
  */
 class KonceptBadgeTest {
 
@@ -76,18 +77,31 @@ class KonceptBadgeTest {
     }
 
     @Test
-    void stampRendersTheGrayPentagonPlusCompactTextNoName() {
+    void stampRendersPentagonThenIdenticonThenCompactText() {
         BufferedImage img = decode(KonceptBadge.png(
                 dummyIdenticon(), "Active · 2024-06-23 14:30 · KEC", KonceptKind.STAMP));
 
         assertTrue(hasColorNear(img, Color.decode(StampSigilGeometry.COLOR), 20),
                 "the stamp pentagon renders in the locked gray");
+        assertTrue(hasColorNear(img, new Color(0x3f, 0x76, 0xc4), 12),
+                "the STAMP's own identicon follows the pentagon — the sigil is never bare (revised #638)");
         assertTrue(hasColorNear(img, new Color(0x5A, 0x57, 0x50), 18),
                 "the compact provenance text renders in dark gray");
         assertFalse(hasColorNear(img, new Color(0x2a, 0x5a, 0x8a), 14),
                 "a stamp is a gray provenance chip, never a blue name-pill");
-        assertTrue(img.getWidth() > (4 + 16 + 4) * KonceptBadge.SCALE,
-                "the chip widens to hold the provenance text beside the pentagon");
+        assertTrue(img.getWidth() > (4 + 16 + 5 + 13 + 4) * KonceptBadge.SCALE,
+                "the chip widens to hold the identicon and provenance text beside the pentagon");
+    }
+
+    @Test
+    void stampWithoutIdenticonBytesFallsBackToPentagonPlusText() {
+        BufferedImage img = decode(KonceptBadge.png(
+                null, "Active · 2024-06-23 14:30 · KEC", KonceptKind.STAMP));
+
+        assertTrue(hasColorNear(img, Color.decode(StampSigilGeometry.COLOR), 20),
+                "the no-computable-identity fallback keeps the pentagon");
+        assertTrue(hasColorNear(img, new Color(0x5A, 0x57, 0x50), 18),
+                "the fallback keeps the compact provenance text");
     }
 
     @Test
