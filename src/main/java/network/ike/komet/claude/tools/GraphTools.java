@@ -18,6 +18,7 @@ package network.ike.komet.claude.tools;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.service.PrimitiveDataSearchResult;
+import dev.ikm.tinkar.provider.grpc.GrpcSearchService;
 import dev.ikm.tinkar.common.util.uuid.UuidUtil;
 import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
 import dev.ikm.tinkar.coordinate.view.ViewCoordinateRecord;
@@ -97,7 +98,7 @@ public final class GraphTools {
      */
     public List<AnthropicTool> tools() {
         return List.of(concept(), children(), parents(), descendants(),
-                ancestors(), isA(), axioms(), search(), viewInfo(), debugConcept());
+                ancestors(), isA(), axioms(), search(), viewInfo(), debugConcept(), semanticInfo());
     }
 
     // ── Tools ───────────────────────────────────────────────────────────
@@ -304,6 +305,44 @@ public final class GraphTools {
                 });
     }
 
+    private AnthropicTool semanticInfo() {
+        return tool("semantic_info",
+                "Read the field values of a specific semantic instance by its own UUID — e.g. a "
+                        + "Test Performed record, a comment, an identifier. Use this when a UUID "
+                        + "identifies a semantic/pattern instance rather than a concept (the concept "
+                        + "tool will say so if it does), or when you already have a semantic's UUID "
+                        + "and need its field values (e.g. limit of detection, units of measure). "
+                        + "Currently only available in gRPC mode.",
+                objectSchema(Map.of("id", strProp("the semantic instance's UUID (not the concept it's attached to)")),
+                        List.of("id")),
+                in -> {
+                    if (!GrpcSearchService.isActive()) {
+                        return "The semantic_info tool is only available in gRPC mode.";
+                    }
+                    String id = str(in, "id");
+                    UUID uuid;
+                    try {
+                        uuid = UUID.fromString(id == null ? "" : id.trim());
+                    } catch (IllegalArgumentException e) {
+                        return "Not a valid UUID: " + id;
+                    }
+                    try {
+                        GrpcSearchService.SemanticInfo info = GrpcSearchService.get().semanticInfo(uuid);
+                        StringBuilder sb = new StringBuilder("Pattern: ").append(info.patternName()).append('\n');
+                        if (info.fields().isEmpty()) {
+                            sb.append("  (no field values)");
+                        } else {
+                            for (String field : info.fields()) {
+                                sb.append("  - ").append(field).append('\n');
+                            }
+                        }
+                        return sb.toString();
+                    } catch (Exception e) {
+                        return "Error retrieving semantic: " + e.getMessage();
+                    }
+                });
+    }
+
     private AnthropicTool search() {
         return tool("search",
                 "Full-text search concept descriptions (Lucene). Returns matching concepts with "
@@ -322,6 +361,26 @@ public final class GraphTools {
                         return "No query provided.";
                     }
                     int limit = intOr(in, "limit", DEFAULT_LIMIT);
+                    if (GrpcSearchService.isActive()) {
+                        try {
+                            List<GrpcSearchService.GroupedResult> results =
+                                    GrpcSearchService.get().searchGrouped(
+                                            query.trim(), Math.max(1, limit),
+                                            GrpcSearchService.SortOption.TOP_COMPONENT);
+                            if (results.isEmpty()) {
+                                return "No matches for: " + query;
+                            }
+                            StringBuilder sb = new StringBuilder();
+                            for (GrpcSearchService.GroupedResult r : results) {
+                                String id = r.publicId().isEmpty() ? "?" : r.publicId().get(0);
+                                sb.append("  - ").append(r.fullyQualifiedName())
+                                        .append("  [").append(id).append("]\n");
+                            }
+                            return sb.append("[").append(results.size()).append(" concepts]").toString();
+                        } catch (Exception e) {
+                            return "Search error: " + e.getMessage();
+                        }
+                    }
                     Searcher searcher = null;
                     try {
                         searcher = new Searcher();
@@ -414,11 +473,25 @@ public final class GraphTools {
             }
         }
         int nid = toConceptNid(EntityService.get().nidForPublicId(PublicIds.of(uuid)));
-        // A nid may be minted for an unknown id; treat "no name" as not present.
-        if (v.getFullyQualifiedNameText(nid).isEmpty() && v.getDescriptionText(nid).isEmpty()) {
-            return NONE;
+        if (!v.getFullyQualifiedNameText(nid).isEmpty() || !v.getDescriptionText(nid).isEmpty()) {
+            return nid;
         }
-        return nid;
+        // In gRPC mode the local entity store only contains concepts explicitly prefetched.
+        // GetEntityByPublicId (the auto-fallback) returns only the concept entity + stamps,
+        // not its description semantics, so getFullyQualifiedNameText stays empty.
+        // LoadConceptEntityGraph returns the full graph (concept + semantics + stamps),
+        // which lets the view calculator resolve names, parents, and axioms.
+        if (GrpcSearchService.isActive()) {
+            try {
+                GrpcSearchService.get().loadConceptWithSemantics(List.of(uuid));
+                if (!v.getFullyQualifiedNameText(nid).isEmpty() || !v.getDescriptionText(nid).isEmpty()) {
+                    return nid;
+                }
+            } catch (Exception ignored) {
+                // Concept not found or server error — fall through to NONE
+            }
+        }
+        return NONE;
     }
 
     /**
