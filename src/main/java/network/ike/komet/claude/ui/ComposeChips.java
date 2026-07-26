@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.ui;
 
+import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import javafx.scene.Node;
@@ -50,6 +51,19 @@ public final class ComposeChips {
         // the transcript); the compose surface instead wants the label to MATCH its input text, so
         // pass the base that makes 0.9 * base == labelPx.
         return KonceptChips.chip(pid, null, viewCalc, labelPx / 0.9);
+    }
+
+    /**
+     * Interactive-surface form: the composed chip computes its logical-status cluster and
+     * carries the definition popout (ike-issues#941).
+     *
+     * @param pid            the concept's id (resolved and existing)
+     * @param viewProperties the compose surface's view; may be null (icon-only fallback)
+     * @param labelPx        the target label size (px), matching the compose input's text
+     * @return the chip node
+     */
+    public static Node chip(PublicId pid, ViewProperties viewProperties, double labelPx) {
+        return KonceptChips.chip(pid, null, viewProperties, labelPx / 0.9);
     }
 
     /** Token-field selection fill (macOS convention): accent-filled pill, white label. */

@@ -18,6 +18,7 @@ package network.ike.komet.claude.ui;
 import dev.ikm.komet.markdown.richtext.DocumentSegment;
 import dev.ikm.komet.markdown.richtext.MarkdownRichTextRenderer;
 import dev.ikm.komet.markdown.richtext.MarkdownStyledModel;
+import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import javafx.scene.paint.Color;
 import jfx.incubator.scene.control.richtext.model.RichParagraph;
@@ -108,6 +109,33 @@ public final class MarkdownRichText {
     }
 
     /**
+     * Interactive-surface form: chips compute their logical-status cluster and carry the
+     * definition popout (ike-issues#941). Prefer this wherever the surface has a
+     * {@link ViewProperties}; the {@link ViewCalculator} forms stay for non-interactive
+     * renderings (paged print) and viewless fallbacks.
+     *
+     * @param viewProperties the surface's view; if null, chips fall back to bare identicons
+     * @param base           base body font size in px
+     */
+    public MarkdownRichText(ViewProperties viewProperties, double base) {
+        this(viewProperties, base, null);
+    }
+
+    /**
+     * Interactive-surface form with an explicit prose font family — see
+     * {@link #MarkdownRichText(ViewProperties, double)}.
+     *
+     * @param viewProperties the surface's view; if null, chips fall back to bare identicons
+     * @param base           base body font size in px
+     * @param fontFamily     the base prose font family; {@code null} uses the platform default
+     */
+    public MarkdownRichText(ViewProperties viewProperties, double base, String fontFamily) {
+        this(base, fontFamily,
+                new ConceptChipInlineDecorator(viewProperties, base),
+                new KonceptTreeBlockRenderer(viewProperties, base));
+    }
+
+    /**
      * @param viewCalc   the live view for resolving concept names for chips; if null, chips
      *                   fall back to a bare identicon
      * @param base       base body font size in px (see {@link #DEFAULT_BASE})
@@ -115,10 +143,15 @@ public final class MarkdownRichText {
      *                   {@code null} uses the platform default. Code stays monospaced.
      */
     public MarkdownRichText(ViewCalculator viewCalc, double base, String fontFamily) {
-        this.base = base;
-        this.renderer = new MarkdownRichTextRenderer(base, fontFamily,
+        this(base, fontFamily,
                 new ConceptChipInlineDecorator(viewCalc, base),
                 new KonceptTreeBlockRenderer(viewCalc, base));
+    }
+
+    private MarkdownRichText(double base, String fontFamily,
+                             ConceptChipInlineDecorator decorator, KonceptTreeBlockRenderer trees) {
+        this.base = base;
+        this.renderer = new MarkdownRichTextRenderer(base, fontFamily, decorator, trees);
     }
 
     /**

@@ -222,8 +222,8 @@ public final class CommitNarrator {
         return sb.toString();
     }
 
+    /** The view's coordinate-preferred description, else the nid — the badge's own resolution (#942). */
     private static String name(int nid, ViewCalculator view) {
-        return view.getFullyQualifiedNameText(nid)
-                .orElseGet(() -> view.getPreferredDescriptionTextWithFallbackOrNid(nid));
+        return view.getDescriptionTextOrNid(nid);
     }
 }

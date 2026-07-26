@@ -21,6 +21,7 @@ import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.util.uuid.UuidUtil;
+import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import javafx.event.Event;
 import javafx.geometry.Insets;
@@ -100,11 +101,23 @@ final class KonceptTreeBlockRenderer implements BlockRenderer {
 
     /** The view used to resolve names and active state for chips; may be null (icon-only chips). */
     private final ViewCalculator viewCalc;
+    /** The interactive surface's view — chips get status + popout (ike-issues#941); null for print/degraded. */
+    private final ViewProperties viewProperties;
     /** Base body font size (px); chips scale from it. */
     private final double base;
 
     KonceptTreeBlockRenderer(ViewCalculator viewCalc, double base) {
+        this(viewCalc, null, base);
+    }
+
+    /** Interactive-surface form: chips compute their status cluster and carry the definition popout (#941). */
+    KonceptTreeBlockRenderer(ViewProperties viewProperties, double base) {
+        this(viewProperties == null ? null : viewProperties.calculator(), viewProperties, base);
+    }
+
+    private KonceptTreeBlockRenderer(ViewCalculator viewCalc, ViewProperties viewProperties, double base) {
         this.viewCalc = viewCalc;
+        this.viewProperties = viewProperties;
         this.base = base;
     }
 
@@ -308,12 +321,11 @@ final class KonceptTreeBlockRenderer implements BlockRenderer {
 
         Node content;
         if (row.cell.pid() != null) {
-            Node chip = KonceptChips.chip(row.cell.pid(), row.cell.sctid(), viewCalc, base);
-            // Consume the press so the enclosing RichTextArea doesn't begin a text selection on the
-            // first press over the chip — otherwise it takes a second press to arm the drag. The
-            // drag gesture (DRAG_DETECTED) still fires, so a single press-and-drag works.
-            chip.setOnMousePressed(Event::consume);
-            content = chip;
+            // The chip factory consumes the press itself now (one behavior per atom), so the
+            // RichTextArea never begins a text selection over a chip anywhere it is embedded.
+            content = viewProperties != null
+                    ? KonceptChips.chip(row.cell.pid(), row.cell.sctid(), viewProperties, base)
+                    : KonceptChips.chip(row.cell.pid(), row.cell.sctid(), viewCalc, base);
         } else {
             Label label = new Label((row.cell.label() == null || row.cell.label().isBlank())
                     ? "(unresolved)" : row.cell.label());

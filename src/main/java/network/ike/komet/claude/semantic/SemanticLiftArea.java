@@ -15,6 +15,8 @@
  */
 package network.ike.komet.claude.semantic;
 
+import network.ike.komet.claude.ui.KonceptChipGestures;
+import network.ike.komet.claude.ui.RichTextViewpoint;
 import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.komet.layout.KlArea;
 import dev.ikm.komet.layout.area.AreaGridSettings;
@@ -40,8 +42,13 @@ import javafx.scene.layout.VBox;
 import jfx.incubator.scene.control.richtext.RichTextArea;
 import network.ike.komet.claude.ui.MarkdownRichText;
 
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Supplier;
 
 /**
  * The semantic-lift authoring surface — a placeable {@code SupplementalArea}, modelled on the
@@ -67,6 +74,9 @@ public final class SemanticLiftArea extends SupplementalAreaBlueprint implements
     /** Area-node keys for this tile's own restorable state. */
     private static final String PREF_SESSION = "semanticLift.session";
     private static final String PREF_GRAPH = "semanticLift.graph";
+    /** The equivalent place (ike-issues#943): outer scroll + session-editor selection. */
+    private static final String PREF_SCROLL = "semanticLift.scroll";
+    private static final String PREF_SESSION_SELECTION = "semanticLift.sessionSelection";
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "komet-semantic-lift");
@@ -84,7 +94,19 @@ public final class SemanticLiftArea extends SupplementalAreaBlueprint implements
     private Button liftButton;
     private Label status;
     private VBox results;
+    private ScrollPane scroll;
     private boolean restored;
+
+    /** A rendered-Markdown pane and the supplier of its current source, for coordinate re-renders. */
+    private record MarkdownPane(RichTextArea view, Supplier<String> markdown) {
+    }
+
+    /** Every live rendered-Markdown pane; all re-render when the view coordinate changes (#942). */
+    private final List<MarkdownPane> markdownPanes = new ArrayList<>();
+
+    /** Per-pane viewpoints currently being restored; while present they are authoritative — a
+     *  re-render arriving mid-restore must not capture the not-yet-restored pane (#943). */
+    private final Map<RichTextArea, RichTextViewpoint> pendingPaneViewpoints = new HashMap<>();
 
     /**
      * Restore constructor.
@@ -135,7 +157,7 @@ public final class SemanticLiftArea extends SupplementalAreaBlueprint implements
         patternsPane.setExpanded(true);
 
         // 1. System prompt — fixed invariants, read-only rendered Markdown, collapsed by default.
-        RichTextArea systemView = renderedView(SemanticPrompts.invariants());
+        RichTextArea systemView = renderedView(SemanticPrompts::invariants);
         systemView.setPrefHeight(240);
         TitledPane systemPane = new TitledPane(
                 "System prompt — fixed invariants (read-only)", systemView);
@@ -143,7 +165,7 @@ public final class SemanticLiftArea extends SupplementalAreaBlueprint implements
 
         // 2. Intermediate prompt — user-editable general guidance (persisted globally), source + preview.
         guidanceEditor = sourceEditor(SemanticPrompts.effectiveGuidance(), null);
-        RichTextArea guidancePreview = renderedView(guidanceEditor.getText());
+        RichTextArea guidancePreview = renderedView(guidanceEditor::getText);
         guidanceEditor.focusedProperty().addListener((obs, was, focused) -> {
             if (Boolean.FALSE.equals(focused)) {
                 SemanticPrompts.saveGuidance(guidanceEditor.getText());
@@ -159,7 +181,7 @@ public final class SemanticLiftArea extends SupplementalAreaBlueprint implements
         sessionEditor = sourceEditor("",
                 "Describe the semantic to create for the bound pattern, e.g. "
                         + "“a semantic for type 2 diabetes in a patient on ozempic”…");
-        sessionPreview = renderedView("");
+        sessionPreview = renderedView(sessionEditor::getText);
         sessionEditor.focusedProperty().addListener((obs, was, focused) -> {
             if (Boolean.FALSE.equals(focused)) {
                 render(sessionPreview, sessionEditor.getText());
@@ -190,7 +212,7 @@ public final class SemanticLiftArea extends SupplementalAreaBlueprint implements
 
         VBox stack = new VBox(8, patternsPane, systemPane, guidancePane, sessionPane, liftBar, resultPane);
         stack.setPadding(new Insets(8));
-        ScrollPane scroll = new ScrollPane(stack);
+        scroll = new ScrollPane(stack);
         scroll.setFitToWidth(true);
         pane.setCenter(scroll);
     }
@@ -278,19 +300,22 @@ public final class SemanticLiftArea extends SupplementalAreaBlueprint implements
 
     // ── State persistence (this area's own node) ──────────────────────────────
 
-    /** Persists the session prompt and the pattern graph to this area's preferences node. */
+    /** Persists the session prompt, the pattern graph, and the equivalent place (#943). */
     private void persistState() {
         try {
             KometPreferences prefs = preferences();
             prefs.put(PREF_SESSION, sessionEditor == null ? "" : sessionEditor.getText());
             prefs.put(PREF_GRAPH, patternPanel == null ? "" : patternPanel.serialize());
+            prefs.put(PREF_SCROLL, scroll == null ? "0" : Double.toString(scroll.getVvalue()));
+            prefs.put(PREF_SESSION_SELECTION, sessionEditor == null ? ""
+                    : sessionEditor.getAnchor() + ":" + sessionEditor.getCaretPosition());
             prefs.flush();
         } catch (Exception persistFailed) {
             // best-effort; an unavailable store just means this session's state is not restored
         }
     }
 
-    /** Restores the session prompt and pattern graph from this area's preferences node (once). */
+    /** Restores the session prompt, pattern graph, and equivalent place (once). */
     private void restoreState() {
         if (restored) {
             return;
@@ -302,9 +327,33 @@ public final class SemanticLiftArea extends SupplementalAreaBlueprint implements
             sessionEditor.setText(session);
             render(sessionPreview, session);
             patternPanel.restoreFrom(prefs.get(PREF_GRAPH, ""));
+            restoreViewpoint(prefs.get(PREF_SCROLL, ""), prefs.get(PREF_SESSION_SELECTION, ""));
         } catch (Exception restoreFailed) {
             // a missing/unreadable node just leaves the defaults in place
         }
+    }
+
+    /**
+     * Returns to the equivalent place on reopen (#943): the outer scroll and the session
+     * editor's selection, exactly as they were when the window was left. Deferred two pulses so
+     * the restored content has settled its heights before the scroll range is meaningful.
+     */
+    private void restoreViewpoint(String scrollValue, String selectionValue) {
+        Platform.runLater(() -> Platform.runLater(() -> {
+            try {
+                if (!scrollValue.isBlank() && scroll != null) {
+                    scroll.setVvalue(Math.clamp(Double.parseDouble(scrollValue), 0, 1));
+                }
+                if (!selectionValue.isBlank() && sessionEditor != null) {
+                    String[] parts = selectionValue.split(":");
+                    // selectRange clamps to the current text, so a shorter restored prompt
+                    // degrades to the nearest existing position.
+                    sessionEditor.selectRange(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
+                }
+            } catch (RuntimeException malformed) {
+                // an unreadable viewpoint just leaves the default scroll position
+            }
+        }));
     }
 
     // ── Prompt-pane helpers ───────────────────────────────────────────────────
@@ -335,11 +384,32 @@ public final class SemanticLiftArea extends SupplementalAreaBlueprint implements
         return label;
     }
 
-    private RichTextArea renderedView(String markdown) {
+    private RichTextArea renderedView(Supplier<String> markdown) {
         RichTextArea view = new RichTextArea();
+        // Chips drag on a single gesture (knowledge-graphlet/komet-claude-plugin#5).
+        KonceptChipGestures.install(view);
         view.setEditable(false);
-        render(view, markdown);
+        markdownPanes.add(new MarkdownPane(view, markdown));
+        render(view, markdown.get());
         return view;
+    }
+
+    /**
+     * KL context hook (ike-issues#942): {@code StateAndContextBlueprint.subscribeToContext()}
+     * subscribes this area to its scene-graph-resolved view coordinate; when the coordinate
+     * changes, every rendered-Markdown pane re-renders from its current source so chips
+     * re-resolve their name, status and state against the new coordinate. One subscription per
+     * surface — the chips themselves stay subscription-free. Each pane returns to the equivalent
+     * place — captured scroll and selection restore after the re-render (ike-issues#943).
+     */
+    @Override
+    public void contextChanged() {
+        Platform.runLater(() -> markdownPanes.forEach(pane -> {
+            RichTextViewpoint viewpoint = pendingPaneViewpoints.computeIfAbsent(
+                    pane.view(), RichTextViewpoint::capture);
+            render(pane.view(), pane.markdown().get());
+            viewpoint.restore(pane.view(), () -> pendingPaneViewpoints.remove(pane.view()));
+        }));
     }
 
     /**
@@ -349,7 +419,8 @@ public final class SemanticLiftArea extends SupplementalAreaBlueprint implements
      */
     private void render(RichTextArea view, String markdown) {
         try {
-            view.setModel(new MarkdownRichText(viewCalculator(), BASE_FONT).renderMarkdown(markdown));
+            view.setModel(new MarkdownRichText(context().viewProperties(), BASE_FONT)
+                    .renderMarkdown(markdown));
         } catch (RuntimeException renderFailure) {
             // a malformed-Markdown render must not take down the pane
         }

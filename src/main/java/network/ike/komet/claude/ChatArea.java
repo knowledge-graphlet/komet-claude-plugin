@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude;
 
+import network.ike.komet.claude.ui.KonceptChipGestures;
 import dev.ikm.komet.layout.KlArea;
 import dev.ikm.komet.layout.area.AreaGridSettings;
 import dev.ikm.komet.layout.preferences.KlPreferencesFactory;
@@ -34,6 +35,7 @@ import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.tools.GraphTools;
 import network.ike.komet.claude.ui.MarkdownRichText;
+import network.ike.komet.claude.ui.RichTextViewpoint;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -105,6 +107,8 @@ public final class ChatArea extends SupplementalAreaBlueprint {
     private void buildUi() {
         BorderPane pane = fxObject();
         transcript = new RichTextArea();
+        // Chips drag on a single gesture (knowledge-graphlet/komet-claude-plugin#5).
+        KonceptChipGestures.install(transcript);
         transcript.setEditable(false);
 
         input = new TextField();
@@ -177,7 +181,37 @@ public final class ChatArea extends SupplementalAreaBlueprint {
     }
 
     private void refreshTranscript() {
-        transcript.setModel(new MarkdownRichText(viewCalculator(), MarkdownRichText.DEFAULT_BASE).toModel(entries));
+        // The context's own ViewProperties (KlContext.viewProperties(), #666): chips carry their
+        // status cluster and definition popout, following this area's window coordinate exactly
+        // like the axiom areas do (#941). context() is total — KB terminus yields null vp and
+        // chips degrade to presentation.
+        transcript.setModel(new MarkdownRichText(context().viewProperties(),
+                MarkdownRichText.DEFAULT_BASE).toModel(entries));
+    }
+
+    /** The transcript viewpoint currently being restored; while non-null it is authoritative —
+     *  a re-render arriving mid-restore must not capture the not-yet-restored area (#943). */
+    private RichTextViewpoint pendingViewpoint;
+
+    /**
+     * KL context hook (ike-issues#942): {@code StateAndContextBlueprint.subscribeToContext()}
+     * subscribes this area to its scene-graph-resolved view coordinate; when the coordinate
+     * changes, the transcript re-renders wholesale so every chip re-resolves its name, status
+     * and state against the new coordinate. One subscription per surface — the chips themselves
+     * stay subscription-free. The re-render returns to the equivalent place — captured scroll
+     * and selection are restored, never reset to the top; a repeated coordinate notification
+     * mid-restore reuses the held viewpoint rather than capturing the rebuilt, unrestored area
+     * (ike-issues#943).
+     */
+    @Override
+    public void contextChanged() {
+        Platform.runLater(() -> {
+            if (pendingViewpoint == null) {
+                pendingViewpoint = RichTextViewpoint.capture(transcript);
+            }
+            refreshTranscript();
+            pendingViewpoint.restore(transcript, () -> pendingViewpoint = null);
+        });
     }
 
     @Override

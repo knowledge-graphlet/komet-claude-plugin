@@ -101,7 +101,8 @@ class ConceptChipInlineDecoratorTest {
     void withoutAStoreEverythingStaysLiteral() {
         // No datastore in unit tests: resolve() fails its existence gate, so every token — k: or
         // bare — degrades to literal text and the decomposition returns the input verbatim.
-        ConceptChipInlineDecorator decorator = new ConceptChipInlineDecorator(null, 13);
+        ConceptChipInlineDecorator decorator = new ConceptChipInlineDecorator(
+                (dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator) null, 13);
         String text = "compare k:uuid=" + UUID_A + "[A] with 73211009 and nid=7 today";
         List<InlinePiece> pieces = decorator.decorate(text, StyleAttributeMap.EMPTY);
 

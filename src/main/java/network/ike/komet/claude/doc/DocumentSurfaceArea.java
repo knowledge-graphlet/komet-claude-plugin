@@ -89,7 +89,8 @@ public final class DocumentSurfaceArea extends SupplementalAreaBlueprint
 
     private void buildUi() {
         BorderPane pane = fxObject();
-        surface = new DocumentSurface(new BlockFactory(viewCalculator(), MarkdownRichText.DEFAULT_BASE));
+        surface = new DocumentSurface(new BlockFactory(context().viewProperties(),
+                MarkdownRichText.DEFAULT_BASE));
         // The surface is the figure; wrap it with the hover-reveal expand affordance (KlExpandable).
         pane.setCenter(withExpandAffordance());
         // The area is the first rung for the figures INSIDE the document — a koncept-tree or table

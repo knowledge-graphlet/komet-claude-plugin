@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude;
 
+import network.ike.komet.claude.ui.KonceptChipGestures;
 import dev.ikm.komet.framework.view.ObservableView;
 import dev.ikm.komet.framework.view.ObservableViewWithOverride;
 import dev.ikm.komet.framework.view.ViewProperties;
@@ -100,13 +101,18 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.prefs.BackingStoreException;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * The Claude Assistant as a first-class {@link AbstractHostCard}: a chat over the open knowledge base,
@@ -197,6 +203,19 @@ public final class ClaudeCard extends AbstractHostCard {
     private List<MarkdownRichText.Entry> entries;
     /** Transcript base font size (px); adjustable via the A−/A+ buttons, persisted. */
     private double baseFontSize = MarkdownRichText.DEFAULT_BASE;
+    /** Each conversation's <em>equivalent place</em> (scroll + selection), by conversation id —
+     *  held across re-renders and rail switches, persisted on save, restored on reopen (#943). */
+    private final Map<String, DocumentSurface.Viewpoint> viewpoints = new HashMap<>();
+    /** Conversation ids whose stored viewpoint is authoritative but not yet re-applied to the
+     *  surface — loaded at reopen, or any restore still in flight. While an id is pending,
+     *  captures must NOT overwrite its map entry: restoration is asynchronous (it waits for
+     *  layout to settle), and a second refresh arriving mid-rebuild — renderContent's refresh
+     *  after buildBody on reopen, or a repeated coordinate-change notification mid-session —
+     *  would capture the collapsed, not-yet-restored stack (block 0 = top) and clobber the real
+     *  place (#943/#945). */
+    private final Set<String> pendingViewpointRestore = new HashSet<>();
+    /** Child preferences node holding one encoded viewpoint per conversation id (#943). */
+    private static final String VIEWPOINTS_NODE = "viewpoints";
 
     /** One named conversation: its display entries, clean API turns, and Save markdown. */
     private static final class Conversation {
@@ -275,6 +294,15 @@ public final class ClaudeCard extends AbstractHostCard {
     private ViewCalculator safeViewCalculator() {
         try {
             return viewCalculator();
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** The card's view, or {@code null} before bind — chips then degrade to presentation (#941). */
+    private ViewProperties safeViewProperties() {
+        try {
+            return getCardViewProperties();
         } catch (RuntimeException e) {
             return null;
         }
@@ -363,11 +391,63 @@ public final class ClaudeCard extends AbstractHostCard {
         if (documentArea != null) {
             documentArea.saveSettings();
         }
+        saveViewpoints();
     }
 
     @Override
     protected void subCardRestore() {
         // The document area restores its own print settings when created in buildBody (#839).
+        loadViewpoints();
+    }
+
+    /**
+     * Stores every conversation's equivalent place on leaving, so a reopened card returns
+     * exactly as it was left (#943). The active conversation's live viewpoint is captured first;
+     * entries for conversations that no longer exist are pruned.
+     */
+    private void saveViewpoints() {
+        // A still-pending restore means the reader never returned to the active conversation's
+        // loaded place this session — persist that loaded value untouched, not the surface's
+        // unrestored position.
+        if (surface != null && active != null && !pendingViewpointRestore.contains(active.id)) {
+            DocumentSurface.Viewpoint current = surface.viewpoint();
+            if (current != null) {
+                viewpoints.put(active.id, current);
+            }
+        }
+        try {
+            KometPreferences node = preferences().node(VIEWPOINTS_NODE);
+            for (String key : node.keys()) {
+                if (conversations.stream().noneMatch(conv -> conv.id.equals(key))) {
+                    node.remove(key);
+                }
+            }
+            for (Map.Entry<String, DocumentSurface.Viewpoint> entry : viewpoints.entrySet()) {
+                node.put(entry.getKey(), entry.getValue().encode());
+            }
+            node.flush();
+        } catch (BackingStoreException e) {
+            LOG.warn("Could not persist conversation viewpoints", e);
+        }
+    }
+
+    /** Loads the persisted equivalent places (#943); each applies as its conversation activates.
+     *  Every loaded id is marked restore-pending, so no capture can overwrite it before the
+     *  reader has actually been returned there. */
+    private void loadViewpoints() {
+        try {
+            KometPreferences node = preferences().node(VIEWPOINTS_NODE);
+            for (String key : node.keys()) {
+                DocumentSurface.Viewpoint viewpoint =
+                        DocumentSurface.Viewpoint.decode(node.get(key, ""));
+                if (viewpoint != null) {
+                    viewpoints.put(key, viewpoint);
+                    pendingViewpointRestore.add(key);
+                }
+            }
+        } catch (BackingStoreException e) {
+            LOG.warn("Could not load conversation viewpoints", e);
+        }
     }
 
     /** Builds the chat body (conversations rail | document surface, over the input bar) as the card content. */
@@ -387,6 +467,8 @@ public final class ClaudeCard extends AbstractHostCard {
 
         composeModel = new ConceptChipTextModel();
         input = new RichTextArea(composeModel);
+        // Chips drag on a single gesture (knowledge-graphlet/komet-claude-plugin#5).
+        KonceptChipGestures.install(input);
         input.setWrapText(true);
         input.setPrefHeight(56);
         input.setMaxHeight(160);
@@ -408,7 +490,7 @@ public final class ClaudeCard extends AbstractHostCard {
                 e.consume();
             }
         });
-        installConceptDrop(input);
+        installKonceptDrop(input);
 
         // RichTextArea has no prompt text; overlay a hint on the empty model instead.
         composeHint = new Label(
@@ -532,14 +614,47 @@ public final class ClaudeCard extends AbstractHostCard {
     }
 
     /** Rebuilds the document surface from the accumulated entries (chips re-resolve on the
-     *  current coordinate; font-size changes re-render). */
+     *  current coordinate; font-size changes re-render), returning to the equivalent place. */
     private void refreshTranscript() {
+        refreshTranscript(true);
+    }
+
+    /**
+     * Rebuilds the document surface from the accumulated entries. The rebuild returns to the
+     * equivalent place (#943): the active conversation's viewpoint is captured first — unless the
+     * surface still shows a <em>different</em> conversation ({@code captureFirst} false, the
+     * {@link #activate} switch, which has already captured the conversation being left) — and
+     * restored after. A conversation seen for the first time opens at its latest turn.
+     */
+    private void refreshTranscript(boolean captureFirst) {
         if (surface == null || entries == null) {
             return;
         }
+        // Capture only a place the reader has actually returned to: while a loaded viewpoint is
+        // still pending application, the surface's current position is not the reader's place.
+        if (captureFirst && active != null && !pendingViewpointRestore.contains(active.id)) {
+            DocumentSurface.Viewpoint viewpoint = surface.viewpoint();
+            if (viewpoint != null) {
+                viewpoints.put(active.id, viewpoint);
+            }
+        }
         // No usable view yet → chips fall back to bare identicons until one is available.
-        surface.setBlockFactory(new BlockFactory(safeViewCalculator(), baseFontSize));
+        // With the card's view, chips carry their status cluster and definition popout (#941).
+        surface.setBlockFactory(new BlockFactory(safeViewProperties(), baseFontSize));
         surface.setTurns(entries);
+        if (active != null) {
+            DocumentSurface.Viewpoint stored = viewpoints.get(active.id);
+            if (stored != null) {
+                final String conversationId = active.id;
+                // In flight from now until actually applied: a refresh landing in this window
+                // skips its capture and re-schedules this same (correct) viewpoint instead.
+                pendingViewpointRestore.add(conversationId);
+                surface.restoreViewpoint(stored,
+                        () -> pendingViewpointRestore.remove(conversationId));
+            } else if (surface.turnCount() > 0) {
+                surface.scrollToTurn(surface.turnCount() - 1);
+            }
+        }
         refreshMatchesIfFinding();
         refreshPreviewIfOpen();
     }
@@ -565,11 +680,11 @@ public final class ClaudeCard extends AbstractHostCard {
         return composeModel.toTokenText().trim();
     }
 
-    private void installConceptDrop(RichTextArea area) {
-        // Filters run before the RichTextArea's own drag handling, so a concept drop lands as a
+    private void installKonceptDrop(RichTextArea area) {
+        // Filters run before the RichTextArea's own drag handling, so a koncept drop lands as a
         // live chip instead of the dragboard's plain-text PublicId being typed in.
         area.addEventFilter(DragEvent.DRAG_OVER, e -> {
-            if (hasConcept(e.getDragboard())) {
+            if (hasKoncept(e.getDragboard())) {
                 e.acceptTransferModes(TransferMode.COPY);
                 // Track the pointer with the caret so the insertion point is visible while hovering,
                 // but only when it actually MOVES to a new position — re-selecting the same spot on
@@ -586,7 +701,7 @@ public final class ClaudeCard extends AbstractHostCard {
         // never suppressed by a stale one.
         area.addEventFilter(DragEvent.DRAG_EXITED, e -> dropHint = null);
         area.addEventFilter(DragEvent.DRAG_DROPPED, e -> {
-            if (!hasConcept(e.getDragboard())) {
+            if (!hasKoncept(e.getDragboard())) {
                 return;
             }
             // A multi-concept drag (navigator multi-select) carries the whole set; a single drag
@@ -606,7 +721,7 @@ public final class ClaudeCard extends AbstractHostCard {
                 // is — not at whatever position the caret last held (which, on an unfocused compose
                 // box, was the start).
                 TextPos at = area.getTextPosition(e.getScreenX(), e.getScreenY());
-                insertConceptsAt(at, nids);
+                insertKonceptsAt(at, nids);
                 e.setDropCompleted(true);
             }
             dropHint = null;
@@ -614,29 +729,49 @@ public final class ClaudeCard extends AbstractHostCard {
         });
     }
 
-    private static boolean hasConcept(Dragboard dragboard) {
-        if (dragboard.hasContent(KometClipboard.KOMET_CONCEPT_LIST)) {
-            return true;
-        }
-        for (DataFormat format : KometClipboard.CONCEPT_TYPES) {
-            if (dragboard.hasContent(format)) {
-                return true;
-            }
-        }
-        return false;
+    /**
+     * The dragboard formats a prompt accepts: a multi-concept drag from the navigator, plus the
+     * single-component proxies for a concept or a pattern.
+     *
+     * <p>Deliberately narrower than {@code KometClipboard}'s full proxy set, which also covers
+     * semantics and stamps: whether those belong in a prompt is its own question, not a side
+     * effect of admitting patterns (knowledge-graphlet/komet-claude-plugin#4).
+     */
+    private static final Set<DataFormat> DROPPABLE_FORMATS = Stream.concat(
+                    Stream.of(KometClipboard.KOMET_CONCEPT_LIST),
+                    Stream.concat(KometClipboard.CONCEPT_TYPES.stream(),
+                            KometClipboard.PATTERN_TYPES.stream()))
+            .collect(Collectors.toUnmodifiableSet());
+
+    /**
+     * Whether {@code contentTypes} names something this prompt takes as a koncept chip.
+     *
+     * <p>Separated from the {@link Dragboard} so the acceptance rule is testable on its own — a
+     * real dragboard exists only mid-gesture, which is exactly when it can't be asserted against.
+     *
+     * @param contentTypes the dragboard's content types
+     * @return {@code true} if any is droppable
+     */
+    static boolean acceptsKoncept(Set<DataFormat> contentTypes) {
+        return contentTypes != null && contentTypes.stream().anyMatch(DROPPABLE_FORMATS::contains);
+    }
+
+    private static boolean hasKoncept(Dragboard dragboard) {
+        return dragboard != null && acceptsKoncept(dragboard.getContentTypes());
     }
 
     /**
-     * Inserts one or more dropped concepts at {@code at} as live chips (#789). Several concepts are
-     * joined as a natural-language list with the Oxford comma — {@code A}; {@code A and B};
-     * {@code A, B, and C} — and a trailing space so the user keeps typing. Each chip renders via the
-     * shared transcript pill and serializes on send as its id-bearing {@code k:} token.
+     * Inserts one or more dropped koncepts — concepts or patterns — at {@code at} as live chips
+     * (#789, knowledge-graphlet/komet-claude-plugin#4). Several are joined as a natural-language
+     * list with the Oxford comma — {@code A}; {@code A and B}; {@code A, B, and C} — and a trailing
+     * space so the user keeps typing. Each chip renders via the shared transcript pill and
+     * serializes on send as its id-bearing {@code k:} token.
      *
      * @param at   where the chips land (the drop point); {@code null} falls back to the caret, then
      *             the document end
-     * @param nids the dropped concepts, in order
+     * @param nids the dropped koncepts, in order
      */
-    private void insertConceptsAt(TextPos at, int[] nids) {
+    private void insertKonceptsAt(TextPos at, int[] nids) {
         if (at == null) {
             at = input.getCaretPosition();
         }
@@ -683,7 +818,7 @@ public final class ClaudeCard extends AbstractHostCard {
             return null;
         }
         return composeModel.insertChip(at, konceptToken(nid),
-                () -> ComposeChips.chip(pid, safeViewCalculator(), baseFontSize));
+                () -> ComposeChips.chip(pid, safeViewProperties(), baseFontSize));
     }
 
     /** The id-bearing {@code k:} token for a concept: UUID-keyed, labelled with the resolved name. */
@@ -701,8 +836,9 @@ public final class ClaudeCard extends AbstractHostCard {
         try {
             ViewCalculator vc = viewCalculator();
             if (vc != null) {
-                return vc.getFullyQualifiedNameText(nid)
-                        .orElseGet(() -> vc.getPreferredDescriptionTextWithFallbackOrNid(nid));
+                // The coordinate-preferred description — the same name the rendered chip shows,
+                // so the token label written into the markdown matches the display (#942).
+                return vc.getDescriptionTextOrNid(nid);
             }
         } catch (RuntimeException e) {
             // No usable view — fall back to the nid marker.
@@ -1135,13 +1271,22 @@ public final class ClaudeCard extends AbstractHostCard {
 
     /** Makes {@code conv} active: repoints the live refs and re-renders the transcript. */
     private void activate(Conversation conv) {
+        // Leaving the current conversation: remember its equivalent place, so switching back
+        // returns exactly where the reader left it (#943). A still-pending restore means the
+        // reader never returned there this session — its loaded viewpoint stays authoritative.
+        if (active != null && surface != null && !pendingViewpointRestore.contains(active.id)) {
+            DocumentSurface.Viewpoint viewpoint = surface.viewpoint();
+            if (viewpoint != null) {
+                viewpoints.put(active.id, viewpoint);
+            }
+        }
         active = conv;
         entries = conv.entries;
         transcriptMarkdown = conv.markdown;
         if (conversationList.getSelectionModel().getSelectedItem() != conv) {
             conversationList.getSelectionModel().select(conv);
         }
-        refreshTranscript();
+        refreshTranscript(false);
         updateInputState();
         updateStatusArea();
     }

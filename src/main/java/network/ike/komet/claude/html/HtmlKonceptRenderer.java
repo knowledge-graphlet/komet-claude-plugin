@@ -18,13 +18,17 @@ package network.ike.komet.claude.html;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.util.time.DateTimeUtil;
 import dev.ikm.tinkar.coordinate.logic.PremiseType;
+import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
+import network.ike.docs.konceptcore.KonceptAppearance;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityVersion;
 import dev.ikm.tinkar.entity.StampEntity;
+import dev.ikm.komet.framework.controls.KonceptStatus;
 import network.ike.komet.claude.koncept.ConceptDefinition;
 import network.ike.komet.claude.koncept.KompendiumUrls;
 import network.ike.komet.claude.koncept.KonceptIdenticon;
+import network.ike.komet.claude.koncept.KonceptStatusMark;
 
 import java.util.ArrayList;
 import java.util.Base64;
@@ -49,10 +53,36 @@ import java.util.UUID;
 public final class HtmlKonceptRenderer {
 
     private static final int ICON_PX = 16;
-    private static final String PILL =
-            "display:inline-block;background:#e9eff6;border:1px solid #c8d6e6;border-radius:11px;"
-            + "padding:1px 9px 1px 4px;white-space:nowrap;line-height:1;";
-    private static final String LABEL = "color:#2a5a8a;font-weight:600;font-variant:small-caps;vertical-align:middle;";
+
+    /** The one shared badge appearance (ike-issues#742/#860) the chip styles read from (#863). */
+    private static final KonceptAppearance SPEC = KonceptAppearance.defaults();
+
+    /**
+     * The pill, from the spec: fill, the floating border (email pasted into a mail client is a
+     * floating context), the spec corner radius and unified pads — in {@code em} at the spec's
+     * label-relative ratios, so the chip scales with the surrounding text.
+     */
+    static final String PILL =
+            "display:inline-block;background:" + SPEC.pillFillHex() + ";"
+            + "border:" + (int) SPEC.floatingBorderWidthPx() + "px solid "
+            + SPEC.floatingBorderHex() + ";"
+            + "border-radius:" + em(SPEC.cornerRadiusPx()) + ";"
+            + "padding:" + em(SPEC.padTopPx()) + " " + em(SPEC.padRightPx())
+            + " " + em(SPEC.padBottomPx()) + " " + em(SPEC.padLeftPx()) + ";"
+            + "white-space:nowrap;line-height:1;";
+
+    /** The label, from the spec: IKE blue, small caps, NORMAL weight (#863 — was semibold). */
+    static final String LABEL = "color:" + SPEC.labelColorHex()
+            + ";font-variant:small-caps;vertical-align:middle;";
+
+    /** The retired label (#742 parity): struck through in the retired colour. */
+    static final String LABEL_INACTIVE = "color:" + SPEC.labelColorInactiveHex()
+            + ";font-variant:small-caps;vertical-align:middle;text-decoration:line-through;";
+
+    /** A reference-px length as {@code em} at the spec's label-relative ratio. */
+    private static String em(double referencePx) {
+        return String.format(java.util.Locale.ROOT, "%.2fem", referencePx / SPEC.labelSizePx());
+    }
     private static final String TH = "border:1px solid #ccc;padding:3px 8px;background:#f0f0f0;text-align:left;font-weight:600;";
     private static final String TD = "border:1px solid #ccc;padding:3px 8px;vertical-align:middle;";
     /** Tree connector line colour + width-fixed gutter cell. */
@@ -89,14 +119,52 @@ public final class HtmlKonceptRenderer {
         return sb.toString();
     }
 
-    /** The adoc Koncept pill (inline identicon + small-caps IKE-blue label), linked to the
-     *  concept's Kompendium entry so every concept reference is clickable in the email. */
+    /** The adoc Koncept pill (leading status marks + inline identicon + small-caps IKE-blue
+     *  label), linked to the concept's Kompendium entry so every concept reference is
+     *  clickable in the email. */
     private String badge(int nid) {
-        String pill = "<span style=\"" + PILL + "\">" + identicon(nid)
-                + " <span style=\"" + LABEL + "\">" + escape(name(nid)) + "</span></span>";
+        // Retired parity (#742/#863): a retired referent's label strikes through in the retired
+        // colour, in email exactly as on screen and in adoc.
+        String labelStyle = isInactive(nid) ? LABEL_INACTIVE : LABEL;
+        String pill = "<span style=\"" + PILL + "\">" + statusCluster(nid) + identicon(nid)
+                + " <span style=\"" + labelStyle + "\">" + escape(name(nid)) + "</span></span>";
         UUID uuid = firstUuid(nid);
         return uuid == null ? pill
                 : "<a href=\"" + KOMPENDIUM.conceptUrl(uuid) + "\" style=\"text-decoration:none;\">" + pill + "</a>";
+    }
+
+    /**
+     * Whether {@code nid}'s latest version is inactive in this renderer's view — {@code false}
+     * when the state cannot be resolved, so a badge never fails on it.
+     */
+    private boolean isInactive(int nid) {
+        try {
+            Latest<EntityVersion> latest = view.stampCalculator().latest(nid);
+            return latest.isPresent() && latest.get().inactive();
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /**
+     * The Koncept's leading logical-status cluster (ike-issues#742 amendment, #863): the copula
+     * from its stated definition — {@code ≡}/{@code ⊑}/{@code ⊤} — with the {@code ⋎} fork
+     * appended for multi-parent, each glyph in its single-sourced colour, always visible; the
+     * {@code title} only explains the mark. Inline styles only — email clients drop stylesheets.
+     */
+    private String statusCluster(int nid) {
+        KonceptStatus status = KonceptStatusMark.resolve(nid, view);
+        if (!status.hasGlyph()) {
+            return "";
+        }
+        String fork = status.isMultiParent()
+                ? "<span style=\"color:" + network.ike.docs.konceptcore.KonceptStatus.MULTI_PARENT_COLOR_HEX
+                        + ";\">" + KonceptStatus.MULTI_PARENT_GLYPH + "</span>"
+                : "";
+        return "<span title=\"" + escape(status.accessibleText())
+                + "\" style=\"font-size:0.85em;vertical-align:middle;white-space:nowrap;\">"
+                + "<span style=\"color:" + status.core().colorHex() + ";\">" + status.glyph() + "</span>"
+                + fork + "</span> ";
     }
 
     private static UUID firstUuid(int nid) {
@@ -312,8 +380,9 @@ public final class HtmlKonceptRenderer {
         return sb.append("</tr>").toString();
     }
 
+    /** The view's coordinate-preferred description, else the nid — the badge's own resolution (#942). */
     private String name(int nid) {
-        return view.getPreferredDescriptionTextWithFallbackOrNid(nid);
+        return view.getDescriptionTextOrNid(nid);
     }
 
     private static String escape(String text) {
