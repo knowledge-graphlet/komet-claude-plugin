@@ -93,6 +93,25 @@ public final class KonceptBadge {
      */
     private static final Font SMALL_CAPS_BASE = loadSmallCaps();
 
+    /**
+     * The bundled symbol-glyph face from the koncept-core jar (ike-issues#953), loaded once;
+     * {@code null} when unavailable, in which case the cluster falls back to the platform sans
+     * (and may degrade to the bare pill via the canDisplay guard) — a badge must never fail on
+     * a missing font resource.
+     */
+    private static final Font GLYPH_BASE = loadGlyphFace();
+
+    private static Font loadGlyphFace() {
+        try (InputStream in = KonceptAppearance.glyphFont()) {
+            if (in == null) {
+                return null;
+            }
+            return Font.createFont(Font.TRUETYPE_FONT, in);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private static Font loadSmallCaps() {
         try (InputStream in = KonceptAppearance.smallCapsFont()) {
             if (in == null) {
@@ -227,8 +246,13 @@ public final class KonceptBadge {
         final String sigilGlyph = resolved.hasLetterGlyph() ? resolved.glyph() : null;
         // The status cluster is Koncept-only (one leading mark, never beside a sigil). Degrade to
         // bare if the platform sans font cannot display the DL glyphs — never tofu.
-        final Font statusFont = new Font(Font.SANS_SERIF, Font.PLAIN,
-                (int) Math.round(SPEC.labelSizePx() * 10.0 / 12.0) * SCALE);
+        // The bundled glyph face (ike-issues#953): the cluster never resolves through platform
+        // font fallback; the platform sans remains the keep-alive fallback when the face is
+        // missing from the jar.
+        final Font statusFont = GLYPH_BASE != null
+                ? GLYPH_BASE.deriveFont((float) (SPEC.labelSizePx() * 10.0 / 12.0 * SCALE))
+                : new Font(Font.SANS_SERIF, Font.PLAIN,
+                        (int) Math.round(SPEC.labelSizePx() * 10.0 / 12.0) * SCALE);
         KonceptStatus resolvedStatus = (status == null) ? KonceptStatus.NONE : status;
         String cluster = resolved == KonceptKind.CONCEPT
                 ? resolvedStatus.cluster(multiParent) : "";
