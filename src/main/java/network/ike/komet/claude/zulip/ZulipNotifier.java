@@ -27,6 +27,7 @@ import network.ike.komet.claude.koncept.ConceptDefinition;
 import network.ike.komet.claude.koncept.IdenticonUriCache;
 import network.ike.komet.claude.koncept.KompendiumUrls;
 import network.ike.komet.claude.koncept.KonceptIdenticon;
+import network.ike.komet.claude.koncept.KonceptStatusMark;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -136,7 +137,7 @@ public final class ZulipNotifier {
         // frame only appears when an image is alone on its line). This is the adoc
         // Koncept badge in Zulip, with the exact LifeHash. (The composite KonceptBadge
         // image and KonceptMatrix renderings remain available as banked alternatives.)
-        sb.append(renderInlineHeader(conceptNid, name, uuid, id, icons)).append('\n');
+        sb.append(renderInlineHeader(conceptNid, name, uuid, id, view, icons)).append('\n');
         if (uuid != null) {
             // Linkifier-ready deep-link token; a realm linkifier turns
             // `komet:<uuid>` into an open-in-Komet link.
@@ -215,12 +216,23 @@ public final class ZulipNotifier {
      * back to the linked text label without an identicon.
      */
     private String renderInlineHeader(int conceptNid, String name, UUID uuid, String id,
-                                      Map<Integer, String> icons) {
+                                      ViewCalculator view, Map<Integer, String> icons) {
         String labelMd = (uuid != null)
                 ? "**[" + name + "](" + KOMPENDIUM.conceptUrl(uuid) + ")**"
                 : "**" + name + "**";
         String uri = iconUri(conceptNid, icons);
-        return (uri.isEmpty() ? "" : "![k](" + uri + ") ") + labelMd + "  ·  `" + id + "`";
+        return statusPrefix(conceptNid, view)
+                + (uri.isEmpty() ? "" : "![k](" + uri + ") ") + labelMd + "  ·  `" + id + "`";
+    }
+
+    /**
+     * The Koncept's leading logical-status cluster as markdown text ({@code ⊑⋎ } etc. —
+     * ike-issues#742 amendment, #862): Zulip markdown carries the glyph, not its colour —
+     * the data channel, matching the adoc renderer's FO/Prawn convention.
+     */
+    private static String statusPrefix(int nid, ViewCalculator view) {
+        String cluster = KonceptStatusMark.clusterText(KonceptStatusMark.resolve(nid, view));
+        return cluster.isEmpty() ? "" : cluster + " ";
     }
 
     /**
@@ -259,7 +271,7 @@ public final class ZulipNotifier {
     private String konceptInline(int nid, ViewCalculator view, Map<Integer, String> icons) {
         String uri = iconUri(nid, icons);
         String nm = name(nid, view);
-        return uri.isEmpty() ? nm : "![k](" + uri + ") " + nm;
+        return statusPrefix(nid, view) + (uri.isEmpty() ? nm : "![k](" + uri + ") " + nm);
     }
 
     /** The component's STAMP versions, newest first, as Markdown list rows. */
@@ -298,9 +310,9 @@ public final class ZulipNotifier {
         }
     }
 
-    /** The concept's fully specified name, falling back to a preferred description. */
+    /** The view's coordinate-preferred description, else the nid — the badge's own resolution (#942). */
     private static String name(int nid, ViewCalculator view) {
-        return view.getPreferredDescriptionTextWithFallbackOrNid(nid);
+        return view.getDescriptionTextOrNid(nid);
     }
 
     /** A "Last edited by … · …" line from the concept's latest STAMP, best-effort. */

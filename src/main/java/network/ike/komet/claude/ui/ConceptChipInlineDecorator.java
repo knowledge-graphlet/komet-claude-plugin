@@ -21,6 +21,7 @@ import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.util.uuid.UuidUtil;
+import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
 
@@ -72,11 +73,23 @@ final class ConceptChipInlineDecorator implements InlineDecorator {
 
     /** The view used to resolve concept names for chips; may be null (icon-only fallback). */
     private final ViewCalculator viewCalc;
+    /** The interactive surface's view — chips get status + popout (ike-issues#941); null for print/degraded. */
+    private final ViewProperties viewProperties;
     /** Base body font size (px); the chip label and identicon scale from it. */
     private final double base;
 
     ConceptChipInlineDecorator(ViewCalculator viewCalc, double base) {
+        this(viewCalc, null, base);
+    }
+
+    /** Interactive-surface form: chips compute their status cluster and carry the definition popout (#941). */
+    ConceptChipInlineDecorator(ViewProperties viewProperties, double base) {
+        this(viewProperties == null ? null : viewProperties.calculator(), viewProperties, base);
+    }
+
+    private ConceptChipInlineDecorator(ViewCalculator viewCalc, ViewProperties viewProperties, double base) {
         this.viewCalc = viewCalc;
+        this.viewProperties = viewProperties;
         this.base = base;
     }
 
@@ -197,6 +210,8 @@ final class ConceptChipInlineDecorator implements InlineDecorator {
      * @param sctid the matched SCTID for the tooltip, or null if matched by UUID/nid
      */
     private javafx.scene.Node conceptChip(PublicId pid, String sctid) {
-        return KonceptChips.chip(pid, sctid, viewCalc, base);
+        return viewProperties != null
+                ? KonceptChips.chip(pid, sctid, viewProperties, base)
+                : KonceptChips.chip(pid, sctid, viewCalc, base);
     }
 }

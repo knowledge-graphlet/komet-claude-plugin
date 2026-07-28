@@ -17,13 +17,16 @@ package network.ike.komet.claude.doc;
 
 import dev.ikm.komet.markdown.richtext.RichTextSearch;
 import javafx.application.Platform;
+import javafx.geometry.Bounds;
 import javafx.geometry.Insets;
 import javafx.scene.Node;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.layout.VBox;
 import jfx.incubator.scene.control.richtext.RichTextArea;
+import jfx.incubator.scene.control.richtext.SelectionSegment;
 import jfx.incubator.scene.control.richtext.TextPos;
 import network.ike.komet.claude.ui.MarkdownRichText;
+import network.ike.komet.claude.ui.RichTextViewpoint;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -167,6 +170,217 @@ public final class DocumentSurface extends ScrollPane {
         // Two chained pulses: the first lets the new blocks join layout, the second reads settled
         // bounds (useContentHeight areas report their height one pulse after their model lands).
         Platform.runLater(() -> Platform.runLater(() -> scrollToBlock(blockIndex)));
+    }
+
+    // ── Viewpoint (ike-issues#943) ───────────────────────────────────────
+
+    /**
+     * A text selection within one block's prose area, in the block-stack's stable coordinates.
+     *
+     * @param blockIndex   the block holding the selection
+     * @param anchorIndex  the anchor's paragraph index within the block's model
+     * @param anchorOffset the anchor's character offset within its paragraph
+     * @param caretIndex   the caret's paragraph index within the block's model
+     * @param caretOffset  the caret's character offset within its paragraph
+     */
+    public record TextSelection(int blockIndex, int anchorIndex, int anchorOffset,
+                                int caretIndex, int caretOffset) {
+    }
+
+    /**
+     * The surface's <em>equivalent place</em> (IKE-Network/ike-issues#943): the viewport top sits
+     * {@code fraction} of the way down block {@code blockIndex}, plus the text selection if there
+     * is one. Block index is the stable coordinate across a re-render that rebuilds the same
+     * turns (a coordinate change, #942, or a font-size change) and across a reopen of the same
+     * conversation; the fraction degrades gracefully when block heights shift. One value serves
+     * both journeys — held across a rebuild in memory, or {@linkplain #encode() encoded} into
+     * preferences when leaving and {@linkplain #decode(String) decoded} on return.
+     *
+     * @param blockIndex the block at the viewport top
+     * @param fraction   how far down that block the viewport top sits (0 = its top edge)
+     * @param selection  the text selection, or {@code null} when there is none
+     */
+    public record Viewpoint(int blockIndex, double fraction, TextSelection selection) {
+
+        /**
+         * Encodes this viewpoint as a compact string for a preferences value.
+         *
+         * @return the encoded form
+         */
+        public String encode() {
+            StringBuilder sb = new StringBuilder()
+                    .append(blockIndex).append(':').append(fraction);
+            if (selection != null) {
+                sb.append(':').append(selection.blockIndex())
+                        .append(':').append(selection.anchorIndex())
+                        .append(':').append(selection.anchorOffset())
+                        .append(':').append(selection.caretIndex())
+                        .append(':').append(selection.caretOffset());
+            }
+            return sb.toString();
+        }
+
+        /**
+         * Decodes a viewpoint previously written by {@link #encode()}.
+         *
+         * @param encoded the encoded form; blank or malformed input yields {@code null}
+         * @return the viewpoint, or {@code null}
+         */
+        public static Viewpoint decode(String encoded) {
+            if (encoded == null || encoded.isBlank()) {
+                return null;
+            }
+            try {
+                String[] parts = encoded.split(":");
+                int block = Integer.parseInt(parts[0]);
+                double fraction = Double.parseDouble(parts[1]);
+                TextSelection selection = (parts.length >= 7)
+                        ? new TextSelection(Integer.parseInt(parts[2]), Integer.parseInt(parts[3]),
+                                Integer.parseInt(parts[4]), Integer.parseInt(parts[5]),
+                                Integer.parseInt(parts[6]))
+                        : null;
+                return new Viewpoint(block, fraction, selection);
+            } catch (RuntimeException malformed) {
+                return null;
+            }
+        }
+    }
+
+    /**
+     * Captures the surface's current viewpoint.
+     *
+     * @return the viewpoint, or {@code null} for an empty surface
+     */
+    public Viewpoint viewpoint() {
+        if (blocks.isEmpty()) {
+            return null;
+        }
+        double contentHeight = stack.getBoundsInLocal().getHeight();
+        double range = Math.max(0, contentHeight - getViewportBounds().getHeight());
+        double y = getVvalue() * range;
+        int blockIndex = 0;
+        double fraction = 0;
+        for (int i = 0; i < blocks.size(); i++) {
+            Bounds bounds = blocks.get(i).node().getBoundsInParent();
+            if (bounds.getMinY() > y) {
+                break;
+            }
+            blockIndex = i;
+            fraction = bounds.getHeight() <= 0 ? 0
+                    : Math.clamp((y - bounds.getMinY()) / bounds.getHeight(), 0, 1);
+        }
+        return new Viewpoint(blockIndex, fraction, currentTextSelection());
+    }
+
+    /** Pulse cap for {@link #restoreViewpoint}'s settle wait (~1 s at 60 fps). */
+    private static final int MAX_SETTLE_PULSES = 60;
+
+    /**
+     * Restores a viewpoint after a rebuild (or on reopen). Waits for the stack's layout to
+     * settle before computing offsets: a fixed two-pulse defer is enough after an in-place
+     * rebuild, but on a fresh reopen the content-height prose areas settle their heights over
+     * several pulses (fonts, first layout of a whole conversation) — scrolling before that
+     * computes offsets against a half-built stack, which is exactly the "selection restored but
+     * not the viewport" failure (#943). The block index clamps to the current stack and the
+     * selection clamps to its block's document, so a viewpoint captured against a longer
+     * document degrades to the nearest existing place.
+     *
+     * @param viewpoint the viewpoint to restore; {@code null} is a no-op
+     */
+    public void restoreViewpoint(Viewpoint viewpoint) {
+        restoreViewpoint(viewpoint, null);
+    }
+
+    /**
+     * As {@link #restoreViewpoint(Viewpoint)}, additionally running {@code afterApplied} once the
+     * viewpoint has actually been applied. Restoration is asynchronous (it waits for layout to
+     * settle), so a host that must not treat the surface's current position as the reader's
+     * place until the return has happened — e.g. to keep captures from overwriting a
+     * not-yet-applied restore (#943) — keys that off this callback.
+     *
+     * @param viewpoint    the viewpoint to restore; {@code null} is a no-op
+     * @param afterApplied run on the FX thread after the viewpoint is applied; may be {@code null}
+     */
+    public void restoreViewpoint(Viewpoint viewpoint, Runnable afterApplied) {
+        if (viewpoint == null) {
+            return;
+        }
+        awaitSettledLayout(0, -1, () -> {
+            if (blocks.isEmpty()) {
+                return;
+            }
+            scrollToBlockOffset(Math.min(viewpoint.blockIndex(), blocks.size() - 1),
+                    viewpoint.fraction());
+            TextSelection selection = viewpoint.selection();
+            if (selection != null && selection.blockIndex() >= 0
+                    && selection.blockIndex() < blocks.size()) {
+                RichTextArea area = blocks.get(selection.blockIndex()).richText();
+                if (area != null && area.getParagraphCount() > 0) {
+                    // Blocks are content-height (no internal scroll), so selecting here cannot
+                    // fight the surface scroll restored above.
+                    area.select(
+                            RichTextViewpoint.clamp(area, selection.anchorIndex(),
+                                    selection.anchorOffset()),
+                            RichTextViewpoint.clamp(area, selection.caretIndex(),
+                                    selection.caretOffset()));
+                    selectedArea = area;
+                }
+            }
+            if (afterApplied != null) {
+                afterApplied.run();
+            }
+        });
+    }
+
+    /**
+     * Runs {@code action} once the stack's content height is nonzero and unchanged across
+     * consecutive pulses and the viewport has bounds — the earliest moment scroll offsets are
+     * meaningful. Each poll forces a layout pass first: content-height prose areas report their
+     * height only after real layout, and bounds can sit stale-but-equal across pulses before the
+     * first pass — "stable" must mean genuinely settled, not not-yet-started (#943). After the
+     * action runs, one more pulse verifies the stack did not move (late font/wrap growth); if it
+     * did, the offsets were computed against a half-built stack and the action re-runs (it is
+     * idempotent). Capped at {@link #MAX_SETTLE_PULSES} so a pathological layout cannot stall
+     * the restore forever (the action then runs against the best available geometry).
+     */
+    private void awaitSettledLayout(int attempt, double lastHeight, Runnable action) {
+        Platform.runLater(() -> {
+            stack.applyCss();
+            stack.layout();
+            double height = stack.getBoundsInLocal().getHeight();
+            boolean settled = attempt >= 2 && height > 0 && height == lastHeight
+                    && getViewportBounds().getHeight() > 0;
+            if (settled || attempt >= MAX_SETTLE_PULSES) {
+                action.run();
+                if (attempt < MAX_SETTLE_PULSES) {
+                    final double appliedHeight = height;
+                    Platform.runLater(() -> {
+                        stack.applyCss();
+                        stack.layout();
+                        double verifyHeight = stack.getBoundsInLocal().getHeight();
+                        if (verifyHeight != appliedHeight) {
+                            awaitSettledLayout(attempt + 1, verifyHeight, action);
+                        }
+                    });
+                }
+            } else {
+                awaitSettledLayout(attempt + 1, height, action);
+            }
+        });
+    }
+
+    /** The first block-level text selection on the surface, or {@code null} when there is none. */
+    private TextSelection currentTextSelection() {
+        for (int i = 0; i < blocks.size(); i++) {
+            RichTextArea area = blocks.get(i).richText();
+            if (area != null && area.hasNonEmptySelection()) {
+                SelectionSegment segment = area.getSelection();
+                return new TextSelection(i, segment.getAnchor().index(),
+                        segment.getAnchor().offset(),
+                        segment.getCaret().index(), segment.getCaret().offset());
+            }
+        }
+        return null;
     }
 
     // ── Find ─────────────────────────────────────────────────────────────

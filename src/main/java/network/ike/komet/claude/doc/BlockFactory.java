@@ -15,9 +15,11 @@
  */
 package network.ike.komet.claude.doc;
 
+import network.ike.komet.claude.ui.KonceptChipGestures;
 import dev.ikm.komet.layout.expand.KlExpandable;
 import dev.ikm.komet.markdown.richtext.DocumentSegment;
 import dev.ikm.komet.markdown.richtext.MarkdownStyledModel;
+import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -72,6 +74,19 @@ public final class BlockFactory {
     }
 
     /**
+     * Interactive-surface form: chips compute their logical-status cluster and carry the
+     * definition popout (ike-issues#941). Print rendering stays on the {@link ViewCalculator}
+     * forms — a popout affordance has no place on a printed page.
+     *
+     * @param viewProperties the surface's view; may be {@code null} (chips fall back to bare
+     *                       identicons)
+     * @param base           base body font size in px
+     */
+    public BlockFactory(ViewProperties viewProperties, double base) {
+        this(new MarkdownRichText(viewProperties, base, null), base, null, true);
+    }
+
+    /**
      * Creates a factory for an interactive on-screen surface, rendering at the given view, font size,
      * and prose font family.
      *
@@ -100,7 +115,12 @@ public final class BlockFactory {
     }
 
     private BlockFactory(ViewCalculator viewCalc, double base, String fontFamily, boolean expandableFigures) {
-        this.markdown = new MarkdownRichText(viewCalc, base, fontFamily);
+        this(new MarkdownRichText(viewCalc, base, fontFamily), base, fontFamily, expandableFigures);
+    }
+
+    private BlockFactory(MarkdownRichText markdown, double base, String fontFamily,
+                         boolean expandableFigures) {
+        this.markdown = markdown;
         this.base = base;
         this.fontFamily = fontFamily;
         this.expandableFigures = expandableFigures;
@@ -162,6 +182,8 @@ public final class BlockFactory {
     private DocumentBlock proseBlock(DocumentSegment.ProseRun run) {
         MarkdownStyledModel model = new MarkdownStyledModel(run.paragraphs(), run.plain());
         RichTextArea area = new RichTextArea();
+        // Chips drag on a single gesture (knowledge-graphlet/komet-claude-plugin#5).
+        KonceptChipGestures.install(area);
         area.setEditable(false);
         area.setWrapText(true);
         area.setUseContentHeight(true);

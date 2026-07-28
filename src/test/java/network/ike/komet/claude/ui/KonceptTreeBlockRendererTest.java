@@ -33,7 +33,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class KonceptTreeBlockRendererTest {
 
-    private static final KonceptTreeBlockRenderer RENDERER = new KonceptTreeBlockRenderer(null, 13);
+    private static final KonceptTreeBlockRenderer RENDERER =
+            new KonceptTreeBlockRenderer((dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator) null, 13);
 
     private static final String TREE = """
             k:sctid=772222008[Medical devices]

@@ -16,11 +16,14 @@
 package network.ike.komet.claude.ui;
 
 import dev.ikm.komet.framework.Identicon;
-import dev.ikm.komet.framework.dnd.KonceptDragGlyph;
+import dev.ikm.komet.framework.controls.KonceptBadge;
+import dev.ikm.komet.framework.controls.KonceptKindResolver;
 import dev.ikm.komet.framework.graphics.SmallCapsFonts;
+import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
+import javafx.event.Event;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Tooltip;
@@ -66,76 +69,80 @@ final class KonceptChips {
      * @return the chip node (never null)
      */
     static Node chip(PublicId pid, String sctid, ViewCalculator viewCalc, double base) {
+        return chip(pid, sctid, viewCalc, null, base);
+    }
+
+    /**
+     * Builds the interactive-surface chip: same anatomy, with the view supplied as
+     * {@link ViewProperties} so the badge computes its logical-status cluster and carries the
+     * definition popout (ike-issues#941). The {@link ViewCalculator} form above stays for
+     * non-interactive renderings (paged print — a popout has no place on paper) and for
+     * surfaces with no usable view.
+     *
+     * @param pid            the resolved, existing component id
+     * @param sctid          the SCTID for the tooltip, or {@code null}
+     * @param viewProperties the interactive surface's view
+     * @param base           the ambient body font size (px)
+     * @return the chip node (never null)
+     */
+    static Node chip(PublicId pid, String sctid, ViewProperties viewProperties, double base) {
+        return chip(pid, sctid, viewProperties == null ? null : viewProperties.calculator(),
+                viewProperties, base);
+    }
+
+    private static Node chip(PublicId pid, String sctid, ViewCalculator viewCalc,
+                             ViewProperties viewProperties, double base) {
         try {
             int nid = PrimitiveData.nid(pid);
             int iconPx = (int) Math.round(base * 0.92);
             ImageView icon = Identicon.generateIdenticon(pid, iconPx, iconPx);
             icon.setSmooth(false);
+            // The name is the view's own answer — the language coordinate's description-type
+            // priority (LanguageCoordinate.getDescription), never an FQN-first recipe: the chip
+            // shows whatever the user's coordinate says the name is, and the owning surface
+            // re-renders when the coordinate changes (ike-issues#942).
             String name = (viewCalc != null)
-                    ? viewCalc.getFullyQualifiedNameText(nid)
-                            .orElseGet(() -> viewCalc.getPreferredDescriptionTextWithFallbackOrNid(nid))
+                    ? viewCalc.getDescriptionText(nid).orElse(null)
                     : null;
             if (name == null || name.isBlank()) {
                 return icon;
             }
-            boolean inactive = isInactive(viewCalc, nid);
-            // Strikethrough on the name is the dedicated "inactive / retired" signal
-            // (reusable; leaves ⚠ free for other meanings).
-            // Small caps is the koncept chip's cross-medium signature (real in the CSS renderers).
-            // With the bundled dedicated small-caps family (LoadFonts) the name renders in its
-            // NATURAL case — capitals stay full height, lowercase becomes small capitals — which
-            // both looks like true small caps and is more faithful than force-uppercasing
-            // (koncept-label-fidelity). Absent the font, fall back to the prior shrunken all-caps.
-            String scFamily = SmallCapsFonts.family();
-            Text nameText = new Text(scFamily != null ? name : name.toUpperCase(Locale.ROOT));
-            nameText.setFont(scFamily != null
-                    ? Font.font(scFamily, base * 0.9)
-                    : Font.font(base * 0.8));
-            nameText.setFill(Color.web(inactive ? "#b00020" : "#2a5a8a"));
-            nameText.setStrikethrough(inactive);
-            final Text chipText = nameText;
-            // CENTER_LEFT centres the identicon on the name's midline; getBaselineOffset
-            // reports the text baseline so a host (RTA line, tree cell) seats the chip on its line.
-            HBox chip = new HBox(icon, nameText) {
-                @Override
-                public double getBaselineOffset() {
-                    javafx.geometry.Insets in = getInsets();
-                    double contentH = prefHeight(-1) - in.getTop() - in.getBottom();
-                    double textTop = in.getTop()
-                            + Math.max(0, (contentH - chipText.getLayoutBounds().getHeight()) / 2);
-                    return textTop + chipText.getBaselineOffset();
-                }
-            };
-            chip.setAlignment(Pos.CENTER_LEFT);
-            chip.setSpacing(3);
-            // Hug the content: an HBox's default max width resolves to MAX_VALUE, so in a cell that
-            // stretches its graphic the pill would fill the whole row. Cap it at its preferred width
-            // so the blue pill wraps just the identicon + name, in a cell exactly as in flowing text.
-            chip.setMaxWidth(Region.USE_PREF_SIZE);
-            chip.setStyle(CHIP_STYLE);
-
-            StringBuilder tip = new StringBuilder();
-            if (inactive) {
-                tip.append("INACTIVE — retired in this view\n");
+            // One koncept atom renders the chip (ikmdev/komet#742). The hand-rolled identicon +
+            // name this replaces could not carry a kind sigil, so a pattern chip never showed its
+            // P. The three things that used to make the atom unusable here are now its own:
+            // ambient font scaling (the assistant's font ±), inline styling (this chip's scene is
+            // not guaranteed the stylesheet), and a text baseline so the pill seats on a
+            // RichTextArea line rather than floating off it.
+            KonceptBadge badge;
+            if (viewProperties != null) {
+                // Self-resolving form: the badge derives name, kind, status cluster, retired
+                // state and the definition popout from the view (#941/#942) — nothing
+                // caller-resolved to go stale against the coordinate.
+                badge = new KonceptBadge(nid, pid, viewProperties);
+            } else {
+                badge = new KonceptBadge(nid, pid, name);
+                badge.setKind(KonceptKindResolver.resolve(nid, viewCalc));
+                badge.setInactive(isInactive(viewCalc, nid));
             }
-            tip.append(name);
-            if (sctid != null) {
-                tip.append("\nSCTID: ").append(sctid);
-            }
-            tip.append("\nUUID: ").append(pid.idString());
-            tip.append("\nnid: ").append(nid);
-            Tooltip.install(chip, new Tooltip(tip.toString()));
-
-            // The chip is a concept drag source. Its drag image is a dedicated, width-bounded glyph
-            // (a long name ellipsises there) rendered headless — not a snapshot of this full-width
-            // chip — so the displayed chip and the drag glyph are each right on their own terms.
-            KonceptDragGlyph.install(chip, nid, pid, name, inactive);
-            return chip;
+            badge.setAmbientFontSize(base);
+            badge.setStandaloneStyling(true);
+            badge.setSctid(sctid);
+            badge.setMaxWidth(Region.USE_PREF_SIZE);
+            // Consume the press so an enclosing RichTextArea doesn't begin a text selection on the
+            // first press over the chip — without this it takes a second press (after the chip is
+            // already inside a selection) to arm the drag. DRAG_DETECTED still fires, so a single
+            // press-and-drag works. This lived only on the tree renderer's chips before, which is
+            // why transcript chips needed the extra press; the factory owns it now, one behavior
+            // per atom (ikmdev/komet#742).
+            badge.setOnMousePressed(Event::consume);
+            // No explicit drag install: the badge itself drags the canonical glyph at gesture
+            // time, reading its current kind/name/retired state — one drag behavior per atom.
+            return badge;
         } catch (RuntimeException e) {
-            // Never let a chip failure break the surface it is embedded in.
             return new Region();
         }
     }
+
 
     /** True if the component's latest version in the current view is inactive (retired). */
     private static boolean isInactive(ViewCalculator viewCalc, int nid) {

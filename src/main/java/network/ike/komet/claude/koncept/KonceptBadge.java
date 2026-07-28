@@ -15,7 +15,9 @@
  */
 package network.ike.komet.claude.koncept;
 
+import network.ike.docs.konceptcore.KonceptAppearance;
 import network.ike.docs.konceptcore.KonceptKind;
+import network.ike.docs.konceptcore.KonceptStatus;
 import network.ike.docs.konceptcore.StampSigilGeometry;
 
 import javax.imageio.ImageIO;
@@ -25,20 +27,26 @@ import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.awt.font.TextAttribute;
 import java.awt.geom.Ellipse2D;
 import java.awt.geom.Path2D;
+import java.awt.geom.RoundRectangle2D;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.util.Map;
 
 /**
  * Composites the Koncept badge — LifeHash identicon, label, and a rounded pill — into a single PNG
  * (Java2D), so a renderer that can only show images (Zulip / email) still gets the whole badge as
  * one picture. Honest about the component {@link KonceptKind} (ike-issues#638): a concept is the
  * bare identicon + label; every other kind prepends its coloured letter sigil; a stamp is the gray
- * {@link StampSigilGeometry} pentagon plus its compact provenance text (no identicon, no name-pill).
+ * {@link StampSigilGeometry} pentagon, then the STAMP's own identicon, then its compact provenance
+ * text in place of a name (never the blue name-pill) — the sigil always immediately precedes an
+ * identicon, never bare, and the identicon tells one STAMP from another at a glance.
  *
  * <p>Appearance matches the JavaFX / adoc spec (ike-issues#742): normal-weight label, subtle pill
  * radius, no border. Rendered at {@link #SCALE}× for high-DPI crispness. A future {@code koncept-core}
@@ -53,23 +61,101 @@ public final class KonceptBadge {
      */
     public static final int SCALE = 2;
 
+    /** The one shared badge appearance (ike-issues#742/#860) every value below reads from. */
+    private static final KonceptAppearance SPEC = KonceptAppearance.defaults();
+
     /**
      * The badge background — painted opaque (NOT left transparent) because Zulip's image pipeline
      * flattens PNG alpha onto grey. Matching Zulip's light-theme message background lets the
      * rounded-pill corners blend into the message. (A dark theme would need a different fill.)
      */
     private static final Color MESSAGE_BG = Color.WHITE;
-    private static final Color PILL_FILL = new Color(0xE9, 0xEF, 0xF6);
-    private static final Color LABEL_COLOR = new Color(0x2A, 0x5A, 0x8A);
+    private static final Color PILL_FILL = Color.decode(SPEC.pillFillHex());
+    private static final Color LABEL_COLOR = Color.decode(SPEC.labelColorHex());
+    private static final Color LABEL_INACTIVE_COLOR = Color.decode(SPEC.labelColorInactiveHex());
+
+    /** The floating-context border (#862): the PNG floats inside Zulip/email, a surface we don't control. */
+    private static final Color FLOATING_BORDER = Color.decode(SPEC.floatingBorderHex());
 
     /** Gray metadata/provenance chip for the STAMP kind — never the blue name-pill (ike-issues#638). */
-    private static final Color STAMP_CHIP_FILL = new Color(0xEC, 0xEB, 0xE8);
+    private static final Color STAMP_CHIP_FILL = Color.decode(SPEC.pillFillStampHex());
 
     /** Dark-gray text for the stamp's compact provenance (status · date-time · author). */
     private static final Color STAMP_TEXT_COLOR = new Color(0x5A, 0x57, 0x50);
 
-    /** Subtle pill corner radius (px, pre-scale), matching the adoc {@code border-radius:0.5em} (ike-issues#742). */
-    private static final int PILL_ARC = 8;
+    /** Pill corner radius (px, pre-scale), from the spec. */
+    private static final int PILL_ARC = (int) SPEC.cornerRadiusPx();
+
+    /**
+     * The bundled true-small-caps face from the koncept-core jar (#860's font-distribution
+     * decision), loaded once; {@code null} when unavailable, in which case labels fall back to
+     * the platform sans — a badge must never fail on a missing font resource.
+     */
+    private static final Font SMALL_CAPS_BASE = loadSmallCaps();
+
+    /**
+     * The bundled symbol-glyph face from the koncept-core jar (ike-issues#953), loaded once;
+     * {@code null} when unavailable, in which case the cluster falls back to the platform sans
+     * (and may degrade to the bare pill via the canDisplay guard) — a badge must never fail on
+     * a missing font resource.
+     */
+    private static final Font GLYPH_BASE = loadGlyphFace();
+
+    private static Font loadGlyphFace() {
+        try (InputStream in = KonceptAppearance.glyphFont()) {
+            if (in == null) {
+                return null;
+            }
+            return Font.createFont(Font.TRUETYPE_FONT, in);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static Font loadSmallCaps() {
+        try (InputStream in = KonceptAppearance.smallCapsFont()) {
+            if (in == null) {
+                return null;
+            }
+            return Font.createFont(Font.TRUETYPE_FONT, in);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Whether the bundled small-caps face resolved — an observation point for the tests. */
+    static boolean smallCapsActive() {
+        return SMALL_CAPS_BASE != null;
+    }
+
+    /**
+     * The label font at the spec size: the bundled Alegreya Sans SC face (true small caps —
+     * capitals full height, the rest small capitals, the name in its natural case), else the
+     * platform sans verbatim fallback. Struck through for a retired referent when the spec
+     * says so — {@code drawString} honours the attribute-derived font.
+     */
+    private static Font labelFont(boolean inactive) {
+        float size = (float) (SPEC.labelSizePx() * SCALE);
+        Font base = SMALL_CAPS_BASE != null
+                ? SMALL_CAPS_BASE.deriveFont(size)
+                : new Font(Font.SANS_SERIF, Font.PLAIN, Math.round(size));
+        if (inactive && SPEC.inactiveStrikethrough()) {
+            return base.deriveFont(Map.of(TextAttribute.STRIKETHROUGH, TextAttribute.STRIKETHROUGH_ON));
+        }
+        return base;
+    }
+
+    /** Fills the pill and strokes the spec's floating border inside the image bounds. */
+    private static void paintPill(Graphics2D g, int w, int h, Color fill) {
+        g.setColor(fill);
+        g.fillRoundRect(0, 0, w - 1, h - 1, PILL_ARC * SCALE, PILL_ARC * SCALE);
+        float stroke = (float) (SPEC.floatingBorderWidthPx() * SCALE);
+        g.setColor(FLOATING_BORDER);
+        g.setStroke(new BasicStroke(stroke));
+        double inset = stroke / 2.0;
+        g.draw(new RoundRectangle2D.Double(inset, inset, w - 1 - stroke, h - 1 - stroke,
+                PILL_ARC * SCALE, PILL_ARC * SCALE));
+    }
 
     /** Pentagon unit-radius as a fraction of the half-box — kept identical to the JavaFX {@code StampSigil}. */
     private static final double STAMP_RADIUS_FRACTION = 0.92;
@@ -80,32 +166,99 @@ public final class KonceptBadge {
     /**
      * Renders the badge for an identicon + label, honest about the component {@code kind}
      * (ike-issues#638): a {@link KonceptKind#CONCEPT} is the bare identicon + label pill; a
-     * {@link KonceptKind#STAMP} is the gray {@link #stampPng(String) pentagon chip} carrying its
-     * compact provenance text; every other kind prepends its coloured letter sigil
-     * ({@code D}/{@code S}/{@code P}/{@code ?}).
+     * {@link KonceptKind#STAMP} is the gray {@link #stampPng(byte[], String) pentagon chip} —
+     * pentagon, then the STAMP's own identicon, then its compact provenance text; every other kind
+     * prepends its coloured letter sigil ({@code D}/{@code S}/{@code P}/{@code ?}).
      *
      * <p>Appearance reconciled to the JavaFX/adoc spec (ike-issues#742): normal-weight label, subtle
      * pill radius, no border. (Java2D has no small-caps, so the label is drawn verbatim.)
      *
-     * @param identiconPng the LifeHash identicon PNG bytes (any size; drawn pixel-crisp)
+     * @param identiconPng the component's LifeHash identicon PNG bytes (any size; drawn
+     *                     pixel-crisp) — for a stamp, the STAMP's own identicon
      * @param label        the concept label, or — for a stamp — its compact provenance text
      * @param kind         the component kind; {@code null} is treated as {@link KonceptKind#CONCEPT}
      * @return the composited badge PNG bytes
      * @throws UncheckedIOException if decoding the identicon or encoding the badge fails
      */
     public static byte[] png(byte[] identiconPng, String label, KonceptKind kind) {
+        return png(identiconPng, label, kind, KonceptStatus.NONE, false);
+    }
+
+    /**
+     * Renders the badge with its full one-leading-mark form (ike-issues#742 amendment, #862): a
+     * letter kind leads with its coloured sigil; a bare Koncept leads with its logical-status
+     * copula cluster — {@code ≡} sufficiently defined, {@code ⊑} primitive, {@code ⊤} root, with
+     * the {@code ⋎} fork appended for a multi-parent concept — each glyph in its own colour from
+     * the single-sourced {@link KonceptStatus} vocabulary. Kind sigils and status marks never
+     * co-occur. The caller computes the status at compose time (this compositor is store-free);
+     * a font that cannot display the copula glyphs degrades to the bare pill rather than tofu.
+     *
+     * @param identiconPng the component's LifeHash identicon PNG bytes
+     * @param label        the concept label, or — for a stamp — its compact provenance text
+     * @param kind         the component kind; {@code null} is treated as {@link KonceptKind#CONCEPT}
+     * @param status       the Koncept's logical-definition status; {@link KonceptStatus#NONE}
+     *                     (or {@code null}) stays bare
+     * @param multiParent  whether the concept has more than one stated parent
+     * @return the composited badge PNG bytes
+     * @throws UncheckedIOException if decoding the identicon or encoding the badge fails
+     */
+    public static byte[] png(byte[] identiconPng, String label, KonceptKind kind,
+                             KonceptStatus status, boolean multiParent) {
+        return png(identiconPng, label, kind, status, multiParent, false);
+    }
+
+    /**
+     * Renders the badge in its full spec-driven form (#862): the one-leading-mark rule (kind
+     * sigil or status cluster), the {@link KonceptAppearance} palette, geometry, and floating
+     * border, true small caps from the bundled koncept-core face, and — for a retired
+     * referent — the struck-through label in the retired colour.
+     *
+     * @param identiconPng the component's LifeHash identicon PNG bytes
+     * @param label        the concept label, or — for a stamp — its compact provenance text
+     * @param kind         the component kind; {@code null} is treated as {@link KonceptKind#CONCEPT}
+     * @param status       the Koncept's logical-definition status; {@link KonceptStatus#NONE}
+     *                     (or {@code null}) stays bare
+     * @param multiParent  whether the concept has more than one stated parent
+     * @param inactive     whether the referent's latest version is inactive (retired parity)
+     * @return the composited badge PNG bytes
+     * @throws UncheckedIOException if decoding the identicon or encoding the badge fails
+     */
+    public static byte[] png(byte[] identiconPng, String label, KonceptKind kind,
+                             KonceptStatus status, boolean multiParent, boolean inactive) {
         KonceptKind resolved = (kind == null) ? KonceptKind.CONCEPT : kind;
         if (resolved.isStamp()) {
-            return stampPng(label);
+            return stampPng(identiconPng, label);
         }
-        final int pad = 4 * SCALE;
-        final int icon = 13 * SCALE;
-        final int gap = 5 * SCALE;
-        // #742: the label is normal weight (its small-caps in CSS is not bold; Java2D can't render
-        // small-caps, so the label is drawn verbatim). The kind sigil is a distinct bold mark.
-        final Font labelFont = new Font(Font.SANS_SERIF, Font.PLAIN, 11 * SCALE);
-        final Font sigilFont = new Font(Font.SANS_SERIF, Font.BOLD, 10 * SCALE);
+        // Geometry from the spec (#862): the unified pads, identicon edge, gap, and label size —
+        // the same reference pixels every renderer draws, at this compositor's SCALE density.
+        final int padTop = (int) SPEC.padTopPx() * SCALE;
+        final int padRight = (int) SPEC.padRightPx() * SCALE;
+        final int padBottom = (int) SPEC.padBottomPx() * SCALE;
+        final int padLeft = (int) SPEC.padLeftPx() * SCALE;
+        final int icon = (int) SPEC.identiconSizePx() * SCALE;
+        final int gap = (int) SPEC.iconLabelGapPx() * SCALE;
+        // #742: the label is normal weight; true small caps come from the bundled face (the
+        // verbatim platform-sans fallback keeps the badge alive without it). The kind sigil is a
+        // distinct bold mark at its 15:12 spec ratio; the status cluster at the 10:12 ratio.
+        final Font labelFont = labelFont(inactive);
+        final Font sigilFont = new Font(Font.SANS_SERIF, Font.BOLD,
+                (int) Math.round(SPEC.labelSizePx() * 15.0 / 12.0) * SCALE);
         final String sigilGlyph = resolved.hasLetterGlyph() ? resolved.glyph() : null;
+        // The status cluster is Koncept-only (one leading mark, never beside a sigil). Degrade to
+        // bare if the platform sans font cannot display the DL glyphs — never tofu.
+        // The bundled glyph face (ike-issues#953): the cluster never resolves through platform
+        // font fallback; the platform sans remains the keep-alive fallback when the face is
+        // missing from the jar.
+        final Font statusFont = GLYPH_BASE != null
+                ? GLYPH_BASE.deriveFont((float) (SPEC.labelSizePx() * 10.0 / 12.0 * SCALE))
+                : new Font(Font.SANS_SERIF, Font.PLAIN,
+                        (int) Math.round(SPEC.labelSizePx() * 10.0 / 12.0) * SCALE);
+        KonceptStatus resolvedStatus = (status == null) ? KonceptStatus.NONE : status;
+        String cluster = resolved == KonceptKind.CONCEPT
+                ? resolvedStatus.cluster(multiParent) : "";
+        if (!cluster.isEmpty() && statusFont.canDisplayUpTo(cluster) != -1) {
+            cluster = "";
+        }
 
         BufferedImage identicon;
         try {
@@ -126,31 +279,50 @@ public final class KonceptBadge {
             pg.setFont(sigilFont);
             sigilW = pg.getFontMetrics().stringWidth(sigilGlyph) + gap;
         }
+        int clusterW = 0;
+        if (!cluster.isEmpty()) {
+            pg.setFont(statusFont);
+            clusterW = pg.getFontMetrics().stringWidth(cluster) + gap;
+        }
         pg.dispose();
 
         int contentH = Math.max(icon, textH);
-        int w = pad + sigilW + icon + gap + textW + pad;
-        int h = pad + contentH + pad;
+        int w = padLeft + sigilW + clusterW + icon + gap + textW + padRight;
+        int h = padTop + contentH + padBottom;
 
         BufferedImage badge = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = badge.createGraphics();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
-        // #742: opaque message background (Zulip flattens alpha) + soft pill at a subtle radius, no
-        // border. (Zulip frames every inline image with its own grey box regardless.)
+        // #742: opaque message background (Zulip flattens alpha) + the spec pill with the shared
+        // floating border — the PNG floats inside Zulip/email, a surface we don't control (#862).
         g.setColor(MESSAGE_BG);
         g.fillRect(0, 0, w, h);
-        g.setColor(PILL_FILL);
-        g.fillRoundRect(0, 0, w - 1, h - 1, PILL_ARC * SCALE, PILL_ARC * SCALE);
+        paintPill(g, w, h, PILL_FILL);
 
-        int x = pad;
+        int x = padLeft;
         if (sigilGlyph != null) {
             g.setColor(Color.decode(resolved.colorHex()));
             g.setFont(sigilFont);
             FontMetrics sfm = g.getFontMetrics();
             g.drawString(sigilGlyph, x, (h - (sfm.getAscent() + sfm.getDescent())) / 2 + sfm.getAscent());
             x += sigilW;
+        }
+        if (!cluster.isEmpty()) {
+            // Copula in its status colour, fork (when present) in the multi-parent blue — the
+            // same two-tone cluster every other medium renders.
+            g.setFont(statusFont);
+            FontMetrics cfm = g.getFontMetrics();
+            int baseline = (h - (cfm.getAscent() + cfm.getDescent())) / 2 + cfm.getAscent();
+            String copula = resolvedStatus.glyph();
+            g.setColor(Color.decode(resolvedStatus.colorHex()));
+            g.drawString(copula, x, baseline);
+            if (cluster.length() > copula.length()) {
+                g.setColor(Color.decode(KonceptStatus.MULTI_PARENT_COLOR_HEX));
+                g.drawString(KonceptStatus.MULTI_PARENT_GLYPH, x + cfm.stringWidth(copula), baseline);
+            }
+            x += clusterW;
         }
 
         // Identicon — at this small size the 32×32 cells are sub-pixel, so bilinear (a smooth colour
@@ -159,7 +331,7 @@ public final class KonceptBadge {
         g.drawImage(identicon, x, (h - icon) / 2, icon, icon, null);
         x += icon + gap;
 
-        g.setColor(LABEL_COLOR);
+        g.setColor(inactive ? LABEL_INACTIVE_COLOR : LABEL_COLOR);
         g.setFont(labelFont);
         g.drawString(label, x, (h - textH) / 2 + ascent);
         g.dispose();
@@ -169,18 +341,38 @@ public final class KonceptBadge {
 
     /**
      * The STAMP kind badge: the locked gray pentagon (from the shared {@link StampSigilGeometry}) in
-     * a gray metadata chip, followed by the compact provenance text — no identicon, no name. A stamp
-     * is provenance, never a name-pill (ike-issues#638). The pentagon geometry is the byte-identical
-     * port of the JavaFX {@code StampSigil}, so the same pentagon renders in every medium.
+     * a gray metadata chip, then the STAMP's own identicon, then the compact provenance text in
+     * place of a name — the sigil always immediately precedes an identicon, never bare, and the
+     * identicon tells one STAMP from another at a glance (revised ike-issues#638). The pentagon
+     * geometry is the byte-identical port of the JavaFX {@code StampSigil}, so the same pentagon
+     * renders in every medium. Without identicon bytes the chip falls back to pentagon + text — the
+     * no-computable-identity fallback, matching the adoc renderer.
      *
-     * @param label the compact stamp text ({@code status · date-time · author})
+     * @param identiconPng the STAMP's own LifeHash identicon PNG bytes, or {@code null}/empty when
+     *                     no identity is computable
+     * @param label        the compact stamp text ({@code status · date-time · author})
      * @return the composited stamp-badge PNG bytes
      */
-    private static byte[] stampPng(String label) {
+    private static byte[] stampPng(byte[] identiconPng, String label) {
         final int box = 16 * SCALE;
-        final int pad = 4 * SCALE;
-        final int gap = 5 * SCALE;
-        final Font labelFont = new Font(Font.SANS_SERIF, Font.PLAIN, 11 * SCALE);
+        final int padTop = (int) SPEC.padTopPx() * SCALE;
+        final int padRight = (int) SPEC.padRightPx() * SCALE;
+        final int padBottom = (int) SPEC.padBottomPx() * SCALE;
+        final int padLeft = (int) SPEC.padLeftPx() * SCALE;
+        final int icon = (int) SPEC.identiconSizePx() * SCALE;
+        final int gap = (int) SPEC.iconLabelGapPx() * SCALE;
+        // Provenance is data, not a name: plain sans at the spec label size, never small caps.
+        final Font labelFont = new Font(Font.SANS_SERIF, Font.PLAIN,
+                (int) SPEC.labelSizePx() * SCALE);
+
+        BufferedImage identicon = null;
+        if (identiconPng != null && identiconPng.length > 0) {
+            try {
+                identicon = ImageIO.read(new ByteArrayInputStream(identiconPng));
+            } catch (IOException e) {
+                throw new UncheckedIOException("Failed to decode identicon for stamp badge", e);
+            }
+        }
 
         BufferedImage probe = new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
         Graphics2D pg = probe.createGraphics();
@@ -191,9 +383,10 @@ public final class KonceptBadge {
         int textH = ascent + fm.getDescent();
         pg.dispose();
 
+        int iconW = (identicon != null) ? icon + gap : 0;
         int contentH = Math.max(box, textH);
-        int w = pad + box + gap + textW + pad;
-        int h = pad + contentH + pad;
+        int w = padLeft + box + gap + iconW + textW + padRight;
+        int h = padTop + contentH + padBottom;
 
         BufferedImage badge = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
         Graphics2D g = badge.createGraphics();
@@ -201,15 +394,23 @@ public final class KonceptBadge {
         g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
         g.setColor(MESSAGE_BG);
         g.fillRect(0, 0, w, h);
-        g.setColor(STAMP_CHIP_FILL);
-        g.fillRoundRect(0, 0, w - 1, h - 1, PILL_ARC * SCALE, PILL_ARC * SCALE);
+        paintPill(g, w, h, STAMP_CHIP_FILL);
 
-        // The pentagon leads (in place of an identicon); the compact provenance text follows.
-        drawPentagon(g, pad + box / 2.0, h / 2.0, (box / 2.0) * STAMP_RADIUS_FRACTION);
+        // The pentagon leads, the STAMP's identicon follows it, and the provenance text closes.
+        drawPentagon(g, padLeft + box / 2.0, h / 2.0, (box / 2.0) * STAMP_RADIUS_FRACTION);
+
+        int x = padLeft + box + gap;
+        if (identicon != null) {
+            // Same bilinear rationale as the concept badge: at this size the cells are sub-pixel.
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                    RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.drawImage(identicon, x, (h - icon) / 2, icon, icon, null);
+            x += icon + gap;
+        }
 
         g.setColor(STAMP_TEXT_COLOR);
         g.setFont(labelFont);
-        g.drawString(label, pad + box + gap, (h - textH) / 2 + ascent);
+        g.drawString(label, x, (h - textH) / 2 + ascent);
         g.dispose();
 
         return encode(badge);
