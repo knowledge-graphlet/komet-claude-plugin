@@ -351,9 +351,17 @@ public final class GraphTools {
                         + "attached data rather than the taxonomy. Pass 'pattern' to return only "
                         + "semantics whose pattern name contains that text — do this when you know "
                         + "which pattern you want, since concepts often carry many semantics. "
-                        + "Currently only available in gRPC mode.",
+                        + "IMPORTANT: semantics can themselves carry semantics, so you can pass a "
+                        + "semantic's own UUID here to see what is attached to IT. For example, the "
+                        + "allowed/acceptable result values for a test are an 'Allowed Results "
+                        + "Pattern' semantic attached to that test's Test Performed semantic — not "
+                        + "to the device concept and not a field of the Test Performed record. So "
+                        + "to find acceptable results: resolve the concept, call this tool with "
+                        + "pattern='Test Performed', then call it again on the returned semantic's "
+                        + "UUID. Currently only available in gRPC mode.",
                 objectSchema(Map.of(
-                                "id", strProp("the concept's SCTID or UUID"),
+                                "id", strProp("a concept's SCTID or UUID, or a semantic instance's own "
+                                        + "UUID (to list the semantics attached to that semantic)"),
                                 "pattern", strProp("optional: only return semantics whose pattern name "
                                         + "contains this text, e.g. 'Test Performed'")),
                         List.of("id")),
@@ -366,26 +374,42 @@ public final class GraphTools {
                         return NO_VIEW;
                     }
                     String id = str(in, "id");
-                    int nid = resolve(id, v);
-                    if (nid == NONE) {
-                        return notFound(id);
+                    if (id == null || id.isBlank()) {
+                        return "No id provided.";
                     }
-                    UUID[] uuids = PrimitiveData.publicId(toConceptNid(nid)).asUuidArray();
-                    if (uuids.length == 0) {
-                        return "No public UUID for '" + id + "'.";
+                    String trimmed = id.trim();
+                    UUID target;
+                    try {
+                        // A UUID is used AS GIVEN — never canonicalized to its enclosing concept.
+                        // Semantics can be attached to a semantic (e.g. Allowed Results on a Test
+                        // Performed record), and walking up to the concept would silently return
+                        // the wrong entity's semantics.
+                        target = UUID.fromString(trimmed);
+                    } catch (IllegalArgumentException notUuid) {
+                        // An SCTID always denotes a concept, so resolving is safe here.
+                        int nid = resolve(trimmed, v);
+                        if (nid == NONE) {
+                            return notFound(trimmed);
+                        }
+                        UUID[] uuids = PrimitiveData.publicId(toConceptNid(nid)).asUuidArray();
+                        if (uuids.length == 0) {
+                            return "No public UUID for '" + trimmed + "'.";
+                        }
+                        target = uuids[0];
                     }
+                    String label = labelFor(v, target);
                     String pattern = str(in, "pattern");
                     try {
                         List<GrpcSearchService.SemanticInfo> semantics =
-                                GrpcSearchService.get().conceptSemantics(uuids[0], pattern);
+                                GrpcSearchService.get().conceptSemantics(target, pattern);
                         if (semantics.isEmpty()) {
                             return (pattern == null || pattern.isBlank())
-                                    ? "No semantics attached to " + nameAndId(v, nid)
+                                    ? "No semantics attached to " + label
                                     : "No semantics matching pattern '" + pattern + "' on "
-                                            + nameAndId(v, nid) + ". Call without 'pattern' to see "
+                                            + label + ". Call without 'pattern' to see "
                                             + "which patterns are present.";
                         }
-                        StringBuilder sb = new StringBuilder(nameAndId(v, nid)).append('\n');
+                        StringBuilder sb = new StringBuilder(label).append('\n');
                         int shown = Math.min(semantics.size(), MAX_SEMANTICS);
                         for (int i = 0; i < shown; i++) {
                             renderSemantic(sb, semantics.get(i));
@@ -399,6 +423,26 @@ public final class GraphTools {
                         return "Error retrieving semantics: " + e.getMessage();
                     }
                 });
+    }
+
+    /**
+     * A display label for an entity addressed by UUID — its name when it has one, otherwise the
+     * bare UUID. Unlike {@link #nameAndId} this never canonicalizes to a concept, so it stays
+     * correct when {@code uuid} identifies a semantic instance (which has no name of its own).
+     */
+    private static String labelFor(ViewCalculator v, UUID uuid) {
+        try {
+            int nid = EntityService.get().nidForPublicId(PublicIds.of(uuid));
+            String name = v.getFullyQualifiedNameText(nid)
+                    .or(() -> v.getDescriptionText(nid))
+                    .orElse(null);
+            if (name != null && !name.isBlank()) {
+                return name + "  [" + uuid + "]";
+            }
+        } catch (RuntimeException ignored) {
+            // Not resolvable locally (e.g. a semantic in gRPC mode); the UUID alone is the label.
+        }
+        return uuid.toString();
     }
 
     /** Renders one semantic as its pattern, UUID, and named fields. */
