@@ -98,7 +98,8 @@ public final class GraphTools {
      */
     public List<AnthropicTool> tools() {
         return List.of(concept(), children(), parents(), descendants(),
-                ancestors(), isA(), axioms(), search(), viewInfo(), debugConcept(), semanticInfo());
+                ancestors(), isA(), axioms(), search(), viewInfo(), debugConcept(),
+                conceptSemantics(), semanticInfo());
     }
 
     // ── Tools ───────────────────────────────────────────────────────────
@@ -328,19 +329,92 @@ public final class GraphTools {
                     }
                     try {
                         GrpcSearchService.SemanticInfo info = GrpcSearchService.get().semanticInfo(uuid);
-                        StringBuilder sb = new StringBuilder("Pattern: ").append(info.patternName()).append('\n');
-                        if (info.fields().isEmpty()) {
-                            sb.append("  (no field values)");
-                        } else {
-                            for (String field : info.fields()) {
-                                sb.append("  - ").append(field).append('\n');
-                            }
-                        }
+                        StringBuilder sb = new StringBuilder();
+                        renderSemantic(sb, info);
                         return sb.toString();
                     } catch (Exception e) {
                         return "Error retrieving semantic: " + e.getMessage();
                     }
                 });
+    }
+
+    /** Max semantics rendered by {@link #conceptSemantics} before the rest are summarized away. */
+    private static final int MAX_SEMANTICS = 25;
+
+    private AnthropicTool conceptSemantics() {
+        return tool("concept_semantics",
+                "List the semantics (pattern instances) attached to a concept — each with its "
+                        + "pattern name, its own UUID, and its named field values. This is how you "
+                        + "read structured data hanging off a concept: Test Performed records "
+                        + "(analyte, specimen, limit of detection, units), identifiers, comments, and "
+                        + "so on. Call this after resolving a concept when the question is about "
+                        + "attached data rather than the taxonomy. Pass 'pattern' to return only "
+                        + "semantics whose pattern name contains that text — do this when you know "
+                        + "which pattern you want, since concepts often carry many semantics. "
+                        + "Currently only available in gRPC mode.",
+                objectSchema(Map.of(
+                                "id", strProp("the concept's SCTID or UUID"),
+                                "pattern", strProp("optional: only return semantics whose pattern name "
+                                        + "contains this text, e.g. 'Test Performed'")),
+                        List.of("id")),
+                in -> {
+                    if (!GrpcSearchService.isActive()) {
+                        return "The concept_semantics tool is only available in gRPC mode.";
+                    }
+                    ViewCalculator v = view();
+                    if (v == null) {
+                        return NO_VIEW;
+                    }
+                    String id = str(in, "id");
+                    int nid = resolve(id, v);
+                    if (nid == NONE) {
+                        return notFound(id);
+                    }
+                    UUID[] uuids = PrimitiveData.publicId(toConceptNid(nid)).asUuidArray();
+                    if (uuids.length == 0) {
+                        return "No public UUID for '" + id + "'.";
+                    }
+                    String pattern = str(in, "pattern");
+                    try {
+                        List<GrpcSearchService.SemanticInfo> semantics =
+                                GrpcSearchService.get().conceptSemantics(uuids[0], pattern);
+                        if (semantics.isEmpty()) {
+                            return (pattern == null || pattern.isBlank())
+                                    ? "No semantics attached to " + nameAndId(v, nid)
+                                    : "No semantics matching pattern '" + pattern + "' on "
+                                            + nameAndId(v, nid) + ". Call without 'pattern' to see "
+                                            + "which patterns are present.";
+                        }
+                        StringBuilder sb = new StringBuilder(nameAndId(v, nid)).append('\n');
+                        int shown = Math.min(semantics.size(), MAX_SEMANTICS);
+                        for (int i = 0; i < shown; i++) {
+                            renderSemantic(sb, semantics.get(i));
+                        }
+                        if (semantics.size() > shown) {
+                            sb.append("… (").append(semantics.size() - shown)
+                                    .append(" more not shown; narrow with 'pattern')\n");
+                        }
+                        return sb.append('[').append(semantics.size()).append(" semantics]").toString();
+                    } catch (Exception e) {
+                        return "Error retrieving semantics: " + e.getMessage();
+                    }
+                });
+    }
+
+    /** Renders one semantic as its pattern, UUID, and named fields. */
+    private static void renderSemantic(StringBuilder sb, GrpcSearchService.SemanticInfo info) {
+        sb.append("Pattern: ").append(info.patternName());
+        if (!info.semanticId().isEmpty()) {
+            sb.append("  [").append(info.semanticId()).append(']');
+        }
+        sb.append('\n');
+        if (info.fields().isEmpty()) {
+            sb.append("  (no field values)\n");
+            return;
+        }
+        for (GrpcSearchService.NamedField field : info.fields()) {
+            sb.append("  - ").append(field.name()).append(": ").append(field.value()).append('\n');
+        }
     }
 
     private AnthropicTool search() {
