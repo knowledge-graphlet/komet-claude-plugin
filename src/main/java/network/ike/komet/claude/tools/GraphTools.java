@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.tools;
 
+import dev.ikm.tinkar.common.id.IntIdCollection;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.service.PrimitiveDataSearchResult;
@@ -25,6 +26,7 @@ import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.Entity;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
+import dev.ikm.tinkar.entity.PatternEntityVersion;
 import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
@@ -97,7 +99,8 @@ public final class GraphTools {
      */
     public List<AnthropicTool> tools() {
         return List.of(concept(), children(), parents(), descendants(),
-                ancestors(), isA(), axioms(), search(), viewInfo(), debugConcept());
+                ancestors(), isA(), axioms(), search(), viewInfo(), debugConcept(),
+                conceptSemantics(), semanticInfo());
     }
 
     // ── Tools ───────────────────────────────────────────────────────────
@@ -302,6 +305,288 @@ public final class GraphTools {
                     }
                     return sb.toString();
                 });
+    }
+
+    /** Max semantics rendered by {@link #conceptSemantics} before the rest are summarized away. */
+    private static final int MAX_SEMANTICS = 25;
+
+    private AnthropicTool conceptSemantics() {
+        return tool("concept_semantics",
+                "List the semantics (pattern instances) attached to a concept — each with its "
+                        + "pattern name, its own UUID, and its named field values. This is how you "
+                        + "read structured data hanging off a concept: Test Performed records "
+                        + "(analyte, specimen, limit of detection, units), identifiers, comments, and "
+                        + "so on. Call this after resolving a concept when the question is about "
+                        + "attached data rather than the taxonomy. Pass 'pattern' to return only "
+                        + "semantics whose pattern name contains that text — do this when you know "
+                        + "which pattern you want, since concepts often carry many semantics. "
+                        + "IMPORTANT: semantics can themselves carry semantics, so you can pass a "
+                        + "semantic's own UUID here to see what is attached to IT. For example, the "
+                        + "allowed/acceptable result values for a test are an 'Allowed Results "
+                        + "Pattern' semantic attached to that test's Test Performed semantic — not "
+                        + "to the device concept and not a field of the Test Performed record. So "
+                        + "to find acceptable results: resolve the concept, call this tool with "
+                        + "pattern='Test Performed', then call it again on the returned semantic's "
+                        + "UUID.",
+                objectSchema(Map.of(
+                                "id", strProp("a concept's SCTID or UUID, or a semantic instance's own "
+                                        + "UUID (to list the semantics attached to that semantic)"),
+                                "pattern", strProp("optional: only return semantics whose pattern name "
+                                        + "contains this text, e.g. 'Test Performed'")),
+                        List.of("id")),
+                in -> {
+                    ViewCalculator v = view();
+                    if (v == null) {
+                        return NO_VIEW;
+                    }
+                    String id = str(in, "id");
+                    if (id == null || id.isBlank()) {
+                        return "No id provided.";
+                    }
+                    String trimmed = id.trim();
+                    int targetNid;
+                    try {
+                        // A UUID is used AS GIVEN — never canonicalized to its enclosing concept.
+                        // Semantics can be attached to a semantic (e.g. Allowed Results on a Test
+                        // Performed record), and walking up to the concept would silently return
+                        // the wrong entity's semantics.
+                        targetNid = EntityService.get()
+                                .nidForPublicId(PublicIds.of(UUID.fromString(trimmed)));
+                    } catch (IllegalArgumentException notUuid) {
+                        // An SCTID always denotes a concept, so resolving is safe here.
+                        int nid = resolve(trimmed, v);
+                        if (nid == NONE) {
+                            return notFound(trimmed);
+                        }
+                        targetNid = toConceptNid(nid);
+                    }
+                    String label = labelFor(v, targetNid);
+                    String pattern = str(in, "pattern");
+                    try {
+                        List<SemanticInfo> semantics = semanticsFor(targetNid, pattern, v);
+                        if (semantics.isEmpty()) {
+                            return (pattern == null || pattern.isBlank())
+                                    ? "No semantics attached to " + label
+                                    : "No semantics matching pattern '" + pattern + "' on "
+                                            + label + ". Call without 'pattern' to see "
+                                            + "which patterns are present.";
+                        }
+                        StringBuilder sb = new StringBuilder(label).append('\n');
+                        int shown = Math.min(semantics.size(), MAX_SEMANTICS);
+                        for (int i = 0; i < shown; i++) {
+                            renderSemantic(sb, semantics.get(i));
+                        }
+                        if (semantics.size() > shown) {
+                            sb.append("… (").append(semantics.size() - shown)
+                                    .append(" more not shown; narrow with 'pattern')\n");
+                        }
+                        return sb.append('[').append(semantics.size()).append(" semantics]").toString();
+                    } catch (Exception e) {
+                        return "Error retrieving semantics: " + e.getMessage();
+                    }
+                });
+    }
+
+    private AnthropicTool semanticInfo() {
+        return tool("semantic_info",
+                "Read the field values of a specific semantic instance by its own UUID — e.g. a "
+                        + "Test Performed record, a comment, an identifier. Use this when a UUID "
+                        + "identifies a semantic/pattern instance rather than a concept (the concept "
+                        + "tool will say so if it does), or when you already have a semantic's UUID "
+                        + "and need its field values (e.g. limit of detection, units of measure).",
+                objectSchema(Map.of("id", strProp("the semantic instance's UUID (not the concept it's attached to)")),
+                        List.of("id")),
+                in -> {
+                    ViewCalculator v = view();
+                    if (v == null) {
+                        return NO_VIEW;
+                    }
+                    String id = str(in, "id");
+                    UUID uuid;
+                    try {
+                        uuid = UUID.fromString(id == null ? "" : id.trim());
+                    } catch (IllegalArgumentException e) {
+                        return "Not a valid UUID: " + id;
+                    }
+                    try {
+                        SemanticInfo info = semanticFor(
+                                EntityService.get().nidForPublicId(PublicIds.of(uuid)), v);
+                        if (info == null) {
+                            return "No semantic found for " + uuid
+                                    + " (it may be a concept — use concept_semantics — or have no "
+                                    + "version visible under the active view).";
+                        }
+                        StringBuilder sb = new StringBuilder();
+                        renderSemantic(sb, info);
+                        return sb.toString();
+                    } catch (Exception e) {
+                        return "Error retrieving semantic: " + e.getMessage();
+                    }
+                });
+    }
+
+    /**
+     * One semantic field: its name (the field's meaning concept, from the governing pattern's
+     * field definitions) and its formatted value.
+     */
+    record NamedField(String name, String value) {}
+
+    /** A semantic instance: pattern name, the semantic's own UUID, and its named field values. */
+    record SemanticInfo(String patternName, String semanticId, List<NamedField> fields) {}
+
+    /**
+     * The semantics attached to {@code componentNid}.
+     *
+     * <p>{@code semanticNidsForComponent} works for any component, so passing a semantic's nid
+     * lists the semantics attached to <em>it</em> (e.g. Allowed Results on a Test Performed
+     * record) rather than only concept-level annotations.
+     *
+     * @param componentNid  the concept or semantic whose attached semantics are wanted
+     * @param patternFilter optional case-insensitive substring matched against the pattern name
+     * @param v             the active view, used for stamp/language resolution
+     * @return the attached semantics, filtered when a pattern filter is given
+     */
+    private static List<SemanticInfo> semanticsFor(int componentNid, String patternFilter, ViewCalculator v) {
+        String filter = (patternFilter == null || patternFilter.isBlank())
+                ? null : patternFilter.trim().toLowerCase();
+        List<SemanticInfo> results = new java.util.ArrayList<>();
+        for (int semanticNid : EntityService.get().semanticNidsForComponent(componentNid)) {
+            SemanticInfo info = semanticFor(semanticNid, v);
+            if (info != null && (filter == null || info.patternName().toLowerCase().contains(filter))) {
+                results.add(info);
+            }
+        }
+        return results;
+    }
+
+    /**
+     * Reads one semantic: its pattern name, own UUID, and field values paired with the field
+     * names from the pattern's field definitions.
+     *
+     * @param semanticNid the semantic's nid
+     * @param v           the active view
+     * @return the semantic, or {@code null} when the nid is not a semantic or has no version
+     *         visible under this view's coordinate
+     */
+    private static SemanticInfo semanticFor(int semanticNid, ViewCalculator v) {
+        try {
+            Entity<?> entity = EntityHandle.getEntityOrThrow(semanticNid);
+            if (!(entity instanceof SemanticEntity<?> semantic)) {
+                return null;
+            }
+            Latest<SemanticEntityVersion> latest = v.stampCalculator().latest(semanticNid);
+            if (!latest.isPresent()) {
+                return null;
+            }
+            String patternName = v.getPreferredDescriptionTextWithFallbackOrNid(semantic.patternNid());
+            List<String> fieldNames = fieldNamesFor(semantic.patternNid(), v);
+
+            List<NamedField> fields = new java.util.ArrayList<>();
+            Object[] values = latest.get().fieldValues().toArray();
+            for (int i = 0; i < values.length; i++) {
+                String name = i < fieldNames.size() ? fieldNames.get(i) : "field " + i;
+                fields.add(new NamedField(name, fieldValue(values[i], v)));
+            }
+            UUID[] uuids = semantic.publicId().asUuidArray();
+            return new SemanticInfo(patternName, uuids.length > 0 ? uuids[0].toString() : "", fields);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** Field names of a pattern, in definition order — each field's meaning concept. */
+    private static List<String> fieldNamesFor(int patternNid, ViewCalculator v) {
+        try {
+            Latest<PatternEntityVersion> pattern = v.stampCalculator().latest(patternNid);
+            if (!pattern.isPresent()) {
+                return List.of();
+            }
+            List<String> names = new java.util.ArrayList<>();
+            pattern.get().fieldDefinitions().forEach(fd ->
+                    names.add(v.getPreferredDescriptionTextWithFallbackOrNid(fd.meaningNid())));
+            return names;
+        } catch (RuntimeException e) {
+            return List.of();
+        }
+    }
+
+    /**
+     * Formats a field value. Component references render as {@code name [SCTID x]} /
+     * {@code [UUID x]} rather than leaking bare nids — a nid is machine-local and ephemeral, and
+     * an unlabelled number beside a clinical concept name reads like a terminology code.
+     */
+    private static String fieldValue(Object value, ViewCalculator v) {
+        if (value == null) {
+            return "";
+        }
+        if (value instanceof IntIdCollection ids) {
+            StringBuilder sb = new StringBuilder("[");
+            int[] nids = ids.toArray();
+            for (int i = 0; i < nids.length; i++) {
+                if (i > 0) {
+                    sb.append(", ");
+                }
+                sb.append(v.getPreferredDescriptionTextWithFallbackOrNid(nids[i]))
+                        .append(' ').append(typedIdentifier(nids[i], v));
+            }
+            return sb.append(']').toString();
+        }
+        if (value instanceof EntityFacade facade) {
+            return v.getPreferredDescriptionTextWithFallbackOrNid(facade.nid())
+                    + ' ' + typedIdentifier(facade.nid(), v);
+        }
+        return value.toString();
+    }
+
+    /** An explicitly-typed identifier — SCTID when present, else UUID, else a labelled nid. */
+    private static String typedIdentifier(int nid, ViewCalculator v) {
+        String sctid = sctidOf(v, nid);
+        if (sctid != null) {
+            return "[SCTID " + sctid + "]";
+        }
+        try {
+            UUID[] uuids = PrimitiveData.publicId(nid).asUuidArray();
+            if (uuids.length > 0) {
+                return "[UUID " + uuids[0] + "]";
+            }
+        } catch (RuntimeException ignored) {
+            // fall through to the nid, explicitly labelled
+        }
+        return "[nid " + nid + "]";
+    }
+
+    /**
+     * A display label for an entity. Unlike {@link #nameAndId} this never canonicalizes to a
+     * concept, so it stays correct when the nid identifies a semantic (which has no name).
+     */
+    private static String labelFor(ViewCalculator v, int nid) {
+        String name = v.getFullyQualifiedNameText(nid)
+                .or(() -> v.getDescriptionText(nid))
+                .orElse(null);
+        UUID[] uuids;
+        try {
+            uuids = PrimitiveData.publicId(nid).asUuidArray();
+        } catch (RuntimeException e) {
+            uuids = new UUID[0];
+        }
+        String id = uuids.length > 0 ? uuids[0].toString() : "nid=" + nid;
+        return (name == null || name.isBlank()) ? id : name + "  [" + id + "]";
+    }
+
+    /** Renders one semantic as its pattern, UUID, and named fields. */
+    private static void renderSemantic(StringBuilder sb, SemanticInfo info) {
+        sb.append("Pattern: ").append(info.patternName());
+        if (!info.semanticId().isEmpty()) {
+            sb.append("  [").append(info.semanticId()).append(']');
+        }
+        sb.append('\n');
+        if (info.fields().isEmpty()) {
+            sb.append("  (no field values)\n");
+            return;
+        }
+        for (NamedField field : info.fields()) {
+            sb.append("  - ").append(field.name()).append(": ").append(field.value()).append('\n');
+        }
     }
 
     private AnthropicTool search() {
