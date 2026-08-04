@@ -15,10 +15,10 @@
  */
 package network.ike.komet.claude.tools;
 
+import dev.ikm.tinkar.common.id.IntIdCollection;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.service.PrimitiveDataSearchResult;
-import dev.ikm.tinkar.provider.grpc.GrpcSearchService;
 import dev.ikm.tinkar.common.util.uuid.UuidUtil;
 import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
 import dev.ikm.tinkar.coordinate.view.ViewCoordinateRecord;
@@ -26,9 +26,11 @@ import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.Entity;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
+import dev.ikm.tinkar.entity.PatternEntityVersion;
 import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
+import dev.ikm.tinkar.provider.grpc.GrpcSearchService;
 import dev.ikm.tinkar.provider.search.Searcher;
 import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.TinkarTerm;
@@ -306,38 +308,6 @@ public final class GraphTools {
                 });
     }
 
-    private AnthropicTool semanticInfo() {
-        return tool("semantic_info",
-                "Read the field values of a specific semantic instance by its own UUID — e.g. a "
-                        + "Test Performed record, a comment, an identifier. Use this when a UUID "
-                        + "identifies a semantic/pattern instance rather than a concept (the concept "
-                        + "tool will say so if it does), or when you already have a semantic's UUID "
-                        + "and need its field values (e.g. limit of detection, units of measure). "
-                        + "Currently only available in gRPC mode.",
-                objectSchema(Map.of("id", strProp("the semantic instance's UUID (not the concept it's attached to)")),
-                        List.of("id")),
-                in -> {
-                    if (!GrpcSearchService.isActive()) {
-                        return "The semantic_info tool is only available in gRPC mode.";
-                    }
-                    String id = str(in, "id");
-                    UUID uuid;
-                    try {
-                        uuid = UUID.fromString(id == null ? "" : id.trim());
-                    } catch (IllegalArgumentException e) {
-                        return "Not a valid UUID: " + id;
-                    }
-                    try {
-                        GrpcSearchService.SemanticInfo info = GrpcSearchService.get().semanticInfo(uuid);
-                        StringBuilder sb = new StringBuilder();
-                        renderSemantic(sb, info);
-                        return sb.toString();
-                    } catch (Exception e) {
-                        return "Error retrieving semantic: " + e.getMessage();
-                    }
-                });
-    }
-
     /** Max semantics rendered by {@link #conceptSemantics} before the rest are summarized away. */
     private static final int MAX_SEMANTICS = 25;
 
@@ -358,7 +328,7 @@ public final class GraphTools {
                         + "to the device concept and not a field of the Test Performed record. So "
                         + "to find acceptable results: resolve the concept, call this tool with "
                         + "pattern='Test Performed', then call it again on the returned semantic's "
-                        + "UUID. Currently only available in gRPC mode.",
+                        + "UUID.",
                 objectSchema(Map.of(
                                 "id", strProp("a concept's SCTID or UUID, or a semantic instance's own "
                                         + "UUID (to list the semantics attached to that semantic)"),
@@ -366,9 +336,6 @@ public final class GraphTools {
                                         + "contains this text, e.g. 'Test Performed'")),
                         List.of("id")),
                 in -> {
-                    if (!GrpcSearchService.isActive()) {
-                        return "The concept_semantics tool is only available in gRPC mode.";
-                    }
                     ViewCalculator v = view();
                     if (v == null) {
                         return NO_VIEW;
@@ -378,30 +345,33 @@ public final class GraphTools {
                         return "No id provided.";
                     }
                     String trimmed = id.trim();
-                    UUID target;
+                    // Semantic traversal (semanticNidsForComponent) is not served
+                    // over gRPC, so the nid-based path below returns nothing even
+                    // though concept lookups work. The service does the traversal
+                    // remotely and returns the same shape.
+                    if (GrpcSearchService.isActive()) {
+                        return grpcConceptSemantics(trimmed, str(in, "pattern"), v);
+                    }
+                    int targetNid;
                     try {
                         // A UUID is used AS GIVEN — never canonicalized to its enclosing concept.
                         // Semantics can be attached to a semantic (e.g. Allowed Results on a Test
                         // Performed record), and walking up to the concept would silently return
                         // the wrong entity's semantics.
-                        target = UUID.fromString(trimmed);
+                        targetNid = EntityService.get()
+                                .nidForPublicId(PublicIds.of(UUID.fromString(trimmed)));
                     } catch (IllegalArgumentException notUuid) {
                         // An SCTID always denotes a concept, so resolving is safe here.
                         int nid = resolve(trimmed, v);
                         if (nid == NONE) {
                             return notFound(trimmed);
                         }
-                        UUID[] uuids = PrimitiveData.publicId(toConceptNid(nid)).asUuidArray();
-                        if (uuids.length == 0) {
-                            return "No public UUID for '" + trimmed + "'.";
-                        }
-                        target = uuids[0];
+                        targetNid = toConceptNid(nid);
                     }
-                    String label = labelFor(v, target);
+                    String label = labelFor(v, targetNid);
                     String pattern = str(in, "pattern");
                     try {
-                        List<GrpcSearchService.SemanticInfo> semantics =
-                                GrpcSearchService.get().conceptSemantics(target, pattern);
+                        List<SemanticInfo> semantics = semanticsFor(targetNid, pattern, v);
                         if (semantics.isEmpty()) {
                             return (pattern == null || pattern.isBlank())
                                     ? "No semantics attached to " + label
@@ -425,10 +395,286 @@ public final class GraphTools {
                 });
     }
 
+    private AnthropicTool semanticInfo() {
+        return tool("semantic_info",
+                "Read the field values of a specific semantic instance by its own UUID — e.g. a "
+                        + "Test Performed record, a comment, an identifier. Use this when a UUID "
+                        + "identifies a semantic/pattern instance rather than a concept (the concept "
+                        + "tool will say so if it does), or when you already have a semantic's UUID "
+                        + "and need its field values (e.g. limit of detection, units of measure).",
+                objectSchema(Map.of("id", strProp("the semantic instance's UUID (not the concept it's attached to)")),
+                        List.of("id")),
+                in -> {
+                    ViewCalculator v = view();
+                    if (v == null) {
+                        return NO_VIEW;
+                    }
+                    String id = str(in, "id");
+                    UUID uuid;
+                    try {
+                        uuid = UUID.fromString(id == null ? "" : id.trim());
+                    } catch (IllegalArgumentException e) {
+                        return "Not a valid UUID: " + id;
+                    }
+                    if (GrpcSearchService.isActive()) {
+                        return grpcSemanticInfo(uuid);
+                    }
+                    try {
+                        SemanticInfo info = semanticFor(
+                                EntityService.get().nidForPublicId(PublicIds.of(uuid)), v);
+                        if (info == null) {
+                            return "No semantic found for " + uuid
+                                    + " (it may be a concept — use concept_semantics — or have no "
+                                    + "version visible under the active view).";
+                        }
+                        StringBuilder sb = new StringBuilder();
+                        renderSemantic(sb, info);
+                        return sb.toString();
+                    } catch (Exception e) {
+                        return "Error retrieving semantic: " + e.getMessage();
+                    }
+                });
+    }
+
+    // ── gRPC-mode variants ───────────────────────────────────────────────
+    // Concept lookups resolve in gRPC mode, but semantic traversal
+    // (semanticNidsForComponent) is not served, so the nid-based path above
+    // finds nothing. The service performs the traversal server-side and returns
+    // records of identical shape, so both modes render through renderSemantic
+    // and produce identical output.
+
     /**
-     * A display label for an entity addressed by UUID — its name when it has one, otherwise the
-     * bare UUID. Unlike {@link #nameAndId} this never canonicalizes to a concept, so it stays
-     * correct when {@code uuid} identifies a semantic instance (which has no name of its own).
+     * {@link #conceptSemantics} against the gRPC service.
+     *
+     * <p>Takes the id as text because the service accepts a UUID directly: unlike the local
+     * path there is no nid to resolve. An SCTID still has to be resolved to a UUID first, and
+     * that resolution goes through the view — which in gRPC mode is served remotely too.
+     *
+     * @param trimmed the concept SCTID/UUID, or a semantic's own UUID
+     * @param pattern optional pattern-name substring filter
+     * @param v       the active view calculator, for labels and SCTID resolution
+     * @return the rendered semantics, or a diagnostic message
+     */
+    private static String grpcConceptSemantics(String trimmed, String pattern,
+                                              ViewCalculator v) {
+        UUID target;
+        try {
+            // A UUID is used AS GIVEN — never canonicalized to its enclosing
+            // concept, so a semantic's own UUID lists what is attached to IT.
+            target = UUID.fromString(trimmed);
+        } catch (IllegalArgumentException notUuid) {
+            // An SCTID always denotes a concept, so resolving is safe here.
+            int nid = resolve(trimmed, v);
+            if (nid == NONE) {
+                return notFound(trimmed);
+            }
+            UUID[] uuids = PrimitiveData.publicId(toConceptNid(nid)).asUuidArray();
+            if (uuids.length == 0) {
+                return "No public UUID for '" + trimmed + "'.";
+            }
+            target = uuids[0];
+        }
+        try {
+            List<GrpcSearchService.SemanticInfo> semantics =
+                    GrpcSearchService.get().conceptSemantics(target, pattern);
+            String label = labelFor(v, target);
+            if (semantics.isEmpty()) {
+                return (pattern == null || pattern.isBlank())
+                        ? "No semantics attached to " + label
+                        : "No semantics matching pattern '" + pattern + "' on "
+                                + label + ". Call without 'pattern' to see "
+                                + "which patterns are present.";
+            }
+            StringBuilder sb = new StringBuilder(label).append('\n');
+            int shown = Math.min(semantics.size(), MAX_SEMANTICS);
+            for (int i = 0; i < shown; i++) {
+                renderSemantic(sb, convert(semantics.get(i)));
+            }
+            if (semantics.size() > shown) {
+                sb.append("… (").append(semantics.size() - shown)
+                        .append(" more not shown; narrow with 'pattern')\n");
+            }
+            return sb.append('[').append(semantics.size()).append(" semantics]").toString();
+        } catch (Exception e) {
+            return "Error retrieving semantics: " + e.getMessage();
+        }
+    }
+
+    /**
+     * {@link #semanticInfo} against the gRPC service.
+     *
+     * @param uuid the semantic instance's own UUID
+     * @return the rendered semantic, or a diagnostic message
+     */
+    private static String grpcSemanticInfo(UUID uuid) {
+        try {
+            GrpcSearchService.SemanticInfo info =
+                    GrpcSearchService.get().semanticInfo(uuid);
+            if (info == null) {
+                return "No semantic found for " + uuid
+                        + " (it may be a concept — use concept_semantics).";
+            }
+            StringBuilder sb = new StringBuilder();
+            renderSemantic(sb, convert(info));
+            return sb.toString();
+        } catch (Exception e) {
+            return "Error retrieving semantic: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Adapt the service's record to the local one. The two carry identical
+     * components; keeping a single local type means {@link #renderSemantic} has
+     * one signature and the two modes cannot drift in how they format output.
+     *
+     * @param info the service record
+     * @return the equivalent local record
+     */
+    private static SemanticInfo convert(GrpcSearchService.SemanticInfo info) {
+        List<NamedField> fields = info.fields().stream()
+                .map(f -> new NamedField(f.name(), f.value()))
+                .toList();
+        return new SemanticInfo(info.patternName(), info.semanticId(), fields);
+    }
+
+    /**
+     * One semantic field: its name (the field's meaning concept, from the governing pattern's
+     * field definitions) and its formatted value.
+     */
+    record NamedField(String name, String value) {}
+
+    /** A semantic instance: pattern name, the semantic's own UUID, and its named field values. */
+    record SemanticInfo(String patternName, String semanticId, List<NamedField> fields) {}
+
+    /**
+     * The semantics attached to {@code componentNid}.
+     *
+     * <p>{@code semanticNidsForComponent} works for any component, so passing a semantic's nid
+     * lists the semantics attached to <em>it</em> (e.g. Allowed Results on a Test Performed
+     * record) rather than only concept-level annotations.
+     *
+     * @param componentNid  the concept or semantic whose attached semantics are wanted
+     * @param patternFilter optional case-insensitive substring matched against the pattern name
+     * @param v             the active view, used for stamp/language resolution
+     * @return the attached semantics, filtered when a pattern filter is given
+     */
+    private static List<SemanticInfo> semanticsFor(int componentNid, String patternFilter, ViewCalculator v) {
+        String filter = (patternFilter == null || patternFilter.isBlank())
+                ? null : patternFilter.trim().toLowerCase();
+        List<SemanticInfo> results = new java.util.ArrayList<>();
+        for (int semanticNid : EntityService.get().semanticNidsForComponent(componentNid)) {
+            SemanticInfo info = semanticFor(semanticNid, v);
+            if (info != null && (filter == null || info.patternName().toLowerCase().contains(filter))) {
+                results.add(info);
+            }
+        }
+        return results;
+    }
+
+    /**
+     * Reads one semantic: its pattern name, own UUID, and field values paired with the field
+     * names from the pattern's field definitions.
+     *
+     * @param semanticNid the semantic's nid
+     * @param v           the active view
+     * @return the semantic, or {@code null} when the nid is not a semantic or has no version
+     *         visible under this view's coordinate
+     */
+    private static SemanticInfo semanticFor(int semanticNid, ViewCalculator v) {
+        try {
+            Entity<?> entity = EntityHandle.getEntityOrThrow(semanticNid);
+            if (!(entity instanceof SemanticEntity<?> semantic)) {
+                return null;
+            }
+            Latest<SemanticEntityVersion> latest = v.stampCalculator().latest(semanticNid);
+            if (!latest.isPresent()) {
+                return null;
+            }
+            String patternName = v.getPreferredDescriptionTextWithFallbackOrNid(semantic.patternNid());
+            List<String> fieldNames = fieldNamesFor(semantic.patternNid(), v);
+
+            List<NamedField> fields = new java.util.ArrayList<>();
+            Object[] values = latest.get().fieldValues().toArray();
+            for (int i = 0; i < values.length; i++) {
+                String name = i < fieldNames.size() ? fieldNames.get(i) : "field " + i;
+                fields.add(new NamedField(name, fieldValue(values[i], v)));
+            }
+            UUID[] uuids = semantic.publicId().asUuidArray();
+            return new SemanticInfo(patternName, uuids.length > 0 ? uuids[0].toString() : "", fields);
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** Field names of a pattern, in definition order — each field's meaning concept. */
+    private static List<String> fieldNamesFor(int patternNid, ViewCalculator v) {
+        try {
+            Latest<PatternEntityVersion> pattern = v.stampCalculator().latest(patternNid);
+            if (!pattern.isPresent()) {
+                return List.of();
+            }
+            List<String> names = new java.util.ArrayList<>();
+            pattern.get().fieldDefinitions().forEach(fd ->
+                    names.add(v.getPreferredDescriptionTextWithFallbackOrNid(fd.meaningNid())));
+            return names;
+        } catch (RuntimeException e) {
+            return List.of();
+        }
+    }
+
+    /**
+     * Formats a field value. Component references render as {@code name [SCTID x]} /
+     * {@code [UUID x]} rather than leaking bare nids — a nid is machine-local and ephemeral, and
+     * an unlabelled number beside a clinical concept name reads like a terminology code.
+     */
+    private static String fieldValue(Object value, ViewCalculator v) {
+        if (value == null) {
+            return "";
+        }
+        if (value instanceof IntIdCollection ids) {
+            StringBuilder sb = new StringBuilder("[");
+            int[] nids = ids.toArray();
+            for (int i = 0; i < nids.length; i++) {
+                if (i > 0) {
+                    sb.append(", ");
+                }
+                sb.append(v.getPreferredDescriptionTextWithFallbackOrNid(nids[i]))
+                        .append(' ').append(typedIdentifier(nids[i], v));
+            }
+            return sb.append(']').toString();
+        }
+        if (value instanceof EntityFacade facade) {
+            return v.getPreferredDescriptionTextWithFallbackOrNid(facade.nid())
+                    + ' ' + typedIdentifier(facade.nid(), v);
+        }
+        return value.toString();
+    }
+
+    /** An explicitly-typed identifier — SCTID when present, else UUID, else a labelled nid. */
+    private static String typedIdentifier(int nid, ViewCalculator v) {
+        String sctid = sctidOf(v, nid);
+        if (sctid != null) {
+            return "[SCTID " + sctid + "]";
+        }
+        try {
+            UUID[] uuids = PrimitiveData.publicId(nid).asUuidArray();
+            if (uuids.length > 0) {
+                return "[UUID " + uuids[0] + "]";
+            }
+        } catch (RuntimeException ignored) {
+            // fall through to the nid, explicitly labelled
+        }
+        return "[nid " + nid + "]";
+    }
+
+    /**
+     * A display label for an entity identified by UUID — the gRPC-mode counterpart of
+     * {@link #labelFor(ViewCalculator, int)}, which cannot be used there because a semantic's
+     * UUID has no resolvable nid.
+     *
+     * <p>Resolution is attempted anyway, since concept lookups do work in gRPC mode and yield a
+     * real name; the bare UUID is only the fallback. Without this, every gRPC-mode heading
+     * degraded to a raw UUID.
      */
     private static String labelFor(ViewCalculator v, UUID uuid) {
         try {
@@ -440,13 +686,31 @@ public final class GraphTools {
                 return name + "  [" + uuid + "]";
             }
         } catch (RuntimeException ignored) {
-            // Not resolvable locally (e.g. a semantic in gRPC mode); the UUID alone is the label.
+            // Not resolvable (e.g. a semantic in gRPC mode); the UUID is the label.
         }
         return uuid.toString();
     }
 
+    /**
+     * A display label for an entity. Unlike {@link #nameAndId} this never canonicalizes to a
+     * concept, so it stays correct when the nid identifies a semantic (which has no name).
+     */
+    private static String labelFor(ViewCalculator v, int nid) {
+        String name = v.getFullyQualifiedNameText(nid)
+                .or(() -> v.getDescriptionText(nid))
+                .orElse(null);
+        UUID[] uuids;
+        try {
+            uuids = PrimitiveData.publicId(nid).asUuidArray();
+        } catch (RuntimeException e) {
+            uuids = new UUID[0];
+        }
+        String id = uuids.length > 0 ? uuids[0].toString() : "nid=" + nid;
+        return (name == null || name.isBlank()) ? id : name + "  [" + id + "]";
+    }
+
     /** Renders one semantic as its pattern, UUID, and named fields. */
-    private static void renderSemantic(StringBuilder sb, GrpcSearchService.SemanticInfo info) {
+    private static void renderSemantic(StringBuilder sb, SemanticInfo info) {
         sb.append("Pattern: ").append(info.patternName());
         if (!info.semanticId().isEmpty()) {
             sb.append("  [").append(info.semanticId()).append(']');
@@ -456,7 +720,7 @@ public final class GraphTools {
             sb.append("  (no field values)\n");
             return;
         }
-        for (GrpcSearchService.NamedField field : info.fields()) {
+        for (NamedField field : info.fields()) {
             sb.append("  - ").append(field.name()).append(": ").append(field.value()).append('\n');
         }
     }
@@ -479,26 +743,6 @@ public final class GraphTools {
                         return "No query provided.";
                     }
                     int limit = intOr(in, "limit", DEFAULT_LIMIT);
-                    if (GrpcSearchService.isActive()) {
-                        try {
-                            List<GrpcSearchService.GroupedResult> results =
-                                    GrpcSearchService.get().searchGrouped(
-                                            query.trim(), Math.max(1, limit),
-                                            GrpcSearchService.SortOption.TOP_COMPONENT);
-                            if (results.isEmpty()) {
-                                return "No matches for: " + query;
-                            }
-                            StringBuilder sb = new StringBuilder();
-                            for (GrpcSearchService.GroupedResult r : results) {
-                                String id = r.publicId().isEmpty() ? "?" : r.publicId().get(0);
-                                sb.append("  - ").append(r.fullyQualifiedName())
-                                        .append("  [").append(id).append("]\n");
-                            }
-                            return sb.append("[").append(results.size()).append(" concepts]").toString();
-                        } catch (Exception e) {
-                            return "Search error: " + e.getMessage();
-                        }
-                    }
                     Searcher searcher = null;
                     try {
                         searcher = new Searcher();
@@ -591,25 +835,11 @@ public final class GraphTools {
             }
         }
         int nid = toConceptNid(EntityService.get().nidForPublicId(PublicIds.of(uuid)));
-        if (!v.getFullyQualifiedNameText(nid).isEmpty() || !v.getDescriptionText(nid).isEmpty()) {
-            return nid;
+        // A nid may be minted for an unknown id; treat "no name" as not present.
+        if (v.getFullyQualifiedNameText(nid).isEmpty() && v.getDescriptionText(nid).isEmpty()) {
+            return NONE;
         }
-        // In gRPC mode the local entity store only contains concepts explicitly prefetched.
-        // GetEntityByPublicId (the auto-fallback) returns only the concept entity + stamps,
-        // not its description semantics, so getFullyQualifiedNameText stays empty.
-        // LoadConceptEntityGraph returns the full graph (concept + semantics + stamps),
-        // which lets the view calculator resolve names, parents, and axioms.
-        if (GrpcSearchService.isActive()) {
-            try {
-                GrpcSearchService.get().loadConceptWithSemantics(List.of(uuid));
-                if (!v.getFullyQualifiedNameText(nid).isEmpty() || !v.getDescriptionText(nid).isEmpty()) {
-                    return nid;
-                }
-            } catch (Exception ignored) {
-                // Concept not found or server error — fall through to NONE
-            }
-        }
-        return NONE;
+        return nid;
     }
 
     /**
