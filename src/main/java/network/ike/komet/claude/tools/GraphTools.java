@@ -19,6 +19,7 @@ import dev.ikm.tinkar.common.id.IntIdCollection;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.service.PrimitiveDataSearchResult;
+import dev.ikm.tinkar.common.service.RemoteConceptSearchService;
 import dev.ikm.tinkar.common.util.uuid.UuidUtil;
 import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
 import dev.ikm.tinkar.coordinate.view.ViewCoordinateRecord;
@@ -501,6 +502,54 @@ public final class GraphTools {
     }
 
     /**
+     * {@link #search} against the gRPC service.
+     *
+     * <p>Uses {@code searchGrouped} rather than the {@code SearchService.search} contract:
+     * that method documents "NIDs are 0 since the local entity store is ephemeral", and the
+     * local rendering path keys entirely off the nid — every hit would be discarded by the
+     * {@code conceptNid != 0} guard and the tool would still report no matches.
+     *
+     * <p>{@code GroupedResult} is already one row per concept (the local path has to
+     * de-duplicate description hits up to their concept itself), and carries the
+     * {@code active} flag that stands in for the local {@code isActive} check. Output format
+     * matches {@link #nameAndId}: name followed by a bracketed identifier, so the model sees
+     * the same shape in both modes and can feed the UUID straight into
+     * {@link #conceptSemantics}.
+     *
+     * @param query the search text
+     * @param limit maximum results
+     * @return the rendered matches, or a diagnostic message
+     */
+    private static String grpcSearch(String query, int limit) {
+        try {
+            List<RemoteConceptSearchService.GroupedResult> results =
+                    GrpcSearchService.get().searchGrouped(
+                            query, limit, RemoteConceptSearchService.SortOption.TOP_COMPONENT);
+            StringBuilder sb = new StringBuilder();
+            int shown = 0;
+            for (RemoteConceptSearchService.GroupedResult r : results) {
+                // Never offer a retired concept as a grounding option (#739) — the remote
+                // equivalent of the local isActive(v, nid) filter.
+                if (!r.active()) {
+                    continue;
+                }
+                String id = (r.publicId() == null || r.publicId().isEmpty())
+                        ? "no public id"
+                        : r.publicId().getFirst();
+                sb.append("  - ").append(r.fullyQualifiedName())
+                        .append("  [").append(id).append("]\n");
+                shown++;
+            }
+            if (shown == 0) {
+                return "No matches for: " + query;
+            }
+            return sb.append('[').append(shown).append(" concepts]").toString();
+        } catch (Exception e) {
+            return "Search error: " + e.getMessage();
+        }
+    }
+
+    /**
      * {@link #semanticInfo} against the gRPC service.
      *
      * @param uuid the semantic instance's own UUID
@@ -743,6 +792,12 @@ public final class GraphTools {
                         return "No query provided.";
                     }
                     int limit = intOr(in, "limit", DEFAULT_LIMIT);
+                    // In gRPC mode there is no local Lucene index — the data lives on the
+                    // remote service — so `new Searcher()` matches nothing and the tool
+                    // reports "No matches" for concepts Komet's own search panel can see.
+                    if (GrpcSearchService.isActive()) {
+                        return grpcSearch(query.trim(), Math.max(1, limit));
+                    }
                     Searcher searcher = null;
                     try {
                         searcher = new Searcher();
