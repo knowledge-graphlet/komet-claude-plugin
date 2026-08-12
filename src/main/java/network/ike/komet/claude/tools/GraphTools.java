@@ -19,6 +19,7 @@ import dev.ikm.tinkar.common.id.IntIdCollection;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.service.PrimitiveDataSearchResult;
+import dev.ikm.tinkar.common.service.RemoteConceptSearchService;
 import dev.ikm.tinkar.common.util.uuid.UuidUtil;
 import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
 import dev.ikm.tinkar.coordinate.view.ViewCoordinateRecord;
@@ -30,6 +31,7 @@ import dev.ikm.tinkar.entity.PatternEntityVersion;
 import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
+import dev.ikm.tinkar.provider.grpc.GrpcSearchService;
 import dev.ikm.tinkar.provider.search.Searcher;
 import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.TinkarTerm;
@@ -344,6 +346,13 @@ public final class GraphTools {
                         return "No id provided.";
                     }
                     String trimmed = id.trim();
+                    // Semantic traversal (semanticNidsForComponent) is not served
+                    // over gRPC, so the nid-based path below returns nothing even
+                    // though concept lookups work. The service does the traversal
+                    // remotely and returns the same shape.
+                    if (GrpcSearchService.isActive()) {
+                        return grpcConceptSemantics(trimmed, str(in, "pattern"), v);
+                    }
                     int targetNid;
                     try {
                         // A UUID is used AS GIVEN — never canonicalized to its enclosing concept.
@@ -408,6 +417,9 @@ public final class GraphTools {
                     } catch (IllegalArgumentException e) {
                         return "Not a valid UUID: " + id;
                     }
+                    if (GrpcSearchService.isActive()) {
+                        return grpcSemanticInfo(uuid);
+                    }
                     try {
                         SemanticInfo info = semanticFor(
                                 EntityService.get().nidForPublicId(PublicIds.of(uuid)), v);
@@ -423,6 +435,155 @@ public final class GraphTools {
                         return "Error retrieving semantic: " + e.getMessage();
                     }
                 });
+    }
+
+    // ── gRPC-mode variants ───────────────────────────────────────────────
+    // Concept lookups resolve in gRPC mode, but semantic traversal
+    // (semanticNidsForComponent) is not served, so the nid-based path above
+    // finds nothing. The service performs the traversal server-side and returns
+    // records of identical shape, so both modes render through renderSemantic
+    // and produce identical output.
+
+    /**
+     * {@link #conceptSemantics} against the gRPC service.
+     *
+     * <p>Takes the id as text because the service accepts a UUID directly: unlike the local
+     * path there is no nid to resolve. An SCTID still has to be resolved to a UUID first, and
+     * that resolution goes through the view — which in gRPC mode is served remotely too.
+     *
+     * @param trimmed the concept SCTID/UUID, or a semantic's own UUID
+     * @param pattern optional pattern-name substring filter
+     * @param v       the active view calculator, for labels and SCTID resolution
+     * @return the rendered semantics, or a diagnostic message
+     */
+    private static String grpcConceptSemantics(String trimmed, String pattern,
+                                              ViewCalculator v) {
+        UUID target;
+        try {
+            // A UUID is used AS GIVEN — never canonicalized to its enclosing
+            // concept, so a semantic's own UUID lists what is attached to IT.
+            target = UUID.fromString(trimmed);
+        } catch (IllegalArgumentException notUuid) {
+            // An SCTID always denotes a concept, so resolving is safe here.
+            int nid = resolve(trimmed, v);
+            if (nid == NONE) {
+                return notFound(trimmed);
+            }
+            UUID[] uuids = PrimitiveData.publicId(toConceptNid(nid)).asUuidArray();
+            if (uuids.length == 0) {
+                return "No public UUID for '" + trimmed + "'.";
+            }
+            target = uuids[0];
+        }
+        try {
+            List<GrpcSearchService.SemanticInfo> semantics =
+                    GrpcSearchService.get().conceptSemantics(target, pattern);
+            String label = labelFor(v, target);
+            if (semantics.isEmpty()) {
+                return (pattern == null || pattern.isBlank())
+                        ? "No semantics attached to " + label
+                        : "No semantics matching pattern '" + pattern + "' on "
+                                + label + ". Call without 'pattern' to see "
+                                + "which patterns are present.";
+            }
+            StringBuilder sb = new StringBuilder(label).append('\n');
+            int shown = Math.min(semantics.size(), MAX_SEMANTICS);
+            for (int i = 0; i < shown; i++) {
+                renderSemantic(sb, convert(semantics.get(i)));
+            }
+            if (semantics.size() > shown) {
+                sb.append("… (").append(semantics.size() - shown)
+                        .append(" more not shown; narrow with 'pattern')\n");
+            }
+            return sb.append('[').append(semantics.size()).append(" semantics]").toString();
+        } catch (Exception e) {
+            return "Error retrieving semantics: " + e.getMessage();
+        }
+    }
+
+    /**
+     * {@link #search} against the gRPC service.
+     *
+     * <p>Uses {@code searchGrouped} rather than the {@code SearchService.search} contract:
+     * that method documents "NIDs are 0 since the local entity store is ephemeral", and the
+     * local rendering path keys entirely off the nid — every hit would be discarded by the
+     * {@code conceptNid != 0} guard and the tool would still report no matches.
+     *
+     * <p>{@code GroupedResult} is already one row per concept (the local path has to
+     * de-duplicate description hits up to their concept itself), and carries the
+     * {@code active} flag that stands in for the local {@code isActive} check. Output format
+     * matches {@link #nameAndId}: name followed by a bracketed identifier, so the model sees
+     * the same shape in both modes and can feed the UUID straight into
+     * {@link #conceptSemantics}.
+     *
+     * @param query the search text
+     * @param limit maximum results
+     * @return the rendered matches, or a diagnostic message
+     */
+    private static String grpcSearch(String query, int limit) {
+        try {
+            List<RemoteConceptSearchService.GroupedResult> results =
+                    GrpcSearchService.get().searchGrouped(
+                            query, limit, RemoteConceptSearchService.SortOption.TOP_COMPONENT);
+            StringBuilder sb = new StringBuilder();
+            int shown = 0;
+            for (RemoteConceptSearchService.GroupedResult r : results) {
+                // Never offer a retired concept as a grounding option (#739) — the remote
+                // equivalent of the local isActive(v, nid) filter.
+                if (!r.active()) {
+                    continue;
+                }
+                String id = (r.publicId() == null || r.publicId().isEmpty())
+                        ? "no public id"
+                        : r.publicId().getFirst();
+                sb.append("  - ").append(r.fullyQualifiedName())
+                        .append("  [").append(id).append("]\n");
+                shown++;
+            }
+            if (shown == 0) {
+                return "No matches for: " + query;
+            }
+            return sb.append('[').append(shown).append(" concepts]").toString();
+        } catch (Exception e) {
+            return "Search error: " + e.getMessage();
+        }
+    }
+
+    /**
+     * {@link #semanticInfo} against the gRPC service.
+     *
+     * @param uuid the semantic instance's own UUID
+     * @return the rendered semantic, or a diagnostic message
+     */
+    private static String grpcSemanticInfo(UUID uuid) {
+        try {
+            GrpcSearchService.SemanticInfo info =
+                    GrpcSearchService.get().semanticInfo(uuid);
+            if (info == null) {
+                return "No semantic found for " + uuid
+                        + " (it may be a concept — use concept_semantics).";
+            }
+            StringBuilder sb = new StringBuilder();
+            renderSemantic(sb, convert(info));
+            return sb.toString();
+        } catch (Exception e) {
+            return "Error retrieving semantic: " + e.getMessage();
+        }
+    }
+
+    /**
+     * Adapt the service's record to the local one. The two carry identical
+     * components; keeping a single local type means {@link #renderSemantic} has
+     * one signature and the two modes cannot drift in how they format output.
+     *
+     * @param info the service record
+     * @return the equivalent local record
+     */
+    private static SemanticInfo convert(GrpcSearchService.SemanticInfo info) {
+        List<NamedField> fields = info.fields().stream()
+                .map(f -> new NamedField(f.name(), f.value()))
+                .toList();
+        return new SemanticInfo(info.patternName(), info.semanticId(), fields);
     }
 
     /**
@@ -556,6 +717,30 @@ public final class GraphTools {
     }
 
     /**
+     * A display label for an entity identified by UUID — the gRPC-mode counterpart of
+     * {@link #labelFor(ViewCalculator, int)}, which cannot be used there because a semantic's
+     * UUID has no resolvable nid.
+     *
+     * <p>Resolution is attempted anyway, since concept lookups do work in gRPC mode and yield a
+     * real name; the bare UUID is only the fallback. Without this, every gRPC-mode heading
+     * degraded to a raw UUID.
+     */
+    private static String labelFor(ViewCalculator v, UUID uuid) {
+        try {
+            int nid = EntityService.get().nidForPublicId(PublicIds.of(uuid));
+            String name = v.getFullyQualifiedNameText(nid)
+                    .or(() -> v.getDescriptionText(nid))
+                    .orElse(null);
+            if (name != null && !name.isBlank()) {
+                return name + "  [" + uuid + "]";
+            }
+        } catch (RuntimeException ignored) {
+            // Not resolvable (e.g. a semantic in gRPC mode); the UUID is the label.
+        }
+        return uuid.toString();
+    }
+
+    /**
      * A display label for an entity. Unlike {@link #nameAndId} this never canonicalizes to a
      * concept, so it stays correct when the nid identifies a semantic (which has no name).
      */
@@ -607,6 +792,12 @@ public final class GraphTools {
                         return "No query provided.";
                     }
                     int limit = intOr(in, "limit", DEFAULT_LIMIT);
+                    // In gRPC mode there is no local Lucene index — the data lives on the
+                    // remote service — so `new Searcher()` matches nothing and the tool
+                    // reports "No matches" for concepts Komet's own search panel can see.
+                    if (GrpcSearchService.isActive()) {
+                        return grpcSearch(query.trim(), Math.max(1, limit));
+                    }
                     Searcher searcher = null;
                     try {
                         searcher = new Searcher();

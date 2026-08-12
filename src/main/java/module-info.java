@@ -36,10 +36,12 @@ module komet.claude {
     requires dev.ikm.komet.preferences;
 
     // Tinkar: calculators (bundled in entity), ids/UUID utils (common),
-    // and the Lucene Searcher.
+    // and the local Lucene Searcher (fallback when gRPC mode is not active).
     requires dev.ikm.tinkar.entity;
     requires dev.ikm.tinkar.common;
     requires dev.ikm.tinkar.provider.search;
+    // gRPC search singleton — checked via GrpcSearchService.isActive() at runtime.
+    requires dev.ikm.tinkar.provider.grpc;
 
     // Tinkar Composer: write COMMENT_PATTERN semantics (commit comments) referencing a STAMP,
     // and seed the narrator's author/module identity concepts.
