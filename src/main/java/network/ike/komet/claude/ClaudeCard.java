@@ -189,6 +189,8 @@ public final class ClaudeCard extends AbstractHostCard {
     private int matchPos = -1;
 
     private Button retryButton;
+    /** Stops the active conversation's in-flight generation (ike-issues#1028). */
+    private Button stopButton;
     /** 1 Hz tick that advances the elapsed clock in the status strip while a request is in flight. */
     private Timeline statusTimer;
     /** All conversations (left rail); the active one drives the transcript. */
@@ -235,6 +237,13 @@ public final class ClaudeCard extends AbstractHostCard {
         String pendingRetryText;
         /** The in-flight worker task, so deleting a busy conversation can cancel it. */
         volatile java.util.concurrent.Future<?> task;
+        /** Set by the Stop button before cancelling, so the interrupt reads as
+         *  "■ Stopped" rather than a transport failure (ike-issues#1028);
+         *  the prompt is still held for Retry. */
+        volatile boolean stopRequested;
+        /** Whether {@link #outcome} is a deliberate stop — neutral styling
+         *  instead of the failure red, Retry still offered. */
+        boolean outcomeStopped;
         final List<MarkdownRichText.Entry> entries = new ArrayList<>();
         final List<Map<String, Object>> apiMessages = new ArrayList<>();
         final StringBuilder markdown = new StringBuilder();
@@ -470,7 +479,11 @@ public final class ClaudeCard extends AbstractHostCard {
         // Chips drag on a single gesture (knowledge-graphlet/komet-claude-plugin#5).
         KonceptChipGestures.install(input);
         input.setWrapText(true);
-        input.setPrefHeight(56);
+        // The compose surface grows with its content up to the cap, then
+        // scrolls — longer prompts stay readable while typing
+        // (ike-issues#1029) instead of scrolling inside a fixed strip.
+        input.setUseContentHeight(true);
+        input.setMinHeight(56);
         input.setMaxHeight(160);
         applyComposeFontSize();   // input prose and the compose chips share one readable size
         // Selected chips paint the token-field fill (accent pill, white label): the control's own
@@ -523,7 +536,12 @@ public final class ClaudeCard extends AbstractHostCard {
         retryButton = new Button("Retry");
         retryButton.setOnAction(e -> retryActive());
         setRetryVisible(false);
-        HBox statusBar = new HBox(8, statusLabel, statusSpacer, retryButton);
+        stopButton = new Button("Stop");
+        stopButton.setTooltip(new Tooltip("Stop generating"));
+        stopButton.setOnAction(e -> stopActive());
+        stopButton.setVisible(false);
+        stopButton.setManaged(false);
+        HBox statusBar = new HBox(8, statusLabel, statusSpacer, stopButton, retryButton);
         statusBar.setAlignment(Pos.CENTER_LEFT);
         statusBar.setPadding(new Insets(2, 8, 0, 8));
         VBox bottom = new VBox(statusBar, inputBar);
@@ -1079,6 +1097,8 @@ public final class ClaudeCard extends AbstractHostCard {
         conv.startNanos = System.nanoTime();
         conv.outcome = null;
         conv.outcomeFailed = false;
+        conv.outcomeStopped = false;
+        conv.stopRequested = false;
         conv.pendingRetryText = null;
         conversationList.refresh();
         if (conv == active) {
@@ -1151,7 +1171,10 @@ public final class ClaudeCard extends AbstractHostCard {
                     // A failed turn is not part of the conversation: pop the optimistic user bubble so the
                     // transcript stays equal to the committed (and persisted) history. Hold it for Retry.
                     truncateEntries(conv, entryMark, markdownMark);
-                    conv.outcome = "✕ " + finalError;
+                    conv.outcomeStopped = conv.stopRequested;
+                    conv.outcome = conv.outcomeStopped
+                            ? "■ Stopped" : "✕ " + finalError;
+                    conv.stopRequested = false;
                     conv.outcomeFailed = true;
                     conv.pendingRetryText = text;
                 } else {
@@ -1208,13 +1231,17 @@ public final class ClaudeCard extends AbstractHostCard {
             statusLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: -fx-text-base-color;");
             statusLabel.setTooltip(new Tooltip(statusLabel.getText()));
             setRetryVisible(false);
+            setStopVisible(true);
         } else if (active != null && active.outcome != null) {
             statusLabel.setText(active.outcome);
             statusLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: "
-                    + (active.outcomeFailed ? "#c62828" : "#2e7d32") + ";");
+                    + (active.outcomeStopped ? "-fx-text-base-color"
+                            : active.outcomeFailed ? "#c62828" : "#2e7d32")
+                    + ";");
             // The failure message (cause + status-page URL) can outrun the strip width; the tooltip keeps
             // the full text reachable since failures are not in the transcript.
             statusLabel.setTooltip(new Tooltip(active.outcome));
+            setStopVisible(false);
             boolean canRetry = active.outcomeFailed && active.pendingRetryText != null;
             setRetryVisible(canRetry);
             if (canRetry) {
@@ -1227,12 +1254,33 @@ public final class ClaudeCard extends AbstractHostCard {
             statusLabel.setStyle("-fx-font-size: 11px;");
             statusLabel.setTooltip(null);
             setRetryVisible(false);
+            setStopVisible(false);
         }
     }
 
     private void setRetryVisible(boolean visible) {
         retryButton.setVisible(visible);
         retryButton.setManaged(visible);
+    }
+
+    private void setStopVisible(boolean visible) {
+        stopButton.setVisible(visible);
+        stopButton.setManaged(visible);
+    }
+
+    /**
+     * Stops the active conversation's in-flight generation: marks the
+     * stop as deliberate so the completion handler settles the strip at
+     * "■ Stopped" (prompt held for Retry, optimistic bubble popped —
+     * the transcript stays equal to committed history), then cancels
+     * the interrupt-aware worker. No-op when nothing is in flight.
+     */
+    private void stopActive() {
+        if (active == null || !active.busy || active.task == null) {
+            return;
+        }
+        active.stopRequested = true;
+        active.task.cancel(true);
     }
 
     /** Starts the 1 Hz elapsed clock if it is not already running. */
