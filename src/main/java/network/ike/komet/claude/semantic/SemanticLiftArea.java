@@ -69,7 +69,7 @@ public final class SemanticLiftArea extends SupplementalAreaBlueprint implements
     private static final double BASE_FONT = MarkdownRichText.DEFAULT_BASE;
     /** The lift runs on the more capable model for the structural reasoning. */
     private static final String LIFT_MODEL = "claude-opus-4-8";
-    /** Per-OS-user key the Claude Assistant / ANF lift store the Anthropic key under. */
+    /** Per-OS-user key the Komet Assistant / ANF lift store the Anthropic key under. */
     private static final String PREF_API_KEY = "network.ike.komet.claude.apiKey";
     /** Area-node keys for this tile's own restorable state. */
     private static final String PREF_SESSION = "semanticLift.session";
@@ -232,7 +232,7 @@ public final class SemanticLiftArea extends SupplementalAreaBlueprint implements
         }
         String apiKey = PreferencesService.userPreferences().get(PREF_API_KEY, "");
         if (apiKey.isBlank()) {
-            status("No Anthropic API key configured (set it in the Claude Assistant).");
+            status("No Anthropic API key configured (set it in the Komet Assistant).");
             return;
         }
         if (patternPanel.nodes().isEmpty()) {

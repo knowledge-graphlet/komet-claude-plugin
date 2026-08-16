@@ -103,7 +103,7 @@ module komet.claude {
     uses network.ike.komet.claude.json.Json.Serializer;
     uses network.ike.komet.claude.json.Json.Deserializer;
 
-    // The Claude Assistant is contributed as a first-class CARD (a KlCardProvider): the Journal
+    // The Komet Assistant is contributed as a first-class CARD (a KlCardProvider): the Journal
     // discovers it for the "+" menu and hosts it natively in a CardKlWindow — its own chrome and
     // sandboxed per-instance prefs-node storage — rather than inside a generic tool host.
     // ServiceLoader instantiates the provider via its public no-arg constructor.

@@ -27,7 +27,7 @@ import java.util.Optional;
  * <ol>
  *   <li>the {@code anthropic.api.key} system property (an explicit local/CI override);</li>
  *   <li>the {@code ANTHROPIC_API_KEY} environment variable;</li>
- *   <li>this machine's Komet user preferences — the same per-OS-user key the Claude Assistant
+ *   <li>this machine's Komet user preferences — the same per-OS-user key the Komet Assistant
  *       stores ({@code network.ike.komet.claude.apiKey}), so a developer who has configured Komet
  *       already has the key available to the test.</li>
  * </ol>
@@ -38,7 +38,7 @@ import java.util.Optional;
  */
 final class TestApiKey {
 
-    /** The per-OS-user preference key the Claude Assistant stores the API key under. */
+    /** The per-OS-user preference key the Komet Assistant stores the API key under. */
     private static final String PREF_API_KEY = "network.ike.komet.claude.apiKey";
 
     private TestApiKey() {

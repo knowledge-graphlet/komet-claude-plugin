@@ -51,7 +51,7 @@ import java.util.concurrent.Executors;
  * <p>It reuses the plugin's {@link AnthropicClient} multi-turn tool-use loop, the read-only
  * {@link GraphTools} grounded in the live {@link ViewCalculator}, and {@link MarkdownRichText}
  * for rendering replies. The Anthropic API key and model come from the shared per-OS-user Komet
- * preferences (set once via the Claude Assistant).
+ * preferences (set once via the Komet Assistant).
  */
 public final class ChatArea extends SupplementalAreaBlueprint {
 
@@ -135,7 +135,7 @@ public final class ChatArea extends SupplementalAreaBlueprint {
         String apiKey = PreferencesService.userPreferences().get(PREF_API_KEY, "");
         if (apiKey.isBlank()) {
             entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ERROR,
-                    "No Anthropic API key configured (set it in the Claude Assistant).", false));
+                    "No Anthropic API key configured (set it in the Komet Assistant).", false));
             refreshTranscript();
             return;
         }

@@ -467,7 +467,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         }
         String apiKey = PreferencesService.userPreferences().get(PREF_API_KEY, "");
         if (apiKey.isBlank()) {
-            setStatus("No Anthropic API key configured (set it in the Claude Assistant).");
+            setStatus("No Anthropic API key configured (set it in the Komet Assistant).");
             return;
         }
         setBusy(true);

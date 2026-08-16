@@ -115,7 +115,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * The Claude Assistant as a first-class {@link AbstractHostCard}: a chat over the open knowledge base,
+ * The Komet Assistant as a first-class {@link AbstractHostCard}: a chat over the open knowledge base,
  * contributed to the Journal workspace via {@link Factory} (a {@code KlCardProvider}). This is the
  * card-native successor to the legacy {@code ClaudeAssistantArea} tool — it owns its chrome, coordinate
  * context, lifecycle, and storage directly rather than being hosted inside a generic shell.
@@ -136,7 +136,7 @@ import java.util.stream.Stream;
 public final class ClaudeCard extends AbstractHostCard {
 
     /** Menu label and card title. */
-    static final String CARD_NAME = "Claude Assistant";
+    static final String CARD_NAME = "Komet Assistant";
 
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(ClaudeCard.class);
 

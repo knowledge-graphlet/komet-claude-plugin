@@ -46,7 +46,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * the system prompt requires the model to ground all claims through the tools.
  *
  * <p>The Anthropic API key and model are read from the shared per-OS-user Komet preferences
- * (the same keys the Claude Assistant uses); the criterion is persisted per placed area.
+ * (the same keys the Komet Assistant uses); the criterion is persisted per placed area.
  */
 public final class ClaudeCheckArea extends AbstractCheckArea {
 
@@ -119,7 +119,7 @@ public final class ClaudeCheckArea extends AbstractCheckArea {
         }
         String apiKey = PreferencesService.userPreferences().get(PREF_API_KEY, "");
         if (apiKey.isBlank()) {
-            return CheckResult.error("No Anthropic API key configured (set it in the Claude Assistant).");
+            return CheckResult.error("No Anthropic API key configured (set it in the Komet Assistant).");
         }
         String model = PreferencesService.userPreferences().get(PREF_MODEL, AnthropicClient.DEFAULT_MODEL);
         ViewCalculator viewCalculator = viewProperties.calculator();
