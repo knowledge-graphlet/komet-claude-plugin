@@ -59,3 +59,26 @@
 .claude-doc-stack .doc-turn-header {
     -fx-padding: 2 0 0 0;
 }
+
+/*
+ * Settings sliders (ike-issues#1040): the house fa-sliders glyph, white like the rest of the
+ * coral toolbar and size-matched to the text buttons; the MenuButton arrow is chrome the
+ * glyph does not need.
+ */
+.claude-card-settings-button {
+    -fx-padding: 3 8;
+}
+.claude-card-settings-button .ikonli-font-icon {
+    -fx-icon-color: white;
+    -fx-icon-size: 13;
+}
+.claude-card-settings-button .label {
+    -fx-padding: 0;
+}
+.claude-card-settings-button > .arrow-button {
+    -fx-padding: 0;
+}
+.claude-card-settings-button > .arrow-button > .arrow {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}

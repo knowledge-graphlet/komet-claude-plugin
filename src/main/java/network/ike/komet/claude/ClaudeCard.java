@@ -56,7 +56,6 @@ import javafx.scene.control.PasswordField;
 import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.SeparatorMenuItem;
 import javafx.scene.control.SplitPane;
-import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.TextInputDialog;
 import javafx.scene.control.TitledPane;
@@ -97,6 +96,7 @@ import dev.ikm.komet.markdown.richtext.ConceptChipTextModel;
 import dev.ikm.komet.markdown.richtext.TableColumnWidths;
 import network.ike.komet.claude.ui.ComposeChips;
 import network.ike.komet.claude.ui.KonceptTokens;
+import network.ike.komet.claude.ui.MarkdownEditPane;
 import network.ike.komet.claude.ui.MarkdownRichText;
 
 import java.io.File;
@@ -414,17 +414,14 @@ public final class ClaudeCard extends AbstractHostCard {
         Button toggleRail = new Button("☰");
         toggleRail.setTooltip(new Tooltip("Show/hide conversations"));
         toggleRail.setOnAction(e -> setRailVisible(!railVisible));
-        Button saveButton = new Button("Save…");
-        saveButton.setOnAction(e -> saveTranscript());
 
         // Paged document print (#838/#839) is reached through the document area's hover-revealed
         // "expand to full surface" corner icon (KlExpandable); Print and print-settings live in that
-        // full-surface view — no top-toolbar button. Exchange expand/collapse live in the
-        // transcript panel's own header strip (ike-issues#1040), beside what they act on.
-        for (Button b : List.of(toggleRail, saveButton)) {
-            b.getStyleClass().add("claude-card-toolbar-button");
-        }
-        toolBar.getChildren().addAll(coordinateButton, toggleRail, saveButton, settingsMenu());
+        // full-surface view — no top-toolbar button. Conversation-scoped actions — transcript
+        // Save, exchange expand/collapse — live in the transcript panel's own header strip
+        // (ike-issues#1040), beside the conversation they act on.
+        toggleRail.getStyleClass().add("claude-card-toolbar-button");
+        toolBar.getChildren().addAll(coordinateButton, toggleRail, settingsMenu());
     }
 
     /**
@@ -438,7 +435,10 @@ public final class ClaudeCard extends AbstractHostCard {
         settings.setGraphic(Icon.PANEL_PREFERENCE_SLIDERS.makeIcon());
         settings.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
         settings.setTooltip(new Tooltip("Assistant settings"));
-        settings.getStyleClass().add("claude-card-toolbar-button");
+        // Two classes: the shared toolbar fill/hover, plus the geometry overrides that bring a
+        // MenuButton (own skin padding, arrow region, Label-wrapped FontIcon) down to the same
+        // footprint as the text buttons beside it.
+        settings.getStyleClass().addAll("claude-card-toolbar-button", "claude-card-settings-button");
 
         Button fontDown = new Button("A−");
         fontDown.setTooltip(new Tooltip("Smaller text"));
@@ -666,7 +666,7 @@ public final class ClaudeCard extends AbstractHostCard {
                 });
         HBox tileRow = new HBox(6, tileSelector);
         HBox.setHgrow(tileSelector, Priority.ALWAYS);
-        tileRow.setPadding(new Insets(0, 6, 4, 6));
+        tileRow.setPadding(new Insets(6, 6, 0, 6));
         conversationList = new ListView<>(conversations);
         conversationList.setPrefWidth(190);
         conversationList.getSelectionModel().selectedItemProperty().addListener((o, prev, sel) -> {
@@ -712,7 +712,13 @@ public final class ClaudeCard extends AbstractHostCard {
         deleteItem.setOnAction(e -> deleteActive());
         conversationList.setContextMenu(new ContextMenu(renameItem, deleteItem));
 
-        conversationRail = new VBox(railHeader, tileRow, conversationList);
+        // The tile is the overarching scope, so its selector sits ABOVE the conversations
+        // header (KEC 2026-08-17); "+ New" creates within THIS tile only, so it disables while
+        // browsing a sibling tile's conversations.
+        newButton.disableProperty().bind(javafx.beans.binding.Bindings.createBooleanBinding(
+                () -> tileSelector.getValue() != null && !tileSelector.getValue().own(),
+                tileSelector.valueProperty()));
+        conversationRail = new VBox(tileRow, railHeader, conversationList);
         VBox.setVgrow(conversationList, Priority.ALWAYS);
         conversationRail.setMinWidth(140);
 
@@ -747,11 +753,10 @@ public final class ClaudeCard extends AbstractHostCard {
         // discoverable by sibling cards' selectors; the label is written
         // once so it survives as this tile's display name after close.
         preferences().put(CARD_TYPE_KEY, CARD_TYPE_VALUE);
-        if (preferences().get(TILE_LABEL_KEY, "").isBlank()) {
-            preferences().put(TILE_LABEL_KEY, "Tile · "
-                    + java.time.LocalDateTime.now().format(java.time.format
-                            .DateTimeFormatter.ofPattern("MMM d, HH:mm")));
-        }
+        ensureTileLabel();
+        // The selector rendered at construction, before the identity block could migrate a
+        // pre-convention label — re-read so the minted name shows immediately.
+        refreshTileSelector();
         loadConversations();
         if (conversations.isEmpty()) {
             newConversation();
@@ -1132,13 +1137,16 @@ public final class ClaudeCard extends AbstractHostCard {
      * surface's one scroll axis, so it never scrolls away.
      */
     private BorderPane transcriptPanel() {
+        Button saveButton = new Button("Save…");
+        saveButton.setTooltip(new Tooltip("Save this conversation's transcript"));
+        saveButton.setOnAction(e -> saveTranscript());
         Button expandAll = new Button("⊞");
         expandAll.setTooltip(new Tooltip("Expand all exchanges"));
         expandAll.setOnAction(e -> surface.setAllExchangesCollapsed(false));
         Button collapseAll = new Button("⊟");
         collapseAll.setTooltip(new Tooltip("Collapse all exchanges"));
         collapseAll.setOnAction(e -> surface.setAllExchangesCollapsed(true));
-        HBox strip = new HBox(4, expandAll, collapseAll);
+        HBox strip = new HBox(4, saveButton, expandAll, collapseAll);
         strip.setAlignment(Pos.CENTER_RIGHT);
         strip.setPadding(new Insets(2, 8, 2, 8));
 
@@ -1722,8 +1730,32 @@ public final class ClaudeCard extends AbstractHostCard {
     private record TileRef(KometPreferences node, String label, boolean own) {
         @Override
         public String toString() {
-            return own ? "This tile" : label;
+            return own ? label + " (this tile)" : label;
         }
+    }
+
+    /**
+     * Mints this tile's durable display name once, per the naming convention (KEC 2026-08-17):
+     * <em>kind of card + sequence</em> — "Assistant Card N", the next sequence past every
+     * sibling's. A pre-convention label ("Tile · <timestamp>") migrates forward on first open —
+     * the forward-compatibility discipline: modernize to the new convention when we can. The
+     * broader knowledge-base / journal / card / conversation naming model is a wishlist design
+     * item; this is its card-tile corner.
+     */
+    private void ensureTileLabel() {
+        String current = preferences().get(TILE_LABEL_KEY, "");
+        if (!current.isBlank() && !current.startsWith("Tile · ")) {
+            return;
+        }
+        int next = 1;
+        java.util.regex.Pattern named = java.util.regex.Pattern.compile("Assistant Card (\\d+)");
+        for (KometPreferences tile : assistantTiles()) {
+            java.util.regex.Matcher m = named.matcher(tile.get(TILE_LABEL_KEY, ""));
+            if (m.matches()) {
+                next = Math.max(next, Integer.parseInt(m.group(1)) + 1);
+            }
+        }
+        preferences().put(TILE_LABEL_KEY, "Assistant Card " + next);
     }
 
     /** Rebuilds the selector's items: this tile first, then siblings by label. */
@@ -2342,10 +2374,14 @@ public final class ClaudeCard extends AbstractHostCard {
         ButtonType saveType = new ButtonType("Save", ButtonBar.ButtonData.OK_DONE);
         dialog.getDialogPane().getButtonTypes().addAll(saveType, ButtonType.CANCEL);
 
-        TextArea instructions = new TextArea(instructionsLayer());
-        instructions.setWrapText(true);
-        instructions.setPrefRowCount(16);
-        instructions.setPrefColumnCount(72);
+        // Both layers render through the card's own Markdown pipeline (chips and all) with a
+        // view/edit toggle on the editable one (ike-issues#1040 follow-through): read at rest,
+        // toggle to raw Markdown to change it, toggle back to see it rendered.
+        MarkdownRichText renderer = new MarkdownRichText(safeViewProperties(),
+                MarkdownRichText.DEFAULT_BASE);
+        MarkdownEditPane instructions =
+                new MarkdownEditPane(instructionsLayer(), true, renderer::renderMarkdown);
+        instructions.setPrefSize(680, 340);
         VBox.setVgrow(instructions, Priority.ALWAYS);
 
         Button restoreDefault = new Button("Restore default");
@@ -2356,21 +2392,18 @@ public final class ClaudeCard extends AbstractHostCard {
         instructionsHeader.getChildren().addAll(headerSpacer, restoreDefault);
         instructionsHeader.setAlignment(Pos.CENTER_LEFT);
 
-        TextArea coreView = new TextArea(promptCore);
-        coreView.setEditable(false);
-        coreView.setWrapText(true);
-        coreView.setPrefRowCount(10);
+        MarkdownEditPane coreView = new MarkdownEditPane(promptCore, false, renderer::renderMarkdown);
+        coreView.setPrefSize(680, 260);
         TitledPane corePane = new TitledPane("Tool contract (fixed)", coreView);
         corePane.setExpanded(false);
 
         VBox content = new VBox(8, instructionsHeader, instructions, corePane);
         dialog.getDialogPane().setContent(content);
         dialog.setResizable(true);
-        Platform.runLater(instructions::requestFocus);
 
         Optional<ButtonType> result = dialog.showAndWait();
         if (result.isPresent() && result.get() == saveType) {
-            String text = instructions.getText() == null ? "" : instructions.getText();
+            String text = instructions.getText();
             if (text.strip().equals(defaultInstructions().strip())) {
                 clearInstructionsOverride();
             } else {
