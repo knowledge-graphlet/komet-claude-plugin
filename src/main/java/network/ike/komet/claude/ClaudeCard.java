@@ -23,6 +23,7 @@ import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.komet.layout.KlArea;
 import dev.ikm.komet.layout.area.AreaGridSettings;
 import dev.ikm.komet.layout.controls.FilterOptionsPopup;
+import dev.ikm.komet.layout.controls.SettingsPanePopup;
 import dev.ikm.komet.layout.controls.ViewOptionsPopupHelper;
 import dev.ikm.komet.layout.preferences.KlPreferencesFactory;
 import dev.ikm.komet.layout_engine.blueprint.CardBlueprint;
@@ -45,7 +46,6 @@ import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.ContentDisplay;
 import javafx.scene.control.ContextMenu;
-import javafx.scene.control.CustomMenuItem;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
@@ -54,14 +54,13 @@ import javafx.scene.control.MenuButton;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.ProgressIndicator;
-import javafx.scene.control.SeparatorMenuItem;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextField;
 import javafx.scene.control.TextInputDialog;
-import javafx.scene.control.TitledPane;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Pane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
@@ -421,44 +420,114 @@ public final class ClaudeCard extends AbstractHostCard {
         // Save, exchange expand/collapse — live in the transcript panel's own header strip
         // (ike-issues#1040), beside the conversation they act on.
         toggleRail.getStyleClass().add("claude-card-toolbar-button");
-        toolBar.getChildren().addAll(coordinateButton, toggleRail, settingsMenu());
+        toolBar.getChildren().addAll(coordinateButton, toggleRail, settingsButton());
     }
 
     /**
-     * The durable-preference settings control (ike-issues#1040): the house sliders affordance
-     * (the navigator search bar's paradigm) opening text size, the system prompt, and the API
-     * key — preferences behind one glyph instead of a toolbar button pile. Transient actions
-     * (Save, the conversations toggle) stay as toolbar buttons.
+     * The durable-preference settings affordance (ike-issues#1040/#1043): the house sliders
+     * glyph opening the standardized {@link SettingsPanePopup} — the View Options adjacent-pane
+     * paradigm — with sections for text size, the system prompt, and the API key. Transient
+     * actions (the conversations toggle; the strip's Save) stay as buttons.
      */
-    private MenuButton settingsMenu() {
-        MenuButton settings = new MenuButton();
+    private Button settingsButton() {
+        Button settings = new Button();
         settings.setGraphic(Icon.PANEL_PREFERENCE_SLIDERS.makeIcon());
         settings.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
         settings.setTooltip(new Tooltip("Assistant settings"));
-        // Two classes: the shared toolbar fill/hover, plus the geometry overrides that bring a
-        // MenuButton (own skin padding, arrow region, Label-wrapped FontIcon) down to the same
-        // footprint as the text buttons beside it.
         settings.getStyleClass().addAll("claude-card-toolbar-button", "claude-card-settings-button");
 
-        Button fontDown = new Button("A−");
-        fontDown.setTooltip(new Tooltip("Smaller text"));
-        fontDown.setOnAction(e -> adjustFont(-1));
-        Button fontUp = new Button("A+");
-        fontUp.setTooltip(new Tooltip("Larger text"));
-        fontUp.setOnAction(e -> adjustFont(1));
-        HBox fontRow = new HBox(8, new Label("Text size"), fontDown, fontUp);
-        fontRow.setAlignment(Pos.CENTER_LEFT);
-        CustomMenuItem fontItem = new CustomMenuItem(fontRow);
-        // Repeated presses adjust live; the menu stays open until the user dismisses it.
-        fontItem.setHideOnClick(false);
-
-        MenuItem promptItem = new MenuItem("System prompt…");
-        promptItem.setOnAction(e -> showSystemPromptDialog());
-        MenuItem keyItem = new MenuItem("API key…");
-        keyItem.setOnAction(e -> promptForApiKey());
-
-        settings.getItems().addAll(fontItem, new SeparatorMenuItem(), promptItem, keyItem);
+        SettingsPanePopup pane = new SettingsPanePopup("Assistant Settings");
+        pane.addSection("Text size",
+                () -> Math.round(baseFontSize) + " px",
+                () -> textSizeSettingsContent(pane));
+        pane.addSection("System prompt",
+                () -> preferences().get(PREF_SYSTEM_INSTRUCTIONS_FILE, "").isBlank()
+                        ? "Default" : "Edited",
+                () -> promptSettingsContent(pane));
+        pane.addSection("API key",
+                () -> hasApiKey() ? "Set (per-user)" : "Not set",
+                () -> apiKeySettingsContent(pane));
+        pane.attachTo(settings, (Pane) fxObject());
         return settings;
+    }
+
+    /** The text-size section: live ± adjustment, the card summary tracking each press. */
+    private javafx.scene.Node textSizeSettingsContent(SettingsPanePopup pane) {
+        Label current = new Label(Math.round(baseFontSize) + " px");
+        Button fontDown = new Button("A−");
+        fontDown.setOnAction(e -> {
+            adjustFont(-1);
+            current.setText(Math.round(baseFontSize) + " px");
+            pane.refreshSummaries();
+        });
+        Button fontUp = new Button("A+");
+        fontUp.setOnAction(e -> {
+            adjustFont(1);
+            current.setText(Math.round(baseFontSize) + " px");
+            pane.refreshSummaries();
+        });
+        HBox row = new HBox(8, fontDown, fontUp, current);
+        row.setAlignment(Pos.CENTER_LEFT);
+        return row;
+    }
+
+    /**
+     * The system-prompt section (ike-issues#1039 in its #1043 home): the editable instruction
+     * layer in the view/edit Markdown pane, Restore default, and Save — the fixed tool contract
+     * beneath, rendered read-only. Save-matching-default clears the override.
+     */
+    private javafx.scene.Node promptSettingsContent(SettingsPanePopup pane) {
+        MarkdownRichText renderer = new MarkdownRichText(safeViewProperties(),
+                MarkdownRichText.DEFAULT_BASE);
+        MarkdownEditPane instructions =
+                new MarkdownEditPane(instructionsLayer(), true, renderer::renderMarkdown);
+        instructions.setPrefSize(300, 300);
+
+        Button restoreDefault = new Button("Restore default");
+        restoreDefault.setOnAction(e -> instructions.setText(defaultInstructions()));
+        Button save = new Button("Save");
+        save.setOnAction(e -> {
+            String text = instructions.getText();
+            if (text.strip().equals(defaultInstructions().strip())) {
+                clearInstructionsOverride();
+            } else {
+                saveInstructionsOverride(text);
+            }
+            pane.refreshSummaries();
+        });
+        Region buttonSpacer = new Region();
+        HBox.setHgrow(buttonSpacer, Priority.ALWAYS);
+        HBox buttons = new HBox(8, restoreDefault, buttonSpacer, save);
+        buttons.setAlignment(Pos.CENTER_LEFT);
+
+        MarkdownEditPane contract = new MarkdownEditPane(promptCore, false, renderer::renderMarkdown);
+        contract.setPrefSize(300, 170);
+        Label contractTitle = new Label("Tool contract (fixed)");
+
+        VBox content = new VBox(6, new Label("Instructions (editable)"), instructions, buttons,
+                contractTitle, contract);
+        return content;
+    }
+
+    /** The API-key section: the per-user key, masked, saved to shared per-user preferences. */
+    private javafx.scene.Node apiKeySettingsContent(SettingsPanePopup pane) {
+        PasswordField field = new PasswordField();
+        field.setPromptText("sk-ant-…");
+        field.setText(apiKey());
+        Label note = new Label("Stored in your per-user Komet preferences on this machine,\nnever in the knowledge base. One key for every assistant card.");
+        note.setWrapText(true);
+        Button save = new Button("Save");
+        save.setOnAction(e -> {
+            userPreferences().put(PREF_API_KEY, field.getText() == null ? "" : field.getText().trim());
+            try {
+                userPreferences().sync();
+            } catch (BackingStoreException ex) {
+                LOG.warn("Could not sync the API key preference", ex);
+            }
+            pane.refreshSummaries();
+        });
+        VBox content = new VBox(6, field, note, save);
+        return content;
     }
 
     @Override
@@ -669,6 +738,9 @@ public final class ClaudeCard extends AbstractHostCard {
         tileRow.setPadding(new Insets(6, 6, 0, 6));
         conversationList = new ListView<>(conversations);
         conversationList.setPrefWidth(190);
+        // Rail titles WRAP instead of running under the edge, and the list shows no scrollbar
+        // chrome (KEC 2026-08-17) — trackpad scrolling still works when the rail overfills.
+        conversationList.getStyleClass().add("conversation-rail-list");
         conversationList.getSelectionModel().selectedItemProperty().addListener((o, prev, sel) -> {
             if (sel != null && sel != active) {
                 activate(sel);
@@ -686,6 +758,12 @@ public final class ClaudeCard extends AbstractHostCard {
                 spinner.setPrefSize(14, 14);
                 spinner.setMaxSize(14, 14);
                 setContentDisplay(ContentDisplay.RIGHT);
+                // Wrap long titles across lines within the rail's width: the cell must not
+                // report its full single-line pref width, or the list scrolls horizontally
+                // instead of wrapping.
+                setWrapText(true);
+                setPrefWidth(0);
+                maxWidthProperty().bind(lv.widthProperty().subtract(16));
             }
             @Override
             protected void updateItem(Conversation c, boolean empty) {
@@ -2355,61 +2433,6 @@ public final class ClaudeCard extends AbstractHostCard {
             LOG.warn("Could not clear the system-instructions override", e);
         }
         refreshSystemPrompt();
-    }
-
-    /**
-     * The system-prompt dialog (ike-issues#1039): the instruction layer editable on top, the
-     * tool contract beneath it read-only — visible so the user always knows the whole prompt,
-     * fixed so an edit can never sever tool wiring. Saving text identical to the bundled
-     * default clears the override, so an unedited card keeps tracking default upgrades.
-     */
-    private void showSystemPromptDialog() {
-        Dialog<ButtonType> dialog = new Dialog<>();
-        dialog.setTitle("System prompt");
-        dialog.setHeaderText("""
-                The instructions below are yours to edit; they are stored as a payload file
-                named by this card's preferences and travel with the preferences sync.
-                The tool contract beneath them is fixed — it wires grounding, Koncept
-                Badges, and koncept-tree rendering.""");
-        ButtonType saveType = new ButtonType("Save", ButtonBar.ButtonData.OK_DONE);
-        dialog.getDialogPane().getButtonTypes().addAll(saveType, ButtonType.CANCEL);
-
-        // Both layers render through the card's own Markdown pipeline (chips and all) with a
-        // view/edit toggle on the editable one (ike-issues#1040 follow-through): read at rest,
-        // toggle to raw Markdown to change it, toggle back to see it rendered.
-        MarkdownRichText renderer = new MarkdownRichText(safeViewProperties(),
-                MarkdownRichText.DEFAULT_BASE);
-        MarkdownEditPane instructions =
-                new MarkdownEditPane(instructionsLayer(), true, renderer::renderMarkdown);
-        instructions.setPrefSize(680, 340);
-        VBox.setVgrow(instructions, Priority.ALWAYS);
-
-        Button restoreDefault = new Button("Restore default");
-        restoreDefault.setOnAction(e -> instructions.setText(defaultInstructions()));
-        HBox instructionsHeader = new HBox(new Label("Instructions (editable)"));
-        Region headerSpacer = new Region();
-        HBox.setHgrow(headerSpacer, Priority.ALWAYS);
-        instructionsHeader.getChildren().addAll(headerSpacer, restoreDefault);
-        instructionsHeader.setAlignment(Pos.CENTER_LEFT);
-
-        MarkdownEditPane coreView = new MarkdownEditPane(promptCore, false, renderer::renderMarkdown);
-        coreView.setPrefSize(680, 260);
-        TitledPane corePane = new TitledPane("Tool contract (fixed)", coreView);
-        corePane.setExpanded(false);
-
-        VBox content = new VBox(8, instructionsHeader, instructions, corePane);
-        dialog.getDialogPane().setContent(content);
-        dialog.setResizable(true);
-
-        Optional<ButtonType> result = dialog.showAndWait();
-        if (result.isPresent() && result.get() == saveType) {
-            String text = instructions.getText();
-            if (text.strip().equals(defaultInstructions().strip())) {
-                clearInstructionsOverride();
-            } else {
-                saveInstructionsOverride(text);
-            }
-        }
     }
 
     /*******************************************************************************

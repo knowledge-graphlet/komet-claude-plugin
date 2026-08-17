@@ -82,3 +82,16 @@
     -fx-background-color: transparent;
     -fx-padding: 0;
 }
+
+/*
+ * Conversations rail (KEC 2026-08-17): titles wrap to multiple lines within the rail; the
+ * list carries no scrollbar chrome (trackpad scrolling still works when the rail overfills).
+ */
+.conversation-rail-list .scroll-bar:vertical,
+.conversation-rail-list .scroll-bar:horizontal {
+    -fx-pref-width: 0;
+    -fx-pref-height: 0;
+    -fx-max-width: 0;
+    -fx-max-height: 0;
+    -fx-opacity: 0;
+}
