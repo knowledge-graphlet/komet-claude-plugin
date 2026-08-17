@@ -19,6 +19,7 @@ import network.ike.komet.claude.ui.KonceptChipGestures;
 import dev.ikm.komet.layout.expand.KlExpandable;
 import dev.ikm.komet.markdown.richtext.DocumentSegment;
 import dev.ikm.komet.markdown.richtext.MarkdownStyledModel;
+import dev.ikm.komet.markdown.richtext.TableColumnWidths;
 import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import javafx.geometry.Insets;
@@ -127,6 +128,27 @@ public final class BlockFactory {
     }
 
     /**
+     * The base body font size this factory renders at, for hosts that
+     * size their own chrome (exchange headers) relative to the prose.
+     *
+     * @return base body font size in px
+     */
+    public double baseFontSize() {
+        return base;
+    }
+
+    /**
+     * Sets the store for user-chosen table column widths (ike-issues#1034) on this factory's
+     * Markdown engine — blocks built afterwards render tables with remembered widths and report
+     * resize drags back to the store.
+     *
+     * @param store the width store, or {@code null} to make column resizing session-local
+     */
+    public void setTableColumnWidths(TableColumnWidths store) {
+        markdown.setTableColumnWidths(store);
+    }
+
+    /**
      * Content-height {@code RichTextArea}s silently stop growing at the incubator's 10,000&nbsp;px
      * safeguard, so a prose run longer than this many paragraphs is split across several stacked
      * areas — invisible at the seam, immune to the cap.
@@ -224,10 +246,36 @@ public final class BlockFactory {
             // card. (Content maxWidth is ignored by non-fitted
             // ScrollPane layout — a bound maxWidth clamp does nothing.)
             tableScroll.setFitToWidth(true);
-            tableScroll.setFitToHeight(true);
+            // fitToHeight would make the grid's height FOLLOW the wrapper
+            // (circular with the pref-height binding below); the grid must
+            // own its content height for the block to expand to it.
+            tableScroll.setFitToHeight(false);
             tableScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
             tableScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
             tableScroll.getStyleClass().add("doc-table-block");
+            // Tables never scroll vertically (KEC invariant): the block's
+            // preferred height tracks the grid's laid-out height, so the
+            // stack gives the table its full height and only the outer
+            // surface scrolls. Without this the wrapper took an arbitrary
+            // default viewport height and the table panned inside it.
+            // The renderer's inline-path width clamp (host minus margin)
+            // is wrong inside this fitted wrapper: it reserved a dead
+            // right gutter that read as scrollbar space (KEC review).
+            // Registered after the renderer's own parent listener, this
+            // runs second and clears the clamp for the doc path.
+            table.parentProperty().addListener((obs, was, parent) -> {
+                table.maxWidthProperty().unbind();
+                table.setMaxWidth(Double.MAX_VALUE);
+            });
+            table.maxWidthProperty().unbind();
+            table.setMaxWidth(Double.MAX_VALUE);
+            tableScroll.prefHeightProperty().bind(javafx.beans.binding.Bindings
+                    .createDoubleBinding(
+                            () -> table.getBoundsInLocal().getHeight()
+                                    + tableScroll.getInsets().getTop()
+                                    + tableScroll.getInsets().getBottom() + 2,
+                            table.boundsInLocalProperty(),
+                            tableScroll.insetsProperty()));
             figure = tableScroll;
         } else if (node instanceof Region region) {
             figure = region;

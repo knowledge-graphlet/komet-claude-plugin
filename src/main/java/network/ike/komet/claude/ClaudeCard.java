@@ -89,6 +89,7 @@ import network.ike.komet.claude.tools.GraphTools;
 import jfx.incubator.scene.control.richtext.RichTextArea;
 import jfx.incubator.scene.control.richtext.TextPos;
 import dev.ikm.komet.markdown.richtext.ConceptChipTextModel;
+import dev.ikm.komet.markdown.richtext.TableColumnWidths;
 import network.ike.komet.claude.ui.ComposeChips;
 import network.ike.komet.claude.ui.KonceptTokens;
 import network.ike.komet.claude.ui.MarkdownRichText;
@@ -191,6 +192,8 @@ public final class ClaudeCard extends AbstractHostCard {
     private Button retryButton;
     /** Stops the active conversation's in-flight generation (ike-issues#1028). */
     private Button stopButton;
+    /** Journal tile selector above the conversation rail (ike-issues#1032). */
+    private javafx.scene.control.ComboBox<TileRef> tileSelector;
     /** 1 Hz tick that advances the elapsed clock in the status strip while a request is in flight. */
     private Timeline statusTimer;
     /** All conversations (left rail); the active one drives the transcript. */
@@ -218,12 +221,46 @@ public final class ClaudeCard extends AbstractHostCard {
     private final Set<String> pendingViewpointRestore = new HashSet<>();
     /** Child preferences node holding one encoded viewpoint per conversation id (#943). */
     private static final String VIEWPOINTS_NODE = "viewpoints";
+    /** Child preferences node indexing this card's conversations (ike-issues#1032):
+     *  one child node per conversation id, whose keys are the authoritative record —
+     *  name, an explicit payload-file pointer, last-active, journal anchor, and move
+     *  provenance. Payload JSON stays dumb transcript; nothing is discovered by
+     *  filename convention. */
+    private static final String INDEX_NODE = "conversations";
+    /** Marker key identifying an assistant card's node during tile enumeration. */
+    private static final String CARD_TYPE_KEY = "card-type";
+    private static final String CARD_TYPE_VALUE = "komet-assistant";
+    /** Human label for this tile in other cards' tile selectors; set once at first open. */
+    private static final String TILE_LABEL_KEY = "tile-label";
+    // Index-entry keys (per conversation child node).
+    private static final String KEY_NAME = "name";
+    private static final String KEY_FILE = "file";
+    private static final String KEY_LAST_ACTIVE = "last-active";
+    private static final String KEY_ANCHOR = "journal-anchor";
+    private static final String KEY_MOVED_TO = "moved-to";
+    private static final String KEY_MOVED_FROM = "moved-from";
+    /** Nothing is ever deleted (KEC principle — history/time travel):
+     *  a "deleted" conversation is marked hidden; payload and index stay. */
+    private static final String KEY_HIDDEN = "hidden";
+    /** Child node of a conversation's index entry holding remembered table
+     *  column widths (ike-issues#1034), keyed by table identity. */
+    private static final String TABLE_WIDTHS_NODE = "table-widths";
 
     /** One named conversation: its display entries, clean API turns, and Save markdown. */
     private static final class Conversation {
         final String id;
         String name;
         boolean named;
+        /** Home tile when browsed from another card's store (ike-issues#1032);
+         *  null means this card owns it. An amend moves the conversation home
+         *  to this card with provenance recorded both ways. */
+        KometPreferences homeNode;
+        Path homeDir;
+        /** Claude-generated exchange titles by zero-based ordinal (KEC design:
+         *  numbered named turns); persisted in the payload, transcript content. */
+        final Map<Integer, String> turnTitles = new LinkedHashMap<>();
+        /** True once the user renamed it — generated titles then defer. */
+        boolean userNamed;
         volatile boolean busy;
         /** Live transport activity shown in the status strip while busy (set off-thread, read on FX). */
         volatile String activity;
@@ -267,7 +304,7 @@ public final class ClaudeCard extends AbstractHostCard {
     /** Serialized form of a {@link Conversation} (json4j); {@code journalAnchor} is the journal's
      *  anchor UUID, or null for a conversation that predates (or never reached) the journal. */
     private record ConversationDto(String id, String name, List<Map<String, Object>> turns,
-                                   String journalAnchor) {
+                                   String journalAnchor, Map<String, String> titles) {
     }
 
     private ClaudeCard(KometPreferences preferences) {
@@ -359,6 +396,12 @@ public final class ClaudeCard extends AbstractHostCard {
         Button fontUp = new Button("A+");
         fontUp.setTooltip(new Tooltip("Larger text"));
         fontUp.setOnAction(e -> adjustFont(1));
+        Button expandAll = new Button("⊞");
+        expandAll.setTooltip(new Tooltip("Expand all exchanges"));
+        expandAll.setOnAction(e -> surface.setAllExchangesCollapsed(false));
+        Button collapseAll = new Button("⊟");
+        collapseAll.setTooltip(new Tooltip("Collapse all exchanges"));
+        collapseAll.setOnAction(e -> surface.setAllExchangesCollapsed(true));
         Button saveButton = new Button("Save…");
         saveButton.setOnAction(e -> saveTranscript());
         Button keyButton = new Button("API key…");
@@ -367,11 +410,12 @@ public final class ClaudeCard extends AbstractHostCard {
         // Paged document print (#838/#839) is reached through the document area's hover-revealed
         // "expand to full surface" corner icon (KlExpandable); Print and print-settings live in that
         // full-surface view — no top-toolbar button.
-        for (Button b : List.of(toggleRail, fontDown, fontUp, saveButton, keyButton)) {
+        for (Button b : List.of(toggleRail, fontDown, fontUp, expandAll, collapseAll,
+                saveButton, keyButton)) {
             b.getStyleClass().add("claude-card-toolbar-button");
         }
         toolBar.getChildren().addAll(coordinateButton, toggleRail, fontDown, fontUp,
-                saveButton, keyButton);
+                expandAll, collapseAll, saveButton, keyButton);
     }
 
     @Override
@@ -559,6 +603,27 @@ public final class ClaudeCard extends AbstractHostCard {
         HBox railHeader = new HBox(6, railTitle, railSpacer, newButton);
         railHeader.setAlignment(Pos.CENTER_LEFT);
         railHeader.setPadding(new Insets(6));
+
+        // Tile selector (ike-issues#1032): this journal's assistant tiles,
+        // discovered through the preferences node tree by marker. Switching
+        // browses that tile's conversations; an amend moves one home here.
+        tileSelector = new javafx.scene.control.ComboBox<>();
+        tileSelector.setMaxWidth(Double.MAX_VALUE);
+        tileSelector.setTooltip(new Tooltip(
+                "Browse conversations from this journal's other assistant tiles"));
+        refreshTileSelector();
+        tileSelector.setOnShowing(e -> refreshTileSelector());
+        tileSelector.getSelectionModel().selectedItemProperty()
+                .addListener((obs, was, sel) -> {
+                    // User-driven switches only: the construction-time
+                    // initial selection must not preempt init's own load.
+                    if (was != null && sel != null && !was.equals(sel)) {
+                        showTile(sel);
+                    }
+                });
+        HBox tileRow = new HBox(6, tileSelector);
+        HBox.setHgrow(tileSelector, Priority.ALWAYS);
+        tileRow.setPadding(new Insets(0, 6, 4, 6));
         conversationList = new ListView<>(conversations);
         conversationList.setPrefWidth(190);
         conversationList.getSelectionModel().selectedItemProperty().addListener((o, prev, sel) -> {
@@ -582,8 +647,20 @@ public final class ClaudeCard extends AbstractHostCard {
             @Override
             protected void updateItem(Conversation c, boolean empty) {
                 super.updateItem(c, empty);
-                setText(empty || c == null ? null : c.name);
-                setGraphic(!empty && c != null && c.busy ? spinner : null);
+                if (empty || c == null) {
+                    setText(null);
+                    setGraphic(null);
+                    return;
+                }
+                // The rail mirrors the exchange headers (KEC design): a
+                // chronological ordinal plus the best title — the first
+                // exchange's generated title unless the user renamed it.
+                int ordinal = conversations.indexOf(c) + 1;
+                String generated = c.turnTitles.get(0);
+                String label = (generated != null && !c.userNamed)
+                        ? generated : c.name;
+                setText(ordinal + " · " + label);
+                setGraphic(c.busy ? spinner : null);
             }
         });
         MenuItem renameItem = new MenuItem("Rename…");
@@ -592,7 +669,7 @@ public final class ClaudeCard extends AbstractHostCard {
         deleteItem.setOnAction(e -> deleteActive());
         conversationList.setContextMenu(new ContextMenu(renameItem, deleteItem));
 
-        conversationRail = new VBox(railHeader, conversationList);
+        conversationRail = new VBox(railHeader, tileRow, conversationList);
         VBox.setVgrow(conversationList, Priority.ALWAYS);
         conversationRail.setMinWidth(140);
 
@@ -623,11 +700,20 @@ public final class ClaudeCard extends AbstractHostCard {
             }
         });
 
+        // Tile identity (ike-issues#1032): the marker makes this node
+        // discoverable by sibling cards' selectors; the label is written
+        // once so it survives as this tile's display name after close.
+        preferences().put(CARD_TYPE_KEY, CARD_TYPE_VALUE);
+        if (preferences().get(TILE_LABEL_KEY, "").isBlank()) {
+            preferences().put(TILE_LABEL_KEY, "Tile · "
+                    + java.time.LocalDateTime.now().format(java.time.format
+                            .DateTimeFormatter.ofPattern("MMM d, HH:mm")));
+        }
         loadConversations();
         if (conversations.isEmpty()) {
             newConversation();
         } else {
-            activate(conversations.get(0));
+            activate(conversations.get(conversations.size() - 1));
         }
     }
 
@@ -659,6 +745,10 @@ public final class ClaudeCard extends AbstractHostCard {
         // No usable view yet → chips fall back to bare identicons until one is available.
         // With the card's view, chips carry their status cluster and definition popout (#941).
         surface.setBlockFactory(new BlockFactory(safeViewProperties(), baseFontSize));
+        Conversation rendering = active;
+        surface.setExchangeTitleProvider(rendering == null ? null
+                : ordinal -> rendering.turnTitles.get(ordinal));
+        surface.setTableColumnWidths(rendering == null ? null : tableWidthsFor(rendering));
         surface.setTurns(entries);
         if (active != null) {
             DocumentSurface.Viewpoint stored = viewpoints.get(active.id);
@@ -1053,6 +1143,17 @@ public final class ClaudeCard extends AbstractHostCard {
             conv.name = display.length() > 40 ? display.substring(0, 40).trim() + "…" : display;
             conv.named = true;
         }
+        // The greeting is chrome, not history: it leaves when the first
+        // real prompt arrives (KEC review), keeping display == committed
+        // history from the first exchange on.
+        if (conv.apiMessages.isEmpty() && conv.entries.size() == 1
+                && conv.entries.get(0).role() == MarkdownRichText.Role.ASSISTANT) {
+            conv.entries.clear();
+            conv.markdown.setLength(0);
+            if (conv == active) {
+                surface.setTurns(List.of());
+            }
+        }
         composeModel.clear();
         dispatch(conv, text, key, currentModel());
     }
@@ -1086,6 +1187,9 @@ public final class ClaudeCard extends AbstractHostCard {
      * a transcript message.
      */
     private void dispatch(Conversation conv, String text, String key, String model) {
+        // Amending a conversation browsed from another tile moves it home to
+        // this card first, with provenance recorded both ways (ike-issues#1032).
+        moveConversationHome(conv);
         // Render the user's message optimistically, remembering where to pop it back to if the send
         // fails — a failed turn must not linger in the transcript (or diverge from the saved history).
         int entryMark = conv.entries.size();
@@ -1185,6 +1289,7 @@ public final class ClaudeCard extends AbstractHostCard {
                     conv.outcome = "✓ Replied in " + formatElapsed(elapsedMillis);
                     conv.outcomeFailed = false;
                     conv.pendingRetryText = null;
+                    requestExchangeTitle(conv, text, finalReply, key, model);
                 }
                 conversationList.refresh();
                 if (conv == active) {
@@ -1195,6 +1300,63 @@ public final class ClaudeCard extends AbstractHostCard {
                 stopStatusTimerIfIdle();
             });
         });
+    }
+
+    /**
+     * Asks for a short generated title naming the completed exchange (KEC
+     * design: numbered named turns) — a one-shot, tool-free call off the
+     * FX thread. The title is transcript content: it persists in the
+     * conversation payload and renders as the exchange header. Best-effort;
+     * a failed title leaves the numbered question preview in place.
+     */
+    private void requestExchangeTitle(Conversation conv, String question,
+                                      String answer, String key, String model) {
+        long userTurns = conv.apiMessages.stream()
+                .filter(m -> "user".equals(String.valueOf(m.get("role")))).count();
+        int ordinal = (int) userTurns - 1;
+        requestExchangeTitleFor(conv, ordinal, question, answer, key, model);
+    }
+
+    private void requestExchangeTitleFor(Conversation conv, int ordinal,
+                                         String question, String answer,
+                                         String key, String model) {
+        if (ordinal < 0 || conv.turnTitles.containsKey(ordinal)) {
+            return;
+        }
+        worker.submit(() -> {
+            try {
+                AnthropicClient titler = new AnthropicClient(key, model, 64);
+                String prompt = "Title this exchange in 3 to 6 words. Reply with"
+                        + " the title only — no quotes, no punctuation at the"
+                        + " end.\n\nQuestion: " + clip(question, 500)
+                        + "\n\nAnswer: " + clip(answer, 800);
+                String raw = titler.ask("You title conversation exchanges"
+                        + " concisely.", List.of(), prompt);
+                String title = raw == null ? "" : raw.strip()
+                        .replaceAll("^[\"']+|[\"'.]+$", "")
+                        .replaceAll("\\s+", " ");
+                if (title.isBlank()) {
+                    return;
+                }
+                String settled = clip(title, 60);
+                Platform.runLater(() -> {
+                    conv.turnTitles.put(ordinal, settled);
+                    saveConversation(conv);
+                    if (conv == active) {
+                        surface.setExchangeTitle(ordinal, settled);
+                    }
+                });
+            } catch (Exception e) {
+                LOG.debug("Exchange title generation failed", e);
+            }
+        });
+    }
+
+    private static String clip(String text, int max) {
+        if (text == null) {
+            return "";
+        }
+        return text.length() <= max ? text : text.substring(0, max);
     }
 
     /** Pops entries/markdown back to a mark — removes a failed turn's optimistic user bubble. */
@@ -1318,7 +1480,35 @@ public final class ClaudeCard extends AbstractHostCard {
      ******************************************************************************/
 
     /** Makes {@code conv} active: repoints the live refs and re-renders the transcript. */
+    /**
+     * Retrofits generated titles onto exchanges that predate the titling
+     * convention (KEC discipline: modernize existing data to new
+     * conventions when the chance arises). Best-effort and quiet — no
+     * key, no work; already-titled exchanges are skipped.
+     */
+    private void retrofitExchangeTitles(Conversation conv) {
+        if (!hasApiKey()) {
+            return;
+        }
+        String key = apiKey();
+        String model = currentModel();
+        int ordinal = -1;
+        String question = null;
+        for (Map<String, Object> message : List.copyOf(conv.apiMessages)) {
+            String content = String.valueOf(message.get("content"));
+            if ("user".equals(String.valueOf(message.get("role")))) {
+                ordinal++;
+                question = content;
+            } else if (question != null
+                    && !conv.turnTitles.containsKey(ordinal)) {
+                requestExchangeTitleFor(conv, ordinal, question, content,
+                        key, model);
+            }
+        }
+    }
+
     private void activate(Conversation conv) {
+        retrofitExchangeTitles(conv);
         // Leaving the current conversation: remember its equivalent place, so switching back
         // returns exactly where the reader left it (#943). A still-pending restore means the
         // reader never returned there this session — its loaded viewpoint stays authoritative.
@@ -1341,6 +1531,12 @@ public final class ClaudeCard extends AbstractHostCard {
 
     /** Creates a fresh conversation (with the intro) and makes it active. */
     private void newConversation() {
+        // New conversations always belong to this card: leave any browsed
+        // tile and return the rail to the home store, then create as usual.
+        if (tileSelector != null && tileSelector.getValue() != null
+                && !tileSelector.getValue().own()) {
+            tileSelector.getSelectionModel().select(0);
+        }
         Conversation conv = new Conversation(UUID.randomUUID().toString(), "New conversation");
         conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT,
                 "Ask about the concepts in your open knowledge base. "
@@ -1368,6 +1564,7 @@ public final class ClaudeCard extends AbstractHostCard {
             if (!name.isBlank()) {
                 active.name = name.trim();
                 active.named = true;
+                active.userNamed = true;
                 conversationList.refresh();
                 saveConversation(active);
             }
@@ -1427,15 +1624,23 @@ public final class ClaudeCard extends AbstractHostCard {
         if (conv == null || conv.apiMessages.isEmpty()) {
             return;
         }
-        Path dir = conversationsDir();
+        Path dir = conv.homeDir != null ? conv.homeDir : conversationsDir();
         if (dir == null) {
             return;
         }
+        KometPreferences home =
+                conv.homeNode != null ? conv.homeNode : preferences();
+        writeIndexEntry(home, conv, "conversation-" + conv.id + ".json");
         try {
             Map<String, Object> dto = new LinkedHashMap<>();
             dto.put("id", conv.id);
             dto.put("name", conv.name);
             dto.put("turns", conv.apiMessages);
+            if (!conv.turnTitles.isEmpty()) {
+                Map<String, String> titles = new LinkedHashMap<>();
+                conv.turnTitles.forEach((k, v) -> titles.put(String.valueOf(k), v));
+                dto.put("titles", titles);
+            }
             PublicId anchor = conv.journalAnchor;
             if (anchor != null) {
                 dto.put("journalAnchor", anchor.asUuidArray()[0].toString());
@@ -1447,28 +1652,291 @@ public final class ClaudeCard extends AbstractHostCard {
         }
     }
 
-    /** Loads this card's conversations, most-recent first. */
-    private void loadConversations() {
-        Path dir = conversationsDir();
-        if (dir == null) {
-            return;
-        }
-        try (var paths = Files.list(dir)) {
-            paths.filter(p -> p.getFileName().toString().startsWith("conversation-")
-                            && p.toString().endsWith(".json"))
-                    .sorted(java.util.Comparator
-                            .comparingLong((Path p) -> p.toFile().lastModified()).reversed())
-                    .forEach(this::loadConversation);
-        } catch (IOException e) {
-            LOG.warn("Could not list conversations dir {}", dir, e);
+    /** One selectable tile in the selector; label is the display identity. */
+    private record TileRef(KometPreferences node, String label, boolean own) {
+        @Override
+        public String toString() {
+            return own ? "This tile" : label;
         }
     }
 
-    private void loadConversation(Path file) {
+    /** Rebuilds the selector's items: this tile first, then siblings by label. */
+    private void refreshTileSelector() {
+        TileRef selected = tileSelector.getValue();
+        List<TileRef> items = new ArrayList<>();
+        items.add(new TileRef(preferences(),
+                preferences().get(TILE_LABEL_KEY, "This tile"), true));
+        for (KometPreferences tile : assistantTiles()) {
+            items.add(new TileRef(tile,
+                    tile.get(TILE_LABEL_KEY, "Tile " + tile.name()), false));
+        }
+        tileSelector.getItems().setAll(items);
+        if (selected == null || items.stream().noneMatch(selected::equals)) {
+            tileSelector.getSelectionModel().select(0);
+        } else {
+            tileSelector.getSelectionModel().select(selected);
+        }
+    }
+
+    /** Replaces the conversation list with the selected tile's store. */
+    private void showTile(TileRef tile) {
+        conversations.clear();
+        if (tile.own()) {
+            loadConversations();
+        } else {
+            Optional<Path> dir = tile.node().directory();
+            dir.ifPresent(path -> loadTile(tile.node(), path, true));
+        }
+        if (!conversations.isEmpty()) {
+            activate(conversations.get(conversations.size() - 1));
+        }
+    }
+
+    /**
+     * Writes/refreshes the authoritative index record for a conversation
+     * into the given card's index — name, the explicit payload-file
+     * pointer, last-active, and the journal anchor. The index is the
+     * only discovery path; the payload file is reached through
+     * {@link #KEY_FILE}, never by naming convention.
+     */
+    private static void writeIndexEntry(KometPreferences cardNode,
+                                        Conversation conv, String fileName) {
+        KometPreferences entry = cardNode.node(INDEX_NODE).node(conv.id);
+        entry.put(KEY_NAME, conv.name == null ? "" : conv.name);
+        entry.put(KEY_FILE, fileName);
+        entry.put(KEY_LAST_ACTIVE, Long.toString(System.currentTimeMillis()));
+        PublicId anchor = conv.journalAnchor;
+        if (anchor != null) {
+            entry.put(KEY_ANCHOR, anchor.asUuidArray()[0].toString());
+        }
+        entry.remove(KEY_MOVED_TO);
+    }
+
+    /**
+     * Loads the conversations a tile's index declares, most recently
+     * active first, skipping records marked moved elsewhere. Own-tile
+     * loads adopt any pre-index payload files exactly once — the one
+     * sanctioned convention read, existing to write explicit pointers
+     * for history created before the index existed.
+     *
+     * @param cardNode the tile's preferences node
+     * @param dir      the tile's payload directory
+     * @param foreign  whether the tile is another card's (sets home)
+     */
+    private void loadTile(KometPreferences cardNode, Path dir, boolean foreign) {
+        if (dir == null) {
+            return;
+        }
+        if (!foreign) {
+            adoptPreIndexPayloads(cardNode, dir);
+        }
+        record Row(String id, String file, long lastActive) {}
+        List<Row> rows = new ArrayList<>();
+        try {
+            KometPreferences index = cardNode.node(INDEX_NODE);
+            for (String id : index.childrenNames()) {
+                KometPreferences entry = index.node(id);
+                if (!entry.get(KEY_MOVED_TO, "").isBlank()
+                        || "true".equals(entry.get(KEY_HIDDEN, ""))) {
+                    continue;
+                }
+                String file = entry.get(KEY_FILE, "");
+                if (file.isBlank()) {
+                    continue;
+                }
+                long last = Long.parseLong(entry.get(KEY_LAST_ACTIVE, "0"));
+                rows.add(new Row(id, file, last));
+            }
+        } catch (Exception e) {
+            LOG.warn("Could not read conversation index of {}", cardNode, e);
+            return;
+        }
+        // Chronological, newest LAST (KEC design): the rail reads in the
+        // order the work happened, and a repeated prompt lands at the end.
+        rows.sort(java.util.Comparator.comparingLong(Row::lastActive));
+        for (Row row : rows) {
+            Path payload = dir.resolve(row.file());
+            if (!Files.isRegularFile(payload)) {
+                LOG.warn("Indexed conversation {} points at missing payload {}",
+                        row.id(), payload);
+                continue;
+            }
+            Conversation conv = loadConversation(payload);
+            if (conv != null && foreign) {
+                conv.homeNode = cardNode;
+                conv.homeDir = dir;
+            }
+        }
+    }
+
+    /** One-time adoption: index own payload files created before the index existed. */
+    private void adoptPreIndexPayloads(KometPreferences cardNode, Path dir) {
+        try (var paths = Files.list(dir)) {
+            KometPreferences index = cardNode.node(INDEX_NODE);
+            Set<String> indexed = Set.of(index.childrenNames());
+            paths.filter(p -> {
+                String n = p.getFileName().toString();
+                return n.startsWith("conversation-") && n.endsWith(".json");
+            }).forEach(p -> {
+                String n = p.getFileName().toString();
+                String id = n.substring("conversation-".length(),
+                        n.length() - ".json".length());
+                if (!indexed.contains(id)) {
+                    KometPreferences entry = index.node(id);
+                    entry.put(KEY_NAME, "");
+                    entry.put(KEY_FILE, n);
+                    entry.put(KEY_LAST_ACTIVE,
+                            Long.toString(p.toFile().lastModified()));
+                }
+            });
+        } catch (Exception e) {
+            LOG.warn("Could not adopt pre-index payloads in {}", dir, e);
+        }
+    }
+
+    /** Sibling assistant tiles in this journal window, discovered by marker — never by path magic. */
+    private List<KometPreferences> assistantTiles() {
+        List<KometPreferences> tiles = new ArrayList<>();
+        try {
+            KometPreferences parent = preferences().parent();
+            if (parent == null) {
+                return tiles;
+            }
+            for (KometPreferences child : parent.children()) {
+                if (CARD_TYPE_VALUE.equals(child.get(CARD_TYPE_KEY, ""))
+                        && !child.name().equals(preferences().name())) {
+                    tiles.add(child);
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("Could not enumerate assistant tiles", e);
+        }
+        return tiles;
+    }
+
+    /**
+     * Moves a browsed conversation home to this card before an amend
+     * (ike-issues#1032): payload file and index entry transfer here
+     * (recording the origin), the origin's index keeps a moved-to
+     * marker, and the #943 viewpoint travels along. No conversation
+     * ever has two live homes.
+     */
+    /**
+     * The preferences-backed table-column-width store for a conversation (ike-issues#1034):
+     * widths live under the conversation's index entry — {@code conversations/<id>/table-widths},
+     * one key per table identity, the widths as a comma-separated list. The payload JSON stays a
+     * dumb transcript; everything persistent about the card's rendering is preferences.
+     *
+     * @param conv the conversation whose widths to recall and remember
+     * @return a store over the conversation's index-entry preferences node
+     */
+    private TableColumnWidths tableWidthsFor(Conversation conv) {
+        KometPreferences home = conv.homeNode != null ? conv.homeNode : preferences();
+        KometPreferences widths = home.node(INDEX_NODE).node(conv.id).node(TABLE_WIDTHS_NODE);
+        return new TableColumnWidths() {
+            @Override
+            public double[] recall(String tableKey, int columnCount) {
+                String csv = widths.get(tableKey, "");
+                if (csv.isBlank()) {
+                    return null;
+                }
+                String[] parts = csv.split(",");
+                if (parts.length != columnCount) {
+                    return null;
+                }
+                double[] out = new double[parts.length];
+                try {
+                    for (int i = 0; i < parts.length; i++) {
+                        out[i] = Double.parseDouble(parts[i]);
+                    }
+                } catch (NumberFormatException e) {
+                    return null;
+                }
+                return out;
+            }
+
+            @Override
+            public void remember(String tableKey, double[] columnWidths) {
+                StringBuilder csv = new StringBuilder();
+                for (double width : columnWidths) {
+                    if (!csv.isEmpty()) {
+                        csv.append(',');
+                    }
+                    csv.append(Math.round(width));
+                }
+                widths.put(tableKey, csv.toString());
+                try {
+                    widths.flush();
+                } catch (java.util.prefs.BackingStoreException e) {
+                    LOG.warn("Could not persist table column widths for {}", conv.id, e);
+                }
+            }
+        };
+    }
+
+    private void moveConversationHome(Conversation conv) {
+        if (conv.homeNode == null || conv.homeDir == null) {
+            return;
+        }
+        Path ownDir = conversationsDir();
+        if (ownDir == null) {
+            return;
+        }
+        String fileName = "conversation-" + conv.id + ".json";
+        try {
+            Files.move(conv.homeDir.resolve(fileName), ownDir.resolve(fileName),
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            LOG.warn("Could not move conversation {} home", conv.id, e);
+            return;
+        }
+        writeIndexEntry(preferences(), conv, fileName);
+        preferences().node(INDEX_NODE).node(conv.id)
+                .put(KEY_MOVED_FROM, conv.homeNode.name());
+        KometPreferences originEntry =
+                conv.homeNode.node(INDEX_NODE).node(conv.id);
+        originEntry.put(KEY_MOVED_TO, preferences().name());
+        String viewpoint = conv.homeNode.node(VIEWPOINTS_NODE).get(conv.id, "");
+        if (!viewpoint.isBlank()) {
+            preferences().node(VIEWPOINTS_NODE).put(conv.id, viewpoint);
+            conv.homeNode.node(VIEWPOINTS_NODE).remove(conv.id);
+        }
+        // Remembered table column widths (ike-issues#1034) follow the
+        // conversation to its new home, like the viewpoint above.
+        try {
+            KometPreferences originWidths = originEntry.node(TABLE_WIDTHS_NODE);
+            KometPreferences movedWidths =
+                    preferences().node(INDEX_NODE).node(conv.id).node(TABLE_WIDTHS_NODE);
+            for (String tableKey : originWidths.keys()) {
+                movedWidths.put(tableKey, originWidths.get(tableKey, ""));
+                originWidths.remove(tableKey);
+            }
+        } catch (java.util.prefs.BackingStoreException e) {
+            LOG.warn("Could not move table column widths for {}", conv.id, e);
+        }
+        conv.homeNode = null;
+        conv.homeDir = null;
+    }
+
+    /** Loads this card's conversations, most recently active first. */
+    private void loadConversations() {
+        loadTile(preferences(), conversationsDir(), false);
+    }
+
+    private Conversation loadConversation(Path file) {
         try {
             ConversationDto dto = Json.parse(Files.readString(file, StandardCharsets.UTF_8), ConversationDto.class);
             Conversation conv = new Conversation(dto.id(), dto.name());
             conv.named = true;
+            if (dto.titles() != null) {
+                dto.titles().forEach((k, v) -> {
+                    try {
+                        conv.turnTitles.put(Integer.parseInt(k), v);
+                    } catch (NumberFormatException ignored) {
+                        // A malformed ordinal names nothing.
+                    }
+                });
+            }
             // apiMessages (the LLM context) always come from the JSON, journal or not.
             if (dto.turns() != null) {
                 conv.apiMessages.addAll(dto.turns());
@@ -1492,8 +1960,10 @@ public final class ClaudeCard extends AbstractHostCard {
             }
             conversations.add(conv);
             reconcileFromJournalAsync(conv);
+            return conv;
         } catch (Exception e) {
             LOG.warn("Could not load conversation {}", file, e);
+            return null;
         }
     }
 
@@ -1555,14 +2025,19 @@ public final class ClaudeCard extends AbstractHostCard {
     }
 
     private void deleteConversationFile(Conversation conv) {
-        Path dir = conversationsDir();
+        Path dir = conv.homeDir != null ? conv.homeDir : conversationsDir();
         if (dir == null) {
             return;
         }
         try {
-            Files.deleteIfExists(dir.resolve("conversation-" + conv.id + ".json"));
-        } catch (IOException e) {
-            LOG.warn("Could not delete conversation {}", conv.id, e);
+            // Nothing is ever deleted (KEC principle): the payload and its
+            // index record stay for history/time travel; the conversation
+            // just leaves visibility.
+            KometPreferences home =
+                    conv.homeNode != null ? conv.homeNode : preferences();
+            home.node(INDEX_NODE).node(conv.id).put(KEY_HIDDEN, "true");
+        } catch (Exception e) {
+            LOG.warn("Could not hide conversation {}", conv.id, e);
         }
     }
 

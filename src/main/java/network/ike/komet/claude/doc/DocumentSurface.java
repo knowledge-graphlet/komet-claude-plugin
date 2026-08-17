@@ -16,6 +16,7 @@
 package network.ike.komet.claude.doc;
 
 import dev.ikm.komet.markdown.richtext.RichTextSearch;
+import dev.ikm.komet.markdown.richtext.TableColumnWidths;
 import javafx.application.Platform;
 import javafx.geometry.Bounds;
 import javafx.geometry.Insets;
@@ -96,6 +97,26 @@ public final class DocumentSurface extends ScrollPane {
      */
     public void setBlockFactory(BlockFactory blockFactory) {
         this.blockFactory = blockFactory;
+        if (blockFactory != null) {
+            blockFactory.setTableColumnWidths(tableColumnWidths);
+        }
+    }
+
+    /** The active conversation's table-column-width store, re-applied across factory swaps. */
+    private TableColumnWidths tableColumnWidths;
+
+    /**
+     * Sets the store for user-chosen table column widths (ike-issues#1034), normally the active
+     * conversation's preferences-backed store. Applies to blocks built afterwards — callers wire
+     * it before {@link #setTurns}, alongside the exchange-title provider.
+     *
+     * @param store the width store, or {@code null} to make column resizing session-local
+     */
+    public void setTableColumnWidths(TableColumnWidths store) {
+        this.tableColumnWidths = store;
+        if (blockFactory != null) {
+            blockFactory.setTableColumnWidths(store);
+        }
     }
 
     /**
@@ -134,6 +155,10 @@ public final class DocumentSurface extends ScrollPane {
         blocks.subList(firstRemovedBlock, blocks.size()).clear();
         turnStarts.subList(turnCount, turnStarts.size()).clear();
         turns.subList(turnCount, turns.size()).clear();
+        int keptHeaders = (int) exchangeHeaders.stream()
+                .filter(h -> h < firstRemovedBlock).count();
+        exchangeHeaders.removeIf(h -> h >= firstRemovedBlock);
+        exchangeTitles.subList(keptHeaders, exchangeTitles.size()).clear();
     }
 
     /**
@@ -476,6 +501,8 @@ public final class DocumentSurface extends ScrollPane {
         stack.getChildren().clear();
         blocks.clear();
         turnStarts.clear();
+        exchangeHeaders.clear();
+        exchangeTitles.clear();
         List<MarkdownRichText.Entry> snapshot = new ArrayList<>(turns);
         turns.clear();
         for (MarkdownRichText.Entry turn : snapshot) {
@@ -486,16 +513,157 @@ public final class DocumentSurface extends ScrollPane {
     /** Builds and stacks one turn's blocks, recording the turn's start block. */
     private void appendBlocksFor(MarkdownRichText.Entry turn) {
         turnStarts.add(blocks.size());
+        // A user turn opens a new exchange: a disclosure header block whose
+        // toggle hides the exchange's blocks IN PLACE (ike-issues#1033).
+        // Blocks never reparent, so truncation, viewpoints, and scroll
+        // offsets keep their flat stack indices.
+        boolean headered = turn.role() == MarkdownRichText.Role.USER;
+        if (headered) {
+            int headerIndex = blocks.size();
+            exchangeHeaders.add(headerIndex);
+            Node header = exchangeHeader(turn, headerIndex);
+            if (!blocks.isEmpty()) {
+                VBox.setMargin(header, new Insets(TURN_SPACING, 0, 0, 0));
+            }
+            blocks.add(DocumentBlock.of(header, ""));
+            stack.getChildren().add(header);
+        }
+        List<DocumentBlock> turnBlocks = blockFactory.turnBlocks(turn);
+        if (headered && turnBlocks.size() > 1) {
+            // The exchange header owns the question identity; the "You"
+            // role heading underneath it was pure redundancy (KEC review).
+            // The question's full prose body stays.
+            turnBlocks = turnBlocks.subList(1, turnBlocks.size());
+        }
         boolean first = true;
-        for (DocumentBlock block : blockFactory.turnBlocks(turn)) {
+        for (DocumentBlock block : turnBlocks) {
             Node node = block.node();
-            if (first && !blocks.isEmpty()) {
+            if (first && !blocks.isEmpty() && exchangeHeaders.isEmpty()) {
                 // A little extra air above each turn header, so turns read as units.
                 VBox.setMargin(node, new Insets(TURN_SPACING, 0, 0, 0));
             }
             blocks.add(block);
             stack.getChildren().add(node);
             first = false;
+        }
+    }
+
+    /** Block indices of exchange headers, in order (ike-issues#1033). */
+    private final java.util.List<Integer> exchangeHeaders = new java.util.ArrayList<>();
+    /** Each exchange header's title label, for post-hoc naming. */
+    private final java.util.List<javafx.scene.control.Label> exchangeTitles =
+            new java.util.ArrayList<>();
+    /** Supplies a generated exchange title by ordinal, or null for none yet. */
+    private java.util.function.IntFunction<String> exchangeTitleProvider;
+
+    /**
+     * Installs the source of Claude-generated exchange titles (KEC design:
+     * numbered named turns). Applies to headers built after the call.
+     *
+     * @param provider ordinal → title, or {@code null} to clear
+     */
+    public void setExchangeTitleProvider(
+            java.util.function.IntFunction<String> provider) {
+        this.exchangeTitleProvider = provider;
+    }
+
+    /**
+     * Names an exchange after the fact — the async title generation
+     * landing. No-op for an unknown ordinal.
+     *
+     * @param ordinal zero-based exchange ordinal
+     * @param title   the generated title
+     */
+    public void setExchangeTitle(int ordinal, String title) {
+        if (ordinal >= 0 && ordinal < exchangeTitles.size()) {
+            exchangeTitles.get(ordinal).setText(title);
+        }
+    }
+
+    /** Builds one exchange's disclosure header: arrow + numbered title; click toggles. */
+    private Node exchangeHeader(MarkdownRichText.Entry turn, int headerIndex) {
+        javafx.scene.control.Label arrow = new javafx.scene.control.Label("▾");
+        arrow.setMinWidth(16);
+        int ordinal = exchangeHeaders.size() - 1;
+        String generated = exchangeTitleProvider == null
+                ? null : exchangeTitleProvider.apply(ordinal);
+        String text;
+        if (generated != null && !generated.isBlank()) {
+            text = generated;
+        } else {
+            text = turn.content() == null ? "" : turn.content()
+                    .replaceAll("\\s+", " ").strip();
+            if (text.length() > 90) {
+                text = text.substring(0, 90).strip() + "…";
+            }
+        }
+        double base = blockFactory == null ? 14 : blockFactory.baseFontSize();
+        javafx.scene.control.Label qBadge =
+                new javafx.scene.control.Label("P" + (ordinal + 1));
+        // The P-number (Prompt) is the exchange's distinct identity (KEC
+        // design): semantic — prompts are not always questions — and never
+        // confusable with numbering inside generated text.
+        qBadge.setStyle("-fx-font-weight: bold; -fx-text-fill: #b15c00;"
+                + " -fx-font-size: " + Math.round(base) + "px;");
+        javafx.scene.control.Label title = new javafx.scene.control.Label(text);
+        exchangeTitles.add(title);
+        // The header outranks the prose below it: same size, heavier.
+        title.setStyle("-fx-font-weight: bold; -fx-font-size: "
+                + Math.round(base) + "px;");
+        javafx.scene.layout.HBox header =
+                new javafx.scene.layout.HBox(6, arrow, qBadge, title);
+        header.getStyleClass().add("claude-exchange-header");
+        // A distinct band no generated content uses: light fill plus an
+        // accent left rule, so exchange boundaries read at a glance.
+        header.setStyle("-fx-cursor: hand; -fx-padding: 3 6 3 6;"
+                + " -fx-background-color: #f4f0ea;"
+                + " -fx-border-color: #b15c00 transparent transparent"
+                + " transparent; -fx-border-width: 0 0 0 0;"
+                + " -fx-background-radius: 4;");
+        header.setOnMouseClicked(e -> toggleExchange(headerIndex, arrow));
+        return header;
+    }
+
+    /** The exchange's content range: (header, next header or end). */
+    private int exchangeEnd(int headerIndex) {
+        for (int h : exchangeHeaders) {
+            if (h > headerIndex) {
+                return h;
+            }
+        }
+        return blocks.size();
+    }
+
+    private void toggleExchange(int headerIndex, javafx.scene.control.Label arrow) {
+        boolean collapse = "▾".equals(arrow.getText());
+        setExchangeCollapsed(headerIndex, arrow, collapse);
+    }
+
+    private void setExchangeCollapsed(int headerIndex,
+                                      javafx.scene.control.Label arrow,
+                                      boolean collapsed) {
+        arrow.setText(collapsed ? "▸" : "▾");
+        for (int i = headerIndex + 1; i < exchangeEnd(headerIndex); i++) {
+            Node node = blocks.get(i).node();
+            node.setVisible(!collapsed);
+            node.setManaged(!collapsed);
+        }
+    }
+
+    /**
+     * Collapses or expands every exchange (the toolbar's Expand all /
+     * Collapse all, ike-issues#1033).
+     *
+     * @param collapsed true to collapse all exchanges
+     */
+    public void setAllExchangesCollapsed(boolean collapsed) {
+        for (int h : exchangeHeaders) {
+            if (blocks.get(h).node() instanceof javafx.scene.layout.HBox header
+                    && !header.getChildren().isEmpty()
+                    && header.getChildren().get(0)
+                            instanceof javafx.scene.control.Label arrow) {
+                setExchangeCollapsed(h, arrow, collapsed);
+            }
         }
     }
 

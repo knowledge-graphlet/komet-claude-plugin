@@ -18,6 +18,7 @@ package network.ike.komet.claude.ui;
 import dev.ikm.komet.markdown.richtext.DocumentSegment;
 import dev.ikm.komet.markdown.richtext.MarkdownRichTextRenderer;
 import dev.ikm.komet.markdown.richtext.MarkdownStyledModel;
+import dev.ikm.komet.markdown.richtext.TableColumnWidths;
 import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import javafx.scene.paint.Color;
@@ -152,6 +153,17 @@ public final class MarkdownRichText {
                              ConceptChipInlineDecorator decorator, KonceptTreeBlockRenderer trees) {
         this.base = base;
         this.renderer = new MarkdownRichTextRenderer(base, fontFamily, decorator, trees);
+    }
+
+    /**
+     * Sets the store for user-chosen table column widths on the underlying renderer
+     * (ike-issues#1034): tables built afterwards render with the store's remembered widths and
+     * report resize drags back to it.
+     *
+     * @param store the width store, or {@code null} to make column resizing session-local
+     */
+    public void setTableColumnWidths(TableColumnWidths store) {
+        renderer.setColumnWidths(store);
     }
 
     /**
