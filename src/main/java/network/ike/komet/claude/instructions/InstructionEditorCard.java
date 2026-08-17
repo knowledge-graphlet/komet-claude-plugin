@@ -285,7 +285,8 @@ public final class InstructionEditorCard extends AbstractHostCard {
         split.setDividerPositions(0.28);
 
         content = new BorderPane(split);
-        content.setPrefSize(860, 620);
+        // The assistant card's footprint (ike-issues#1045): sibling cards open at sibling sizes.
+        content.setPrefSize(900, 680);
         setCardContent(content);
     }
 
