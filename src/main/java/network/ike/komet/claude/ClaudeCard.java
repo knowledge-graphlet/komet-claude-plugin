@@ -472,16 +472,45 @@ public final class ClaudeCard extends AbstractHostCard {
     }
 
     /**
-     * The system-prompt section (ike-issues#1039 in its #1043 home): the editable instruction
-     * layer in the view/edit Markdown pane, Restore default, and Save — the fixed tool contract
-     * beneath, rendered read-only. Save-matching-default clears the override.
+     * The system-prompt section (ike-issues#1039 in its #1043 home): the pane's drill-in stays
+     * at glance depth — a short rendered preview of the active instruction layer — and editing
+     * escapes to a properly sized surface via "Open editor…". A settings pane is the entry
+     * point for durable preferences, not a prose-editing surface (KEC 2026-08-17).
      */
     private javafx.scene.Node promptSettingsContent(SettingsPanePopup pane) {
         MarkdownRichText renderer = new MarkdownRichText(safeViewProperties(),
                 MarkdownRichText.DEFAULT_BASE);
+        MarkdownEditPane preview =
+                new MarkdownEditPane(instructionsLayer(), false, renderer::renderMarkdown);
+        preview.setPrefSize(290, 200);
+
+        Button openEditor = new Button("Open editor…");
+        openEditor.setOnAction(e -> openPromptEditor(pane));
+        VBox content = new VBox(6, preview, openEditor);
+        return content;
+    }
+
+    /** The one open prompt-editor window per card, refocused instead of duplicated. */
+    private javafx.stage.Stage promptEditorStage;
+
+    /**
+     * The system-prompt editor window: a resizable, non-modal surface at writing size — the
+     * full-width view/edit Markdown pane over the instruction layer, Restore default and Save,
+     * and the fixed tool contract rendered read-only beneath. The same editor surface the
+     * skills increment will reuse for a registered skill's {@code SKILL.md}
+     * (ike-issues#1042/#1043).
+     */
+    private void openPromptEditor(SettingsPanePopup pane) {
+        if (promptEditorStage != null && promptEditorStage.isShowing()) {
+            promptEditorStage.requestFocus();
+            return;
+        }
+        MarkdownRichText renderer = new MarkdownRichText(safeViewProperties(),
+                MarkdownRichText.DEFAULT_BASE);
         MarkdownEditPane instructions =
                 new MarkdownEditPane(instructionsLayer(), true, renderer::renderMarkdown);
-        instructions.setPrefSize(300, 300);
+        instructions.setPrefSize(680, 420);
+        VBox.setVgrow(instructions, Priority.ALWAYS);
 
         Button restoreDefault = new Button("Restore default");
         restoreDefault.setOnAction(e -> instructions.setText(defaultInstructions()));
@@ -501,12 +530,32 @@ public final class ClaudeCard extends AbstractHostCard {
         buttons.setAlignment(Pos.CENTER_LEFT);
 
         MarkdownEditPane contract = new MarkdownEditPane(promptCore, false, renderer::renderMarkdown);
-        contract.setPrefSize(300, 170);
-        Label contractTitle = new Label("Tool contract (fixed)");
 
-        VBox content = new VBox(6, new Label("Instructions (editable)"), instructions, buttons,
-                contractTitle, contract);
-        return content;
+        // Tabs, not stacked scroll boxes (KEC 2026-08-17): each layer owns the whole window
+        // and grows with it — the editor maximizes the space it was given.
+        VBox instructionsTabContent = new VBox(8,
+                new Label("Stored with this card's preferences; travels with their sync."),
+                instructions, buttons);
+        instructionsTabContent.setPadding(new Insets(12));
+        VBox contractTabContent = new VBox(8, contract);
+        contractTabContent.setPadding(new Insets(12));
+        VBox.setVgrow(contract, Priority.ALWAYS);
+
+        javafx.scene.control.Tab instructionsTab =
+                new javafx.scene.control.Tab("Instructions (editable)", instructionsTabContent);
+        javafx.scene.control.Tab contractTab =
+                new javafx.scene.control.Tab("Tool contract (fixed)", contractTabContent);
+        javafx.scene.control.TabPane content =
+                new javafx.scene.control.TabPane(instructionsTab, contractTab);
+        content.setTabClosingPolicy(javafx.scene.control.TabPane.TabClosingPolicy.UNAVAILABLE);
+
+        promptEditorStage = new javafx.stage.Stage();
+        promptEditorStage.setTitle("System prompt — "
+                + preferences().get(TILE_LABEL_KEY, CARD_NAME));
+        promptEditorStage.initOwner(fxObject().getScene().getWindow());
+        promptEditorStage.setScene(new javafx.scene.Scene(content));
+        promptEditorStage.setOnHidden(e -> promptEditorStage = null);
+        promptEditorStage.show();
     }
 
     /** The API-key section: the per-user key, masked, saved to shared per-user preferences. */
@@ -754,14 +803,22 @@ public final class ClaudeCard extends AbstractHostCard {
         // Per-conversation "thinking" spinner so parallel conversations are visible.
         conversationList.setCellFactory(lv -> new ListCell<>() {
             private final ProgressIndicator spinner = new ProgressIndicator();
+            private final Label ordinalLabel = new Label();
+            private final Label titleLabel = new Label();
+            private final HBox row = new HBox(4, ordinalLabel, titleLabel);
             {
                 spinner.setPrefSize(14, 14);
                 spinner.setMaxSize(14, 14);
-                setContentDisplay(ContentDisplay.RIGHT);
-                // Wrap long titles across lines within the rail's width: the cell must not
-                // report its full single-line pref width, or the list scrolls horizontally
-                // instead of wrapping.
-                setWrapText(true);
+                // Hanging indent, like a numbered list (KEC 2026-08-17): the ordinal sits in
+                // its own leading column and the title wraps in its own label, so continuation
+                // lines align under the title's first character — never back under the number.
+                ordinalLabel.setMinWidth(Region.USE_PREF_SIZE);
+                titleLabel.setWrapText(true);
+                titleLabel.setMaxWidth(Double.MAX_VALUE);
+                HBox.setHgrow(titleLabel, Priority.ALWAYS);
+                row.setAlignment(Pos.TOP_LEFT);
+                // The cell must not report its full single-line pref width, or the list
+                // scrolls horizontally instead of wrapping.
                 setPrefWidth(0);
                 maxWidthProperty().bind(lv.widthProperty().subtract(16));
             }
@@ -780,8 +837,14 @@ public final class ClaudeCard extends AbstractHostCard {
                 String generated = c.turnTitles.get(0);
                 String label = (generated != null && !c.userNamed)
                         ? generated : c.name;
-                setText(ordinal + " · " + label);
-                setGraphic(c.busy ? spinner : null);
+                ordinalLabel.setText(ordinal + " ·");
+                titleLabel.setText(label);
+                row.getChildren().setAll(ordinalLabel, titleLabel);
+                if (c.busy) {
+                    row.getChildren().add(spinner);
+                }
+                setText(null);
+                setGraphic(row);
             }
         });
         MenuItem renameItem = new MenuItem("Rename…");
