@@ -53,9 +53,11 @@ public final class InstructionSets {
      * @param id          the set's stable identity (a UUID string)
      * @param name        the title (the Agent Skills frontmatter {@code name})
      * @param description the one-line description (the progressive-disclosure surface)
+     * @param category    the intended-use classification (never {@code null})
      * @param fileName    the payload file's name within the owning tile's directory
      */
-    public record InstructionSet(String id, String name, String description, String fileName) {
+    public record InstructionSet(String id, String name, String description,
+                                 InstructionCategory category, String fileName) {
     }
 
     /**
@@ -63,9 +65,11 @@ public final class InstructionSets {
      *
      * @param name        the frontmatter {@code name}, or {@code null} when absent
      * @param description the frontmatter {@code description}, or {@code null} when absent
+     * @param category    the parsed {@code category:} classification (never {@code null})
      * @param body        the Markdown instruction body (never {@code null})
      */
-    public record Frontmatter(String name, String description, String body) {
+    public record Frontmatter(String name, String description, InstructionCategory category,
+                              String body) {
     }
 
     private final KometPreferences node;
@@ -94,6 +98,7 @@ public final class InstructionSets {
                     sets.add(new InstructionSet(id,
                             node.get(KEY_PREFIX + id + ".name", "Untitled"),
                             node.get(KEY_PREFIX + id + ".description", ""),
+                            InstructionCategory.parse(node.get(KEY_PREFIX + id + ".category", "")),
                             node.get(key, "")));
                 }
             }
@@ -123,10 +128,13 @@ public final class InstructionSets {
      * @param body        the Markdown instruction body
      * @return the registered set, or empty when the tile has no payload directory
      */
-    public Optional<InstructionSet> create(String name, String description, String body) {
+    public Optional<InstructionSet> create(String name, String description,
+                                           InstructionCategory category, String body) {
         String id = UUID.randomUUID().toString();
-        InstructionSet set = new InstructionSet(id, name, description, "instruction-set-" + id + ".md");
-        return write(set, name, description, body) ? Optional.of(set) : Optional.empty();
+        InstructionSet set = new InstructionSet(id, name, description,
+                category == null ? InstructionCategory.GENERAL : category,
+                "instruction-set-" + id + ".md");
+        return write(set, body) ? Optional.of(set) : Optional.empty();
     }
 
     /**
@@ -138,13 +146,15 @@ public final class InstructionSets {
      * @param body        the Markdown instruction body
      * @return the updated registration, or empty on a write failure
      */
-    public Optional<InstructionSet> save(InstructionSet set, String name, String description, String body) {
-        InstructionSet updated = new InstructionSet(set.id(), name, description, set.fileName());
-        return write(updated, name, description, body) ? Optional.of(updated) : Optional.empty();
+    public Optional<InstructionSet> save(InstructionSet set, String name, String description,
+                                         InstructionCategory category, String body) {
+        InstructionSet updated = new InstructionSet(set.id(), name, description,
+                category == null ? InstructionCategory.GENERAL : category, set.fileName());
+        return write(updated, body) ? Optional.of(updated) : Optional.empty();
     }
 
     /** Writes the payload (portable form) and the index entries; sync is best-effort. */
-    private boolean write(InstructionSet set, String name, String description, String body) {
+    private boolean write(InstructionSet set, String body) {
         try {
             Optional<Path> dir = node.directory();
             if (dir.isEmpty()) {
@@ -153,9 +163,12 @@ public final class InstructionSets {
             }
             Files.createDirectories(dir.get());
             Files.writeString(dir.get().resolve(set.fileName()),
-                    withFrontmatter(name, description, body), StandardCharsets.UTF_8);
-            node.put(KEY_PREFIX + set.id() + ".name", name == null ? "Untitled" : name);
-            node.put(KEY_PREFIX + set.id() + ".description", description == null ? "" : description);
+                    withFrontmatter(set.name(), set.description(), set.category(), body),
+                    StandardCharsets.UTF_8);
+            node.put(KEY_PREFIX + set.id() + ".name", set.name() == null ? "Untitled" : set.name());
+            node.put(KEY_PREFIX + set.id() + ".description",
+                    set.description() == null ? "" : set.description());
+            node.put(KEY_PREFIX + set.id() + ".category", set.category().display());
             node.put(KEY_PREFIX + set.id() + ".file", set.fileName());
             node.sync();
             return true;
@@ -182,6 +195,7 @@ public final class InstructionSets {
             String id = UUID.randomUUID().toString();
             InstructionSet set = new InstructionSet(id, name,
                     parsed.description() == null ? "" : parsed.description(),
+                    parsed.category(),
                     "instruction-set-" + id + ".md");
             Optional<Path> dir = node.directory();
             if (dir.isEmpty()) {
@@ -191,6 +205,7 @@ public final class InstructionSets {
             Files.copy(source, dir.get().resolve(set.fileName()), StandardCopyOption.REPLACE_EXISTING);
             node.put(KEY_PREFIX + id + ".name", set.name());
             node.put(KEY_PREFIX + id + ".description", set.description());
+            node.put(KEY_PREFIX + id + ".category", set.category().display());
             node.put(KEY_PREFIX + id + ".file", set.fileName());
             node.sync();
             return Optional.of(set);
@@ -239,10 +254,11 @@ public final class InstructionSets {
             first++;
         }
         if (first >= lines.length || !lines[first].strip().equals("---")) {
-            return new Frontmatter(null, null, text);
+            return new Frontmatter(null, null, InstructionCategory.GENERAL, text);
         }
         String name = null;
         String description = null;
+        String category = null;
         int i = first + 1;
         for (; i < lines.length; i++) {
             String line = lines[i].strip();
@@ -254,6 +270,8 @@ public final class InstructionSets {
                 name = unquote(line.substring("name:".length()));
             } else if (line.startsWith("description:")) {
                 description = unquote(line.substring("description:".length()));
+            } else if (line.startsWith("category:")) {
+                category = unquote(line.substring("category:".length()));
             }
         }
         StringBuilder body = new StringBuilder();
@@ -263,7 +281,8 @@ public final class InstructionSets {
             }
             body.append(lines[i]);
         }
-        return new Frontmatter(name, description, body.toString().stripLeading());
+        return new Frontmatter(name, description, InstructionCategory.parse(category),
+                body.toString().stripLeading());
     }
 
     private static String unquote(String value) {
@@ -284,10 +303,12 @@ public final class InstructionSets {
      * @param body        the Markdown body; {@code null} becomes empty
      * @return the document text (never {@code null})
      */
-    public static String withFrontmatter(String name, String description, String body) {
+    public static String withFrontmatter(String name, String description,
+                                         InstructionCategory category, String body) {
         return "---\n"
                 + "name: " + (name == null ? "Untitled" : name) + "\n"
                 + "description: " + (description == null ? "" : description) + "\n"
+                + "category: " + (category == null ? InstructionCategory.GENERAL : category).display() + "\n"
                 + "---\n\n"
                 + (body == null ? "" : body);
     }

@@ -511,6 +511,12 @@ public final class ClaudeCard extends AbstractHostCard {
                     "Instruction Editor");
             for (network.ike.komet.claude.instructions.InstructionSets.InstructionSet set
                     : new network.ike.komet.claude.instructions.InstructionSets(tile).list()) {
+                // Category classifies intent: this selector offers sets intended as system
+                // prompts (and uncategorized ones); SKILL-only sets wait for the include
+                // selector (ike-issues#1042).
+                if (set.category() == network.ike.komet.claude.instructions.InstructionCategory.SKILL) {
+                    continue;
+                }
                 choices.add(new Choice(set.id(), set.name() + " — " + tileLabel));
             }
         }

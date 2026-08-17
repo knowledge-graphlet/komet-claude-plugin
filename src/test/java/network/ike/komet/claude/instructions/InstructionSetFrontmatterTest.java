@@ -31,10 +31,13 @@ class InstructionSetFrontmatterTest {
     @Test
     void frontmatterRoundTrips() {
         String doc = InstructionSets.withFrontmatter("Terminology style",
-                "House style for terminology answers", "Always cite the store.\n\n## Rules\n- Be exact.");
+                "House style for terminology answers", InstructionCategory.SYSTEM_PROMPT,
+                "Always cite the store.\n\n## Rules\n- Be exact.");
         Frontmatter parsed = InstructionSets.parseFrontmatter(doc);
         assertEquals("Terminology style", parsed.name());
         assertEquals("House style for terminology answers", parsed.description());
+        assertEquals(InstructionCategory.SYSTEM_PROMPT, parsed.category(),
+                "the standard category rides the frontmatter");
         assertEquals("Always cite the store.\n\n## Rules\n- Be exact.", parsed.body());
     }
 
@@ -50,7 +53,19 @@ class InstructionSetFrontmatterTest {
                 """);
         assertEquals("Inclusivity review", parsed.name());
         assertEquals("Coverage near LoD", parsed.description());
+        assertEquals(InstructionCategory.GENERAL, parsed.category(),
+                "an absent category is GENERAL — foreign SKILL.md files import cleanly");
         assertEquals("Body starts here.\n", parsed.body());
+    }
+
+    @Test
+    void categoryParsingIsTolerant() {
+        assertEquals(InstructionCategory.SKILL, InstructionCategory.parse("skill"));
+        assertEquals(InstructionCategory.SYSTEM_PROMPT, InstructionCategory.parse("System Prompt"));
+        assertEquals(InstructionCategory.SYSTEM_PROMPT, InstructionCategory.parse("system_prompt"));
+        assertEquals(InstructionCategory.GENERAL, InstructionCategory.parse("persona"),
+                "an unknown value degrades to GENERAL, never a throw");
+        assertEquals(InstructionCategory.GENERAL, InstructionCategory.parse(null));
     }
 
     @Test

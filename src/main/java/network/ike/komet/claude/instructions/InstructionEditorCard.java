@@ -73,16 +73,23 @@ public final class InstructionEditorCard extends AbstractHostCard {
     /** Shared tile display-name key (the kind-plus-sequence naming convention). */
     public static final String TILE_LABEL_KEY = "tile-label";
 
+    /** One-shot flag: the ghost examples were seeded (never re-seeded, so overwrites stick). */
+    private static final String SEEDED_KEY = "instruction-sets-seeded";
+
     private static final Logger LOG = LoggerFactory.getLogger(InstructionEditorCard.class);
 
     private InstructionSets store;
     private ListView<InstructionSet> setList;
     private TextField nameField;
     private TextField descriptionField;
+    private javafx.scene.control.ComboBox<InstructionCategory> categoryBox;
     private MarkdownEditPane bodyPane;
     private Label statusLine;
     private InstructionSet active;
     private BorderPane content;
+    private VBox editorPane;
+    private VBox emptyState;
+    private BorderPane editorHost;
 
     private InstructionEditorCard(KometPreferences preferences) {
         super(preferences);
@@ -106,7 +113,59 @@ public final class InstructionEditorCard extends AbstractHostCard {
             // kind-plus-sequence convention, minted once.
             preferences().put(CARD_TYPE_KEY, CARD_TYPE_VALUE);
             ensureTileLabel();
+            seedExamplesOnce();
             refreshSets(null);
+        }
+    }
+
+    /**
+     * Seeds the ghost examples on a tile's first open (KEC 2026-08-17): real, overwritable
+     * sets — the bundled assistant instruction layer as a System Prompt example, and an
+     * authored sample Skill showing the form. Seeded exactly once (the flag, not the set
+     * count), so a user who overwrites or clears them is never fought.
+     */
+    private void seedExamplesOnce() {
+        if (!preferences().get(SEEDED_KEY, "").isBlank()) {
+            return;
+        }
+        preferences().put(SEEDED_KEY, "true");
+        store.create("Komet Assistant default",
+                "Example — the bundled assistant instruction layer; copy or overwrite freely.",
+                InstructionCategory.SYSTEM_PROMPT,
+                bundledDefaultInstructions());
+        store.create("Terminology answer style",
+                "Example skill — a house style for terminology answers; overwrite freely.",
+                InstructionCategory.SKILL,
+                """
+                Use this skill when answers will be pasted into documents, issues, or reviews.
+
+                ## Instructions
+
+                - Lead with the answer in one sentence, then the supporting concepts as a table.
+                - Reference every concept as a Koncept Badge; label identifier columns as what \
+                they actually hold.
+                - Prefer the knowledge base's fully-qualified names; give colloquial synonyms in \
+                parentheses.
+                - Close with a one-line caveat when edition or version differences could matter.
+                """);
+        try {
+            preferences().sync();
+        } catch (Exception e) {
+            LOG.warn("Could not sync the example seed flag", e);
+        }
+    }
+
+    /** The bundled assistant instruction layer — the System Prompt ghost example's body. */
+    private static String bundledDefaultInstructions() {
+        try (java.io.InputStream in = InstructionEditorCard.class.getResourceAsStream(
+                "/network/ike/komet/claude/system-prompt-instructions.md")) {
+            if (in == null) {
+                return "";
+            }
+            return new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        } catch (java.io.IOException e) {
+            LOG.warn("Could not read the bundled instruction layer for the example seed", e);
+            return "";
         }
     }
 
@@ -115,16 +174,19 @@ public final class InstructionEditorCard extends AbstractHostCard {
 
         Label railTitle = new Label("Instruction sets");
         railTitle.setStyle("-fx-font-weight: bold;");
-        Region railSpacer = new Region();
-        HBox.setHgrow(railSpacer, Priority.ALWAYS);
         Button newButton = new Button("+ New");
+        newButton.setMinWidth(Region.USE_PREF_SIZE);
         newButton.setTooltip(new Tooltip("Create a new titled instruction set"));
         newButton.setOnAction(e -> newSet());
         Button importButton = new Button("Import…");
+        importButton.setMinWidth(Region.USE_PREF_SIZE);
         importButton.setTooltip(new Tooltip("Import a SKILL.md-form instruction file"));
         importButton.setOnAction(e -> importSet());
-        HBox railHeader = new HBox(6, railTitle, railSpacer, newButton, importButton);
-        railHeader.setAlignment(Pos.CENTER_LEFT);
+        // Title and actions on separate rows: cramming them into one line ellipsized every
+        // label into dot-stubs at rail width (KEC 2026-08-17 first-run review).
+        HBox railActions = new HBox(6, newButton, importButton);
+        railActions.setAlignment(Pos.CENTER_LEFT);
+        VBox railHeader = new VBox(4, railTitle, railActions);
         railHeader.setPadding(new Insets(6));
 
         setList = new ListView<>();
@@ -149,7 +211,9 @@ public final class InstructionEditorCard extends AbstractHostCard {
                     return;
                 }
                 nameLabel.setText(set.name());
-                descriptionLabel.setText(set.description());
+                descriptionLabel.setText(set.category() == InstructionCategory.GENERAL
+                        ? set.description()
+                        : "[" + set.category().display() + "] " + set.description());
                 setGraphic(row);
             }
         });
@@ -166,6 +230,14 @@ public final class InstructionEditorCard extends AbstractHostCard {
         nameField.setPromptText("Name (the set's title)");
         descriptionField = new TextField();
         descriptionField.setPromptText("Description — when to use this instruction set");
+        // The standard-category dropdown (KEC 2026-08-17): a closed, enum-backed list. Category
+        // CLASSIFIES intent and drives which selectors surface the set; attachment at the use
+        // site stays the enforcing act, so the editor remains roleless.
+        categoryBox = new javafx.scene.control.ComboBox<>();
+        categoryBox.getItems().setAll(InstructionCategory.values());
+        categoryBox.getSelectionModel().select(InstructionCategory.GENERAL);
+        categoryBox.setTooltip(new Tooltip(
+                "What this set is intended as — filters where selectors offer it"));
         MarkdownRichText renderer = new MarkdownRichText(safeViewProperties(),
                 MarkdownRichText.DEFAULT_BASE);
         bodyPane = new MarkdownEditPane("", true, renderer::renderMarkdown);
@@ -179,10 +251,36 @@ public final class InstructionEditorCard extends AbstractHostCard {
         HBox buttons = new HBox(8, statusLine, buttonSpacer, saveButton);
         buttons.setAlignment(Pos.CENTER_LEFT);
 
-        VBox editor = new VBox(6, nameField, descriptionField, bodyPane, buttons);
-        editor.setPadding(new Insets(8));
+        HBox metaRow = new HBox(8, descriptionField, categoryBox);
+        HBox.setHgrow(descriptionField, Priority.ALWAYS);
+        editorPane = new VBox(6, nameField, metaRow, bodyPane, buttons);
+        editorPane.setPadding(new Insets(8));
 
-        SplitPane split = new SplitPane(rail, editor);
+        // First-run empty state: say what the card is for and offer the two first actions —
+        // never a blank editor staring back (KEC 2026-08-17).
+        Label emptyTitle = new Label("No instruction sets yet");
+        emptyTitle.setStyle("-fx-font-size: 16; -fx-font-weight: bold;");
+        Label emptyBody = new Label("""
+                A titled instruction set is a named, described Markdown instruction document \
+                in the portable SKILL.md form. Sets authored here can be selected as an \
+                assistant card's system prompt, or included as skills. Create one, or import \
+                an existing SKILL.md file.""");
+        emptyBody.setWrapText(true);
+        emptyBody.setMaxWidth(420);
+        Button emptyNew = new Button("+ New instruction set");
+        emptyNew.setOnAction(e -> newSet());
+        Button emptyImport = new Button("Import…");
+        emptyImport.setOnAction(e -> importSet());
+        HBox emptyActions = new HBox(8, emptyNew, emptyImport);
+        emptyActions.setAlignment(Pos.CENTER);
+        VBox empty = new VBox(10, emptyTitle, emptyBody, emptyActions);
+        empty.setAlignment(Pos.CENTER);
+        empty.setPadding(new Insets(24));
+        emptyState = empty;
+
+        editorHost = new BorderPane(emptyState);
+
+        SplitPane split = new SplitPane(rail, editorHost);
         SplitPane.setResizableWithParent(rail, Boolean.FALSE);
         split.setDividerPositions(0.28);
 
@@ -200,17 +298,22 @@ public final class InstructionEditorCard extends AbstractHostCard {
         }
     }
 
-    /** Reloads the rail, keeping (or setting) the selection. */
+    /** Reloads the rail, keeping (or setting) the selection; empty swaps in the first-run state. */
     private void refreshSets(InstructionSet select) {
         InstructionSet target = select != null ? select
                 : setList.getSelectionModel().getSelectedItem();
         setList.getItems().setAll(store.list());
+        editorHost.setCenter(setList.getItems().isEmpty() ? emptyState : editorPane);
+        if (setList.getItems().isEmpty()) {
+            active = null;
+            return;
+        }
         if (target != null) {
             setList.getItems().stream()
                     .filter(set -> set.id().equals(target.id()))
                     .findFirst()
                     .ifPresent(set -> setList.getSelectionModel().select(set));
-        } else if (!setList.getItems().isEmpty()) {
+        } else {
             setList.getSelectionModel().select(0);
         }
     }
@@ -220,6 +323,7 @@ public final class InstructionEditorCard extends AbstractHostCard {
         active = set;
         nameField.setText(set.name());
         descriptionField.setText(set.description());
+        categoryBox.getSelectionModel().select(set.category());
         Optional<Frontmatter> parsed = store.read(set);
         bodyPane.setText(parsed.map(Frontmatter::body).orElse(""));
         statusLine.setText("");
@@ -228,7 +332,8 @@ public final class InstructionEditorCard extends AbstractHostCard {
     /** Creates a fresh set on the skill scaffold — seeding is invocation context, not a mode. */
     private void newSet() {
         String workingName = "Untitled instruction set";
-        store.create(workingName, "", InstructionSets.skillScaffold(workingName))
+        store.create(workingName, "", InstructionCategory.GENERAL,
+                        InstructionSets.skillScaffold(workingName))
                 .ifPresent(set -> refreshSets(set));
     }
 
@@ -259,6 +364,7 @@ public final class InstructionEditorCard extends AbstractHostCard {
                 nameField.getText() == null || nameField.getText().isBlank()
                         ? "Untitled" : nameField.getText().strip(),
                 descriptionField.getText() == null ? "" : descriptionField.getText().strip(),
+                categoryBox.getValue() == null ? InstructionCategory.GENERAL : categoryBox.getValue(),
                 bodyPane.getText());
         if (saved.isPresent()) {
             active = saved.get();
