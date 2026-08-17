@@ -16,6 +16,7 @@
 package network.ike.komet.claude;
 
 import network.ike.komet.claude.ui.KonceptChipGestures;
+import dev.ikm.komet.framework.graphics.Icon;
 import dev.ikm.komet.framework.view.ObservableView;
 import dev.ikm.komet.framework.view.ObservableViewWithOverride;
 import dev.ikm.komet.framework.view.ViewProperties;
@@ -44,6 +45,7 @@ import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.ContentDisplay;
 import javafx.scene.control.ContextMenu;
+import javafx.scene.control.CustomMenuItem;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
@@ -52,9 +54,12 @@ import javafx.scene.control.MenuButton;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.ProgressIndicator;
+import javafx.scene.control.SeparatorMenuItem;
 import javafx.scene.control.SplitPane;
+import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.control.TextInputDialog;
+import javafx.scene.control.TitledPane;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
@@ -122,8 +127,9 @@ import java.util.stream.Stream;
  * context, lifecycle, and storage directly rather than being hosted inside a generic shell.
  *
  * <p><b>One chrome.</b> The card's own header (themed Anthropic coral via {@code claude-card.css}) carries the
- * title and the assistant controls (conversations toggle, font ±, Save, API key); the close lives in the base
- * chrome. There is no doubled tab.
+ * title, the transient controls (conversations toggle, Save), and the settings sliders holding the durable
+ * preferences (text size, system prompt, API key — ike-issues#1040); the close lives in the base chrome.
+ * There is no doubled tab. Exchange expand/collapse live in the transcript panel's own header strip.
  *
  * <p><b>Sandboxed per instance.</b> Conversations are written as files in <em>this card's own preferences-node
  * {@linkplain KometPreferences#directory() directory}</em> — so two Claude cards never share a rail, and the
@@ -150,8 +156,22 @@ public final class ClaudeCard extends AbstractHostCard {
     private static final String PREF_RAIL_VISIBLE = "network.ike.komet.claude.railVisible";
     private static final String PREF_RAIL_DIVIDER = "network.ike.komet.claude.railDivider";
 
+    /**
+     * Card-node preference naming this card's edited system-prompt instruction layer's payload
+     * file (ike-issues#1039) — the preferences entry IS the registration, per the preferences
+     * doctrine (a dumb payload file the entry names; no discovery by hardcoded magic). Absent
+     * entry: the bundled default instructions.
+     */
+    private static final String PREF_SYSTEM_INSTRUCTIONS_FILE =
+            "network.ike.komet.claude.systemInstructionsFile";
+
+    /** The instruction-layer payload file name within the card's preferences directory. */
+    private static final String SYSTEM_INSTRUCTIONS_FILE = "system-instructions.md";
+
     private static final int MAX_TOKENS = 8192;
 
+    /** The fixed tool-contract half of the system prompt (grounding, badges, koncept-tree). */
+    private String promptCore;
     private String systemPrompt;
     private List<AnthropicTool> tools;
     private final ExecutorService worker =
@@ -318,7 +338,11 @@ public final class ClaudeCard extends AbstractHostCard {
     }
 
     private void init() {
-        this.systemPrompt = loadSystemPrompt();
+        this.promptCore = loadPromptResource("system-prompt-core.md",
+                "You are a read-only terminology assistant embedded in Komet. "
+                        + "Always use the provided tools to resolve concepts, identifiers, and "
+                        + "relationships; never answer from memory.");
+        refreshSystemPrompt();
         // Tools read the live card view each call via the method reference, so they always reflect the
         // journal's current coordinate (after bind).
         this.tools = new GraphTools(this::viewCalculator).tools();
@@ -390,32 +414,51 @@ public final class ClaudeCard extends AbstractHostCard {
         Button toggleRail = new Button("☰");
         toggleRail.setTooltip(new Tooltip("Show/hide conversations"));
         toggleRail.setOnAction(e -> setRailVisible(!railVisible));
+        Button saveButton = new Button("Save…");
+        saveButton.setOnAction(e -> saveTranscript());
+
+        // Paged document print (#838/#839) is reached through the document area's hover-revealed
+        // "expand to full surface" corner icon (KlExpandable); Print and print-settings live in that
+        // full-surface view — no top-toolbar button. Exchange expand/collapse live in the
+        // transcript panel's own header strip (ike-issues#1040), beside what they act on.
+        for (Button b : List.of(toggleRail, saveButton)) {
+            b.getStyleClass().add("claude-card-toolbar-button");
+        }
+        toolBar.getChildren().addAll(coordinateButton, toggleRail, saveButton, settingsMenu());
+    }
+
+    /**
+     * The durable-preference settings control (ike-issues#1040): the house sliders affordance
+     * (the navigator search bar's paradigm) opening text size, the system prompt, and the API
+     * key — preferences behind one glyph instead of a toolbar button pile. Transient actions
+     * (Save, the conversations toggle) stay as toolbar buttons.
+     */
+    private MenuButton settingsMenu() {
+        MenuButton settings = new MenuButton();
+        settings.setGraphic(Icon.PANEL_PREFERENCE_SLIDERS.makeIcon());
+        settings.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
+        settings.setTooltip(new Tooltip("Assistant settings"));
+        settings.getStyleClass().add("claude-card-toolbar-button");
+
         Button fontDown = new Button("A−");
         fontDown.setTooltip(new Tooltip("Smaller text"));
         fontDown.setOnAction(e -> adjustFont(-1));
         Button fontUp = new Button("A+");
         fontUp.setTooltip(new Tooltip("Larger text"));
         fontUp.setOnAction(e -> adjustFont(1));
-        Button expandAll = new Button("⊞");
-        expandAll.setTooltip(new Tooltip("Expand all exchanges"));
-        expandAll.setOnAction(e -> surface.setAllExchangesCollapsed(false));
-        Button collapseAll = new Button("⊟");
-        collapseAll.setTooltip(new Tooltip("Collapse all exchanges"));
-        collapseAll.setOnAction(e -> surface.setAllExchangesCollapsed(true));
-        Button saveButton = new Button("Save…");
-        saveButton.setOnAction(e -> saveTranscript());
-        Button keyButton = new Button("API key…");
-        keyButton.setOnAction(e -> promptForApiKey());
+        HBox fontRow = new HBox(8, new Label("Text size"), fontDown, fontUp);
+        fontRow.setAlignment(Pos.CENTER_LEFT);
+        CustomMenuItem fontItem = new CustomMenuItem(fontRow);
+        // Repeated presses adjust live; the menu stays open until the user dismisses it.
+        fontItem.setHideOnClick(false);
 
-        // Paged document print (#838/#839) is reached through the document area's hover-revealed
-        // "expand to full surface" corner icon (KlExpandable); Print and print-settings live in that
-        // full-surface view — no top-toolbar button.
-        for (Button b : List.of(toggleRail, fontDown, fontUp, expandAll, collapseAll,
-                saveButton, keyButton)) {
-            b.getStyleClass().add("claude-card-toolbar-button");
-        }
-        toolBar.getChildren().addAll(coordinateButton, toggleRail, fontDown, fontUp,
-                expandAll, collapseAll, saveButton, keyButton);
+        MenuItem promptItem = new MenuItem("System prompt…");
+        promptItem.setOnAction(e -> showSystemPromptDialog());
+        MenuItem keyItem = new MenuItem("API key…");
+        keyItem.setOnAction(e -> promptForApiKey());
+
+        settings.getItems().addAll(fontItem, new SeparatorMenuItem(), promptItem, keyItem);
+        return settings;
     }
 
     @Override
@@ -675,7 +718,7 @@ public final class ClaudeCard extends AbstractHostCard {
 
         railVisible = readRailVisiblePref();
         railDivider = readRailDividerPref();
-        split = new SplitPane(documentArea.fxObject());
+        split = new SplitPane(transcriptPanel());
         SplitPane.setResizableWithParent(conversationRail, Boolean.FALSE);
 
         content = new BorderPane();
@@ -1082,6 +1125,29 @@ public final class ClaudeCard extends AbstractHostCard {
     }
 
     /** Shows or hides the conversations rail (left of the transcript), persisting the choice + width. */
+    /**
+     * The transcript panel: the document surface under its own slim, non-scrolling header strip
+     * (ike-issues#1040) carrying the exchange-scoped controls — expand all / collapse all live
+     * beside the conversation they act on, not in the card toolbar. The strip sits outside the
+     * surface's one scroll axis, so it never scrolls away.
+     */
+    private BorderPane transcriptPanel() {
+        Button expandAll = new Button("⊞");
+        expandAll.setTooltip(new Tooltip("Expand all exchanges"));
+        expandAll.setOnAction(e -> surface.setAllExchangesCollapsed(false));
+        Button collapseAll = new Button("⊟");
+        collapseAll.setTooltip(new Tooltip("Collapse all exchanges"));
+        collapseAll.setOnAction(e -> surface.setAllExchangesCollapsed(true));
+        HBox strip = new HBox(4, expandAll, collapseAll);
+        strip.setAlignment(Pos.CENTER_RIGHT);
+        strip.setPadding(new Insets(2, 8, 2, 8));
+
+        BorderPane panel = new BorderPane();
+        panel.setTop(strip);
+        panel.setCenter(documentArea.fxObject());
+        return panel;
+    }
+
     private void setRailVisible(boolean visible) {
         railVisible = visible;
         if (split == null) {
@@ -2151,16 +2217,165 @@ public final class ClaudeCard extends AbstractHostCard {
         return key.isBlank() ? null : key;
     }
 
-    private static String loadSystemPrompt() {
-        try (InputStream in = ClaudeCard.class.getResourceAsStream("system-prompt.md")) {
+    /*******************************************************************************
+     *  System prompt (ike-issues#1039): fixed tool-contract core + editable        *
+     *  instruction layer, persisted as a card-preferences-named payload file       *
+     ******************************************************************************/
+
+    /** Loads a bundled prompt resource, falling back for a broken packaging. */
+    private static String loadPromptResource(String name, String fallback) {
+        try (InputStream in = ClaudeCard.class.getResourceAsStream(name)) {
             if (in == null) {
-                return "You are a read-only terminology assistant embedded in Komet. "
-                        + "Always use the provided tools to resolve concepts, identifiers, and "
-                        + "relationships; never answer from memory.";
+                return fallback;
             }
             return new String(in.readAllBytes(), StandardCharsets.UTF_8);
         } catch (IOException e) {
-            throw new IllegalStateException("Unable to load system prompt", e);
+            throw new IllegalStateException("Unable to load prompt resource " + name, e);
+        }
+    }
+
+    /** The bundled default instruction layer (persona, how to work, style). */
+    private static String defaultInstructions() {
+        return loadPromptResource("system-prompt-instructions.md", "");
+    }
+
+    /**
+     * The active instruction layer: this card's edited override when its preferences entry names
+     * a readable payload file, else the bundled default. Every failure degrades to the default —
+     * a broken override must never silence the assistant.
+     */
+    private String instructionsLayer() {
+        try {
+            String name = preferences().get(PREF_SYSTEM_INSTRUCTIONS_FILE, "");
+            if (name.isBlank()) {
+                return defaultInstructions();
+            }
+            Optional<Path> dir = preferences().directory();
+            if (dir.isEmpty() || !Files.isRegularFile(dir.get().resolve(name))) {
+                return defaultInstructions();
+            }
+            return Files.readString(dir.get().resolve(name), StandardCharsets.UTF_8);
+        } catch (IOException | RuntimeException e) {
+            LOG.warn("Could not read the system-instructions override; using the default", e);
+            return defaultInstructions();
+        }
+    }
+
+    /**
+     * Assembles the system prompt: the editable instruction layer first, the fixed tool
+     * contract last — the grounding rule and rendering grammars keep the recency position, and
+     * no edit can sever them. Package-visible for the store-free assembly test.
+     *
+     * @param instructions the instruction layer (may be blank)
+     * @param core         the tool-contract core (may be blank)
+     * @return the assembled prompt, never {@code null}
+     */
+    static String assembleSystemPrompt(String instructions, String core) {
+        String editable = instructions == null ? "" : instructions.strip();
+        String contract = core == null ? "" : core.strip();
+        if (editable.isEmpty()) {
+            return contract;
+        }
+        if (contract.isEmpty()) {
+            return editable;
+        }
+        return editable + "\n\n" + contract;
+    }
+
+    /** Recomputes {@link #systemPrompt} from the current layers; the next send uses it. */
+    private void refreshSystemPrompt() {
+        this.systemPrompt = assembleSystemPrompt(instructionsLayer(), promptCore);
+    }
+
+    /**
+     * Persists an edited instruction layer: the payload file in this card's preferences
+     * directory, named by the preferences entry (the registration — no discovery by hardcoded
+     * magic), so it travels with the preferences git sync.
+     */
+    private void saveInstructionsOverride(String text) {
+        try {
+            Optional<Path> dir = preferences().directory();
+            if (dir.isEmpty()) {
+                LOG.warn("No preferences directory; the system-instructions edit is session-only");
+            } else {
+                Files.createDirectories(dir.get());
+                Files.writeString(dir.get().resolve(SYSTEM_INSTRUCTIONS_FILE), text,
+                        StandardCharsets.UTF_8);
+                preferences().put(PREF_SYSTEM_INSTRUCTIONS_FILE, SYSTEM_INSTRUCTIONS_FILE);
+                preferences().sync();
+            }
+        } catch (IOException | BackingStoreException e) {
+            LOG.warn("Could not save the system-instructions override", e);
+        }
+        refreshSystemPrompt();
+    }
+
+    /** Removes the instruction-layer override: entry and payload; the default is back. */
+    private void clearInstructionsOverride() {
+        try {
+            preferences().remove(PREF_SYSTEM_INSTRUCTIONS_FILE);
+            preferences().sync();
+            Optional<Path> dir = preferences().directory();
+            if (dir.isPresent()) {
+                Files.deleteIfExists(dir.get().resolve(SYSTEM_INSTRUCTIONS_FILE));
+            }
+        } catch (IOException | BackingStoreException e) {
+            LOG.warn("Could not clear the system-instructions override", e);
+        }
+        refreshSystemPrompt();
+    }
+
+    /**
+     * The system-prompt dialog (ike-issues#1039): the instruction layer editable on top, the
+     * tool contract beneath it read-only — visible so the user always knows the whole prompt,
+     * fixed so an edit can never sever tool wiring. Saving text identical to the bundled
+     * default clears the override, so an unedited card keeps tracking default upgrades.
+     */
+    private void showSystemPromptDialog() {
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.setTitle("System prompt");
+        dialog.setHeaderText("""
+                The instructions below are yours to edit; they are stored as a payload file
+                named by this card's preferences and travel with the preferences sync.
+                The tool contract beneath them is fixed — it wires grounding, Koncept
+                Badges, and koncept-tree rendering.""");
+        ButtonType saveType = new ButtonType("Save", ButtonBar.ButtonData.OK_DONE);
+        dialog.getDialogPane().getButtonTypes().addAll(saveType, ButtonType.CANCEL);
+
+        TextArea instructions = new TextArea(instructionsLayer());
+        instructions.setWrapText(true);
+        instructions.setPrefRowCount(16);
+        instructions.setPrefColumnCount(72);
+        VBox.setVgrow(instructions, Priority.ALWAYS);
+
+        Button restoreDefault = new Button("Restore default");
+        restoreDefault.setOnAction(e -> instructions.setText(defaultInstructions()));
+        HBox instructionsHeader = new HBox(new Label("Instructions (editable)"));
+        Region headerSpacer = new Region();
+        HBox.setHgrow(headerSpacer, Priority.ALWAYS);
+        instructionsHeader.getChildren().addAll(headerSpacer, restoreDefault);
+        instructionsHeader.setAlignment(Pos.CENTER_LEFT);
+
+        TextArea coreView = new TextArea(promptCore);
+        coreView.setEditable(false);
+        coreView.setWrapText(true);
+        coreView.setPrefRowCount(10);
+        TitledPane corePane = new TitledPane("Tool contract (fixed)", coreView);
+        corePane.setExpanded(false);
+
+        VBox content = new VBox(8, instructionsHeader, instructions, corePane);
+        dialog.getDialogPane().setContent(content);
+        dialog.setResizable(true);
+        Platform.runLater(instructions::requestFocus);
+
+        Optional<ButtonType> result = dialog.showAndWait();
+        if (result.isPresent() && result.get() == saveType) {
+            String text = instructions.getText() == null ? "" : instructions.getText();
+            if (text.strip().equals(defaultInstructions().strip())) {
+                clearInstructionsOverride();
+            } else {
+                saveInstructionsOverride(text);
+            }
         }
     }
 
