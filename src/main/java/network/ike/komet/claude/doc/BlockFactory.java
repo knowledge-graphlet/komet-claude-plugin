@@ -214,7 +214,16 @@ public final class BlockFactory {
             // horizontal-only scroll container — the one sanctioned exception for content with a
             // hard minimum width — and, unstretched, a narrow table hugs its content.
             ScrollPane tableScroll = new ScrollPane(table);
-            tableScroll.setFitToWidth(false);
+            // Fitted width: the table lays out at the viewport width, so
+            // over-wide tables compress — cell TextFlows wrap harder —
+            // and every column stays visible (ike-issues#1030/#1031:
+            // whole columns hid behind the scrollbar in a narrow card).
+            // ScrollPane floors fitted content at its MINIMUM width, so
+            // the horizontal bar still appears in the one sanctioned
+            // case: per-column minimum floors that genuinely exceed the
+            // card. (Content maxWidth is ignored by non-fitted
+            // ScrollPane layout — a bound maxWidth clamp does nothing.)
+            tableScroll.setFitToWidth(true);
             tableScroll.setFitToHeight(true);
             tableScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
             tableScroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
