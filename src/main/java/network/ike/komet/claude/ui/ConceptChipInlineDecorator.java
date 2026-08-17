@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.ui;
 
+import dev.ikm.komet.framework.controls.KonceptBadge;
 import dev.ikm.komet.markdown.richtext.InlineDecorator;
 import dev.ikm.komet.markdown.richtext.InlinePiece;
 import dev.ikm.tinkar.common.id.PublicId;
@@ -23,11 +24,13 @@ import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.util.uuid.UuidUtil;
 import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
+import javafx.scene.Node;
 import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -142,6 +145,47 @@ final class ConceptChipInlineDecorator implements InlineDecorator {
             addText(pieces, text.substring(last), style);
         }
         return pieces;
+    }
+
+    /**
+     * The table-cell path: the same decomposition as {@link #decorate}, with every chip
+     * materialising in its multi-line form. A cell is a wrapping context — the badge folds its
+     * name to the column the way the cell's own text wraps — the contextual form of the
+     * label-fidelity rule ({@code IKE-Network/ike-issues#1036}); flowing text keeps the inline
+     * single-line chip.
+     */
+    @Override
+    public List<InlinePiece> decorateForCell(String text, StyleAttributeMap style) {
+        return multiLineForCells(decorate(text, style));
+    }
+
+    /**
+     * Rewraps each node piece so its deferred node, when it materialises as a
+     * {@link KonceptBadge}, is switched to the multi-line label; any other node — and every text
+     * piece — passes through untouched. The plain-text projection is preserved, so cell copy
+     * still round-trips the interchange token. Package-visible for the store-free structural
+     * test.
+     *
+     * @param pieces the pieces from {@link #decorate}
+     * @return the pieces with node runs rewrapped (never null)
+     */
+    static List<InlinePiece> multiLineForCells(List<InlinePiece> pieces) {
+        List<InlinePiece> out = new ArrayList<>(pieces.size());
+        for (InlinePiece piece : pieces) {
+            if (piece instanceof InlinePiece.NodeRun nodeRun) {
+                Supplier<Node> inline = nodeRun.node();
+                out.add(new InlinePiece.NodeRun(() -> {
+                    Node node = inline.get();
+                    if (node instanceof KonceptBadge badge) {
+                        badge.setMultiLineLabel(true);
+                    }
+                    return node;
+                }, nodeRun.plainText()));
+            } else {
+                out.add(piece);
+            }
+        }
+        return out;
     }
 
     private static void addText(List<InlinePiece> pieces, String text, StyleAttributeMap style) {

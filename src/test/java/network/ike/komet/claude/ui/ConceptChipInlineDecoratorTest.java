@@ -113,4 +113,39 @@ class ConceptChipInlineDecoratorTest {
         }
         assertEquals(text, plain.toString(), "unresolvable tokens stay literal, nothing is lost");
     }
+
+    @Test
+    void multiLineForCellsRewrapsNodeRunsAndPassesTextThrough() {
+        // The cell path (IKE-Network/ike-issues#1036): text pieces pass through as the same
+        // instances; node pieces are rewrapped — same plain-text projection (cell copy still
+        // round-trips interchange), delegating supplier (a non-badge node comes through
+        // unchanged; a KonceptBadge is flipped multi-line, exercised by running Komet since
+        // chip building needs a store and a toolkit).
+        InlinePiece.TextRun text = new InlinePiece.TextRun("Flu A, ", StyleAttributeMap.EMPTY);
+        javafx.scene.layout.Region stub = new javafx.scene.layout.Region();
+        InlinePiece.NodeRun node = new InlinePiece.NodeRun(() -> stub, "k:uuid=" + UUID_A + "[X]");
+
+        List<InlinePiece> out = ConceptChipInlineDecorator.multiLineForCells(List.of(text, node));
+
+        assertEquals(2, out.size());
+        assertTrue(out.get(0) == text, "text pieces pass through untouched");
+        InlinePiece.NodeRun rewrapped = (InlinePiece.NodeRun) out.get(1);
+        assertEquals(node.plainText(), rewrapped.plainText(), "projection preserved for cell copy");
+        assertTrue(rewrapped.node().get() == stub, "a non-badge node materialises unchanged");
+    }
+
+    @Test
+    void decorateForCellDecomposesLikeDecorate() {
+        // Same decomposition as decorate; only chip materialisation differs (multi-line form).
+        ConceptChipInlineDecorator decorator = new ConceptChipInlineDecorator(
+                (dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator) null, 13);
+        String text = "compare k:uuid=" + UUID_A + "[A] with 73211009 today";
+        List<InlinePiece> cell = decorator.decorateForCell(text, StyleAttributeMap.EMPTY);
+
+        StringBuilder plain = new StringBuilder();
+        for (InlinePiece piece : cell) {
+            plain.append(piece.plainText());
+        }
+        assertEquals(text, plain.toString(), "the cell path loses nothing either");
+    }
 }
