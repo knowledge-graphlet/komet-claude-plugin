@@ -499,10 +499,11 @@ public final class ClaudeCard extends AbstractHostCard {
                 MarkdownRichText.DEFAULT_BASE);
         MarkdownEditPane preview =
                 new MarkdownEditPane(instructionsLayer(), false, renderer::renderMarkdown);
-        // The drill-in owns the pane's full body height: the preview IS the content here —
-        // see what the selected instruction says, at reading size (KEC 2026-08-17).
-        preview.setPrefSize(298, 420);
+        // The drill-in owns the pane's full body height: the preview IS the content here,
+        // growing to whatever the pane has (the pane's drill gives its section content Vgrow).
+        preview.setPrefSize(298, 300);
         preview.setMaxWidth(Double.MAX_VALUE);
+        preview.setMaxHeight(Double.MAX_VALUE);
         VBox.setVgrow(preview, Priority.ALWAYS);
 
         List<Choice> choices = new ArrayList<>();

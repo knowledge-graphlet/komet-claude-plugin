@@ -86,6 +86,9 @@ public final class InstructionEditorCard extends AbstractHostCard {
     private MarkdownEditPane bodyPane;
     private Button saveButton;
     private Button saveAsButton;
+    /** Pedro's READ-ONLY affordance, mirrored (the KLReadOnly control family's pill); shown
+     *  for system defaults. Swaps to the shared control when the family exposes it. */
+    private Label readOnlyPill;
     private Label statusLine;
     private InstructionSet active;
     private String loadedName = "";
@@ -374,7 +377,14 @@ public final class InstructionEditorCard extends AbstractHostCard {
         categoryBox.valueProperty().addListener((obs, was, is) -> updateChangeState());
         bodyPane.rawEditor().textProperty().addListener((obs, was, is) -> updateChangeState());
 
-        HBox metaRow = new HBox(8, descriptionField, categoryBox);
+        readOnlyPill = new Label("\ud83d\udd12 READ-ONLY");
+        readOnlyPill.setStyle("-fx-border-color: #9aa4b2; -fx-border-radius: 12; "
+                + "-fx-background-radius: 12; -fx-padding: 2 10 2 10; "
+                + "-fx-text-fill: #5b6472; -fx-font-size: 11; -fx-font-weight: 600;");
+        readOnlyPill.setVisible(false);
+        readOnlyPill.setManaged(false);
+        HBox metaRow = new HBox(8, descriptionField, categoryBox, readOnlyPill);
+        metaRow.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(descriptionField, Priority.ALWAYS);
         editorPane = new VBox(6, nameField, metaRow, bodyPane, buttons);
         editorPane.setPadding(new Insets(8));
@@ -455,6 +465,8 @@ public final class InstructionEditorCard extends AbstractHostCard {
         loadedDescription = set.description();
         loadedCategory = set.category();
         loadedBody = bodyPane.getText();
+        readOnlyPill.setVisible(set.readOnly());
+        readOnlyPill.setManaged(set.readOnly());
         updateChangeState();
     }
 
