@@ -54,10 +54,13 @@ public final class InstructionSets {
      * @param name        the title (the Agent Skills frontmatter {@code name})
      * @param description the one-line description (the progressive-disclosure surface)
      * @param category    the intended-use classification (never {@code null})
+     * @param readOnly    whether this registration is a protected system default — Save is
+     *                    refused; the user copies via Save as… (registration-level for now;
+     *                    adopts the knowledge-layout read-only flag when it lands)
      * @param fileName    the payload file's name within the owning tile's directory
      */
     public record InstructionSet(String id, String name, String description,
-                                 InstructionCategory category, String fileName) {
+                                 InstructionCategory category, boolean readOnly, String fileName) {
     }
 
     /**
@@ -99,6 +102,7 @@ public final class InstructionSets {
                             node.get(KEY_PREFIX + id + ".name", "Untitled"),
                             node.get(KEY_PREFIX + id + ".description", ""),
                             InstructionCategory.parse(node.get(KEY_PREFIX + id + ".category", "")),
+                            "true".equals(node.get(KEY_PREFIX + id + ".readOnly", "")),
                             node.get(key, "")));
                 }
             }
@@ -130,9 +134,25 @@ public final class InstructionSets {
      */
     public Optional<InstructionSet> create(String name, String description,
                                            InstructionCategory category, String body) {
+        return create(name, description, category, false, body);
+    }
+
+    /**
+     * Creates a set with an explicit read-only marking — the seeded system defaults' path.
+     *
+     * @param name        the title
+     * @param description the one-line description
+     * @param category    the intended-use classification
+     * @param readOnly    {@code true} to register a protected system default
+     * @param body        the Markdown instruction body
+     * @return the registered set, or empty when the tile has no payload directory
+     */
+    public Optional<InstructionSet> create(String name, String description,
+                                           InstructionCategory category, boolean readOnly,
+                                           String body) {
         String id = UUID.randomUUID().toString();
         InstructionSet set = new InstructionSet(id, name, description,
-                category == null ? InstructionCategory.GENERAL : category,
+                category == null ? InstructionCategory.GENERAL : category, readOnly,
                 "instruction-set-" + id + ".md");
         return write(set, body) ? Optional.of(set) : Optional.empty();
     }
@@ -148,9 +168,23 @@ public final class InstructionSets {
      */
     public Optional<InstructionSet> save(InstructionSet set, String name, String description,
                                          InstructionCategory category, String body) {
+        if (set.readOnly()) {
+            LOG.warn("Refusing to save over read-only system default {}", set.id());
+            return Optional.empty();
+        }
         InstructionSet updated = new InstructionSet(set.id(), name, description,
-                category == null ? InstructionCategory.GENERAL : category, set.fileName());
+                category == null ? InstructionCategory.GENERAL : category, false, set.fileName());
         return write(updated, body) ? Optional.of(updated) : Optional.empty();
+    }
+
+    /** Marks a registration read-only — the seeded-example migration's path. */
+    void markReadOnly(String id) {
+        try {
+            node.put(KEY_PREFIX + id + ".readOnly", "true");
+            node.sync();
+        } catch (Exception e) {
+            LOG.warn("Could not mark instruction set {} read-only", id, e);
+        }
     }
 
     /** Writes the payload (portable form) and the index entries; sync is best-effort. */
@@ -169,6 +203,9 @@ public final class InstructionSets {
             node.put(KEY_PREFIX + set.id() + ".description",
                     set.description() == null ? "" : set.description());
             node.put(KEY_PREFIX + set.id() + ".category", set.category().display());
+            if (set.readOnly()) {
+                node.put(KEY_PREFIX + set.id() + ".readOnly", "true");
+            }
             node.put(KEY_PREFIX + set.id() + ".file", set.fileName());
             node.sync();
             return true;
@@ -195,7 +232,7 @@ public final class InstructionSets {
             String id = UUID.randomUUID().toString();
             InstructionSet set = new InstructionSet(id, name,
                     parsed.description() == null ? "" : parsed.description(),
-                    parsed.category(),
+                    parsed.category(), false,
                     "instruction-set-" + id + ".md");
             Optional<Path> dir = node.directory();
             if (dir.isEmpty()) {

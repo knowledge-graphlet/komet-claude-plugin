@@ -110,4 +110,14 @@ public final class MarkdownEditPane extends BorderPane {
             view.setModel(renderer.apply(editor.getText()));
         }
     }
+
+    /**
+     * The raw-editor half of the toggle — the seam for host-installed input behaviors such as
+     * the Koncept token drop ({@link KonceptTokenDrop}); the buffer stays managed by this pane.
+     *
+     * @return the raw Markdown editor (never {@code null})
+     */
+    public TextArea rawEditor() {
+        return editor;
+    }
 }

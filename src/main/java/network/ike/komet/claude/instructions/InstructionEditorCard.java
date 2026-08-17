@@ -84,6 +84,8 @@ public final class InstructionEditorCard extends AbstractHostCard {
     private TextField descriptionField;
     private javafx.scene.control.ComboBox<InstructionCategory> categoryBox;
     private MarkdownEditPane bodyPane;
+    private Button saveButton;
+    private Button saveAsButton;
     private Label statusLine;
     private InstructionSet active;
     private BorderPane content;
@@ -126,16 +128,26 @@ public final class InstructionEditorCard extends AbstractHostCard {
      */
     private void seedExamplesOnce() {
         if (!preferences().get(SEEDED_KEY, "").isBlank()) {
+            // Forward-compatibility: tiles seeded before the read-only ruling carry writable
+            // ghosts — mark the two known system defaults read-only once.
+            for (InstructionSet set : store.list()) {
+                if (!set.readOnly()
+                        && ("Komet Assistant default".equals(set.name())
+                                || "Terminology answer style".equals(set.name()))
+                        && set.description().startsWith("Example")) {
+                    store.markReadOnly(set.id());
+                }
+            }
             return;
         }
         preferences().put(SEEDED_KEY, "true");
         store.create("Komet Assistant default",
-                "Example — the bundled assistant instruction layer; copy or overwrite freely.",
-                InstructionCategory.SYSTEM_PROMPT,
+                "System default — the bundled assistant instruction layer; Save as… to copy.",
+                InstructionCategory.SYSTEM_PROMPT, true,
                 bundledDefaultInstructions());
         store.create("Terminology answer style",
-                "Example skill — a house style for terminology answers; overwrite freely.",
-                InstructionCategory.SKILL,
+                "System default — an example skill; Save as… to make your own copy.",
+                InstructionCategory.SKILL, true,
                 """
                 Use this skill when answers will be pasted into documents, issues, or reviews.
 
@@ -196,12 +208,23 @@ public final class InstructionEditorCard extends AbstractHostCard {
             private final Label descriptionLabel = new Label();
             private final VBox row = new VBox(1, nameLabel, descriptionLabel);
             {
-                nameLabel.setStyle("-fx-font-weight: bold;");
                 nameLabel.setWrapText(true);
                 descriptionLabel.setWrapText(true);
-                descriptionLabel.setStyle("-fx-text-fill: #6a6a6a; -fx-font-size: 11;");
                 setPrefWidth(0);
                 maxWidthProperty().bind(lv.widthProperty().subtract(16));
+                // Fills flip with selection: the muted description was unreadable over the
+                // selection highlight (KEC 2026-08-17).
+                Runnable syncFills = () -> {
+                    boolean sel = isSelected();
+                    nameLabel.setStyle(sel
+                            ? "-fx-font-weight: bold; -fx-text-fill: white;"
+                            : "-fx-font-weight: bold;");
+                    descriptionLabel.setStyle(sel
+                            ? "-fx-text-fill: #dce4f0; -fx-font-size: 11;"
+                            : "-fx-text-fill: #6a6a6a; -fx-font-size: 11;");
+                };
+                syncFills.run();
+                selectedProperty().addListener((obs, was, is) -> syncFills.run());
             }
             @Override
             protected void updateItem(InstructionSet set, boolean empty) {
@@ -242,13 +265,21 @@ public final class InstructionEditorCard extends AbstractHostCard {
                 MarkdownRichText.DEFAULT_BASE);
         bodyPane = new MarkdownEditPane("", true, renderer::renderMarkdown);
         VBox.setVgrow(bodyPane, Priority.ALWAYS);
+        // Koncept drop-in (ike-issues#1042, knowledge-referencing instructions): a concept or
+        // pattern dragged from anywhere in Komet drops into the raw editor as its k: token;
+        // the rendered view shows it as a live badge.
+        network.ike.komet.claude.ui.KonceptTokenDrop.install(bodyPane.rawEditor(),
+                () -> safeViewProperties() == null ? null : safeViewProperties().calculator());
 
         statusLine = new Label("");
         Region buttonSpacer = new Region();
         HBox.setHgrow(buttonSpacer, Priority.ALWAYS);
-        Button saveButton = new Button("Save");
+        saveButton = new Button("Save");
         saveButton.setOnAction(e -> saveActive());
-        HBox buttons = new HBox(8, statusLine, buttonSpacer, saveButton);
+        saveAsButton = new Button("Save as…");
+        saveAsButton.setTooltip(new Tooltip("Save a copy under a new title"));
+        saveAsButton.setOnAction(e -> saveAsCopy());
+        HBox buttons = new HBox(8, statusLine, buttonSpacer, saveButton, saveAsButton);
         buttons.setAlignment(Pos.CENTER_LEFT);
 
         HBox metaRow = new HBox(8, descriptionField, categoryBox);
@@ -327,7 +358,11 @@ public final class InstructionEditorCard extends AbstractHostCard {
         categoryBox.getSelectionModel().select(set.category());
         Optional<Frontmatter> parsed = store.read(set);
         bodyPane.setText(parsed.map(Frontmatter::body).orElse(""));
-        statusLine.setText("");
+        // A read-only system default refuses Save; Save as… stays live, so the user clearly
+        // makes a copy (KEC 2026-08-17). Editing the fields is allowed — only persistence
+        // routes through the copy.
+        saveButton.setDisable(set.readOnly());
+        statusLine.setText(set.readOnly() ? "System default — use Save as… to make your copy" : "");
     }
 
     /** Creates a fresh set on the skill scaffold — seeding is invocation context, not a mode. */
@@ -356,9 +391,51 @@ public final class InstructionEditorCard extends AbstractHostCard {
         }
     }
 
+    /**
+     * Saves a copy under a managed title: proposed as "<name> (copy)", user-confirmed, and
+     * made unique against this tile's registrations — the explicit path off a read-only
+     * system default, and a general duplicate gesture.
+     */
+    private void saveAsCopy() {
+        if (active == null) {
+            return;
+        }
+        javafx.scene.control.TextInputDialog dialog =
+                new javafx.scene.control.TextInputDialog(uniqueTitle(
+                        (nameField.getText() == null || nameField.getText().isBlank()
+                                ? "Untitled" : nameField.getText().strip()) + " (copy)"));
+        dialog.setTitle("Save as");
+        dialog.setHeaderText("Save a copy under a new title.");
+        Optional<String> result = dialog.showAndWait();
+        if (result.isEmpty() || result.get().isBlank()) {
+            return;
+        }
+        store.create(uniqueTitle(result.get().strip()),
+                        descriptionField.getText() == null ? "" : descriptionField.getText().strip(),
+                        categoryBox.getValue() == null ? InstructionCategory.GENERAL
+                                : categoryBox.getValue(),
+                        bodyPane.getText())
+                .ifPresent(copy -> refreshSets(copy));
+    }
+
+    /** The title, suffixed (2), (3), … until it collides with no registered set's name. */
+    private String uniqueTitle(String proposed) {
+        java.util.Set<String> names = store.list().stream()
+                .map(InstructionSet::name)
+                .collect(java.util.stream.Collectors.toSet());
+        if (!names.contains(proposed)) {
+            return proposed;
+        }
+        int n = 2;
+        while (names.contains(proposed + " (" + n + ")")) {
+            n++;
+        }
+        return proposed + " (" + n + ")";
+    }
+
     /** Persists the editor's state into the active registration. */
     private void saveActive() {
-        if (active == null) {
+        if (active == null || active.readOnly()) {
             return;
         }
         Optional<InstructionSet> saved = store.save(active,
