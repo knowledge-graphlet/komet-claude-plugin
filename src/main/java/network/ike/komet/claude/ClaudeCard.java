@@ -167,6 +167,15 @@ public final class ClaudeCard extends AbstractHostCard {
     /** The instruction-layer payload file name within the card's preferences directory. */
     private static final String SYSTEM_INSTRUCTIONS_FILE = "system-instructions.md";
 
+    /**
+     * Card-node preference holding the id of the <em>titled instruction set</em> selected as
+     * this card's system prompt (ike-issues#1044): the single-select attachment role. Blank
+     * means the card-local layer — the legacy override file when present, else the bundled
+     * default. Sets are resolved across the journal's Instruction Editor tiles at read time.
+     */
+    private static final String PREF_SYSTEM_PROMPT_SET =
+            "network.ike.komet.claude.systemPromptSet";
+
     private static final int MAX_TOKENS = 8192;
 
     /** The fixed tool-contract half of the system prompt (grounding, badges, koncept-tree). */
@@ -441,8 +450,9 @@ public final class ClaudeCard extends AbstractHostCard {
                 () -> Math.round(baseFontSize) + " px",
                 () -> textSizeSettingsContent(pane));
         pane.addSection("System prompt",
-                () -> preferences().get(PREF_SYSTEM_INSTRUCTIONS_FILE, "").isBlank()
-                        ? "Default" : "Edited",
+                () -> selectedTitledSetName().orElseGet(
+                        () -> preferences().get(PREF_SYSTEM_INSTRUCTIONS_FILE, "").isBlank()
+                                ? "Default" : "Edited"),
                 () -> promptSettingsContent(pane));
         pane.addSection("API key",
                 () -> hasApiKey() ? "Set (per-user)" : "Not set",
@@ -472,21 +482,75 @@ public final class ClaudeCard extends AbstractHostCard {
     }
 
     /**
-     * The system-prompt section (ike-issues#1039 in its #1043 home): the pane's drill-in stays
-     * at glance depth — a short rendered preview of the active instruction layer — and editing
-     * escapes to a properly sized surface via "Open editor…". A settings pane is the entry
-     * point for durable preferences, not a prose-editing surface (KEC 2026-08-17).
+     * The system-prompt section (ike-issues#1039/#1044 in its #1043 home): a <em>selector</em>
+     * over the attachment — the card-local layer or a titled instruction set from the
+     * journal's Instruction Editor tiles — with a rendered preview of whatever is active.
+     * The card-local layer edits in the escape window; a titled set edits in its own editor
+     * tile (authoring never happens in a settings pane).
      */
     private javafx.scene.Node promptSettingsContent(SettingsPanePopup pane) {
+        record Choice(String id, String label) {
+            @Override
+            public String toString() {
+                return label;
+            }
+        }
         MarkdownRichText renderer = new MarkdownRichText(safeViewProperties(),
                 MarkdownRichText.DEFAULT_BASE);
         MarkdownEditPane preview =
                 new MarkdownEditPane(instructionsLayer(), false, renderer::renderMarkdown);
-        preview.setPrefSize(290, 200);
+        preview.setPrefSize(290, 170);
+
+        List<Choice> choices = new ArrayList<>();
+        choices.add(new Choice("",
+                preferences().get(PREF_SYSTEM_INSTRUCTIONS_FILE, "").isBlank()
+                        ? "Card layer (default)" : "Card layer (edited)"));
+        for (KometPreferences tile : instructionEditorTiles()) {
+            String tileLabel = tile.get(
+                    network.ike.komet.claude.instructions.InstructionEditorCard.TILE_LABEL_KEY,
+                    "Instruction Editor");
+            for (network.ike.komet.claude.instructions.InstructionSets.InstructionSet set
+                    : new network.ike.komet.claude.instructions.InstructionSets(tile).list()) {
+                choices.add(new Choice(set.id(), set.name() + " — " + tileLabel));
+            }
+        }
+        javafx.scene.control.ComboBox<Choice> selector = new javafx.scene.control.ComboBox<>();
+        selector.getItems().setAll(choices);
+        selector.setMaxWidth(Double.MAX_VALUE);
+        String current = preferences().get(PREF_SYSTEM_PROMPT_SET, "");
+        selector.getSelectionModel().select(choices.stream()
+                .filter(choice -> choice.id().equals(current))
+                .findFirst().orElse(choices.get(0)));
 
         Button openEditor = new Button("Open editor…");
         openEditor.setOnAction(e -> openPromptEditor(pane));
-        VBox content = new VBox(6, preview, openEditor);
+        Label titledHint = new Label("Titled sets are edited in their Instruction Editor tile.");
+        titledHint.setWrapText(true);
+        Runnable syncAffordances = () -> {
+            boolean cardLayer = selector.getValue() != null && selector.getValue().id().isBlank();
+            openEditor.setVisible(cardLayer);
+            openEditor.setManaged(cardLayer);
+            titledHint.setVisible(!cardLayer);
+            titledHint.setManaged(!cardLayer);
+        };
+        syncAffordances.run();
+        selector.valueProperty().addListener((obs, was, sel) -> {
+            if (sel == null) {
+                return;
+            }
+            preferences().put(PREF_SYSTEM_PROMPT_SET, sel.id());
+            try {
+                preferences().sync();
+            } catch (BackingStoreException ex) {
+                LOG.warn("Could not sync the system-prompt selection", ex);
+            }
+            refreshSystemPrompt();
+            preview.setText(instructionsLayer());
+            pane.refreshSummaries();
+            syncAffordances.run();
+        });
+
+        VBox content = new VBox(6, selector, preview, openEditor, titledHint);
         return content;
     }
 
@@ -2413,11 +2477,18 @@ public final class ClaudeCard extends AbstractHostCard {
     }
 
     /**
-     * The active instruction layer: this card's edited override when its preferences entry names
-     * a readable payload file, else the bundled default. Every failure degrades to the default —
-     * a broken override must never silence the assistant.
+     * The active instruction layer, in attachment order (ike-issues#1044): the selected titled
+     * instruction set's body when one is selected and resolvable across the journal's
+     * Instruction Editor tiles; else this card's edited override when its preferences entry
+     * names a readable payload file; else the bundled default. Every failure degrades down the
+     * chain — a broken selection or override must never silence the assistant.
      */
     private String instructionsLayer() {
+        Optional<network.ike.komet.claude.instructions.InstructionSets.Frontmatter> titled =
+                selectedTitledSet();
+        if (titled.isPresent()) {
+            return titled.get().body();
+        }
         try {
             String name = preferences().get(PREF_SYSTEM_INSTRUCTIONS_FILE, "");
             if (name.isBlank()) {
@@ -2432,6 +2503,63 @@ public final class ClaudeCard extends AbstractHostCard {
             LOG.warn("Could not read the system-instructions override; using the default", e);
             return defaultInstructions();
         }
+    }
+
+    /** The journal's Instruction Editor tiles, discovered by their card-type marker. */
+    private List<KometPreferences> instructionEditorTiles() {
+        List<KometPreferences> tiles = new ArrayList<>();
+        try {
+            KometPreferences parent = preferences().parent();
+            if (parent == null) {
+                return tiles;
+            }
+            for (KometPreferences child : parent.children()) {
+                if (network.ike.komet.claude.instructions.InstructionEditorCard.CARD_TYPE_VALUE
+                        .equals(child.get(
+                                network.ike.komet.claude.instructions.InstructionEditorCard.CARD_TYPE_KEY,
+                                ""))) {
+                    tiles.add(child);
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("Could not enumerate instruction-editor tiles", e);
+        }
+        return tiles;
+    }
+
+    /** The selected titled set's parsed document, resolved across editor tiles; empty when none. */
+    private Optional<network.ike.komet.claude.instructions.InstructionSets.Frontmatter> selectedTitledSet() {
+        String id = preferences().get(PREF_SYSTEM_PROMPT_SET, "");
+        if (id.isBlank()) {
+            return Optional.empty();
+        }
+        for (KometPreferences tile : instructionEditorTiles()) {
+            network.ike.komet.claude.instructions.InstructionSets sets =
+                    new network.ike.komet.claude.instructions.InstructionSets(tile);
+            Optional<network.ike.komet.claude.instructions.InstructionSets.InstructionSet> match =
+                    sets.byId(id);
+            if (match.isPresent()) {
+                return sets.read(match.get());
+            }
+        }
+        LOG.warn("Selected system-prompt set {} not found in any Instruction Editor tile", id);
+        return Optional.empty();
+    }
+
+    /** The selected titled set's display name for the settings summary, if resolvable. */
+    private Optional<String> selectedTitledSetName() {
+        String id = preferences().get(PREF_SYSTEM_PROMPT_SET, "");
+        if (id.isBlank()) {
+            return Optional.empty();
+        }
+        for (KometPreferences tile : instructionEditorTiles()) {
+            Optional<network.ike.komet.claude.instructions.InstructionSets.InstructionSet> match =
+                    new network.ike.komet.claude.instructions.InstructionSets(tile).byId(id);
+            if (match.isPresent()) {
+                return Optional.of(match.get().name());
+            }
+        }
+        return Optional.of("Missing set");
     }
 
     /**
