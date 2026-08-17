@@ -92,7 +92,13 @@ public final class KonceptTokenDrop {
                     }
                     tokens.append(tokenFor(nid, viewCalc));
                 }
-                area.insertText(area.getCaretPosition(), tokens.toString());
+                // The tokens land where they were DROPPED, not at whatever position the caret
+                // last held (which, on an unfocused editor, is the start).
+                int at = area.getCaretPosition();
+                if (area.getSkin() instanceof javafx.scene.control.skin.TextAreaSkin skin) {
+                    at = skin.getIndex(e.getX(), e.getY()).getInsertionIndex();
+                }
+                area.insertText(at, tokens.toString());
                 e.setDropCompleted(true);
             }
             e.consume();

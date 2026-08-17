@@ -499,7 +499,11 @@ public final class ClaudeCard extends AbstractHostCard {
                 MarkdownRichText.DEFAULT_BASE);
         MarkdownEditPane preview =
                 new MarkdownEditPane(instructionsLayer(), false, renderer::renderMarkdown);
-        preview.setPrefSize(290, 170);
+        // The drill-in owns the pane's full body height: the preview IS the content here —
+        // see what the selected instruction says, at reading size (KEC 2026-08-17).
+        preview.setPrefSize(298, 420);
+        preview.setMaxWidth(Double.MAX_VALUE);
+        VBox.setVgrow(preview, Priority.ALWAYS);
 
         List<Choice> choices = new ArrayList<>();
         choices.add(new Choice("",
@@ -528,7 +532,7 @@ public final class ClaudeCard extends AbstractHostCard {
                 .filter(choice -> choice.id().equals(current))
                 .findFirst().orElse(choices.get(0)));
 
-        Button openEditor = new Button("Open editor…");
+        Button openEditor = new Button("Open in Instruction Editor…");
         openEditor.setOnAction(e -> openPromptEditor(pane));
         Label titledHint = new Label("Titled sets are edited in their Instruction Editor tile.");
         titledHint.setWrapText(true);
@@ -887,6 +891,18 @@ public final class ClaudeCard extends AbstractHostCard {
                 titleLabel.setMaxWidth(Double.MAX_VALUE);
                 HBox.setHgrow(titleLabel, Priority.ALWAYS);
                 row.setAlignment(Pos.TOP_LEFT);
+                // Fills flip with selection AND focus: light text belongs only on the focused
+                // selection highlight; the unfocused (grey) selection keeps dark text
+                // (KEC 2026-08-17: the out-of-focus selection was unreadable).
+                Runnable syncFills = () -> {
+                    boolean lit = isSelected() && lv.isFocused();
+                    String fill = lit ? "-fx-text-fill: white;" : "-fx-text-fill: #1a1a1a;";
+                    ordinalLabel.setStyle(fill);
+                    titleLabel.setStyle(fill);
+                };
+                syncFills.run();
+                selectedProperty().addListener((obs, was, is) -> syncFills.run());
+                lv.focusedProperty().addListener((obs, was, is) -> syncFills.run());
                 // The cell must not report its full single-line pref width, or the list
                 // scrolls horizontally instead of wrapping.
                 setPrefWidth(0);

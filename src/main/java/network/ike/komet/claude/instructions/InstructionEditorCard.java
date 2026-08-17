@@ -88,7 +88,14 @@ public final class InstructionEditorCard extends AbstractHostCard {
     private Button saveAsButton;
     private Label statusLine;
     private InstructionSet active;
+    private String loadedName = "";
+    private String loadedDescription = "";
+    private InstructionCategory loadedCategory = InstructionCategory.GENERAL;
+    private String loadedBody = "";
     private BorderPane content;
+    private boolean railVisible = true;
+    private SplitPane split;
+    private VBox rail;
     private VBox editorPane;
     private VBox emptyState;
     private BorderPane editorHost;
@@ -104,6 +111,84 @@ public final class InstructionEditorCard extends AbstractHostCard {
     @Override
     protected String cardTitle() {
         return CARD_NAME;
+    }
+
+    /** Card-node preference for the editor's base font size (the settings pane's section). */
+    private static final String PREF_EDITOR_FONT_SIZE =
+            "network.ike.komet.claude.instructionEditor.fontSize";
+
+    private double baseFontSize = 13;
+
+    /** The transient rail toggle and the standardized settings sliders (ike-issues#1043). */
+    @Override
+    protected void buildToolbarControls(HBox toolBar) {
+        Button toggleRail = new Button("\u2630");
+        toggleRail.setTooltip(new Tooltip("Show/hide instruction sets"));
+        toggleRail.setOnAction(e -> setRailVisible(!railVisible));
+        toggleRail.getStyleClass().add("claude-card-toolbar-button");
+
+        Button settings = new Button();
+        settings.setGraphic(dev.ikm.komet.framework.graphics.Icon.PANEL_PREFERENCE_SLIDERS.makeIcon());
+        settings.setContentDisplay(javafx.scene.control.ContentDisplay.GRAPHIC_ONLY);
+        settings.setTooltip(new Tooltip("Instruction Editor settings"));
+        settings.getStyleClass().addAll("claude-card-toolbar-button", "claude-card-settings-button");
+        dev.ikm.komet.layout.controls.SettingsPanePopup pane =
+                new dev.ikm.komet.layout.controls.SettingsPanePopup("Instruction Editor Settings");
+        pane.addSection("Text size",
+                () -> Math.round(baseFontSize) + " px",
+                () -> textSizeSettingsContent(pane));
+        pane.attachTo(settings, (javafx.scene.layout.Pane) fxObject());
+        toolBar.getChildren().addAll(toggleRail, settings);
+    }
+
+    /** The text-size section: live adjustment of the body editor and its rendered view. */
+    private javafx.scene.Node textSizeSettingsContent(
+            dev.ikm.komet.layout.controls.SettingsPanePopup pane) {
+        Label current = new Label(Math.round(baseFontSize) + " px");
+        Button down = new Button("A\u2212");
+        down.setOnAction(e -> {
+            adjustFont(-1);
+            current.setText(Math.round(baseFontSize) + " px");
+            pane.refreshSummaries();
+        });
+        Button up = new Button("A+");
+        up.setOnAction(e -> {
+            adjustFont(1);
+            current.setText(Math.round(baseFontSize) + " px");
+            pane.refreshSummaries();
+        });
+        HBox row = new HBox(8, down, up, current);
+        row.setAlignment(Pos.CENTER_LEFT);
+        return row;
+    }
+
+    /** Applies and persists the base font size: the raw editor's font, the view re-rendered. */
+    private void adjustFont(int delta) {
+        baseFontSize = Math.max(9, Math.min(28, baseFontSize + delta));
+        preferences().putDouble(PREF_EDITOR_FONT_SIZE, baseFontSize);
+        applyFont();
+    }
+
+    private void applyFont() {
+        if (bodyPane != null) {
+            bodyPane.rawEditor().setStyle("-fx-font-size: " + Math.round(baseFontSize) + "px;");
+            bodyPane.setText(bodyPane.getText());   // re-render the at-rest view at the new base
+        }
+    }
+
+    /** Shows or hides the instruction-set rail — full-tile content view (KEC 2026-08-17). */
+    private void setRailVisible(boolean visible) {
+        railVisible = visible;
+        if (split == null) {
+            return;
+        }
+        boolean present = split.getItems().contains(rail);
+        if (visible && !present) {
+            split.getItems().add(0, rail);
+            split.setDividerPositions(0.28);
+        } else if (!visible && present) {
+            split.getItems().remove(rail);
+        }
     }
 
     @Override
@@ -212,19 +297,21 @@ public final class InstructionEditorCard extends AbstractHostCard {
                 descriptionLabel.setWrapText(true);
                 setPrefWidth(0);
                 maxWidthProperty().bind(lv.widthProperty().subtract(16));
-                // Fills flip with selection: the muted description was unreadable over the
-                // selection highlight (KEC 2026-08-17).
+                // Fills flip with selection AND focus: light fills belong only on the focused
+                // selection highlight — the unfocused (grey) selection keeps dark text, or the
+                // row reads blank (KEC 2026-08-17).
                 Runnable syncFills = () -> {
-                    boolean sel = isSelected();
-                    nameLabel.setStyle(sel
+                    boolean lit = isSelected() && lv.isFocused();
+                    nameLabel.setStyle(lit
                             ? "-fx-font-weight: bold; -fx-text-fill: white;"
-                            : "-fx-font-weight: bold;");
-                    descriptionLabel.setStyle(sel
+                            : "-fx-font-weight: bold; -fx-text-fill: #1a1a1a;");
+                    descriptionLabel.setStyle(lit
                             ? "-fx-text-fill: #dce4f0; -fx-font-size: 11;"
                             : "-fx-text-fill: #6a6a6a; -fx-font-size: 11;");
                 };
                 syncFills.run();
                 selectedProperty().addListener((obs, was, is) -> syncFills.run());
+                lv.focusedProperty().addListener((obs, was, is) -> syncFills.run());
             }
             @Override
             protected void updateItem(InstructionSet set, boolean empty) {
@@ -245,7 +332,7 @@ public final class InstructionEditorCard extends AbstractHostCard {
                 openSet(sel);
             }
         });
-        VBox rail = new VBox(railHeader, setList);
+        rail = new VBox(railHeader, setList);
         VBox.setVgrow(setList, Priority.ALWAYS);
         rail.setMinWidth(160);
 
@@ -261,9 +348,10 @@ public final class InstructionEditorCard extends AbstractHostCard {
         categoryBox.getSelectionModel().select(InstructionCategory.GENERAL);
         categoryBox.setTooltip(new Tooltip(
                 "What this set is intended as — filters where selectors offer it"));
-        MarkdownRichText renderer = new MarkdownRichText(safeViewProperties(),
-                MarkdownRichText.DEFAULT_BASE);
-        bodyPane = new MarkdownEditPane("", true, renderer::renderMarkdown);
+        baseFontSize = preferences().getDouble(PREF_EDITOR_FONT_SIZE, 13);
+        // The renderer is built per render call so the settings pane's text size applies live.
+        bodyPane = new MarkdownEditPane("", true,
+                md -> new MarkdownRichText(safeViewProperties(), baseFontSize).renderMarkdown(md));
         VBox.setVgrow(bodyPane, Priority.ALWAYS);
         // Koncept drop-in (ike-issues#1042, knowledge-referencing instructions): a concept or
         // pattern dragged from anywhere in Komet drops into the raw editor as its k: token;
@@ -281,6 +369,10 @@ public final class InstructionEditorCard extends AbstractHostCard {
         saveAsButton.setOnAction(e -> saveAsCopy());
         HBox buttons = new HBox(8, statusLine, buttonSpacer, saveButton, saveAsButton);
         buttons.setAlignment(Pos.CENTER_LEFT);
+        nameField.textProperty().addListener((obs, was, is) -> updateChangeState());
+        descriptionField.textProperty().addListener((obs, was, is) -> updateChangeState());
+        categoryBox.valueProperty().addListener((obs, was, is) -> updateChangeState());
+        bodyPane.rawEditor().textProperty().addListener((obs, was, is) -> updateChangeState());
 
         HBox metaRow = new HBox(8, descriptionField, categoryBox);
         HBox.setHgrow(descriptionField, Priority.ALWAYS);
@@ -311,9 +403,10 @@ public final class InstructionEditorCard extends AbstractHostCard {
 
         editorHost = new BorderPane(emptyState);
 
-        SplitPane split = new SplitPane(rail, editorHost);
+        split = new SplitPane(rail, editorHost);
         SplitPane.setResizableWithParent(rail, Boolean.FALSE);
         split.setDividerPositions(0.28);
+        applyFont();
 
         content = new BorderPane(split);
         // The assistant card's footprint (ike-issues#1045): sibling cards open at sibling sizes.
@@ -358,11 +451,38 @@ public final class InstructionEditorCard extends AbstractHostCard {
         categoryBox.getSelectionModel().select(set.category());
         Optional<Frontmatter> parsed = store.read(set);
         bodyPane.setText(parsed.map(Frontmatter::body).orElse(""));
-        // A read-only system default refuses Save; Save as… stays live, so the user clearly
-        // makes a copy (KEC 2026-08-17). Editing the fields is allowed — only persistence
-        // routes through the copy.
-        saveButton.setDisable(set.readOnly());
-        statusLine.setText(set.readOnly() ? "System default — use Save as… to make your copy" : "");
+        loadedName = set.name();
+        loadedDescription = set.description();
+        loadedCategory = set.category();
+        loadedBody = bodyPane.getText();
+        updateChangeState();
+    }
+
+    /**
+     * Recomputes the unsaved-changes state: the status line carries the signal, Save enables
+     * only for a changed, writable set (Save as… stays always available — copying an unchanged
+     * set is a legitimate duplicate gesture), and a read-only system default routes every
+     * change through Save as….
+     */
+    private void updateChangeState() {
+        if (active == null) {
+            saveButton.setDisable(true);
+            statusLine.setText("");
+            return;
+        }
+        boolean changed = !loadedName.equals(nameField.getText() == null ? "" : nameField.getText())
+                || !loadedDescription.equals(
+                        descriptionField.getText() == null ? "" : descriptionField.getText())
+                || loadedCategory != categoryBox.getValue()
+                || !loadedBody.equals(bodyPane.getText());
+        saveButton.setDisable(active.readOnly() || !changed);
+        if (active.readOnly()) {
+            statusLine.setText(changed
+                    ? "\u25cf System default — Save as\u2026 to keep your changes"
+                    : "System default — use Save as\u2026 to make your copy");
+        } else {
+            statusLine.setText(changed ? "\u25cf Unsaved changes" : "");
+        }
     }
 
     /** Creates a fresh set on the skill scaffold — seeding is invocation context, not a mode. */
@@ -446,8 +566,13 @@ public final class InstructionEditorCard extends AbstractHostCard {
                 bodyPane.getText());
         if (saved.isPresent()) {
             active = saved.get();
-            statusLine.setText("Saved");
+            loadedName = active.name();
+            loadedDescription = active.description();
+            loadedCategory = active.category();
+            loadedBody = bodyPane.getText();
             refreshSets(active);
+            updateChangeState();
+            statusLine.setText("Saved");
         } else {
             statusLine.setText("Save failed — see the log");
         }
