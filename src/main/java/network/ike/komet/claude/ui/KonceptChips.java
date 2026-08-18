@@ -17,6 +17,7 @@ package network.ike.komet.claude.ui;
 
 import dev.ikm.komet.framework.Identicon;
 import dev.ikm.komet.framework.controls.KonceptBadge;
+import dev.ikm.komet.framework.controls.KonceptLabelTypography;
 import dev.ikm.komet.framework.controls.KonceptKindResolver;
 import dev.ikm.komet.framework.graphics.SmallCapsFonts;
 import dev.ikm.komet.framework.view.ViewProperties;
@@ -69,7 +70,22 @@ final class KonceptChips {
      * @return the chip node (never null)
      */
     static Node chip(PublicId pid, String sctid, ViewCalculator viewCalc, double base) {
-        return chip(pid, sctid, viewCalc, null, base);
+        return chip(pid, sctid, viewCalc, null, base, KonceptLabelTypography.DEFAULT);
+    }
+
+    /**
+     * The {@link ViewCalculator} form with an explicit label typography (ike-issues#1050).
+     *
+     * @param pid        the resolved, existing component id
+     * @param sctid      the SCTID for the tooltip, or {@code null} when identified by UUID/nid
+     * @param viewCalc   the view used to resolve the name and active state; {@code null} → icon only
+     * @param base       the ambient body font size (px); the label and identicon scale from it
+     * @param typography the label typography; {@code null} renders the default small caps
+     * @return the chip node (never null)
+     */
+    static Node chip(PublicId pid, String sctid, ViewCalculator viewCalc, double base,
+                     KonceptLabelTypography typography) {
+        return chip(pid, sctid, viewCalc, null, base, typography);
     }
 
     /**
@@ -87,11 +103,28 @@ final class KonceptChips {
      */
     static Node chip(PublicId pid, String sctid, ViewProperties viewProperties, double base) {
         return chip(pid, sctid, viewProperties == null ? null : viewProperties.calculator(),
-                viewProperties, base);
+                viewProperties, base, KonceptLabelTypography.DEFAULT);
+    }
+
+    /**
+     * The interactive-surface form with an explicit label typography (ike-issues#1050).
+     *
+     * @param pid            the resolved, existing component id
+     * @param sctid          the SCTID for the tooltip, or {@code null}
+     * @param viewProperties the interactive surface's view
+     * @param base           the ambient body font size (px)
+     * @param typography     the label typography; {@code null} renders the default small caps
+     * @return the chip node (never null)
+     */
+    static Node chip(PublicId pid, String sctid, ViewProperties viewProperties, double base,
+                     KonceptLabelTypography typography) {
+        return chip(pid, sctid, viewProperties == null ? null : viewProperties.calculator(),
+                viewProperties, base, typography);
     }
 
     private static Node chip(PublicId pid, String sctid, ViewCalculator viewCalc,
-                             ViewProperties viewProperties, double base) {
+                             ViewProperties viewProperties, double base,
+                             KonceptLabelTypography typography) {
         try {
             int nid = PrimitiveData.nid(pid);
             int iconPx = (int) Math.round(base * 0.92);
@@ -125,6 +158,7 @@ final class KonceptChips {
                 badge.setInactive(isInactive(viewCalc, nid));
             }
             badge.setAmbientFontSize(base);
+            badge.setLabelTypography(typography);
             badge.setStandaloneStyling(true);
             badge.setSctid(sctid);
             badge.setMaxWidth(Region.USE_PREF_SIZE);

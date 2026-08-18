@@ -727,8 +727,7 @@ public final class InstructionEditorCard extends AbstractHostCard {
         boolean reviewing = session != null && session.proposal != null;
         if (!reviewing) {
             if (!loadedBody.equals(bodyPane.getText())) {
-                bodyPane.setChangeBase(loadedBody,
-                        (base, revised) -> MarkdownDiff.model(base, revised, baseFontSize));
+                bodyPane.setChangeBase(loadedBody, renderedChanges());
             } else {
                 bodyPane.clearChangeBase();
             }
@@ -862,10 +861,22 @@ public final class InstructionEditorCard extends AbstractHostCard {
             }
             pane.refreshSummaries();
         });
+        Button revertDefault = new Button("Revert to default");
+        revertDefault.setTooltip(new Tooltip("Back to the bundled drafting persona"));
+        revertDefault.setOnAction(e -> {
+            preferences().put(PREF_DRAFTING_PROMPT_SET, "");
+            try {
+                preferences().sync();
+            } catch (Exception ex) {
+                LOG.warn("Could not sync the drafting-prompt revert", ex);
+            }
+            selector.getSelectionModel().select(choices.get(0));
+            pane.refreshSummaries();
+        });
         Label hint = new Label("Steers the Ask Claude area below the document. Save as… a "
                 + "copy of the Instruction Editor default to tune how drafting behaves.");
         hint.setWrapText(true);
-        return new VBox(6, selector, hint);
+        return new VBox(6, selector, revertDefault, hint);
     }
 
     /** The drafting system prompt: the selected titled set's body, else the bundled persona. */
@@ -1139,11 +1150,25 @@ public final class InstructionEditorCard extends AbstractHostCard {
         }
         categoryBox.getSelectionModel().select(parsed.category());
         bodyPane.setText(parsed.body());
-        bodyPane.setChangeBase(session.base.body(),
-                (base, revised) -> MarkdownDiff.model(base, revised, baseFontSize));
+        bodyPane.setChangeBase(session.base.body(), renderedChanges());
         revertDraftButton.setVisible(true);
         revertDraftButton.setManaged(true);
         updateChangeState();
+    }
+
+    /**
+     * Track changes over the RENDERED document (KEC 2026-08-18): both versions render through
+     * the normal Markdown pipeline, and View shows the revision rendered — headings, tables,
+     * chips — with insertions highlighted in place and deletions injected struck at their
+     * anchors, instead of marked-up raw source.
+     */
+    private java.util.function.BiFunction<String, String,
+            jfx.incubator.scene.control.richtext.model.StyledTextModel> renderedChanges() {
+        return (base, revised) -> {
+            MarkdownRichText renderer = new MarkdownRichText(safeViewProperties(), baseFontSize);
+            return network.ike.komet.claude.ui.RenderedDiff.model(
+                    renderer.renderMarkdown(base), renderer.renderMarkdown(revised), baseFontSize);
+        };
     }
 
     /** Restores the pre-draft snapshot — every field — and leaves review. */
@@ -1283,30 +1308,83 @@ public final class InstructionEditorCard extends AbstractHostCard {
         }
     }
 
+    /**
+     * Flushes the tile's identity (marker + label) to the backing store — sibling discovery
+     * reads the store, so an unsynced tile is invisible to every scan until the next flush
+     * (ike-issues#1046).
+     */
+    private void syncIdentity() {
+        try {
+            preferences().sync();
+        } catch (Exception e) {
+            LOG.warn("Could not sync the tile identity", e);
+        }
+    }
+
+    /**
+     * Sibling editor tiles across this JOURNAL, discovered by marker. The card's preferences
+     * node is a CHILD of its window node, so the journal is TWO levels up — a one-level scan
+     * sees only this card's own window (ike-issues#1046). This card's own window is skipped.
+     */
+    private List<KometPreferences> siblingEditorTiles() {
+        List<KometPreferences> tiles = new ArrayList<>();
+        try {
+            KometPreferences windowNode = preferences().parent();
+            KometPreferences journalNode = windowNode == null ? null : windowNode.parent();
+            if (journalNode == null) {
+                return tiles;
+            }
+            for (KometPreferences window : journalNode.children()) {
+                if (window.name().equals(windowNode.name())) {
+                    continue;
+                }
+                for (KometPreferences child : window.children()) {
+                    if (CARD_TYPE_VALUE.equals(child.get(CARD_TYPE_KEY, ""))) {
+                        tiles.add(child);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("Could not enumerate editor tiles", e);
+        }
+        return tiles;
+    }
+
     /** Mints the tile's display name once: kind plus sequence, past every sibling editor tile. */
     private void ensureTileLabel() {
         String current = preferences().get(TILE_LABEL_KEY, "");
-        if (!current.isBlank()) {
+        boolean mint = current.isBlank();
+        if (!mint) {
+            // Collision repair (ike-issues#1046): duplicates from unsynced-sibling minting;
+            // the deterministic node-name tie-break makes exactly one tile yield.
+            for (KometPreferences tile : siblingEditorTiles()) {
+                // Card child nodes all share one name; the WINDOW node is the identity.
+                if (current.equals(tile.get(TILE_LABEL_KEY, ""))
+                        && preferences().parent() != null && tile.parent() != null
+                        && preferences().parent().name().compareTo(tile.parent().name()) > 0) {
+                    mint = true;
+                    break;
+                }
+            }
+        }
+        if (!mint) {
+            syncIdentity();
             return;
         }
         int next = 1;
         java.util.regex.Pattern named = java.util.regex.Pattern.compile("Instruction Editor (\\d+)");
         try {
-            KometPreferences parent = preferences().parent();
-            if (parent != null) {
-                for (KometPreferences child : parent.children()) {
-                    if (CARD_TYPE_VALUE.equals(child.get(CARD_TYPE_KEY, ""))) {
-                        java.util.regex.Matcher m = named.matcher(child.get(TILE_LABEL_KEY, ""));
-                        if (m.matches()) {
-                            next = Math.max(next, Integer.parseInt(m.group(1)) + 1);
-                        }
-                    }
+            for (KometPreferences tile : siblingEditorTiles()) {
+                java.util.regex.Matcher m = named.matcher(tile.get(TILE_LABEL_KEY, ""));
+                if (m.matches()) {
+                    next = Math.max(next, Integer.parseInt(m.group(1)) + 1);
                 }
             }
         } catch (Exception e) {
             LOG.warn("Could not enumerate instruction-editor tiles for naming", e);
         }
         preferences().put(TILE_LABEL_KEY, "Instruction Editor " + next);
+        syncIdentity();
     }
 
     /**

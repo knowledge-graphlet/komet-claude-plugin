@@ -20,6 +20,7 @@ import dev.ikm.komet.layout.expand.KlExpandable;
 import dev.ikm.komet.markdown.richtext.DocumentSegment;
 import dev.ikm.komet.markdown.richtext.MarkdownStyledModel;
 import dev.ikm.komet.markdown.richtext.TableColumnWidths;
+import dev.ikm.komet.framework.controls.KonceptLabelTypography;
 import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import javafx.geometry.Insets;
@@ -125,6 +126,17 @@ public final class BlockFactory {
         this.base = base;
         this.fontFamily = fontFamily;
         this.expandableFigures = expandableFigures;
+    }
+
+    /**
+     * Sets the label typography every chip this factory's blocks build renders with — inline
+     * chips and koncept-tree rows together (ike-issues#1050). The journal sets it right after
+     * constructing the factory, before any block renders.
+     *
+     * @param typography the typography; {@code null} restores the default small caps
+     */
+    public void setChipTypography(KonceptLabelTypography typography) {
+        markdown.setChipTypography(typography);
     }
 
     /**

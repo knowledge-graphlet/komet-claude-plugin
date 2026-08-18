@@ -16,6 +16,7 @@
 package network.ike.komet.claude.ui;
 
 import dev.ikm.komet.framework.controls.KonceptBadge;
+import dev.ikm.komet.framework.controls.KonceptLabelTypography;
 import dev.ikm.komet.markdown.richtext.InlineDecorator;
 import dev.ikm.komet.markdown.richtext.InlinePiece;
 import dev.ikm.tinkar.common.id.PublicId;
@@ -80,6 +81,8 @@ final class ConceptChipInlineDecorator implements InlineDecorator {
     private final ViewProperties viewProperties;
     /** Base body font size (px); the chip label and identicon scale from it. */
     private final double base;
+    /** Label typography for the chips (ike-issues#1050); never null. */
+    private KonceptLabelTypography typography = KonceptLabelTypography.DEFAULT;
 
     ConceptChipInlineDecorator(ViewCalculator viewCalc, double base) {
         this(viewCalc, null, base);
@@ -94,6 +97,16 @@ final class ConceptChipInlineDecorator implements InlineDecorator {
         this.viewCalc = viewCalc;
         this.viewProperties = viewProperties;
         this.base = base;
+    }
+
+    /**
+     * Sets the label typography the inline chips render with (ike-issues#1050). Applies to chips
+     * built after the call; the journal re-renders its transcript when the setting changes.
+     *
+     * @param typography the typography; {@code null} restores {@link KonceptLabelTypography#DEFAULT}
+     */
+    void setChipTypography(KonceptLabelTypography typography) {
+        this.typography = (typography == null) ? KonceptLabelTypography.DEFAULT : typography;
     }
 
     /**
@@ -255,7 +268,7 @@ final class ConceptChipInlineDecorator implements InlineDecorator {
      */
     private javafx.scene.Node conceptChip(PublicId pid, String sctid) {
         return viewProperties != null
-                ? KonceptChips.chip(pid, sctid, viewProperties, base)
-                : KonceptChips.chip(pid, sctid, viewCalc, base);
+                ? KonceptChips.chip(pid, sctid, viewProperties, base, typography)
+                : KonceptChips.chip(pid, sctid, viewCalc, base, typography);
     }
 }

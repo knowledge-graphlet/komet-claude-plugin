@@ -16,6 +16,7 @@
 package network.ike.komet.claude;
 
 import network.ike.komet.claude.ui.KonceptChipGestures;
+import dev.ikm.komet.framework.controls.KonceptLabelTypography;
 import dev.ikm.komet.framework.graphics.Icon;
 import dev.ikm.komet.framework.view.ObservableView;
 import dev.ikm.komet.framework.view.ObservableViewWithOverride;
@@ -44,6 +45,7 @@ import javafx.geometry.Pos;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.ContentDisplay;
 import javafx.scene.control.ContextMenu;
@@ -155,6 +157,9 @@ public final class ClaudeCard extends AbstractHostCard {
     public static final String PREF_API_KEY = "network.ike.komet.claude.apiKey";
     public static final String PREF_MODEL = "network.ike.komet.claude.model";
     private static final String PREF_FONT_SIZE = "network.ike.komet.claude.fontSize";
+    /** Chip-label typography (ike-issues#1050): small caps (default) vs plain text, and weight. */
+    private static final String PREF_CHIP_SMALL_CAPS = "network.ike.komet.claude.chipSmallCaps";
+    private static final String PREF_CHIP_BOLD = "network.ike.komet.claude.chipBold";
     private static final String PREF_RAIL_VISIBLE = "network.ike.komet.claude.railVisible";
     private static final String PREF_RAIL_DIVIDER = "network.ike.komet.claude.railDivider";
 
@@ -239,6 +244,10 @@ public final class ClaudeCard extends AbstractHostCard {
     private List<MarkdownRichText.Entry> entries;
     /** Transcript base font size (px); adjustable via the A−/A+ buttons, persisted. */
     private double baseFontSize = MarkdownRichText.DEFAULT_BASE;
+    /** Chip-label typography (ike-issues#1050): small caps (the default) vs plain text. */
+    private boolean chipSmallCaps = true;
+    /** Chip-label weight (ike-issues#1050); regular by default. */
+    private boolean chipBold;
     /** Each conversation's <em>equivalent place</em> (scroll + selection), by conversation id —
      *  held across re-renders and rail switches, persisted on save, restored on reopen (#943). */
     private final Map<String, DocumentSurface.Viewpoint> viewpoints = new HashMap<>();
@@ -452,6 +461,9 @@ public final class ClaudeCard extends AbstractHostCard {
         pane.addSection("Text size",
                 () -> Math.round(baseFontSize) + " px",
                 () -> textSizeSettingsContent(pane));
+        pane.addSection("Chip labels",
+                () -> (chipSmallCaps ? "Small caps" : "Plain") + (chipBold ? " · bold" : ""),
+                () -> chipLabelSettingsContent(pane));
         pane.addSection("System prompt",
                 () -> selectedTitledSetName().orElseGet(
                         () -> preferences().get(PREF_SYSTEM_INSTRUCTIONS_FILE, "").isBlank()
@@ -482,6 +494,41 @@ public final class ClaudeCard extends AbstractHostCard {
         HBox row = new HBox(8, fontDown, fontUp, current);
         row.setAlignment(Pos.CENTER_LEFT);
         return row;
+    }
+
+    /**
+     * The chip-labels section (ike-issues#1050): journal-level chip typography, sufficient for
+     * testing the treatments against each other — small caps (the ike-issues#855 default) versus
+     * plain text, and the label weight. Each change persists and re-renders the transcript, the
+     * same path the text-size ± takes; compose chips follow on their next cell rebuild.
+     */
+    private javafx.scene.Node chipLabelSettingsContent(SettingsPanePopup pane) {
+        CheckBox smallCaps = new CheckBox("Small caps");
+        smallCaps.setSelected(chipSmallCaps);
+        smallCaps.setOnAction(e -> {
+            chipSmallCaps = smallCaps.isSelected();
+            userPreferences().put(PREF_CHIP_SMALL_CAPS, Boolean.toString(chipSmallCaps));
+            refreshTranscript();
+            pane.refreshSummaries();
+        });
+        CheckBox bold = new CheckBox("Bold");
+        bold.setSelected(chipBold);
+        bold.setOnAction(e -> {
+            chipBold = bold.isSelected();
+            userPreferences().put(PREF_CHIP_BOLD, Boolean.toString(chipBold));
+            refreshTranscript();
+            pane.refreshSummaries();
+        });
+        VBox column = new VBox(8, smallCaps, bold);
+        // The drill stretches section content to the pane body; top-left keeps the controls
+        // seated under the drill header rather than floating at mid-height.
+        column.setAlignment(Pos.TOP_LEFT);
+        return column;
+    }
+
+    /** The chip-label typography the journal's chips render with (ike-issues#1050). */
+    private KonceptLabelTypography chipTypography() {
+        return new KonceptLabelTypography(chipSmallCaps, chipBold);
     }
 
     /**
@@ -542,6 +589,30 @@ public final class ClaudeCard extends AbstractHostCard {
             pane.hide();
             openInInstructionEditor();
         });
+        // Revert to default (KEC 2026-08-18): back to the bundled system prompt — the titled
+        // selection clears AND the legacy card-level override is removed, so "default" means
+        // the bundled layer, not whatever override still lingered beneath the selection.
+        Button revertDefault = new Button("Revert to default");
+        revertDefault.setTooltip(new Tooltip(
+                "Back to the bundled system prompt: clears the titled-set selection "
+                        + "and any card-level override"));
+        revertDefault.setOnAction(e -> {
+            try {
+                preferences().put(PREF_SYSTEM_PROMPT_SET, "");
+                preferences().remove(PREF_SYSTEM_INSTRUCTIONS_FILE);
+                Optional<Path> dir = preferences().directory();
+                if (dir.isPresent()) {
+                    Files.deleteIfExists(dir.get().resolve(SYSTEM_INSTRUCTIONS_FILE));
+                }
+                preferences().sync();
+            } catch (Exception ex) {
+                LOG.warn("Could not revert the system prompt to default", ex);
+            }
+            refreshSystemPrompt();
+            preview.setText(instructionsLayer());
+            selector.getSelectionModel().select(choices.get(0));
+            pane.refreshSummaries();
+        });
         Label titledHint = new Label(
                 "Author and edit instruction sets in the Instruction Editor; "
                         + "Save as… there keeps a titled copy of a system default.");
@@ -561,7 +632,9 @@ public final class ClaudeCard extends AbstractHostCard {
             pane.refreshSummaries();
         });
 
-        VBox content = new VBox(6, selector, preview, openEditor, titledHint);
+        HBox promptActions = new HBox(8, openEditor, revertDefault);
+        promptActions.setAlignment(Pos.CENTER_LEFT);
+        VBox content = new VBox(6, selector, preview, promptActions, titledHint);
         return content;
     }
 
@@ -690,6 +763,9 @@ public final class ClaudeCard extends AbstractHostCard {
     /** Builds the chat body (conversations rail | document surface, over the input bar) as the card content. */
     private void buildBody() {
         baseFontSize = readFontSizePref();
+        chipSmallCaps = Boolean.parseBoolean(
+                userPreferences().get(PREF_CHIP_SMALL_CAPS, "true"));
+        chipBold = Boolean.parseBoolean(userPreferences().get(PREF_CHIP_BOLD, "false"));
 
         // The block-stack Document surface (#808), first-classed as a KlArea (#839): the area owns
         // its own preferences node and the hover-revealed "expand to full surface" affordance
@@ -792,6 +868,7 @@ public final class ClaudeCard extends AbstractHostCard {
         // discovered through the preferences node tree by marker. Switching
         // browses that tile's conversations; an amend moves one home here.
         tileSelector = new javafx.scene.control.ComboBox<>();
+        tileSelector.getStyleClass().add("claude-tile-selector");
         tileSelector.setMaxWidth(Double.MAX_VALUE);
         tileSelector.setTooltip(new Tooltip(
                 "Browse conversations from this journal's other assistant tiles"));
@@ -809,6 +886,9 @@ public final class ClaudeCard extends AbstractHostCard {
         HBox.setHgrow(tileSelector, Priority.ALWAYS);
         tileRow.setPadding(new Insets(6, 6, 0, 6));
         conversationList = new ListView<>(conversations);
+        Label noConversations = new Label("No conversations in this tile");
+        noConversations.setStyle("-fx-text-fill: #8a8f98;");
+        conversationList.setPlaceholder(noConversations);
         conversationList.setPrefWidth(190);
         // Rail titles WRAP instead of running under the edge, and the list shows no scrollbar
         // chrome (KEC 2026-08-17) — trackpad scrolling still works when the rail overfills.
@@ -968,7 +1048,9 @@ public final class ClaudeCard extends AbstractHostCard {
         }
         // No usable view yet → chips fall back to bare identicons until one is available.
         // With the card's view, chips carry their status cluster and definition popout (#941).
-        surface.setBlockFactory(new BlockFactory(safeViewProperties(), baseFontSize));
+        BlockFactory blocks = new BlockFactory(safeViewProperties(), baseFontSize);
+        blocks.setChipTypography(chipTypography());
+        surface.setBlockFactory(blocks);
         Conversation rendering = active;
         surface.setExchangeTitleProvider(rendering == null ? null
                 : ordinal -> rendering.turnTitles.get(ordinal));
@@ -1150,7 +1232,7 @@ public final class ClaudeCard extends AbstractHostCard {
             return null;
         }
         return composeModel.insertChip(at, konceptToken(nid),
-                () -> ComposeChips.chip(pid, safeViewProperties(), baseFontSize));
+                () -> ComposeChips.chip(pid, safeViewProperties(), baseFontSize, chipTypography()));
     }
 
     /** The id-bearing {@code k:} token for a concept: UUID-keyed, labelled with the resolved name. */
@@ -1920,7 +2002,24 @@ public final class ClaudeCard extends AbstractHostCard {
      */
     private void ensureTileLabel() {
         String current = preferences().get(TILE_LABEL_KEY, "");
-        if (!current.isBlank() && !current.startsWith("Tile · ")) {
+        boolean mint = current.isBlank() || current.startsWith("Tile · ");
+        if (!mint) {
+            // Collision repair (ike-issues#1046): tiles minted while their siblings were
+            // invisible (unsynced identity writes) carry duplicate labels. The yielding tile
+            // is chosen by a deterministic node-name tie-break, so exactly one re-mints no
+            // matter which opens first.
+            for (KometPreferences tile : assistantTiles()) {
+                // Card child nodes all share one name; the WINDOW node is the identity.
+                if (current.equals(tile.get(TILE_LABEL_KEY, ""))
+                        && preferences().parent() != null && tile.parent() != null
+                        && preferences().parent().name().compareTo(tile.parent().name()) > 0) {
+                    mint = true;
+                    break;
+                }
+            }
+        }
+        if (!mint) {
+            syncIdentity();
             return;
         }
         int next = 1;
@@ -1932,6 +2031,20 @@ public final class ClaudeCard extends AbstractHostCard {
             }
         }
         preferences().put(TILE_LABEL_KEY, "Assistant Card " + next);
+        syncIdentity();
+    }
+
+    /**
+     * Flushes the tile's identity (marker + label) to the backing store — sibling discovery
+     * reads the store, so an unsynced tile is invisible to every scan until the next flush:
+     * the root cause of duplicate "Assistant Card 1" tiles (ike-issues#1046).
+     */
+    private void syncIdentity() {
+        try {
+            preferences().sync();
+        } catch (BackingStoreException e) {
+            LOG.warn("Could not sync the tile identity", e);
+        }
     }
 
     /** Rebuilds the selector's items: this tile first, then siblings by label. */
@@ -1943,6 +2056,32 @@ public final class ClaudeCard extends AbstractHostCard {
         for (KometPreferences tile : assistantTiles()) {
             items.add(new TileRef(tile,
                     tile.get(TILE_LABEL_KEY, "Tile " + tile.name()), false));
+        }
+        // Sibling rows carry their content signal always, and their identity tail ONLY when
+        // labels collide (ike-issues#1046; tails on unique labels are clutter — KEC
+        // 2026-08-18). Each tile is a distinct journal_card_<uuid> node; the tail proves
+        // same-labeled tiles are different items, and the LOADABLE conversation count says
+        // whether an identically-labeled tile is genuinely empty.
+        java.util.Map<String, Long> rawLabelCounts = items.stream().collect(
+                java.util.stream.Collectors.groupingBy(TileRef::label,
+                        java.util.stream.Collectors.counting()));
+        for (int i = 0; i < items.size(); i++) {
+            TileRef ref = items.get(i);
+            if (ref.own()) {
+                continue;
+            }
+            String identity = "";
+            if (rawLabelCounts.get(ref.label()) > 1) {
+                String windowName = ref.node().parent() == null
+                        ? ref.node().name() : ref.node().parent().name();
+                identity = " · " + (windowName.length() > 4
+                        ? windowName.substring(windowName.length() - 4) : windowName);
+            }
+            int count = conversationCount(ref.node());
+            items.set(i, new TileRef(ref.node(),
+                    ref.label() + identity + " — " + count
+                            + (count == 1 ? " conversation" : " conversations"),
+                    ref.own()));
         }
         tileSelector.getItems().setAll(items);
         if (selected == null || items.stream().noneMatch(selected::equals)) {
@@ -1963,6 +2102,13 @@ public final class ClaudeCard extends AbstractHostCard {
         }
         if (!conversations.isEmpty()) {
             activate(conversations.get(conversations.size() - 1));
+        } else {
+            // Nothing loadable here: the transcript must not keep showing the PREVIOUS
+            // tile's conversation — a leftover reads as this tile's content (KEC 2026-08-18).
+            Conversation none = new Conversation(UUID.randomUUID().toString(), "No conversation");
+            none.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT,
+                    "No conversations in this tile.", false));
+            activate(none);
         }
     }
 
@@ -2068,22 +2214,66 @@ public final class ClaudeCard extends AbstractHostCard {
         }
     }
 
-    /** Sibling assistant tiles in this journal window, discovered by marker — never by path magic. */
-    private List<KometPreferences> assistantTiles() {
-        List<KometPreferences> tiles = new ArrayList<>();
+    /**
+     * The tile's LOADABLE conversation count: what a browse will actually show — index entry
+     * present, not moved or hidden, AND the payload file on disk. Counting bare index entries
+     * over-reported abandoned tiles ("1 conversation" over an empty list, KEC 2026-08-18):
+     * an orphaned index record whose payload never hit disk is not a conversation.
+     */
+    private static int conversationCount(KometPreferences cardNode) {
+        int count = 0;
         try {
-            KometPreferences parent = preferences().parent();
-            if (parent == null) {
-                return tiles;
-            }
-            for (KometPreferences child : parent.children()) {
-                if (CARD_TYPE_VALUE.equals(child.get(CARD_TYPE_KEY, ""))
-                        && !child.name().equals(preferences().name())) {
-                    tiles.add(child);
+            Optional<Path> dir = cardNode.directory();
+            KometPreferences index = cardNode.node(INDEX_NODE);
+            for (String id : index.childrenNames()) {
+                KometPreferences entry = index.node(id);
+                if (!entry.get(KEY_MOVED_TO, "").isBlank()
+                        || "true".equals(entry.get(KEY_HIDDEN, ""))) {
+                    continue;
+                }
+                String file = entry.get(KEY_FILE, "");
+                if (!file.isBlank() && dir.isPresent() && Files.exists(dir.get().resolve(file))) {
+                    count++;
                 }
             }
         } catch (Exception e) {
-            LOG.warn("Could not enumerate assistant tiles", e);
+            LOG.warn("Could not count conversations for {}", cardNode.name(), e);
+        }
+        return count;
+    }
+
+    /** Sibling assistant tiles across this journal, discovered by marker — never by path magic. */
+    private List<KometPreferences> assistantTiles() {
+        return journalCardTiles(CARD_TYPE_VALUE);
+    }
+
+    /**
+     * Card tiles of the given kind across this JOURNAL, discovered by marker. This card's
+     * preferences node is a CHILD of its window node ({@code <window>/ClaudeCard}), so the
+     * journal — where sibling windows live — is TWO levels up; the original one-level scan
+     * saw only this card's own window, so every assistant minted "Assistant Card 1" and no
+     * selector ever listed a sibling (ike-issues#1046). This card's own window is skipped.
+     */
+    private List<KometPreferences> journalCardTiles(String cardTypeValue) {
+        List<KometPreferences> tiles = new ArrayList<>();
+        try {
+            KometPreferences windowNode = preferences().parent();
+            KometPreferences journalNode = windowNode == null ? null : windowNode.parent();
+            if (journalNode == null) {
+                return tiles;
+            }
+            for (KometPreferences window : journalNode.children()) {
+                if (window.name().equals(windowNode.name())) {
+                    continue;
+                }
+                for (KometPreferences child : window.children()) {
+                    if (cardTypeValue.equals(child.get(CARD_TYPE_KEY, ""))) {
+                        tiles.add(child);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("Could not enumerate {} tiles", cardTypeValue, e);
         }
         return tiles;
     }
@@ -2478,24 +2668,8 @@ public final class ClaudeCard extends AbstractHostCard {
 
     /** The journal's Instruction Editor tiles, discovered by their card-type marker. */
     private List<KometPreferences> instructionEditorTiles() {
-        List<KometPreferences> tiles = new ArrayList<>();
-        try {
-            KometPreferences parent = preferences().parent();
-            if (parent == null) {
-                return tiles;
-            }
-            for (KometPreferences child : parent.children()) {
-                if (network.ike.komet.claude.instructions.InstructionEditorCard.CARD_TYPE_VALUE
-                        .equals(child.get(
-                                network.ike.komet.claude.instructions.InstructionEditorCard.CARD_TYPE_KEY,
-                                ""))) {
-                    tiles.add(child);
-                }
-            }
-        } catch (Exception e) {
-            LOG.warn("Could not enumerate instruction-editor tiles", e);
-        }
-        return tiles;
+        return journalCardTiles(
+                network.ike.komet.claude.instructions.InstructionEditorCard.CARD_TYPE_VALUE);
     }
 
     /** The selected titled set's parsed document, resolved across editor tiles; empty when none. */

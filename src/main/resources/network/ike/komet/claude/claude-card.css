@@ -95,3 +95,20 @@
     -fx-max-height: 0;
     -fx-opacity: 0;
 }
+
+/*
+ * Tile selector popup (KEC 2026-08-18): stock modena paints a combo popup's HOVERED row
+ * with the same selection-bar blue as the SELECTED row, so the current tile and the row
+ * under the cursor read as a double selection. Hover becomes a light tint; the accent
+ * stays on the actual selection (and on selected-under-cursor).
+ */
+.claude-tile-selector .combo-box-popup > .list-view > .virtual-flow > .clipped-container > .sheet > .list-cell:filled:hover {
+    -fx-background-color: #e3e8f7;
+    -fx-text-fill: #1a1a1a;
+}
+
+.claude-tile-selector .combo-box-popup > .list-view > .virtual-flow > .clipped-container > .sheet > .list-cell:filled:selected,
+.claude-tile-selector .combo-box-popup > .list-view > .virtual-flow > .clipped-container > .sheet > .list-cell:filled:selected:hover {
+    -fx-background-color: -fx-selection-bar;
+    -fx-text-fill: white;
+}

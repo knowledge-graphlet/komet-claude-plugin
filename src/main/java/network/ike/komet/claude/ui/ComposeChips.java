@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.ui;
 
+import dev.ikm.komet.framework.controls.KonceptLabelTypography;
 import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
@@ -64,6 +65,21 @@ public final class ComposeChips {
      */
     public static Node chip(PublicId pid, ViewProperties viewProperties, double labelPx) {
         return KonceptChips.chip(pid, null, viewProperties, labelPx / 0.9);
+    }
+
+    /**
+     * Interactive-surface form with an explicit label typography (ike-issues#1050), so the
+     * compose chips follow the journal's chip-label setting like the transcript's do.
+     *
+     * @param pid            the concept's id (resolved and existing)
+     * @param viewProperties the compose surface's view; may be null (icon-only fallback)
+     * @param labelPx        the target label size (px), matching the compose input's text
+     * @param typography     the label typography; {@code null} renders the default small caps
+     * @return the chip node
+     */
+    public static Node chip(PublicId pid, ViewProperties viewProperties, double labelPx,
+                            KonceptLabelTypography typography) {
+        return KonceptChips.chip(pid, null, viewProperties, labelPx / 0.9, typography);
     }
 
     /** Token-field selection fill (macOS convention): accent-filled pill, white label. */

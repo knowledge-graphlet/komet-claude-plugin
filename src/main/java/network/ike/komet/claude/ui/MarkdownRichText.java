@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.ui;
 
+import dev.ikm.komet.framework.controls.KonceptLabelTypography;
 import dev.ikm.komet.markdown.richtext.DocumentSegment;
 import dev.ikm.komet.markdown.richtext.MarkdownRichTextRenderer;
 import dev.ikm.komet.markdown.richtext.MarkdownStyledModel;
@@ -96,6 +97,10 @@ public final class MarkdownRichText {
     private final double base;
     /** Shared Markdown engine, wired with the concept-chip decorator for grounding. */
     private final MarkdownRichTextRenderer renderer;
+    /** The inline chip decorator, held so chip typography can be forwarded (ike-issues#1050). */
+    private final ConceptChipInlineDecorator decorator;
+    /** The koncept-tree block renderer, held so chip typography can be forwarded (ike-issues#1050). */
+    private final KonceptTreeBlockRenderer trees;
 
     /**
      * Equivalent to {@link #MarkdownRichText(ViewCalculator, double, String)} with the
@@ -152,7 +157,21 @@ public final class MarkdownRichText {
     private MarkdownRichText(double base, String fontFamily,
                              ConceptChipInlineDecorator decorator, KonceptTreeBlockRenderer trees) {
         this.base = base;
+        this.decorator = decorator;
+        this.trees = trees;
         this.renderer = new MarkdownRichTextRenderer(base, fontFamily, decorator, trees);
+    }
+
+    /**
+     * Sets the label typography every chip this renderer builds renders with — the inline chips
+     * and the koncept-tree rows together (ike-issues#1050). Applies to chips built after the
+     * call; a surface that changes the setting re-renders, so no stale chip survives.
+     *
+     * @param typography the typography; {@code null} restores the default small caps
+     */
+    public void setChipTypography(KonceptLabelTypography typography) {
+        decorator.setChipTypography(typography);
+        trees.setChipTypography(typography);
     }
 
     /**

@@ -15,6 +15,8 @@
  */
 package network.ike.komet.claude.ui;
 
+import dev.ikm.komet.framework.controls.KonceptBadge;
+import dev.ikm.komet.framework.controls.KonceptLabelTypography;
 import dev.ikm.komet.markdown.richtext.BlockPiece;
 import dev.ikm.komet.markdown.richtext.BlockRenderer;
 import dev.ikm.tinkar.common.id.PublicId;
@@ -105,6 +107,8 @@ final class KonceptTreeBlockRenderer implements BlockRenderer {
     private final ViewProperties viewProperties;
     /** Base body font size (px); chips scale from it. */
     private final double base;
+    /** Label typography for the chips (ike-issues#1050); never null. */
+    private KonceptLabelTypography typography = KonceptLabelTypography.DEFAULT;
 
     KonceptTreeBlockRenderer(ViewCalculator viewCalc, double base) {
         this(viewCalc, null, base);
@@ -119,6 +123,17 @@ final class KonceptTreeBlockRenderer implements BlockRenderer {
         this.viewCalc = viewCalc;
         this.viewProperties = viewProperties;
         this.base = base;
+    }
+
+    /**
+     * Sets the label typography the rows' chips render with (ike-issues#1050). Applies to trees
+     * built after the call; the journal re-renders its transcript when the setting changes, so
+     * every visible tree follows.
+     *
+     * @param typography the typography; {@code null} restores {@link KonceptLabelTypography#DEFAULT}
+     */
+    void setChipTypography(KonceptLabelTypography typography) {
+        this.typography = (typography == null) ? KonceptLabelTypography.DEFAULT : typography;
     }
 
     @Override
@@ -324,8 +339,13 @@ final class KonceptTreeBlockRenderer implements BlockRenderer {
             // The chip factory consumes the press itself now (one behavior per atom), so the
             // RichTextArea never begins a text selection over a chip anywhere it is embedded.
             content = viewProperties != null
-                    ? KonceptChips.chip(row.cell.pid(), row.cell.sctid(), viewProperties, base)
-                    : KonceptChips.chip(row.cell.pid(), row.cell.sctid(), viewCalc, base);
+                    ? KonceptChips.chip(row.cell.pid(), row.cell.sctid(), viewProperties, base, typography)
+                    : KonceptChips.chip(row.cell.pid(), row.cell.sctid(), viewCalc, base, typography);
+            if (content instanceof KonceptBadge badge) {
+                // Stacked siblings: reserve the status-cluster slot so the identicons seat on
+                // one column — the DISCLOSURE_WIDTH precedent, one level deeper (ike-issues#1049).
+                badge.setStatusSlotReserved(true);
+            }
         } else {
             Label label = new Label((row.cell.label() == null || row.cell.label().isBlank())
                     ? "(unresolved)" : row.cell.label());
