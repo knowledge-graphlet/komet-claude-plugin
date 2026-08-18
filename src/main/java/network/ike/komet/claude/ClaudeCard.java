@@ -29,6 +29,7 @@ import dev.ikm.komet.layout.preferences.KlPreferencesFactory;
 import dev.ikm.komet.layout_engine.blueprint.CardBlueprint;
 import dev.ikm.komet.layout_engine.host.AbstractHostCard;
 import dev.ikm.komet.layout_engine.host.KlCardProvider;
+import dev.ikm.komet.layout_engine.host.MakeCardWindowEvent;
 import dev.ikm.komet.preferences.KometPreferences;
 import dev.ikm.komet.preferences.PreferencesService;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
@@ -77,6 +78,8 @@ import dev.ikm.komet.framework.dnd.KometClipboard;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
+import dev.ikm.tinkar.events.EvtBusFactory;
+import network.ike.komet.claude.instructions.InstructionEditorCard;
 import java.util.LinkedHashMap;
 import java.util.OptionalInt;
 import network.ike.komet.claude.anthropic.AnthropicClient;
@@ -534,17 +537,15 @@ public final class ClaudeCard extends AbstractHostCard {
                 .findFirst().orElse(choices.get(0)));
 
         Button openEditor = new Button("Open in Instruction Editor…");
-        openEditor.setOnAction(e -> openPromptEditor(pane));
-        Label titledHint = new Label("Titled sets are edited in their Instruction Editor tile.");
+        openEditor.setOnAction(e -> {
+            // Navigating away: the settings pane yields to the editor it just summoned.
+            pane.hide();
+            openInInstructionEditor();
+        });
+        Label titledHint = new Label(
+                "Author and edit instruction sets in the Instruction Editor; "
+                        + "Save as… there keeps a titled copy of a system default.");
         titledHint.setWrapText(true);
-        Runnable syncAffordances = () -> {
-            boolean cardLayer = selector.getValue() != null && selector.getValue().id().isBlank();
-            openEditor.setVisible(cardLayer);
-            openEditor.setManaged(cardLayer);
-            titledHint.setVisible(!cardLayer);
-            titledHint.setManaged(!cardLayer);
-        };
-        syncAffordances.run();
         selector.valueProperty().addListener((obs, was, sel) -> {
             if (sel == null) {
                 return;
@@ -558,79 +559,26 @@ public final class ClaudeCard extends AbstractHostCard {
             refreshSystemPrompt();
             preview.setText(instructionsLayer());
             pane.refreshSummaries();
-            syncAffordances.run();
         });
 
         VBox content = new VBox(6, selector, preview, openEditor, titledHint);
         return content;
     }
 
-    /** The one open prompt-editor window per card, refocused instead of duplicated. */
-    private javafx.stage.Stage promptEditorStage;
-
     /**
-     * The system-prompt editor window: a resizable, non-modal surface at writing size — the
-     * full-width view/edit Markdown pane over the instruction layer, Restore default and Save,
-     * and the fixed tool contract rendered read-only beneath. The same editor surface the
-     * skills increment will reuse for a registered skill's {@code SKILL.md}
-     * (ike-issues#1042/#1043).
+     * One editing surface (KEC 2026-08-17, ike-issues#1044): instead of a second editor
+     * window, ask the hosting journal — via the {@code Make*WindowEvent} idiom on the journal
+     * topic — to front its open Instruction Editor card, or create one when none is open.
      */
-    private void openPromptEditor(SettingsPanePopup pane) {
-        if (promptEditorStage != null && promptEditorStage.isShowing()) {
-            promptEditorStage.requestFocus();
+    private void openInInstructionEditor() {
+        java.util.UUID journalTopic = getJournalTopic();
+        if (journalTopic == null) {
+            LOG.warn("No journal topic; cannot open the Instruction Editor");
             return;
         }
-        MarkdownRichText renderer = new MarkdownRichText(safeViewProperties(),
-                MarkdownRichText.DEFAULT_BASE);
-        MarkdownEditPane instructions =
-                new MarkdownEditPane(instructionsLayer(), true, renderer::renderMarkdown);
-        instructions.setPrefSize(680, 420);
-        VBox.setVgrow(instructions, Priority.ALWAYS);
-
-        Button restoreDefault = new Button("Restore default");
-        restoreDefault.setOnAction(e -> instructions.setText(defaultInstructions()));
-        Button save = new Button("Save");
-        save.setOnAction(e -> {
-            String text = instructions.getText();
-            if (text.strip().equals(defaultInstructions().strip())) {
-                clearInstructionsOverride();
-            } else {
-                saveInstructionsOverride(text);
-            }
-            pane.refreshSummaries();
-        });
-        Region buttonSpacer = new Region();
-        HBox.setHgrow(buttonSpacer, Priority.ALWAYS);
-        HBox buttons = new HBox(8, restoreDefault, buttonSpacer, save);
-        buttons.setAlignment(Pos.CENTER_LEFT);
-
-        MarkdownEditPane contract = new MarkdownEditPane(promptCore, false, renderer::renderMarkdown);
-
-        // Tabs, not stacked scroll boxes (KEC 2026-08-17): each layer owns the whole window
-        // and grows with it — the editor maximizes the space it was given.
-        VBox instructionsTabContent = new VBox(8,
-                new Label("Stored with this card's preferences; travels with their sync."),
-                instructions, buttons);
-        instructionsTabContent.setPadding(new Insets(12));
-        VBox contractTabContent = new VBox(8, contract);
-        contractTabContent.setPadding(new Insets(12));
-        VBox.setVgrow(contract, Priority.ALWAYS);
-
-        javafx.scene.control.Tab instructionsTab =
-                new javafx.scene.control.Tab("Instructions (editable)", instructionsTabContent);
-        javafx.scene.control.Tab contractTab =
-                new javafx.scene.control.Tab("Tool contract (fixed)", contractTabContent);
-        javafx.scene.control.TabPane content =
-                new javafx.scene.control.TabPane(instructionsTab, contractTab);
-        content.setTabClosingPolicy(javafx.scene.control.TabPane.TabClosingPolicy.UNAVAILABLE);
-
-        promptEditorStage = new javafx.stage.Stage();
-        promptEditorStage.setTitle("System prompt — "
-                + preferences().get(TILE_LABEL_KEY, CARD_NAME));
-        promptEditorStage.initOwner(fxObject().getScene().getWindow());
-        promptEditorStage.setScene(new javafx.scene.Scene(content));
-        promptEditorStage.setOnHidden(e -> promptEditorStage = null);
-        promptEditorStage.show();
+        EvtBusFactory.getDefaultEvtBus().publish(journalTopic, new MakeCardWindowEvent(this,
+                MakeCardWindowEvent.FOCUS_OR_CREATE,
+                InstructionEditorCard.Factory.class.getName()));
     }
 
     /** The API-key section: the per-user key, masked, saved to shared per-user preferences. */
@@ -2609,44 +2557,6 @@ public final class ClaudeCard extends AbstractHostCard {
     /** Recomputes {@link #systemPrompt} from the current layers; the next send uses it. */
     private void refreshSystemPrompt() {
         this.systemPrompt = assembleSystemPrompt(instructionsLayer(), promptCore);
-    }
-
-    /**
-     * Persists an edited instruction layer: the payload file in this card's preferences
-     * directory, named by the preferences entry (the registration — no discovery by hardcoded
-     * magic), so it travels with the preferences git sync.
-     */
-    private void saveInstructionsOverride(String text) {
-        try {
-            Optional<Path> dir = preferences().directory();
-            if (dir.isEmpty()) {
-                LOG.warn("No preferences directory; the system-instructions edit is session-only");
-            } else {
-                Files.createDirectories(dir.get());
-                Files.writeString(dir.get().resolve(SYSTEM_INSTRUCTIONS_FILE), text,
-                        StandardCharsets.UTF_8);
-                preferences().put(PREF_SYSTEM_INSTRUCTIONS_FILE, SYSTEM_INSTRUCTIONS_FILE);
-                preferences().sync();
-            }
-        } catch (IOException | BackingStoreException e) {
-            LOG.warn("Could not save the system-instructions override", e);
-        }
-        refreshSystemPrompt();
-    }
-
-    /** Removes the instruction-layer override: entry and payload; the default is back. */
-    private void clearInstructionsOverride() {
-        try {
-            preferences().remove(PREF_SYSTEM_INSTRUCTIONS_FILE);
-            preferences().sync();
-            Optional<Path> dir = preferences().directory();
-            if (dir.isPresent()) {
-                Files.deleteIfExists(dir.get().resolve(SYSTEM_INSTRUCTIONS_FILE));
-            }
-        } catch (IOException | BackingStoreException e) {
-            LOG.warn("Could not clear the system-instructions override", e);
-        }
-        refreshSystemPrompt();
     }
 
     /*******************************************************************************

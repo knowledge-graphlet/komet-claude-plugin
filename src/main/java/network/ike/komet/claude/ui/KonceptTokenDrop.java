@@ -98,7 +98,9 @@ public final class KonceptTokenDrop {
                 if (area.getSkin() instanceof javafx.scene.control.skin.TextAreaSkin skin) {
                     at = skin.getIndex(e.getX(), e.getY()).getInsertionIndex();
                 }
-                area.insertText(at, tokens.toString());
+                // A drop below the last line can map past the document end (JavaFX 27-ea
+                // returns an out-of-range insertion index there) — clamp before inserting.
+                area.insertText(Math.clamp(at, 0, area.getLength()), tokens.toString());
                 e.setDropCompleted(true);
             }
             e.consume();

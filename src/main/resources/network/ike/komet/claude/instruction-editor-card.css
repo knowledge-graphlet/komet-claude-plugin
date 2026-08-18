@@ -1,0 +1,12 @@
+/*
+ * Instruction Editor identity (KEC 2026-08-17): the authoring card carries its own hue — a
+ * muted plum — so it reads apart from the navy sea of knowledge windows. One constant family
+ * to retune; the drawer bar matches so card and Assistant panel read as one surface.
+ */
+.instruction-editor-card .dynamic-card-tab {
+    -fx-background-color: #4e3d67;
+}
+
+.instruction-editor-card .dynamic-card-toolbar {
+    -fx-background-color: #4e3d67;
+}

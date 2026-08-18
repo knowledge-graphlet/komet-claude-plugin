@@ -18,12 +18,11 @@ package network.ike.komet.claude.instructions;
 import java.util.Locale;
 
 /**
- * The standard categories a titled instruction set is <em>intended</em> as — a classification
- * facet chosen from a closed list (KEC 2026-08-17), carried as a {@code category:} frontmatter
- * key in the portable form. Category CLASSIFIES (it drives which selectors surface a set:
- * system-prompt pickers show {@link #SYSTEM_PROMPT} and {@link #GENERAL} sets); the attachment
- * at a use site remains the enforcing act, so the editor stays roleless — declaring an intent
- * is not attaching a role.
+ * The standard categories a titled instruction set is <em>intended</em> as — a closed list
+ * where every entry names a real attachment role (KEC 2026-08-17, settled: no catch-all),
+ * carried as a {@code category:} frontmatter key in the portable form. Category CLASSIFIES
+ * (it drives which selectors surface a set); the attachment at a use site remains the
+ * enforcing act, so the editor stays roleless — declaring an intent is not attaching a role.
  */
 public enum InstructionCategory {
 
@@ -33,8 +32,11 @@ public enum InstructionCategory {
     /** Intended as an includable skill — surfaced by skill-include selectors (ike-issues#1042). */
     SKILL("Skill"),
 
-    /** No declared intent — surfaced everywhere. The default for uncategorized documents. */
-    GENERAL("General");
+    /**
+     * Intended as a card's tool contract — the fixed mechanics layer beneath the persona,
+     * surfaced by tool-contract selectors. Improved and saved in our tooling, not elsewhere.
+     */
+    TOOL_CONTRACT("Tool Contract");
 
     private final String display;
 
@@ -57,15 +59,17 @@ public enum InstructionCategory {
     }
 
     /**
-     * Parses a frontmatter value: the display form or the enum name, case-insensitive; anything
-     * else — including absence — is {@link #GENERAL}, so foreign documents import cleanly.
+     * Parses a frontmatter value: the display form or the enum name, case-insensitive.
+     * Anything else — absence, a foreign value, or the retired {@code General} — is
+     * {@link #SKILL}: a SKILL.md-form document without a recognizable declared intent
+     * <em>is</em> a skill, so foreign documents import cleanly.
      *
      * @param value the frontmatter {@code category:} value, or {@code null}
      * @return the category (never {@code null})
      */
     public static InstructionCategory parse(String value) {
         if (value == null || value.isBlank()) {
-            return GENERAL;
+            return SKILL;
         }
         String normalized = value.strip().toLowerCase(Locale.ROOT);
         for (InstructionCategory category : values()) {
@@ -75,6 +79,6 @@ public enum InstructionCategory {
                 return category;
             }
         }
-        return GENERAL;
+        return SKILL;
     }
 }

@@ -53,8 +53,9 @@ class InstructionSetFrontmatterTest {
                 """);
         assertEquals("Inclusivity review", parsed.name());
         assertEquals("Coverage near LoD", parsed.description());
-        assertEquals(InstructionCategory.GENERAL, parsed.category(),
-                "an absent category is GENERAL — foreign SKILL.md files import cleanly");
+        assertEquals(InstructionCategory.SKILL, parsed.category(),
+                "an absent category is SKILL — a SKILL.md-form document without a declared "
+                        + "intent IS a skill, so foreign files import cleanly");
         assertEquals("Body starts here.\n", parsed.body());
     }
 
@@ -63,9 +64,13 @@ class InstructionSetFrontmatterTest {
         assertEquals(InstructionCategory.SKILL, InstructionCategory.parse("skill"));
         assertEquals(InstructionCategory.SYSTEM_PROMPT, InstructionCategory.parse("System Prompt"));
         assertEquals(InstructionCategory.SYSTEM_PROMPT, InstructionCategory.parse("system_prompt"));
-        assertEquals(InstructionCategory.GENERAL, InstructionCategory.parse("persona"),
-                "an unknown value degrades to GENERAL, never a throw");
-        assertEquals(InstructionCategory.GENERAL, InstructionCategory.parse(null));
+        assertEquals(InstructionCategory.TOOL_CONTRACT, InstructionCategory.parse("Tool Contract"));
+        assertEquals(InstructionCategory.TOOL_CONTRACT, InstructionCategory.parse("tool_contract"));
+        assertEquals(InstructionCategory.SKILL, InstructionCategory.parse("persona"),
+                "an unknown value degrades to SKILL, never a throw");
+        assertEquals(InstructionCategory.SKILL, InstructionCategory.parse("General"),
+                "the retired General category migrates to SKILL on read");
+        assertEquals(InstructionCategory.SKILL, InstructionCategory.parse(null));
     }
 
     @Test

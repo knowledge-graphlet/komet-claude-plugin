@@ -19,8 +19,10 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.ToggleButton;
+import javafx.scene.control.ToggleGroup;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Region;
 import jfx.incubator.scene.control.richtext.RichTextArea;
 import jfx.incubator.scene.control.richtext.model.StyledTextModel;
 
@@ -43,7 +45,11 @@ public final class MarkdownEditPane extends BorderPane {
     private final Function<String, StyledTextModel> renderer;
     private final TextArea editor = new TextArea();
     private final RichTextArea view = new RichTextArea();
-    private final ToggleButton mode;
+    private final ToggleButton viewSegment;
+    private final ToggleButton editSegment;
+    private final HBox modeSwitch;
+    private String changeBase;
+    private java.util.function.BiFunction<String, String, StyledTextModel> changesRenderer;
 
     /**
      * Creates the pane.
@@ -60,33 +66,90 @@ public final class MarkdownEditPane extends BorderPane {
         view.setEditable(false);
         view.setWrapText(true);
         if (editable) {
-            mode = new ToggleButton("Edit");
-            mode.setTooltip(new javafx.scene.control.Tooltip(
-                    "Toggle between the rendered view and the raw Markdown editor"));
-            mode.selectedProperty().addListener((obs, was, editing) -> applyMode());
-            HBox bar = new HBox(mode);
+            // A two-state segmented switch, not a button whose label names the OTHER mode
+            // (KEC 2026-08-17): both states visible, the active one lit — no state-vs-action
+            // ambiguity. Exactly one segment is always selected.
+            viewSegment = new ToggleButton("View");
+            editSegment = new ToggleButton("Edit");
+            viewSegment.setMinWidth(Region.USE_PREF_SIZE);
+            editSegment.setMinWidth(Region.USE_PREF_SIZE);
+            ToggleGroup group = new ToggleGroup();
+            viewSegment.setToggleGroup(group);
+            editSegment.setToggleGroup(group);
+            viewSegment.setSelected(true);
+            group.selectedToggleProperty().addListener((obs, was, is) -> {
+                if (is == null && was != null) {
+                    group.selectToggle(was);
+                } else {
+                    applyMode();
+                }
+            });
+            modeSwitch = new HBox(viewSegment, editSegment);
+            modeSwitch.setAlignment(Pos.CENTER_RIGHT);
+            HBox bar = new HBox(modeSwitch);
             bar.setAlignment(Pos.CENTER_RIGHT);
             bar.setPadding(new Insets(0, 0, 4, 0));
             setTop(bar);
         } else {
-            mode = null;
+            viewSegment = null;
+            editSegment = null;
+            modeSwitch = null;
         }
         applyMode();
     }
 
-    /** Applies the current mode: the editor when toggled to edit, the re-rendered view at rest. */
+    /**
+     * Applies the current mode: the editor when toggled to edit, otherwise the view — rendered
+     * Markdown at rest, or track changes against the change base while one is set (KEC
+     * 2026-08-17: changes marked in view mode, plain Markdown in edit mode).
+     */
     private void applyMode() {
-        boolean editing = mode != null && mode.isSelected();
-        if (mode != null) {
-            mode.setText(editing ? "View" : "Edit");
-        }
+        boolean editing = editSegment != null && editSegment.isSelected();
         if (editing) {
             setCenter(editor);
             editor.requestFocus();
         } else {
-            view.setModel(renderer.apply(editor.getText()));
+            if (changeBase != null && changesRenderer != null) {
+                view.setModel(changesRenderer.apply(changeBase, editor.getText()));
+            } else {
+                view.setModel(renderer.apply(editor.getText()));
+            }
             setCenter(view);
         }
+    }
+
+    /**
+     * Enters (or refreshes) track-changes review: while a base is set, view mode renders the
+     * changes of the current buffer against it instead of the rendered Markdown.
+     *
+     * @param base            the pre-revision source the view diffs against
+     * @param changesRenderer produces the track-changes model from (base, revised)
+     */
+    public void setChangeBase(String base,
+                              java.util.function.BiFunction<String, String, StyledTextModel> changesRenderer) {
+        this.changeBase = base;
+        this.changesRenderer = changesRenderer;
+        if (editSegment == null || !editSegment.isSelected()) {
+            applyMode();
+        }
+    }
+
+    /** Leaves track-changes review; view mode returns to the rendered Markdown. */
+    public void clearChangeBase() {
+        this.changeBase = null;
+        this.changesRenderer = null;
+        if (editSegment == null || !editSegment.isSelected()) {
+            applyMode();
+        }
+    }
+
+    /**
+     * Whether the pane is in track-changes review.
+     *
+     * @return {@code true} while a change base is set
+     */
+    public boolean hasChangeBase() {
+        return changeBase != null;
     }
 
     /**
@@ -106,8 +169,8 @@ public final class MarkdownEditPane extends BorderPane {
      */
     public void setText(String markdown) {
         editor.setText(markdown == null ? "" : markdown);
-        if (mode == null || !mode.isSelected()) {
-            view.setModel(renderer.apply(editor.getText()));
+        if (editSegment == null || !editSegment.isSelected()) {
+            applyMode();
         }
     }
 
@@ -119,5 +182,31 @@ public final class MarkdownEditPane extends BorderPane {
      */
     public TextArea rawEditor() {
         return editor;
+    }
+
+    /**
+     * Sizes the rendered view to its content's height — for transcript-style hosts where the
+     * surrounding list is the one scroll surface and the snippet itself must never grow an
+     * inner scrollbar or clip.
+     */
+    public void useContentHeight() {
+        view.setUseContentHeight(true);
+    }
+
+    /**
+     * Detaches the two-state View|Edit switch for host placement: the pane drops its own
+     * toolbar row and the host slots the returned segmented control into its layout (for
+     * example a mode strip above the body), instead of a whole row spent on one control.
+     * Mode behavior stays this pane's.
+     *
+     * @return the segmented View|Edit switch (never {@code null})
+     * @throws IllegalStateException if the pane was created non-editable — it has no switch
+     */
+    public HBox detachModeSwitch() {
+        if (modeSwitch == null) {
+            throw new IllegalStateException("A non-editable pane has no view/edit switch");
+        }
+        setTop(null);
+        return modeSwitch;
     }
 }

@@ -152,7 +152,7 @@ public final class InstructionSets {
                                            String body) {
         String id = UUID.randomUUID().toString();
         InstructionSet set = new InstructionSet(id, name, description,
-                category == null ? InstructionCategory.GENERAL : category, readOnly,
+                category == null ? InstructionCategory.SKILL : category, readOnly,
                 "instruction-set-" + id + ".md");
         return write(set, body) ? Optional.of(set) : Optional.empty();
     }
@@ -173,8 +173,25 @@ public final class InstructionSets {
             return Optional.empty();
         }
         InstructionSet updated = new InstructionSet(set.id(), name, description,
-                category == null ? InstructionCategory.GENERAL : category, false, set.fileName());
+                category == null ? InstructionCategory.SKILL : category, false, set.fileName());
         return write(updated, body) ? Optional.of(updated) : Optional.empty();
+    }
+
+    /**
+     * Rewrites a seeded system default's payload in place — seed-generation maintenance of OUR
+     * read-only content only ({@link #save} stays refused for read-only sets); a user's own
+     * sets never travel this path.
+     *
+     * @param set  the read-only system default
+     * @param body the refreshed instruction body
+     * @return the registration, or empty when the set is not read-only or the write fails
+     */
+    Optional<InstructionSet> refreshSystemDefault(InstructionSet set, String body) {
+        if (!set.readOnly()) {
+            LOG.warn("Refusing to refresh non-default instruction set {}", set.id());
+            return Optional.empty();
+        }
+        return write(set, body) ? Optional.of(set) : Optional.empty();
     }
 
     /** Marks a registration read-only — the seeded-example migration's path. */
@@ -291,7 +308,7 @@ public final class InstructionSets {
             first++;
         }
         if (first >= lines.length || !lines[first].strip().equals("---")) {
-            return new Frontmatter(null, null, InstructionCategory.GENERAL, text);
+            return new Frontmatter(null, null, InstructionCategory.SKILL, text);
         }
         String name = null;
         String description = null;
@@ -345,7 +362,7 @@ public final class InstructionSets {
         return "---\n"
                 + "name: " + (name == null ? "Untitled" : name) + "\n"
                 + "description: " + (description == null ? "" : description) + "\n"
-                + "category: " + (category == null ? InstructionCategory.GENERAL : category).display() + "\n"
+                + "category: " + (category == null ? InstructionCategory.SKILL : category).display() + "\n"
                 + "---\n\n"
                 + (body == null ? "" : body);
     }
