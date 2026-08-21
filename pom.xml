@@ -148,7 +148,7 @@
         <dependency>
             <groupId>network.ike.komet</groupId>
             <artifactId>komet-grpc-plugin</artifactId>
-            <version>5</version>
+            <version>6-SNAPSHOT</version>
             <scope>provided</scope>
         </dependency>
 
