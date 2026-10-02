@@ -26,8 +26,8 @@ logs/
 # Extracted by ike-build-standards (asciidoctorconfig classifier)
 .asciidoctorconfig
 
-# Accidentally unpacked Maven artifacts
-META-INF/
+# Accidentally unpacked Maven artifacts (root only — src META-INF/services are intentional)
+/META-INF/
 
 # ike:* goal reports
 ike꞉*.md
