@@ -37,10 +37,10 @@ import java.util.regex.Pattern;
 
 /**
  * The assistant's {@link InlineDecorator}: in every rendered text run it detects component
- * identifiers — an SCTID, a UUID, or a {@code nid=…} — and follows each existence-gated one
+ * identifiers — an SCTID or a UUID — and follows each existence-gated one
  * with a <em>concept chip</em> styled like the AsciiDoc {@code k:} Koncept chip: the
  * component's LifeHash {@link Identicon} on the left and its store-resolved name in small-caps
- * inside a soft rounded pill, with the full identity (name, SCTID, UUID, nid) on hover.
+ * inside a soft rounded pill, with the full identity on hover.
  *
  * <p>Detection is format-agnostic (the model routinely drops brackets and reshapes ids into
  * tables / inline code) and existence-gated against the live store, so only real components
@@ -48,21 +48,31 @@ import java.util.regex.Pattern;
  * name is struck through — the dedicated "inactive" signal (#586). The badge and name are
  * deterministic functions of the {@link PublicId}, so a fabricated id would not match what
  * Komet displays.
+ *
+ * <p>Only a public identifier is ever resolved. A nid is local to the store that assigned it,
+ * and rendered text can come from another store — a conversation journal imported in a change
+ * set, a transcript written before a store was rebuilt — so a nid found in text would name a
+ * different component or none ({@code IKE-Network/ike-issues#1170}).
  */
 final class ConceptChipInlineDecorator implements InlineDecorator {
 
     /**
-     * Matches component identifiers in whatever shape the model reproduces them. Two families:
+     * Matches component identifiers in whatever shape the model reproduces them. Two families,
+     * and one form that is recognized only to be left alone:
      *
      * <ul>
      *   <li><b>Id-bearing {@code k:} interchange tokens</b> — {@code k:uuid=<id>[Label]},
-     *       {@code k:sctid=…}, {@code k:nid=…}, {@code k:id=…}, label optional — the deliberate
+     *       {@code k:sctid=…}, {@code k:id=…}, label optional — the deliberate
      *       interchange form the compose surface emits (#737) and the koncept-tree block uses per
      *       line. The inline grammar is <em>tight</em> (no whitespace inside the token, and the
      *       label bracket attaches directly to the id) so ordinary prose brackets after a token
      *       are never swallowed as a label; the block renderer keeps its lenient line grammar.</li>
-     *   <li><b>Bare identifiers</b> — a UUID, {@code nid=…}, or an SCTID-like number (6-18
+     *   <li><b>Bare identifiers</b> — a UUID or an SCTID-like number (6-18
      *       digits), brackets optional, however the model reshapes them.</li>
+     *   <li><b>Earlier nid forms</b> — {@code k:nid=…[Label]} and {@code nid=…}, which text
+     *       written before {@code IKE-Network/ike-issues#1170} can hold. The {@code legacy} group
+     *       consumes them whole so that their digits are never read as an SCTID; they are never
+     *       resolved and always stay literal text.</li>
      * </ul>
      *
      * Every quantifier runs over a disjoint character class, so the pattern cannot backtrack
@@ -70,9 +80,9 @@ final class ConceptChipInlineDecorator implements InlineDecorator {
      * {@link #resolve}. Package-visible for the store-free grammar tests.
      */
     static final Pattern TOKEN = Pattern.compile(
-            "k:(?<kind>sctid|uuid|nid|id)=(?<kid>[0-9a-fA-F-]+)(?:\\[(?<klabel>[^\\[\\]]*)])?"
+            "k:(?<kind>sctid|uuid|id)=(?<kid>[0-9a-fA-F-]+)(?:\\[(?<klabel>[^\\[\\]]*)])?"
+                    + "|(?<legacy>k:nid=[0-9a-fA-F-]+(?:\\[[^\\[\\]]*])?|nid=-?\\d+)"
                     + "|(?<uuid>[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
-                    + "|nid=(?<nid>-?\\d+)"
                     + "|\\b(?<sctid>\\d{6,18})\\b");
 
     /** The view used to resolve concept names for chips; may be null (icon-only fallback). */
@@ -116,7 +126,8 @@ final class ConceptChipInlineDecorator implements InlineDecorator {
      * resolved, the whole token renders as just its chip — which carries the store-resolved name,
      * never the token's possibly stale {@code [label]} — and the chip's plain-text projection is
      * the original token, so copying rendered prose round-trips as interchange. An unresolvable
-     * token of either family stays literal text. Returning pieces (rather than writing into a
+     * token of either family stays literal text, and so does every earlier nid form, whatever
+     * the open store holds. Returning pieces (rather than writing into a
      * paragraph builder) is what lets the chips render inside table cells as well as in flowing
      * text.
      */
@@ -129,6 +140,11 @@ final class ConceptChipInlineDecorator implements InlineDecorator {
         Matcher m = TOKEN.matcher(text);
         int last = 0;
         while (m.find()) {
+            if (m.group("legacy") != null) {
+                // An earlier nid form: never resolved. No pieces are emitted and `last` stays
+                // put, so the literal text is flushed with whatever follows it.
+                continue;
+            }
             PublicId id = resolve(m);
             if (m.group("kind") != null) {
                 // A k: interchange token. Resolved: the chip replaces the token machinery text.
@@ -209,7 +225,9 @@ final class ConceptChipInlineDecorator implements InlineDecorator {
 
     /**
      * Resolves a matched token to a {@link PublicId} that actually exists in the store, or
-     * null. The {@code hasPublicId} gate is what makes bare-number matching safe.
+     * null. The {@code hasPublicId} gate is what makes bare-number matching safe. The public id
+     * is always built from the text's own UUID or SCTID; nothing here asks the store which
+     * component a number names.
      */
     private static PublicId resolve(Matcher m) {
         try {
@@ -218,8 +236,6 @@ final class ConceptChipInlineDecorator implements InlineDecorator {
                 pid = interchangeId(m.group("kind"), m.group("kid"));
             } else if (m.group("uuid") != null) {
                 pid = PublicIds.of(UUID.fromString(m.group("uuid")));
-            } else if (m.group("nid") != null) {
-                pid = PrimitiveData.publicId(Integer.parseInt(m.group("nid")));
             } else if (m.group("sctid") != null) {
                 pid = PublicIds.of(UuidUtil.fromSNOMED(m.group("sctid")));
             } else {
@@ -243,7 +259,6 @@ final class ConceptChipInlineDecorator implements InlineDecorator {
         return switch (kind) {
             case "uuid" -> PublicIds.of(UUID.fromString(value));
             case "sctid" -> PublicIds.of(UuidUtil.fromSNOMED(value));
-            case "nid" -> PrimitiveData.publicId(Integer.parseInt(value));
             case "id" -> genericId(value);
             default -> null;
         };
@@ -264,7 +279,7 @@ final class ConceptChipInlineDecorator implements InlineDecorator {
      * on hover; the name is struck through when the component is inactive.
      *
      * @param pid   the resolved, existing component id
-     * @param sctid the matched SCTID for the tooltip, or null if matched by UUID/nid
+     * @param sctid the matched SCTID for the tooltip, or null if matched by UUID
      */
     private javafx.scene.Node conceptChip(PublicId pid, String sctid) {
         return viewProperties != null

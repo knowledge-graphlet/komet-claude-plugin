@@ -43,6 +43,7 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.util.StringConverter;
+import network.ike.komet.claude.koncept.ComponentText;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -451,8 +452,7 @@ public final class PatternGraphPanel extends VBox {
     }
 
     private static String label(ViewCalculator view, int nid) {
-        return view.getFullyQualifiedNameText(nid)
-                .orElseGet(() -> view.getPreferredDescriptionTextWithFallbackOrNid(nid));
+        return ComponentText.fullyQualifiedName(view, nid);
     }
 
     /**

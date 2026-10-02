@@ -15,8 +15,8 @@
  */
 package network.ike.komet.claude.semantic;
 
+import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
-import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.util.uuid.UuidUtil;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.ConceptEntity;
@@ -25,6 +25,7 @@ import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.entity.PatternEntity;
 import dev.ikm.tinkar.entity.SemanticEntity;
+import network.ike.komet.claude.koncept.ComponentText;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -86,7 +87,7 @@ public final class SemanticGrounding implements Grounder {
         if (requiredKind != null && kind != requiredKind) {
             return Optional.empty();
         }
-        return Optional.of(build(nid, kind));
+        return build(nid, kind);
     }
 
     /** Resolves an SCTID, UUID, or comma-joined PublicId array to a nid, WITHOUT walking up to a concept. */
@@ -149,27 +150,21 @@ public final class SemanticGrounding implements Grounder {
         return null;
     }
 
-    private ComponentSlot.Grounded build(int nid, ComponentSlot.Kind kind) {
-        String label = view.getFullyQualifiedNameText(nid)
-                .orElseGet(() -> view.getPreferredDescriptionTextWithFallbackOrNid(nid));
-        UUID[] uuids = PrimitiveData.publicId(nid).asUuidArray();
-        String publicId = publicIdKey(uuids, nid);
-        String identifier = uuids.length > 0 ? uuids[0].toString() : "nid=" + nid;
-        return new ComponentSlot.Grounded(nid, kind, publicId, identifier, label);
-    }
-
-    /** The comma-joined PublicId UUID array — the durable, coordinate-independent round-trip key. */
-    private static String publicIdKey(UUID[] uuids, int nid) {
-        if (uuids.length == 0) {
-            return "nid=" + nid;
+    /**
+     * Builds the grounded slot of a component. Its key and its identifier come from the public
+     * id — the durable, coordinate-independent round-trip key — and never from the nid
+     * ({@code IKE-Network/ike-issues#1170}).
+     *
+     * @return the grounded slot, or empty when the store has no public id for the component
+     */
+    private Optional<ComponentSlot.Grounded> build(int nid, ComponentSlot.Kind kind) {
+        Optional<PublicId> publicId = ComponentText.publicId(nid);
+        if (publicId.isEmpty()) {
+            return Optional.empty();
         }
-        StringBuilder key = new StringBuilder();
-        for (int i = 0; i < uuids.length; i++) {
-            if (i > 0) {
-                key.append(',');
-            }
-            key.append(uuids[i]);
-        }
-        return key.toString();
+        String label = ComponentText.fullyQualifiedName(view, nid);
+        String identifier = publicId.get().asUuidArray()[0].toString();
+        return Optional.of(new ComponentSlot.Grounded(
+                nid, kind, ComponentText.publicIdKey(publicId.get()), identifier, label));
     }
 }

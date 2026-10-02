@@ -21,6 +21,7 @@ import dev.ikm.tinkar.entity.PatternEntityVersion;
 import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.anthropic.AskListener;
+import network.ike.komet.claude.koncept.ComponentText;
 import network.ike.komet.claude.tools.GraphTools;
 
 import java.util.ArrayList;
@@ -120,7 +121,8 @@ public final class SemanticLift {
         Latest<PatternEntityVersion> latestPattern = view.stampCalculator().latest(patternNid);
         if (!latestPattern.isPresent()) {
             return new Result(List.of(), false,
-                    "No active pattern version is available to lift a semantic for (nid " + patternNid + ").");
+                    "No active pattern version is available to lift a semantic for (pattern "
+                            + ComponentText.identifier(patternNid) + ").");
         }
         PatternFields fields = PatternFields.from(patternNid, latestPattern.get(), view);
 

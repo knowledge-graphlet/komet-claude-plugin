@@ -16,17 +16,17 @@
 package network.ike.komet.claude.ui;
 
 import dev.ikm.komet.framework.dnd.KometClipboard;
-import dev.ikm.tinkar.common.id.PublicId;
-import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import javafx.scene.control.TextArea;
 import javafx.scene.input.DataFormat;
 import javafx.scene.input.DragEvent;
 import javafx.scene.input.Dragboard;
 import javafx.scene.input.TransferMode;
+import network.ike.komet.claude.koncept.ComponentText;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -57,11 +57,12 @@ public final class KonceptTokenDrop {
 
     /**
      * Installs the drop handlers: droppable komet content inserts {@code k:uuid=<id>[Name]}
-     * tokens at the caret, one per dropped component, space-joined.
+     * tokens at the caret, one per dropped component, space-joined. A component the store has
+     * no public id for inserts nothing.
      *
      * @param area     the raw editor
      * @param viewCalc supplies the view for name resolution; a {@code null} supplier result
-     *                 falls back to the store's default text
+     *                 yields tokens without a label
      */
     public static void install(TextArea area, Supplier<ViewCalculator> viewCalc) {
         area.addEventFilter(DragEvent.DRAG_OVER, e -> {
@@ -87,10 +88,14 @@ public final class KonceptTokenDrop {
             if (nids.length > 0) {
                 StringBuilder tokens = new StringBuilder();
                 for (int nid : nids) {
+                    Optional<String> token = tokenFor(nid, viewCalc);
+                    if (token.isEmpty()) {
+                        continue;
+                    }
                     if (!tokens.isEmpty()) {
                         tokens.append(' ');
                     }
-                    tokens.append(tokenFor(nid, viewCalc));
+                    tokens.append(token.get());
                 }
                 // The tokens land where they were DROPPED, not at whatever position the caret
                 // last held (which, on an unfocused editor, is the start).
@@ -107,22 +112,19 @@ public final class KonceptTokenDrop {
         });
     }
 
-    /** The dropped component's {@code k:} token: primordial UUID plus the view's name. */
-    private static String tokenFor(int nid, Supplier<ViewCalculator> viewCalc) {
-        PublicId pid = PrimitiveData.publicId(nid);
-        String name = null;
+    /**
+     * The dropped component's badge token: its first UUID plus the view's name, or empty when the
+     * store has no public id for it. The token never holds a nid
+     * ({@code IKE-Network/ike-issues#1170}).
+     */
+    private static Optional<String> tokenFor(int nid, Supplier<ViewCalculator> viewCalc) {
+        ViewCalculator calculator = null;
         try {
-            ViewCalculator calculator = viewCalc == null ? null : viewCalc.get();
-            if (calculator != null) {
-                name = calculator.getDescriptionText(nid).orElse(null);
-            }
+            calculator = viewCalc == null ? null : viewCalc.get();
         } catch (RuntimeException e) {
-            LOG.warn("Could not resolve a name for dropped nid {}", nid, e);
+            LOG.warn("No view to name the dropped component; its token has no label", e);
         }
-        if (name == null || name.isBlank()) {
-            name = PrimitiveData.text(nid);
-        }
-        return KonceptTokens.token("uuid", pid.asUuidArray()[0].toString(), name);
+        return ComponentText.badge(calculator, nid);
     }
 
     private static boolean accepts(Dragboard dragboard) {

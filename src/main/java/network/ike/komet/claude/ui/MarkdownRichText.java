@@ -37,7 +37,7 @@ import java.util.List;
  *
  * <p>The grounding behaviour lives in {@link ConceptChipInlineDecorator}, the
  * {@link dev.ikm.komet.markdown.richtext.InlineDecorator} handed to the renderer: any concept
- * identifier the assistant reports — an SCTID, UUID, or {@code nid=…} — is followed by a
+ * identifier the assistant reports — an SCTID or a UUID — is followed by a
  * <em>concept chip</em> (LifeHash identicon + store-resolved name), existence-gated against
  * the live store and struck through when the component is inactive (#586). Block structure is
  * dispatched the same way: a {@code koncept-tree} fenced block routes to

@@ -25,6 +25,7 @@ import javafx.event.ActionEvent;
 import javafx.scene.control.Alert;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
+import network.ike.komet.claude.koncept.ComponentText;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -70,7 +71,7 @@ public final class CopyKonceptHtmlAction extends AbstractActionSuggested {
         ViewCalculator view = viewCalculator();
         WORKER.submit(() -> {
             try {
-                String label = view.getPreferredDescriptionTextWithFallbackOrNid(nid);
+                String label = ComponentText.preferredName(view, nid);
                 String html = new HtmlKonceptRenderer(view).render(nid);
                 Platform.runLater(() -> {
                     ClipboardContent content = new ClipboardContent();

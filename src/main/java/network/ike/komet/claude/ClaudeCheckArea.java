@@ -28,6 +28,7 @@ import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.terms.EntityFacade;
 import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.anthropic.AnthropicTool;
+import network.ike.komet.claude.koncept.ComponentText;
 import network.ike.komet.claude.tools.GraphTools;
 
 import java.util.ArrayList;
@@ -112,6 +113,24 @@ public final class ClaudeCheckArea extends AbstractCheckArea {
         this.criterion = (criterion == null || criterion.isBlank()) ? DEFAULT_CRITERION : criterion;
     }
 
+    /**
+     * The request that opens a concept check: the concept under review, the criterion, and what
+     * to do. The concept is named to the model by its public id, the form the graph tools accept
+     * and report — never by its nid ({@code IKE-Network/ike-issues#1170}). Package-visible for
+     * the store-backed test.
+     *
+     * @param view       the view that selects the concept's name
+     * @param conceptNid the concept under review
+     * @param criterion  the criterion it is checked against
+     * @return the user message of the check request
+     */
+    static String checkRequest(ViewCalculator view, int conceptNid, String criterion) {
+        return "Concept under review: " + ComponentText.preferredName(view, conceptNid)
+                + "  [" + ComponentText.identifier(conceptNid) + "].\n"
+                + "Criterion: " + criterion + "\n"
+                + "Ground your assessment with the graph tools, then call report_result once.";
+    }
+
     @Override
     protected CheckResult evaluate(EntityFacade item, ViewProperties viewProperties) {
         if (viewProperties == null) {
@@ -123,15 +142,12 @@ public final class ClaudeCheckArea extends AbstractCheckArea {
         }
         String model = PreferencesService.userPreferences().get(PREF_MODEL, AnthropicClient.DEFAULT_MODEL);
         ViewCalculator viewCalculator = viewProperties.calculator();
-        String conceptName = viewCalculator.getPreferredDescriptionTextWithFallbackOrNid(item.nid());
 
         AtomicReference<CheckResult> verdict = new AtomicReference<>();
         List<AnthropicTool> allTools = new ArrayList<>(new GraphTools(() -> viewCalculator).tools());
         allTools.add(reportResultTool(verdict));
 
-        String userMessage = "Concept under review: " + conceptName + " (nid " + item.nid() + ").\n"
-                + "Criterion: " + criterion + "\n"
-                + "Ground your assessment with the graph tools, then call report_result once.";
+        String userMessage = checkRequest(viewCalculator, item.nid(), criterion);
 
         AnthropicClient client = new AnthropicClient(apiKey, model, MAX_TOKENS);
         String reply = client.ask(SYSTEM_PROMPT, allTools, userMessage);

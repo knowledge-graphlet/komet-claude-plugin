@@ -105,6 +105,21 @@ class KonceptTreeBlockRendererTest {
     }
 
     @Test
+    void aTreeWithAnEarlierNidLineStillParsesAsATree() {
+        // A tree written before IKE-Network/ike-issues#1170 can hold a k:nid= line. It must not
+        // abort the parse — one line would turn the whole tree into preformatted code. The line
+        // parses; it is resolvePid that refuses to resolve it (asserted against a live store by
+        // NidInTextIT), so the node shows its authoring label.
+        String body = "k:sctid=772222008[Medical devices]\n  k:nid=-2147481234[Microbiology device]\n";
+        List<KonceptTreeBlockRenderer.ParsedNode> nodes = KonceptTreeBlockRenderer.parse(body);
+        assertEquals(2, nodes.size());
+        assertEquals("nid", nodes.get(1).kind());
+        assertEquals("-2147481234", nodes.get(1).value());
+        assertEquals("Microbiology device", nodes.get(1).label());
+        assertEquals(1, RENDERER.render(TAG, body, StyleAttributeMap.EMPTY).size(), "still one tree block");
+    }
+
+    @Test
     void parseReturnsEmptyForBlankOrTaglessBody() {
         assertTrue(KonceptTreeBlockRenderer.parse("").isEmpty());
         assertTrue(KonceptTreeBlockRenderer.parse("   \n  \n").isEmpty());

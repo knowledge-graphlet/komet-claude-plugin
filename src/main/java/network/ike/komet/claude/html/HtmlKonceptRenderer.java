@@ -25,6 +25,7 @@ import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityVersion;
 import dev.ikm.tinkar.entity.StampEntity;
 import dev.ikm.komet.framework.controls.KonceptStatus;
+import network.ike.komet.claude.koncept.ComponentText;
 import network.ike.komet.claude.koncept.ConceptDefinition;
 import network.ike.komet.claude.koncept.KompendiumUrls;
 import network.ike.komet.claude.koncept.KonceptIdenticon;
@@ -380,9 +381,12 @@ public final class HtmlKonceptRenderer {
         return sb.append("</tr>").toString();
     }
 
-    /** The view's coordinate-preferred description, else the nid — the badge's own resolution (#942). */
+    /**
+     * The view's coordinate-preferred description — the badge's own resolution (#942) — else the
+     * component's UUID; never a nid, since the HTML leaves the store ({@code IKE-Network/ike-issues#1170}).
+     */
     private String name(int nid) {
-        return view.getDescriptionTextOrNid(nid);
+        return ComponentText.name(view, nid);
     }
 
     private static String escape(String text) {
