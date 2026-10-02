@@ -261,9 +261,13 @@
                             <includes>
                                 <include>**/*IT.java</include>
                             </includes>
+                            <!-- Lucene 10.5.1 turns its Vector API code on only up to Java 26 and warns on 27.
+                                 The property raises that limit; the full suite passes with it. Drop it when
+                                 a Lucene release supports Java 27. -->
                             <argLine>
                                 --enable-preview
                                 --add-modules jdk.incubator.vector
+                                -Dorg.apache.lucene.vectorization.upperJavaFeatureVersion=27
                                 --enable-native-access=ALL-UNNAMED
                                 --add-opens java.base/java.lang=ALL-UNNAMED
                                 --add-opens java.base/java.util=ALL-UNNAMED
