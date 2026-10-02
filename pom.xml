@@ -269,6 +269,7 @@
                                 --add-modules jdk.incubator.vector
                                 -Dorg.apache.lucene.vectorization.upperJavaFeatureVersion=27
                                 --enable-native-access=ALL-UNNAMED
+                                --sun-misc-unsafe-memory-access=allow
                                 --add-opens java.base/java.lang=ALL-UNNAMED
                                 --add-opens java.base/java.util=ALL-UNNAMED
                                 --add-opens java.base/java.lang.reflect=ALL-UNNAMED
