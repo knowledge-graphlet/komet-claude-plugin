@@ -195,6 +195,17 @@
             <groupId>com.sparrowwallet</groupId>
             <artifactId>toucan</artifactId>
         </dependency>
+        <!-- The shared test logging configuration (log4j2-test.xml); a library ships none of its own. -->
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>test-logging</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-jul</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -270,6 +281,7 @@
                                 -Dorg.apache.lucene.vectorization.upperJavaFeatureVersion=27
                                 --enable-native-access=ALL-UNNAMED
                                 --sun-misc-unsafe-memory-access=allow
+                                -Djava.util.logging.manager=org.apache.logging.log4j.jul.LogManager
                                 --add-opens java.base/java.lang=ALL-UNNAMED
                                 --add-opens java.base/java.util=ALL-UNNAMED
                                 --add-opens java.base/java.lang.reflect=ALL-UNNAMED
