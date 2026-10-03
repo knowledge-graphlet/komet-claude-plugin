@@ -27,6 +27,7 @@ import org.junit.jupiter.api.TestInstance;
 
 import java.io.File;
 import java.util.Optional;
+import org.junit.jupiter.api.Tag;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -43,6 +44,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * pipeline <em>completes and produces structure or guidance</em> — not specific clinical groundings.
  * Richer, deterministic lift assertions arrive when full terminologies are loadable.
  */
+@Tag("external") // TestTags.EXTERNAL: needs an Anthropic API key; run with -Pexternal
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class SemanticLiftIT {
 
