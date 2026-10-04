@@ -28,6 +28,7 @@ import dev.ikm.tinkar.composer.assembler.SemanticAssembler;
 import dev.ikm.tinkar.composer.template.FullyQualifiedName;
 import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
+import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
@@ -115,8 +116,8 @@ public final class JournalStore {
             return true;
         }
         try {
-            return EntityService.get()
-                    .getEntity(EntityService.get().nidForPublicId(proxy.publicId()))
+            return EntityHandle.get(EntityService.get().nidForPublicId(proxy.publicId()))
+                    .entity().filter(e -> !e.canceled())
                     .isEmpty();
         } catch (RuntimeException e) {
             return true;
@@ -368,13 +369,13 @@ public final class JournalStore {
      * @return the head version, or {@code null} when none is committed
      */
     private static SemanticEntityVersion manifestHead(int manifestNid) {
-        Optional<SemanticEntity<SemanticEntityVersion>> entity =
-                EntityService.get().getEntity(manifestNid);
-        if (entity.isEmpty()) {
+        SemanticEntity<SemanticEntityVersion> entity =
+                EntityHandle.get(manifestNid).asSemantic().filter(e -> !e.canceled()).orElse(null);
+        if (entity == null) {
             return null;
         }
         SemanticEntityVersion head = null;
-        for (SemanticEntityVersion version : entity.get().versions()) {
+        for (SemanticEntityVersion version : entity.versions()) {
             if (version.time() == Long.MAX_VALUE) {
                 continue;   // uncommitted sentinel — not an append base
             }

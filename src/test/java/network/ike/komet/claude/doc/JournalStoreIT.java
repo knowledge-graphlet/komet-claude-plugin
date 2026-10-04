@@ -19,6 +19,7 @@ import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
+import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import org.junit.jupiter.api.BeforeAll;
@@ -107,13 +108,13 @@ class JournalStoreIT {
     void secondAppendGrowsTheManifestAsANewVersionInOrder() {
         PublicId anchor = store.appendExchange(null, "Growing conversation", "u1", "a1");
         int manifestNid = soleManifestNid(anchor);
-        int versionsAfterFirst = EntityService.get().getEntityFast(manifestNid).versions().size();
+        int versionsAfterFirst = EntityHandle.get(manifestNid).expectSemantic().versions().size();
 
         PublicId confirmed = store.appendExchange(anchor, "Growing conversation", "u2", "a2");
         assertEquals(anchor, confirmed, "append to an existing journal confirms the same anchor");
         assertEquals(manifestNid, soleManifestNid(anchor), "still exactly one manifest");
         assertEquals(versionsAfterFirst + 1,
-                EntityService.get().getEntityFast(manifestNid).versions().size(),
+                EntityHandle.get(manifestNid).expectSemantic().versions().size(),
                 "each exchange appends exactly one manifest version (semantic re-compose merges)");
 
         List<JournalStore.TurnRecord> turns = store.load(anchor).orElseThrow();
@@ -157,8 +158,8 @@ class JournalStoreIT {
     }
 
     private static int versionCount(PublicId publicId) {
-        return EntityService.get()
-                .getEntityFast(EntityService.get().nidForPublicId(publicId))
+        return EntityHandle.get(EntityService.get().nidForPublicId(publicId))
+                .expectEntity()
                 .versions().size();
     }
 
