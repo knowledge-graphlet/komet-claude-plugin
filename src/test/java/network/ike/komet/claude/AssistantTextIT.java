@@ -19,6 +19,8 @@ import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.EntityService;
+import dev.ikm.tinkar.entity.SemanticEntity;
+import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.TinkarTerm;
@@ -134,7 +136,7 @@ class AssistantTextIT {
     @Test
     void theSemanticsOfAConceptAreWrittenWithoutANidWhenNothingHasADescription() {
         for (EntityFacade subject : SUBJECTS) {
-            int attached = EntityService.get().semanticNidsForComponent(subject.nid()).length;
+            int attached = (int) EntityService.get().semanticsForComponent(subject.nid()).count();
             assertTrue(attached > 0, subject.description() + " has semantics attached");
 
             String text = run(undescribed, "concept_semantics", Map.of("id", uuidOf(subject)));
@@ -151,8 +153,10 @@ class AssistantTextIT {
     @Test
     void oneSemanticIsWrittenWithoutANidWhenNothingHasADescription() {
         for (EntityFacade subject : SUBJECTS) {
-            for (int semanticNid : EntityService.get().semanticNidsForComponent(subject.nid())) {
-                String semanticUuid = PrimitiveData.publicId(semanticNid).asUuidArray()[0].toString();
+            for (SemanticEntity<SemanticEntityVersion> semantic
+                    : EntityService.get().semanticsForComponent(subject.nid()).toList()) {
+                int semanticNid = semantic.nid();
+                String semanticUuid = semantic.publicId().asUuidArray()[0].toString();
                 for (ViewCalculator calculator : List.of(view, undescribed)) {
                     String text = run(calculator, "semantic_info", Map.of("id", semanticUuid));
                     assertTrue(text.startsWith("Pattern: "), "the semantic is written: " + text);

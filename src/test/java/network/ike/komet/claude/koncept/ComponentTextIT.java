@@ -20,11 +20,11 @@ import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
-import dev.ikm.tinkar.entity.Entity;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.entity.PatternEntityVersion;
 import dev.ikm.tinkar.entity.SemanticEntity;
+import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.TinkarTerm;
@@ -36,6 +36,7 @@ import org.junit.jupiter.api.TestInstance;
 import java.io.File;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -219,10 +220,11 @@ class ComponentTextIT {
 
     /** The nid of a description of English Language. */
     private static int aDescriptionSemanticNid() {
-        int[] descriptionNids = EntityService.get().semanticNidsForComponentOfPattern(
-                TinkarTerm.ENGLISH_LANGUAGE.nid(), TinkarTerm.DESCRIPTION_PATTERN.nid());
-        assertTrue(descriptionNids.length > 0, "English Language must have description semantics");
-        return descriptionNids[0];
+        Optional<SemanticEntity<SemanticEntityVersion>> description = EntityService.get()
+                .semanticsForComponentOfPattern(TinkarTerm.ENGLISH_LANGUAGE.nid(), TinkarTerm.DESCRIPTION_PATTERN.nid())
+                .findFirst();
+        assertTrue(description.isPresent(), "English Language must have description semantics");
+        return description.get().nid();
     }
 
     /**
@@ -231,12 +233,11 @@ class ComponentTextIT {
      */
     private int aSemanticThatIsNotADescription() {
         EntityFacade concept = TinkarTerm.ENGLISH_LANGUAGE;
-        for (int semanticNid : EntityService.get().semanticNidsForComponent(concept.nid())) {
-            Entity<?> entity = EntityHandle.getEntityOrThrow(semanticNid);
-            if (entity instanceof SemanticEntity<?> semantic
-                    && semantic.patternNid() != TinkarTerm.DESCRIPTION_PATTERN.nid()
-                    && view.getDescriptionText(semanticNid).isEmpty()) {
-                return semanticNid;
+        for (SemanticEntity<SemanticEntityVersion> semantic
+                : EntityService.get().semanticsForComponent(concept.nid()).toList()) {
+            if (semantic.patternNid() != TinkarTerm.DESCRIPTION_PATTERN.nid()
+                    && view.getDescriptionText(semantic.nid()).isEmpty()) {
+                return semantic.nid();
             }
         }
         throw new AssertionError("English Language must have a semantic that is not a description");

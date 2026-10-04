@@ -272,17 +272,18 @@ public final class JournalStore {
         // open (an empty prior list would orphan every earlier turn).
         IntIdList priorElements = IntIds.list.empty();
         Semantic manifest;
-        int[] manifestNids = anchorNew ? new int[0]
-                : EntityService.get().semanticNidsForComponentOfPattern(
+        List<SemanticEntity<SemanticEntityVersion>> manifests = anchorNew ? List.of()
+                : EntityService.get().semanticsForComponentOfPattern(
                         EntityService.get().nidForPublicId(anchorId),
-                        RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN.nid());
-        if (manifestNids.length > 0) {
-            if (manifestNids.length > 1) {
+                        RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN.nid()).toList();
+        if (!manifests.isEmpty()) {
+            if (manifests.size() > 1) {
                 LOG.warn("Journal anchor {} carries {} manifests; appending to the first",
-                        anchorId.idString(), manifestNids.length);
+                        anchorId.idString(), manifests.size());
             }
-            manifest = Semantic.make(PrimitiveData.publicId(manifestNids[0]));
-            SemanticEntityVersion head = manifestHead(manifestNids[0]);
+            SemanticEntity<SemanticEntityVersion> manifestEntity = manifests.getFirst();
+            manifest = Semantic.make(manifestEntity.publicId());
+            SemanticEntityVersion head = manifestHead(manifestEntity);
             if (head == null) {
                 throw new IllegalStateException("Journal manifest for " + anchorId.idString()
                         + " has no committed version; refusing an append that would orphan prior turns");
@@ -365,13 +366,11 @@ public final class JournalStore {
      * from the chronology (no coordinate filtering — the append base is the newest write, period).
      * Versions carrying the uncommitted sentinel time are ignored.
      *
-     * @param manifestNid the manifest semantic's nid
+     * @param entity the manifest semantic
      * @return the head version, or {@code null} when none is committed
      */
-    private static SemanticEntityVersion manifestHead(int manifestNid) {
-        SemanticEntity<SemanticEntityVersion> entity =
-                EntityHandle.get(manifestNid).asSemantic().filter(e -> !e.canceled()).orElse(null);
-        if (entity == null) {
+    private static SemanticEntityVersion manifestHead(SemanticEntity<SemanticEntityVersion> entity) {
+        if (entity.canceled()) {
             return null;
         }
         SemanticEntityVersion head = null;
@@ -417,18 +416,18 @@ public final class JournalStore {
         if (calculator == null) {
             return Optional.empty();
         }
-        int[] manifestNids = EntityService.get().semanticNidsForComponentOfPattern(
+        List<SemanticEntity<SemanticEntityVersion>> manifests = EntityService.get().semanticsForComponentOfPattern(
                 EntityService.get().nidForPublicId(anchor),
-                RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN.nid());
-        if (manifestNids.length == 0) {
+                RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN.nid()).toList();
+        if (manifests.isEmpty()) {
             return Optional.empty();
         }
-        if (manifestNids.length > 1) {
+        if (manifests.size() > 1) {
             LOG.warn("Journal anchor {} carries {} manifests; loading the first",
-                    anchor.idString(), manifestNids.length);
+                    anchor.idString(), manifests.size());
         }
         Latest<SemanticEntityVersion> manifest =
-                calculator.stampCalculator().latestSemanticVersion(manifestNids[0]);
+                calculator.stampCalculator().latestSemanticVersion(manifests.getFirst());
         if (!manifest.isPresent()) {
             return Optional.empty();
         }

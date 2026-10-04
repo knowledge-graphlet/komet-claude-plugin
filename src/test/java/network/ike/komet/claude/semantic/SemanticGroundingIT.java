@@ -19,6 +19,8 @@ import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.EntityService;
+import dev.ikm.tinkar.entity.SemanticEntity;
+import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.TinkarTerm;
@@ -125,10 +127,11 @@ class SemanticGroundingIT {
 
     /** The nid of a description semantic on English Language — a stable non-concept component to ground. */
     private static int aDescriptionSemanticNid() {
-        int[] descriptionNids = EntityService.get().semanticNidsForComponentOfPattern(
-                TinkarTerm.ENGLISH_LANGUAGE.nid(), TinkarTerm.DESCRIPTION_PATTERN.nid());
-        assertTrue(descriptionNids.length > 0, "English Language must carry description semantics");
-        return descriptionNids[0];
+        Optional<SemanticEntity<SemanticEntityVersion>> description = EntityService.get()
+                .semanticsForComponentOfPattern(TinkarTerm.ENGLISH_LANGUAGE.nid(), TinkarTerm.DESCRIPTION_PATTERN.nid())
+                .findFirst();
+        assertTrue(description.isPresent(), "English Language must carry description semantics");
+        return description.get().nid();
     }
 
     private static String uuidOf(EntityFacade facade) {

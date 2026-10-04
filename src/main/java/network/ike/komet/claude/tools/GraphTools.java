@@ -261,21 +261,21 @@ public final class GraphTools {
                     EntityService es = EntityService.get();
                     StringBuilder sb = new StringBuilder(nameAndId(v, nid)).append("\n\n");
 
-                    int[] rawInfNav = es.semanticNidsForComponentOfPattern(
-                            nid, TinkarTerm.INFERRED_NAVIGATION_PATTERN.nid());
-                    int[] rawStaNav = es.semanticNidsForComponentOfPattern(
-                            nid, TinkarTerm.STATED_NAVIGATION_PATTERN.nid());
-                    int[] rawInfAx = es.semanticNidsForComponentOfPattern(
-                            nid, TinkarTerm.EL_PLUS_PLUS_INFERRED_AXIOMS_PATTERN.nid());
-                    int[] rawStaAx = es.semanticNidsForComponentOfPattern(
-                            nid, TinkarTerm.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN.nid());
+                    List<SemanticEntity<SemanticEntityVersion>> rawInfNav = es.semanticsForComponentOfPattern(
+                            nid, TinkarTerm.INFERRED_NAVIGATION_PATTERN.nid()).toList();
+                    long rawStaNav = es.semanticsForComponentOfPattern(
+                            nid, TinkarTerm.STATED_NAVIGATION_PATTERN.nid()).count();
+                    long rawInfAx = es.semanticsForComponentOfPattern(
+                            nid, TinkarTerm.EL_PLUS_PLUS_INFERRED_AXIOMS_PATTERN.nid()).count();
+                    long rawStaAx = es.semanticsForComponentOfPattern(
+                            nid, TinkarTerm.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN.nid()).count();
                     sb.append("RAW store semantics (no view filter):\n")
-                            .append("  inferred-nav: ").append(rawInfNav.length).append('\n')
-                            .append("  stated-nav: ").append(rawStaNav.length).append('\n')
-                            .append("  inferred-axiom: ").append(rawInfAx.length).append('\n')
-                            .append("  stated-axiom: ").append(rawStaAx.length).append('\n');
-                    if (rawInfNav.length > 0) {
-                        Latest<SemanticEntityVersion> latest = v.stampCalculator().latest(rawInfNav[0]);
+                            .append("  inferred-nav: ").append(rawInfNav.size()).append('\n')
+                            .append("  stated-nav: ").append(rawStaNav).append('\n')
+                            .append("  inferred-axiom: ").append(rawInfAx).append('\n')
+                            .append("  stated-axiom: ").append(rawStaAx).append('\n');
+                    if (!rawInfNav.isEmpty()) {
+                        Latest<SemanticEntityVersion> latest = v.stampCalculator().latest(rawInfNav.getFirst());
                         sb.append("  inferred-nav[0] latest present under THIS view's STAMP? ")
                                 .append(latest.isPresent()).append('\n');
                     }
@@ -299,11 +299,11 @@ public final class GraphTools {
                     }
 
                     sb.append("\nVERDICT: ");
-                    if ((rawInfNav.length > 0 && parents == 0) || (rawInfAx.length > 0 && !infAx.isPresent())) {
+                    if ((!rawInfNav.isEmpty() && parents == 0) || (rawInfAx > 0 && !infAx.isPresent())) {
                         sb.append("RAW DATA EXISTS BUT THIS VIEW RETURNS EMPTY — the tools are on the wrong view "
                                 + "coordinate (its STAMP path/module filter excludes the loaded data; likely the "
                                 + "DEFAULT view, not the journal view).");
-                    } else if (rawInfNav.length == 0 && rawInfAx.length == 0) {
+                    } else if (rawInfNav.isEmpty() && rawInfAx == 0) {
                         sb.append("No raw nav/axiom data under the standard patterns — data genuinely absent for "
                                 + "this concept.");
                     } else {
@@ -350,7 +350,7 @@ public final class GraphTools {
                         return "No id provided.";
                     }
                     String trimmed = id.trim();
-                    // Semantic traversal (semanticNidsForComponent) is not served
+                    // Semantic traversal (semanticsForComponent) is not served
                     // over gRPC, so the nid-based path below returns nothing even
                     // though concept lookups work. The service does the traversal
                     // remotely and returns the same shape.
@@ -443,7 +443,7 @@ public final class GraphTools {
 
     // ── gRPC-mode variants ───────────────────────────────────────────────
     // Concept lookups resolve in gRPC mode, but semantic traversal
-    // (semanticNidsForComponent) is not served, so the nid-based path above
+    // (semanticsForComponent) is not served, so the nid-based path above
     // finds nothing. The service performs the traversal server-side and returns
     // records of identical shape, so both modes render through renderSemantic
     // and produce identical output.
@@ -602,7 +602,7 @@ public final class GraphTools {
     /**
      * The semantics attached to {@code componentNid}.
      *
-     * <p>{@code semanticNidsForComponent} works for any component, so passing a semantic's nid
+     * <p>{@code semanticsForComponent} works for any component, so passing a semantic's nid
      * lists the semantics attached to <em>it</em> (e.g. Allowed Results on a Test Performed
      * record) rather than only concept-level annotations.
      *
@@ -615,8 +615,9 @@ public final class GraphTools {
         String filter = (patternFilter == null || patternFilter.isBlank())
                 ? null : patternFilter.trim().toLowerCase();
         List<SemanticInfo> results = new java.util.ArrayList<>();
-        for (int semanticNid : EntityService.get().semanticNidsForComponent(componentNid)) {
-            SemanticInfo info = semanticFor(semanticNid, v);
+        for (SemanticEntity<SemanticEntityVersion> semantic
+                : EntityService.get().semanticsForComponent(componentNid).toList()) {
+            SemanticInfo info = semanticFor(semantic.nid(), v);
             if (info != null && (filter == null || info.patternName().toLowerCase().contains(filter))) {
                 results.add(info);
             }
@@ -1097,10 +1098,10 @@ public final class GraphTools {
      */
     private static String sctidOf(ViewCalculator v, int nid) {
         try {
-            int[] idSemantics = EntityService.get()
-                    .semanticNidsForComponentOfPattern(nid, TinkarTerm.IDENTIFIER_PATTERN.nid());
-            for (int semanticNid : idSemantics) {
-                Latest<SemanticEntityVersion> latest = v.stampCalculator().latest(semanticNid);
+            List<SemanticEntity<SemanticEntityVersion>> idSemantics = EntityService.get()
+                    .semanticsForComponentOfPattern(nid, TinkarTerm.IDENTIFIER_PATTERN.nid()).toList();
+            for (SemanticEntity<SemanticEntityVersion> semantic : idSemantics) {
+                Latest<SemanticEntityVersion> latest = v.stampCalculator().latest(semantic);
                 if (latest.isPresent()) {
                     String value = null;
                     EntityFacade source = null;

@@ -21,6 +21,8 @@ import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
+import dev.ikm.tinkar.entity.SemanticEntity;
+import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -164,10 +166,10 @@ class JournalStoreIT {
     }
 
     private static int soleManifestNid(PublicId anchor) {
-        int[] nids = EntityService.get().semanticNidsForComponentOfPattern(
+        List<SemanticEntity<SemanticEntityVersion>> manifests = EntityService.get().semanticsForComponentOfPattern(
                 EntityService.get().nidForPublicId(anchor),
-                RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN.nid());
-        assertEquals(1, nids.length, "exactly one manifest per journal");
-        return nids[0];
+                RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN.nid()).toList();
+        assertEquals(1, manifests.size(), "exactly one manifest per journal");
+        return manifests.getFirst().nid();
     }
 }
