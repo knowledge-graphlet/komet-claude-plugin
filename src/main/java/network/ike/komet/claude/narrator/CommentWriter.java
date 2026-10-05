@@ -24,7 +24,7 @@ import dev.ikm.tinkar.terms.State;
 /**
  * Writes a commit comment into the graph.
  * <p>
- * A commit comment is a {@link dev.ikm.tinkar.terms.TinkarTerm#COMMENT_PATTERN} semantic whose
+ * A commit comment is a {@link dev.ikm.tinkar.terms.KernelTerm#COMMENT_PATTERN} semantic whose
  * referenced component is the commit's STAMP nid, with the comment text in field 0. The comment
  * semantic carries its own stamp, authored by the {@link NarratorIdentity narrator identity}, so
  * the comment's authorship and time are intrinsic and auditable against the graph.

@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.doc;
 
+import dev.ikm.komet.terms.KometTerm;
 import dev.ikm.tinkar.common.id.IntIdList;
 import dev.ikm.tinkar.common.id.IntIds;
 import dev.ikm.tinkar.common.id.PublicId;
@@ -38,7 +39,7 @@ import dev.ikm.tinkar.terms.EntityProxy;
 import dev.ikm.tinkar.terms.EntityProxy.Concept;
 import dev.ikm.tinkar.terms.EntityProxy.Semantic;
 import dev.ikm.tinkar.terms.State;
-import dev.ikm.tinkar.terms.TinkarTerm;
+import dev.ikm.tinkar.terms.KernelTerm;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -131,7 +132,7 @@ public final class JournalStore {
      * Creates a store that derives STAMP authorship and version resolution from the supplied view.
      *
      * @param viewCalculator supplier of the hosting card's view calculator; may supply {@code null}
-     *                       (user turns then stamp as {@link TinkarTerm#USER} and {@link #load}
+     *                       (user turns then stamp as {@link KernelTerm#USER} and {@link #load}
      *                       resolves nothing)
      */
     public JournalStore(Supplier<ViewCalculator> viewCalculator) {
@@ -144,7 +145,7 @@ public final class JournalStore {
      * Composes the wave-1 {@link RichSurfaceTerms} vocabulary into the open datastore if absent —
      * concepts (existence-gated one by one) and the two patterns. Idempotent and thread-safe; safe
      * to call before every write. The vocabulary is shared infrastructure, so it stamps under
-     * {@link TinkarTerm#DEVELOPMENT_MODULE} (the {@code NarratorIdentity} precedent), not the
+     * {@link KometTerm#DEVELOPMENT_MODULE} (the {@code NarratorIdentity} precedent), not the
      * conversation module.
      */
     public static synchronized void bootstrapIfAbsent() {
@@ -168,17 +169,17 @@ public final class JournalStore {
         }
         Composer composer = new Composer("rich-surface-vocabulary-seed");
         try {
-            Session session = composer.open(State.ACTIVE, System.currentTimeMillis(), TinkarTerm.USER,
-                    TinkarTerm.DEVELOPMENT_MODULE, TinkarTerm.DEVELOPMENT_PATH);
+            Session session = composer.open(State.ACTIVE, System.currentTimeMillis(), KernelTerm.USER,
+                    KometTerm.DEVELOPMENT_MODULE, KernelTerm.DEVELOPMENT_PATH);
             // The FQN attach creates a description-pattern semantic; its nid allocation needs the
             // description pattern bound as scope (the concept's own nid self-binds).
-            composeInPatternScope(TinkarTerm.DESCRIPTION_PATTERN.publicId(),
+            composeInPatternScope(KernelTerm.DESCRIPTION_PATTERN.publicId(),
                     () -> session.compose((ConceptAssembler assembler) -> assembler
                             .concept(concept)
                             .attach(FullyQualifiedName.class, name -> name
-                                    .language(TinkarTerm.ENGLISH_LANGUAGE)
+                                    .language(KernelTerm.ENGLISH_LANGUAGE)
                                     .text(concept.description())
-                                    .caseSignificance(TinkarTerm.DESCRIPTION_NOT_CASE_SENSITIVE))));
+                                    .caseSignificance(KernelTerm.DESCRIPTION_NOT_CASE_SENSITIVE))));
             composer.commitSession(session);
             LOG.info("Seeded rich-surface concept '{}'", concept.description());
         } catch (RuntimeException e) {
@@ -193,8 +194,8 @@ public final class JournalStore {
         }
         Composer composer = new Composer("rich-surface-vocabulary-seed");
         try {
-            Session session = composer.open(State.ACTIVE, System.currentTimeMillis(), TinkarTerm.USER,
-                    TinkarTerm.DEVELOPMENT_MODULE, TinkarTerm.DEVELOPMENT_PATH);
+            Session session = composer.open(State.ACTIVE, System.currentTimeMillis(), KernelTerm.USER,
+                    KometTerm.DEVELOPMENT_MODULE, KernelTerm.DEVELOPMENT_PATH);
             composeInPatternScope(EntityBinding.Pattern.pattern().publicId(),
                     () -> session.compose((PatternAssembler assembler) -> assembler
                             .pattern(RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN)
@@ -202,7 +203,7 @@ public final class JournalStore {
                             .purpose(RichSurfaceTerms.JOURNAL_ELEMENTS)
                             .fieldDefinition(RichSurfaceTerms.JOURNAL_ELEMENTS,
                                     RichSurfaceTerms.JOURNAL_ELEMENTS,
-                                    TinkarTerm.COMPONENT_ID_LIST_FIELD)));
+                                    KernelTerm.COMPONENT_ID_LIST_FIELD)));
             composer.commitSession(session);
             LOG.info("Seeded journal manifest pattern");
         } catch (RuntimeException e) {
@@ -217,8 +218,8 @@ public final class JournalStore {
         }
         Composer composer = new Composer("rich-surface-vocabulary-seed");
         try {
-            Session session = composer.open(State.ACTIVE, System.currentTimeMillis(), TinkarTerm.USER,
-                    TinkarTerm.DEVELOPMENT_MODULE, TinkarTerm.DEVELOPMENT_PATH);
+            Session session = composer.open(State.ACTIVE, System.currentTimeMillis(), KernelTerm.USER,
+                    KometTerm.DEVELOPMENT_MODULE, KernelTerm.DEVELOPMENT_PATH);
             composeInPatternScope(EntityBinding.Pattern.pattern().publicId(),
                     () -> session.compose((PatternAssembler assembler) -> assembler
                             .pattern(RichSurfaceTerms.PROSE_ELEMENT_PATTERN)
@@ -226,7 +227,7 @@ public final class JournalStore {
                             .purpose(RichSurfaceTerms.PROSE_CONTENT)
                             .fieldDefinition(RichSurfaceTerms.PROSE_CONTENT,
                                     RichSurfaceTerms.PROSE_CONTENT,
-                                    TinkarTerm.STRING)));
+                                    KernelTerm.STRING)));
             composer.commitSession(session);
             LOG.info("Seeded prose element pattern");
         } catch (RuntimeException e) {
@@ -304,17 +305,17 @@ public final class JournalStore {
             // sessions (its session key carries Long.MAX_VALUE), and the monotonic clock keeps
             // manifest versions strictly ordered even across same-millisecond exchanges.
             Session userSession = composer.open(State.ACTIVE, userTime, userAuthor(),
-                    RichSurfaceTerms.CONVERSATION_JOURNAL_MODULE, TinkarTerm.DEVELOPMENT_PATH);
+                    RichSurfaceTerms.CONVERSATION_JOURNAL_MODULE, KernelTerm.DEVELOPMENT_PATH);
             if (anchorNew) {
                 String name = (conversationName == null || conversationName.isBlank())
                         ? "Conversation journal" : conversationName;
-                composeInPatternScope(TinkarTerm.DESCRIPTION_PATTERN.publicId(),
+                composeInPatternScope(KernelTerm.DESCRIPTION_PATTERN.publicId(),
                         () -> userSession.compose((ConceptAssembler assembler) -> assembler
                                 .concept(anchorConcept)
                                 .attach(FullyQualifiedName.class, fqn -> fqn
-                                        .language(TinkarTerm.ENGLISH_LANGUAGE)
+                                        .language(KernelTerm.ENGLISH_LANGUAGE)
                                         .text(name)
-                                        .caseSignificance(TinkarTerm.DESCRIPTION_NOT_CASE_SENSITIVE))));
+                                        .caseSignificance(KernelTerm.DESCRIPTION_NOT_CASE_SENSITIVE))));
             }
             composeInPatternScope(RichSurfaceTerms.PROSE_ELEMENT_PATTERN.publicId(),
                     () -> userSession.compose((SemanticAssembler assembler) -> assembler
@@ -326,7 +327,7 @@ public final class JournalStore {
 
             Session assistantSession = composer.open(State.ACTIVE, assistantTime,
                     RichSurfaceTerms.KOMET_ASSISTANT_AUTHOR,
-                    RichSurfaceTerms.CONVERSATION_JOURNAL_MODULE, TinkarTerm.DEVELOPMENT_PATH);
+                    RichSurfaceTerms.CONVERSATION_JOURNAL_MODULE, KernelTerm.DEVELOPMENT_PATH);
             composeInPatternScope(RichSurfaceTerms.PROSE_ELEMENT_PATTERN.publicId(),
                     () -> assistantSession.compose((SemanticAssembler assembler) -> assembler
                             .semantic(assistantElement)
@@ -448,13 +449,13 @@ public final class JournalStore {
         return Optional.of(turns);
     }
 
-    /** The user-turn author: the view's edit-coordinate author, else {@link TinkarTerm#USER}. */
+    /** The user-turn author: the view's edit-coordinate author, else {@link KernelTerm#USER}. */
     private Concept userAuthor() {
         ViewCalculator calculator = viewCalculator.get();
         if (calculator == null) {
-            return TinkarTerm.USER;
+            return KernelTerm.USER;
         }
         ConceptFacade author = calculator.viewCoordinateRecord().editCoordinate().getAuthorForChanges();
-        return author == null ? TinkarTerm.USER : Concept.make(author);
+        return author == null ? KernelTerm.USER : Concept.make(author);
     }
 }

@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.narrator;
 
+import dev.ikm.komet.terms.KometTerm;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.util.uuid.UuidT5Generator;
@@ -24,7 +25,7 @@ import dev.ikm.tinkar.composer.assembler.ConceptAssembler;
 import dev.ikm.tinkar.composer.template.FullyQualifiedName;
 import dev.ikm.tinkar.terms.EntityProxy.Concept;
 import dev.ikm.tinkar.terms.State;
-import dev.ikm.tinkar.terms.TinkarTerm;
+import dev.ikm.tinkar.terms.KernelTerm;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,14 +62,14 @@ public final class NarratorIdentity {
             Concept.make(PublicIds.of(UuidT5Generator.get(NAMESPACE, "komet-narration-module")));
 
     /** The path the narrator's comment stamps are recorded on (the default development path). */
-    public static final Concept NARRATION_PATH = TinkarTerm.DEVELOPMENT_PATH;
+    public static final Concept NARRATION_PATH = KernelTerm.DEVELOPMENT_PATH;
 
     private NarratorIdentity() {}
 
     /**
      * Seeds the narrator author and narration module concepts if they are not already present in
      * the open datastore. Idempotent — safe to call on every startup. Each missing concept is
-     * created (as a one-time bootstrap authored by {@link TinkarTerm#USER}) with a fully qualified
+     * created (as a one-time bootstrap authored by {@link KernelTerm#USER}) with a fully qualified
      * name so it renders meaningfully wherever the narrator's authorship is displayed.
      */
     public static void seedIfAbsent() {
@@ -81,14 +82,14 @@ public final class NarratorIdentity {
             return;
         }
         Composer composer = new Composer("komet-narrator-identity-seed");
-        Session session = composer.open(State.ACTIVE, TinkarTerm.USER,
-                TinkarTerm.DEVELOPMENT_MODULE, TinkarTerm.DEVELOPMENT_PATH);
+        Session session = composer.open(State.ACTIVE, KernelTerm.USER,
+                KometTerm.DEVELOPMENT_MODULE, KernelTerm.DEVELOPMENT_PATH);
         session.compose((ConceptAssembler conceptAssembler) -> conceptAssembler
                 .concept(concept)
                 .attach(FullyQualifiedName.class, name -> name
-                        .language(TinkarTerm.ENGLISH_LANGUAGE)
+                        .language(KernelTerm.ENGLISH_LANGUAGE)
                         .text(fullyQualifiedName)
-                        .caseSignificance(TinkarTerm.DESCRIPTION_NOT_CASE_SENSITIVE)));
+                        .caseSignificance(KernelTerm.DESCRIPTION_NOT_CASE_SENSITIVE)));
         composer.commitSession(session);
         LOG.info("Seeded narrator identity concept '{}'", fullyQualifiedName);
     }

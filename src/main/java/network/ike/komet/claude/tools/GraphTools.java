@@ -36,7 +36,7 @@ import dev.ikm.tinkar.entity.graph.EntityVertex;
 import dev.ikm.tinkar.provider.grpc.GrpcSearchService;
 import dev.ikm.tinkar.provider.search.Searcher;
 import dev.ikm.tinkar.terms.EntityFacade;
-import dev.ikm.tinkar.terms.TinkarTerm;
+import dev.ikm.tinkar.terms.KernelTerm;
 import network.ike.komet.claude.anf.AnfSlot;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.koncept.ComponentText;
@@ -262,13 +262,13 @@ public final class GraphTools {
                     StringBuilder sb = new StringBuilder(nameAndId(v, nid)).append("\n\n");
 
                     List<SemanticEntity<SemanticEntityVersion>> rawInfNav = es.semanticsForComponentOfPattern(
-                            nid, TinkarTerm.INFERRED_NAVIGATION_PATTERN.nid()).toList();
+                            nid, KernelTerm.INFERRED_NAVIGATION_PATTERN.nid()).toList();
                     long rawStaNav = es.semanticsForComponentOfPattern(
-                            nid, TinkarTerm.STATED_NAVIGATION_PATTERN.nid()).count();
+                            nid, KernelTerm.STATED_NAVIGATION_PATTERN.nid()).count();
                     long rawInfAx = es.semanticsForComponentOfPattern(
-                            nid, TinkarTerm.EL_PLUS_PLUS_INFERRED_AXIOMS_PATTERN.nid()).count();
+                            nid, KernelTerm.EL_PLUS_PLUS_INFERRED_AXIOMS_PATTERN.nid()).count();
                     long rawStaAx = es.semanticsForComponentOfPattern(
-                            nid, TinkarTerm.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN.nid()).count();
+                            nid, KernelTerm.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN.nid()).count();
                     sb.append("RAW store semantics (no view filter):\n")
                             .append("  inferred-nav: ").append(rawInfNav.size()).append('\n')
                             .append("  stated-nav: ").append(rawStaNav).append('\n')
@@ -1095,13 +1095,13 @@ public final class GraphTools {
 
     /**
      * Resolves the SNOMED CT identifier of a concept from its identifier semantic
-     * ({@link TinkarTerm#IDENTIFIER_PATTERN} with source {@link TinkarTerm#SCTID}),
+     * ({@link KernelTerm#IDENTIFIER_PATTERN} with source {@link KernelTerm#SCTID}),
      * or {@code null} if the concept has no SCTID in this knowledge base.
      */
     private static String sctidOf(ViewCalculator v, int nid) {
         try {
             List<SemanticEntity<SemanticEntityVersion>> idSemantics = EntityService.get()
-                    .semanticsForComponentOfPattern(nid, TinkarTerm.IDENTIFIER_PATTERN.nid()).toList();
+                    .semanticsForComponentOfPattern(nid, KernelTerm.IDENTIFIER_PATTERN.nid()).toList();
             for (SemanticEntity<SemanticEntityVersion> semantic : idSemantics) {
                 Latest<SemanticEntityVersion> latest = v.stampCalculator().latest(semantic);
                 if (latest.isPresent()) {
@@ -1114,7 +1114,7 @@ public final class GraphTools {
                             source = ef;
                         }
                     }
-                    if (value != null && source != null && source.nid() == TinkarTerm.SCTID.nid()) {
+                    if (value != null && source != null && source.nid() == KernelTerm.SCTID.nid()) {
                         return value;
                     }
                 }

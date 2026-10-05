@@ -21,7 +21,7 @@ import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.entity.graph.EntityVertex;
 import dev.ikm.tinkar.terms.ConceptFacade;
-import dev.ikm.tinkar.terms.TinkarTerm;
+import dev.ikm.tinkar.terms.KernelTerm;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -62,7 +62,7 @@ public record ConceptDefinition(boolean defined,
             return Optional.empty();
         }
         DiTreeEntity tree = latest.get();
-        boolean defined = tree.containsVertexWithMeaning(TinkarTerm.SUFFICIENT_SET);
+        boolean defined = tree.containsVertexWithMeaning(KernelTerm.SUFFICIENT_SET);
 
         Set<Integer> supertypes = new LinkedHashSet<>();
         List<Role> ungrouped = new ArrayList<>();
@@ -70,19 +70,19 @@ public record ConceptDefinition(boolean defined,
 
         for (EntityVertex set : conjuncts(tree, tree.root())) {
             int meaning = set.getMeaningNid();
-            if (meaning != TinkarTerm.NECESSARY_SET.nid() && meaning != TinkarTerm.SUFFICIENT_SET.nid()) {
+            if (meaning != KernelTerm.NECESSARY_SET.nid() && meaning != KernelTerm.SUFFICIENT_SET.nid()) {
                 continue;
             }
             for (EntityVertex conjunct : conjuncts(tree, set)) {
                 int cm = conjunct.getMeaningNid();
-                if (cm == TinkarTerm.CONCEPT_REFERENCE.nid()) {
+                if (cm == KernelTerm.CONCEPT_REFERENCE.nid()) {
                     supertypes.add(conceptNidOf(conjunct));
-                } else if (cm == TinkarTerm.ROLE.nid()) {
-                    ConceptFacade roleType = conjunct.propertyFast(TinkarTerm.ROLE_TYPE);
-                    if (roleType.nid() == TinkarTerm.ROLE_GROUP.nid()) {
+                } else if (cm == KernelTerm.ROLE.nid()) {
+                    ConceptFacade roleType = conjunct.propertyFast(KernelTerm.ROLE_TYPE);
+                    if (roleType.nid() == KernelTerm.ROLE_GROUP.nid()) {
                         List<Role> group = new ArrayList<>();
                         for (EntityVertex member : conjuncts(tree, conjunct)) {
-                            if (member.getMeaningNid() == TinkarTerm.ROLE.nid()) {
+                            if (member.getMeaningNid() == KernelTerm.ROLE.nid()) {
                                 role(tree, member).ifPresent(group::add);
                             }
                         }
@@ -107,7 +107,7 @@ public record ConceptDefinition(boolean defined,
     private static List<EntityVertex> conjuncts(DiTreeEntity tree, EntityVertex vertex) {
         List<EntityVertex> out = new ArrayList<>();
         for (EntityVertex child : tree.successors(vertex)) {
-            if (child.getMeaningNid() == TinkarTerm.AND.nid()) {
+            if (child.getMeaningNid() == KernelTerm.AND.nid()) {
                 for (EntityVertex grandchild : tree.successors(child)) {
                     out.add(grandchild);
                 }
@@ -120,9 +120,9 @@ public record ConceptDefinition(boolean defined,
 
     /** A role vertex as {@code attribute → value} (the value is its first concept filler). */
     private static Optional<Role> role(DiTreeEntity tree, EntityVertex roleVertex) {
-        ConceptFacade attribute = roleVertex.propertyFast(TinkarTerm.ROLE_TYPE);
+        ConceptFacade attribute = roleVertex.propertyFast(KernelTerm.ROLE_TYPE);
         for (EntityVertex filler : conjuncts(tree, roleVertex)) {
-            if (filler.getMeaningNid() == TinkarTerm.CONCEPT_REFERENCE.nid()) {
+            if (filler.getMeaningNid() == KernelTerm.CONCEPT_REFERENCE.nid()) {
                 return Optional.of(new Role(attribute.nid(), conceptNidOf(filler)));
             }
         }
@@ -130,7 +130,7 @@ public record ConceptDefinition(boolean defined,
     }
 
     private static int conceptNidOf(EntityVertex conceptVertex) {
-        ConceptFacade concept = conceptVertex.propertyFast(TinkarTerm.CONCEPT_REFERENCE);
+        ConceptFacade concept = conceptVertex.propertyFast(KernelTerm.CONCEPT_REFERENCE);
         return concept.nid();
     }
 }

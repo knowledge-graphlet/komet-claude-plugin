@@ -26,7 +26,7 @@ import dev.ikm.tinkar.entity.EntityVersion;
 import dev.ikm.tinkar.entity.Field;
 import dev.ikm.tinkar.entity.PatternEntityVersion;
 import dev.ikm.tinkar.entity.SemanticEntity;
-import dev.ikm.tinkar.terms.TinkarTerm;
+import dev.ikm.tinkar.terms.KernelTerm;
 import network.ike.komet.claude.ui.KonceptTokens;
 
 import java.util.Optional;
@@ -187,7 +187,7 @@ public final class ComponentText {
     private static Optional<String> semanticText(ViewCalculator view, int nid, int depth) {
         StampCalculator stamps = view.stampCalculator();
         Latest<Field<String>> description = stamps.getFieldForSemantic(
-                nid, TinkarTerm.TEXT_FOR_DESCRIPTION.nid(), StampCalculator.FieldCriterion.MEANING);
+                nid, KernelTerm.TEXT_FOR_DESCRIPTION.nid(), StampCalculator.FieldCriterion.MEANING);
         if (description.isPresent()) {
             Optional<String> text = described(Optional.ofNullable(description.get().value()));
             if (text.isPresent()) {
