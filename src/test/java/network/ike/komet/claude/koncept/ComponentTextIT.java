@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.koncept;
 
+import dev.ikm.tinkar.terms.KernelTerm;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
@@ -27,7 +28,6 @@ import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.terms.EntityFacade;
-import dev.ikm.tinkar.terms.TinkarTerm;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -91,7 +91,7 @@ class ComponentTextIT {
 
     @Test
     void theIdentifierIsAUuidThatResolvesBackToTheSameComponent() {
-        for (int nid : new int[]{TinkarTerm.ENGLISH_LANGUAGE.nid(), TinkarTerm.DESCRIPTION_PATTERN.nid(),
+        for (int nid : new int[]{KernelTerm.ENGLISH_LANGUAGE.nid(), KernelTerm.DESCRIPTION_PATTERN.nid(),
                 aDescriptionSemanticNid(), aSemanticThatIsNotADescription()}) {
             String identifier = ComponentText.identifier(nid);
             assertEquals(nid, PrimitiveData.nid(PublicIds.of(identifier)),
@@ -106,7 +106,7 @@ class ComponentTextIT {
 
     @Test
     void theDurableKeyHoldsEveryUuidInOrderAndResolvesBack() {
-        int nid = TinkarTerm.ENGLISH_LANGUAGE.nid();
+        int nid = KernelTerm.ENGLISH_LANGUAGE.nid();
         String key = ComponentText.publicIdKey(nid).orElseThrow();
         UUID[] uuids = Arrays.stream(key.split(",")).map(UUID::fromString).toArray(UUID[]::new);
         assertArrayEquals(PrimitiveData.publicId(nid).asUuidArray(), uuids);
@@ -122,7 +122,7 @@ class ComponentTextIT {
 
     @Test
     void underAViewThatDescribesTheConceptEveryNameIsADescription() {
-        int nid = TinkarTerm.ENGLISH_LANGUAGE.nid();
+        int nid = KernelTerm.ENGLISH_LANGUAGE.nid();
         assertEquals(view.getDescriptionText(nid).orElseThrow(), ComponentText.name(view, nid));
         assertEquals(view.getRegularDescriptionText(nid).orElseThrow(), ComponentText.preferredName(view, nid));
         assertEquals(view.getFullyQualifiedNameText(nid).orElseThrow(), ComponentText.fullyQualifiedName(view, nid));
@@ -130,7 +130,7 @@ class ComponentTextIT {
 
     @Test
     void aConceptWithNoDescriptionIsNamedByItsUuid() {
-        int nid = TinkarTerm.ENGLISH_LANGUAGE.nid();
+        int nid = KernelTerm.ENGLISH_LANGUAGE.nid();
         assertTrue(undescribed.getDescriptionText(nid).isEmpty()
                         && undescribed.getRegularDescriptionText(nid).isEmpty()
                         && undescribed.getFullyQualifiedNameText(nid).isEmpty(),
@@ -167,7 +167,7 @@ class ComponentTextIT {
                 view.stampCalculator().latestPatternEntityVersion(semantic.patternNid()).get();
 
         String expected = "[" + ComponentText.preferredName(view, pattern.semanticMeaningNid())
-                + "] of <" + ComponentText.preferredName(view, TinkarTerm.ENGLISH_LANGUAGE.nid())
+                + "] of <" + ComponentText.preferredName(view, KernelTerm.ENGLISH_LANGUAGE.nid())
                 + "> for [" + ComponentText.preferredName(view, pattern.semanticPurposeNid()) + "]";
         assertEquals(expected, ComponentText.preferredName(view, semanticNid));
         assertEquals(expected, ComponentText.fullyQualifiedName(view, semanticNid),
@@ -188,15 +188,15 @@ class ComponentTextIT {
 
         String text = ComponentText.preferredName(undescribed, semanticNid);
         assertEquals("[" + ComponentText.identifier(pattern.semanticMeaningNid())
-                + "] of <" + ComponentText.identifier(TinkarTerm.ENGLISH_LANGUAGE.nid())
+                + "] of <" + ComponentText.identifier(KernelTerm.ENGLISH_LANGUAGE.nid())
                 + "> for [" + ComponentText.identifier(pattern.semanticPurposeNid()) + "]", text);
         NidFree.assertNoNid("the semantic's name", text, semanticNid);
-        NidFree.assertNoNid("the semantic's name", text, TinkarTerm.ENGLISH_LANGUAGE.nid());
+        NidFree.assertNoNid("the semantic's name", text, KernelTerm.ENGLISH_LANGUAGE.nid());
     }
 
     @Test
     void theBadgeIsAUuidTokenLabelledByTheView() {
-        int nid = TinkarTerm.ENGLISH_LANGUAGE.nid();
+        int nid = KernelTerm.ENGLISH_LANGUAGE.nid();
         String uuid = ComponentText.identifier(nid);
 
         String labelled = ComponentText.badge(view, nid).orElseThrow();
@@ -223,7 +223,7 @@ class ComponentTextIT {
     /** The nid of a description of English Language. */
     private static int aDescriptionSemanticNid() {
         Optional<SemanticEntity<SemanticEntityVersion>> description = EntityService.get()
-                .semanticsForComponentOfPattern(TinkarTerm.ENGLISH_LANGUAGE.nid(), TinkarTerm.DESCRIPTION_PATTERN.nid())
+                .semanticsForComponentOfPattern(KernelTerm.ENGLISH_LANGUAGE.nid(), KernelTerm.DESCRIPTION_PATTERN.nid())
                 .findFirst();
         assertTrue(description.isPresent(), "English Language must have description semantics");
         return description.get().nid();
@@ -234,10 +234,10 @@ class ComponentTextIT {
      * no text of its own under any view.
      */
     private int aSemanticThatIsNotADescription() {
-        EntityFacade concept = TinkarTerm.ENGLISH_LANGUAGE;
+        EntityFacade concept = KernelTerm.ENGLISH_LANGUAGE;
         for (SemanticEntity<SemanticEntityVersion> semantic
                 : EntityService.get().semanticsForComponent(concept.nid()).toList()) {
-            if (semantic.patternNid() != TinkarTerm.DESCRIPTION_PATTERN.nid()
+            if (semantic.patternNid() != KernelTerm.DESCRIPTION_PATTERN.nid()
                     && view.getDescriptionText(semantic.nid()).isEmpty()) {
                 return semantic.nid();
             }

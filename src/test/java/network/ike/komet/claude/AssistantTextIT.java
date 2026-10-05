@@ -15,6 +15,8 @@
  */
 package network.ike.komet.claude;
 
+import dev.ikm.komet.terms.KometTerm;
+import dev.ikm.tinkar.terms.KernelTerm;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
@@ -23,7 +25,6 @@ import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.terms.EntityFacade;
-import dev.ikm.tinkar.terms.TinkarTerm;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.koncept.ComponentText;
 import network.ike.komet.claude.koncept.NidFree;
@@ -67,8 +68,8 @@ class AssistantTextIT {
 
     /** Concepts of the starter data the tools are run on. */
     private static final List<EntityFacade> SUBJECTS = List.of(
-            TinkarTerm.ENGLISH_LANGUAGE, TinkarTerm.LANGUAGE, TinkarTerm.PART_OF,
-            TinkarTerm.ROLE_TYPE, TinkarTerm.DESCRIPTION_TYPE);
+            KernelTerm.ENGLISH_LANGUAGE, KernelTerm.LANGUAGE, KometTerm.PART_OF,
+            KernelTerm.ROLE_TYPE, KernelTerm.DESCRIPTION_TYPE);
 
     private ViewCalculator view;
     private ViewCalculator undescribed;
@@ -107,12 +108,12 @@ class AssistantTextIT {
     @Test
     void theIsATestWritesNoNid() {
         String text = run(view, "is_a", Map.of(
-                "child", uuidOf(TinkarTerm.ENGLISH_LANGUAGE), "parent", uuidOf(TinkarTerm.LANGUAGE)));
+                "child", uuidOf(KernelTerm.ENGLISH_LANGUAGE), "parent", uuidOf(KernelTerm.LANGUAGE)));
         assertTrue(text.startsWith("YES — "), "English Language is a Language: " + text);
         NidFree.assertNoNid("is_a", text);
 
         text = run(view, "is_a", Map.of(
-                "child", uuidOf(TinkarTerm.LANGUAGE), "parent", uuidOf(TinkarTerm.ENGLISH_LANGUAGE)));
+                "child", uuidOf(KernelTerm.LANGUAGE), "parent", uuidOf(KernelTerm.ENGLISH_LANGUAGE)));
         assertTrue(text.startsWith("NO — "), "Language is not an English Language: " + text);
         NidFree.assertNoNid("is_a", text);
     }
@@ -126,9 +127,9 @@ class AssistantTextIT {
 
     @Test
     void theAxiomsToolWritesTheDefinitionTree() {
-        String text = run(view, "axioms", Map.of("id", uuidOf(TinkarTerm.ENGLISH_LANGUAGE)));
+        String text = run(view, "axioms", Map.of("id", uuidOf(KernelTerm.ENGLISH_LANGUAGE)));
         assertTrue(text.contains("Stated:\n   [0]"), "the stated definition is written as a tree: " + text);
-        assertTrue(text.contains(ComponentText.name(view, TinkarTerm.DEFINITION_ROOT.nid())),
+        assertTrue(text.contains(ComponentText.name(view, KernelTerm.DEFINITION_ROOT.nid())),
                 "the tree's root vertex is named: " + text);
         assertFalse(text.contains("DiTreeEntity"), "the tree is not the store's toString(): " + text);
     }
@@ -171,8 +172,8 @@ class AssistantTextIT {
 
     @Test
     void aCheckRequestNamesTheConceptByItsUuid() {
-        int nid = TinkarTerm.ENGLISH_LANGUAGE.nid();
-        String uuid = uuidOf(TinkarTerm.ENGLISH_LANGUAGE);
+        int nid = KernelTerm.ENGLISH_LANGUAGE.nid();
+        String uuid = uuidOf(KernelTerm.ENGLISH_LANGUAGE);
 
         String request = ClaudeCheckArea.checkRequest(view, nid, "Has a parent.");
         assertEquals("Concept under review: " + ComponentText.preferredName(view, nid) + "  [" + uuid + "].\n"

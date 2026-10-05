@@ -15,13 +15,13 @@
  */
 package network.ike.komet.claude.koncept;
 
+import dev.ikm.tinkar.terms.KernelTerm;
 import dev.ikm.tinkar.common.id.IntIds;
 import dev.ikm.tinkar.coordinate.Coordinates;
 import dev.ikm.tinkar.coordinate.language.LanguageCoordinateRecord;
 import dev.ikm.tinkar.coordinate.view.ViewCoordinateRecord;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculatorWithCache;
-import dev.ikm.tinkar.terms.TinkarTerm;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -95,10 +95,10 @@ public final class NidFree {
      */
     public static ViewCalculator viewWithNoDescriptions() {
         LanguageCoordinateRecord noDescriptions = LanguageCoordinateRecord.make(
-                TinkarTerm.ENGLISH_LANGUAGE.nid(),
-                IntIds.list.of(TinkarTerm.COMMENT_PATTERN.nid()),
-                IntIds.list.of(TinkarTerm.REGULAR_NAME_DESCRIPTION_TYPE.nid(),
-                        TinkarTerm.FULLY_QUALIFIED_NAME_DESCRIPTION_TYPE.nid()),
+                KernelTerm.ENGLISH_LANGUAGE.nid(),
+                IntIds.list.of(KernelTerm.COMMENT_PATTERN.nid()),
+                IntIds.list.of(KernelTerm.REGULAR_NAME_DESCRIPTION_TYPE.nid(),
+                        KernelTerm.FULLY_QUALIFIED_NAME_DESCRIPTION_TYPE.nid()),
                 IntIds.list.empty(),
                 IntIds.list.empty());
         ViewCoordinateRecord coordinate = ViewCoordinateRecord.make(

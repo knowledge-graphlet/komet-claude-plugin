@@ -15,11 +15,11 @@
  */
 package network.ike.komet.claude.semantic;
 
+import dev.ikm.tinkar.terms.KernelTerm;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
-import dev.ikm.tinkar.terms.TinkarTerm;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -78,7 +78,7 @@ class SemanticLiftIT {
         assumeTrue(apiKey.isPresent(),
                 "No Anthropic API key (system property / env / Komet user preferences) — skipping live lift.");
 
-        int patternNid = TinkarTerm.DESCRIPTION_PATTERN.nid();
+        int patternNid = KernelTerm.DESCRIPTION_PATTERN.nid();
         SemanticLift lift = new SemanticLift(view, apiKey.get(), LIFT_MODEL, patternNid);
 
         SemanticLift.Result result = lift.lift(

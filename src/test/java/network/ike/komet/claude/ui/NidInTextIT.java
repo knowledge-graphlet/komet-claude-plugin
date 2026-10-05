@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.ui;
 
+import dev.ikm.tinkar.terms.KernelTerm;
 import dev.ikm.komet.markdown.richtext.InlinePiece;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
@@ -22,7 +23,6 @@ import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
-import dev.ikm.tinkar.terms.TinkarTerm;
 import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
 import network.ike.komet.claude.koncept.ComponentText;
 import org.junit.jupiter.api.AfterAll;
@@ -73,7 +73,7 @@ class NidInTextIT {
         long count = new LoadEntitiesFromProtobufFile(PB_STARTER_DATA).compute().getTotalCount();
         assertTrue(count > 0, "Should load entities from the starter-data protobuf file");
         view = Calculators.View.Default();
-        nid = TinkarTerm.ENGLISH_LANGUAGE.nid();
+        nid = KernelTerm.ENGLISH_LANGUAGE.nid();
         uuid = ComponentText.identifier(nid);
         uuidToken = ComponentText.badge(view, nid).orElseThrow();
     }
