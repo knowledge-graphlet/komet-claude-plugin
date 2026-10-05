@@ -51,7 +51,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class SemanticGroundingIT {
 
     private static final File PB_STARTER_DATA =
-            new File("target/data/tinkar-starter-data-reasoned-pb.zip");
+            new File("target/data/ike-starter-set-reasoned-pb.zip");
 
     private ViewCalculator view;
     private Grounder grounder;

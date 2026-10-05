@@ -55,7 +55,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class NidInTextIT {
 
     private static final File PB_STARTER_DATA =
-            new File("target/data/tinkar-starter-data-reasoned-pb.zip");
+            new File("target/data/ike-starter-set-reasoned-pb.zip");
 
     private ViewCalculator view;
     /** A component the store holds, in the three forms text can name it. */

@@ -49,7 +49,7 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 class SemanticLiftIT {
 
     private static final File PB_STARTER_DATA =
-            new File("target/data/tinkar-starter-data-reasoned-pb.zip");
+            new File("target/data/ike-starter-set-reasoned-pb.zip");
     private static final String LIFT_MODEL = "claude-opus-4-8";
 
     private ViewCalculator view;

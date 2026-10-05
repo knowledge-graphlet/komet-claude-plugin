@@ -60,7 +60,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ComponentTextIT {
 
     private static final File PB_STARTER_DATA =
-            new File("target/data/tinkar-starter-data-reasoned-pb.zip");
+            new File("target/data/ike-starter-set-reasoned-pb.zip");
 
     /**
      * A nid the store has assigned to no component: the ephemeral store numbers components

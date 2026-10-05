@@ -64,7 +64,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class AssistantTextIT {
 
     private static final File PB_STARTER_DATA =
-            new File("target/data/tinkar-starter-data-reasoned-pb.zip");
+            new File("target/data/ike-starter-set-reasoned-pb.zip");
 
     /** Concepts of the starter data the tools are run on. */
     private static final List<EntityFacade> SUBJECTS = List.of(

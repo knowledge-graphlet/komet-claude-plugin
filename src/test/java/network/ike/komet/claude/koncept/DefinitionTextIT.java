@@ -50,7 +50,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class DefinitionTextIT {
 
     private static final File PB_STARTER_DATA =
-            new File("target/data/tinkar-starter-data-reasoned-pb.zip");
+            new File("target/data/ike-starter-set-reasoned-pb.zip");
 
     /** Concepts of the starter data whose stated and inferred definitions are rendered. */
     private static final List<EntityFacade> DEFINED = List.of(

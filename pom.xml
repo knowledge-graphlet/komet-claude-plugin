@@ -63,7 +63,8 @@
         <!-- Tinkar starter dataset for the integration (*IT) grounding suite, loaded into an
              ephemeral store. Pinned to the version komet/framework uses (komet/pom.xml); ike-parent
              does not manage it. -->
-        <tinkar-starter-data.version>1.1.2</tinkar-starter-data.version>
+        <!-- The IKE starter set the tests load, from starter-data-ws, which builds after this repository. -->
+        <ike-starter-set.version>1-64bit-SNAPSHOT</ike-starter-set.version>
         <java.version>27</java.version>
     </properties>
 
@@ -230,13 +231,14 @@
                         <configuration>
                             <artifactItems>
                                 <artifactItem>
-                                    <groupId>dev.ikm.data.tinkar</groupId>
-                                    <artifactId>tinkar-starter-data</artifactId>
-                                    <version>${tinkar-starter-data.version}</version>
+                                    <groupId>network.ike.foundation</groupId>
+                                    <artifactId>ike-starter-set</artifactId>
+                                    <version>${ike-starter-set.version}</version>
                                     <classifier>reasoned-pb</classifier>
                                     <type>zip</type>
                                     <overWrite>false</overWrite>
                                     <outputDirectory>${project.build.directory}/data</outputDirectory>
+                                    <destFileName>ike-starter-set-reasoned-pb.zip</destFileName>
                                 </artifactItem>
                             </artifactItems>
                             <stripVersion>true</stripVersion>
