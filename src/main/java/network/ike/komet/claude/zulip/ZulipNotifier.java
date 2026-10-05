@@ -126,7 +126,7 @@ public final class ZulipNotifier {
     private String renderConcept(int conceptNid, ViewCalculator view) {
         String name = name(conceptNid, view);
         String id = stableId(conceptNid);
-        UUID uuid = firstUuid(conceptNid);
+        UUID uuid = leastUuid(conceptNid);
         // Per-message identicon-upload cache: author/module/path recur across history
         // rows, so upload each unique concept's identicon once and reuse the URI.
         Map<Integer, String> icons = new HashMap<>();
@@ -256,7 +256,9 @@ public final class ZulipNotifier {
             return "";
         }
         PublicId publicId = pid.get();
-        UUID uuid = publicId.asUuidArray()[0];
+        // Keyed by the least UUID: any UUID identifies the concept, and the least does not
+        // depend on the order the store lists them in.
+        UUID uuid = publicId.leastUuid();
         String cached = IdenticonUriCache.get(realm, uuid);
         if (cached != null) {
             return cached;
@@ -317,7 +319,7 @@ public final class ZulipNotifier {
         }
     }
 
-    /** The view's coordinate-preferred description, else the first UUID — the badge's own resolution (#942). */
+    /** The view's coordinate-preferred description, else the least UUID — the badge's own resolution (#942). */
     private static String name(int nid, ViewCalculator view) {
         return ComponentText.name(view, nid);
     }
@@ -337,9 +339,9 @@ public final class ZulipNotifier {
         return "_No version metadata available._";
     }
 
-    /** The concept's first public UUID, or null if none is resolvable. */
-    private static UUID firstUuid(int nid) {
-        return ComponentText.firstUuid(nid).orElse(null);
+    /** The concept's least public UUID, or null if none is resolvable. */
+    private static UUID leastUuid(int nid) {
+        return ComponentText.leastUuid(nid).orElse(null);
     }
 
     /**

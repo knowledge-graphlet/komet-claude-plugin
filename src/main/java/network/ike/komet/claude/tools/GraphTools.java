@@ -473,11 +473,13 @@ public final class GraphTools {
             if (nid == NONE) {
                 return notFound(trimmed);
             }
-            UUID[] uuids = PrimitiveData.publicId(toConceptNid(nid)).asUuidArray();
-            if (uuids.length == 0) {
+            // Any of the concept's UUIDs finds it in the remote store; the least is the one
+            // ComponentText names it by.
+            Optional<UUID> least = ComponentText.leastUuid(toConceptNid(nid));
+            if (least.isEmpty()) {
                 return "No public UUID for '" + trimmed + "'.";
             }
-            target = uuids[0];
+            target = least.get();
         }
         try {
             List<GrpcSearchService.SemanticInfo> semantics =
@@ -653,8 +655,8 @@ public final class GraphTools {
                 String name = i < fieldNames.size() ? fieldNames.get(i) : "field " + i;
                 fields.add(new NamedField(name, fieldValue(values[i], v)));
             }
-            UUID[] uuids = semantic.publicId().asUuidArray();
-            return new SemanticInfo(patternName, uuids.length > 0 ? uuids[0].toString() : "", fields);
+            String semanticId = ComponentText.leastUuid(semantic.nid()).map(UUID::toString).orElse("");
+            return new SemanticInfo(patternName, semanticId, fields);
         } catch (RuntimeException e) {
             return null;
         }
@@ -721,7 +723,7 @@ public final class GraphTools {
         if (sctid != null) {
             return "[SCTID " + sctid + "]";
         }
-        return ComponentText.firstUuid(nid)
+        return ComponentText.leastUuid(nid)
                 .map(uuid -> "[UUID " + uuid + "]")
                 .orElse("[" + ComponentText.UNIDENTIFIED + "]");
     }
@@ -1018,7 +1020,7 @@ public final class GraphTools {
         PublicId publicId = ComponentText.publicId(conceptNid).orElseThrow(() ->
                 new IllegalStateException("A concept the store has no public id for cannot be grounded"));
         String sctid = sctidOf(v, conceptNid);
-        String identifier = sctid != null ? sctid : publicId.asUuidArray()[0].toString();
+        String identifier = sctid != null ? sctid : publicId.leastUuid().toString();
         return new AnfSlot.Grounded(conceptNid, ComponentText.publicIdKey(publicId), identifier, label);
     }
 

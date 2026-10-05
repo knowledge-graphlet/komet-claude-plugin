@@ -113,7 +113,7 @@ public final class KonceptTokenDrop {
     }
 
     /**
-     * The dropped component's badge token: its first UUID plus the view's name, or empty when the
+     * The dropped component's badge token: its least UUID plus the view's name, or empty when the
      * store has no public id for it. The token never holds a nid
      * ({@code IKE-Network/ike-issues#1170}).
      */

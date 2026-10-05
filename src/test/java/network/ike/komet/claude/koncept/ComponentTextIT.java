@@ -96,7 +96,9 @@ class ComponentTextIT {
             String identifier = ComponentText.identifier(nid);
             assertEquals(nid, PrimitiveData.nid(PublicIds.of(identifier)),
                     "the identifier written in text finds the component it was written for");
-            assertEquals(identifier, ComponentText.firstUuid(nid).orElseThrow().toString());
+            assertEquals(identifier, ComponentText.leastUuid(nid).orElseThrow().toString());
+            assertEquals(PrimitiveData.publicId(nid).leastUuid().toString(), identifier,
+                    "the identifier is the least of the component's UUIDs, whatever order the store lists them in");
             assertTrue(PublicId.equals(PrimitiveData.publicId(nid), ComponentText.publicId(nid).orElseThrow()));
             NidFree.assertNoNid("the identifier", identifier, nid);
         }
@@ -210,7 +212,7 @@ class ComponentTextIT {
     @Test
     void aNidTheStoreHasNoPublicIdForIsStatedAsUnidentified() {
         assertTrue(ComponentText.publicId(UNASSIGNED_NID).isEmpty());
-        assertTrue(ComponentText.firstUuid(UNASSIGNED_NID).isEmpty());
+        assertTrue(ComponentText.leastUuid(UNASSIGNED_NID).isEmpty());
         assertTrue(ComponentText.publicIdKey(UNASSIGNED_NID).isEmpty());
         assertTrue(ComponentText.badge(view, UNASSIGNED_NID).isEmpty(),
                 "no token can be written for a component with no public id");

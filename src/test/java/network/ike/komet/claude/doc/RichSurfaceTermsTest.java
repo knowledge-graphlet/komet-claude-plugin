@@ -15,14 +15,17 @@
  */
 package network.ike.komet.claude.doc;
 
+import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.terms.EntityProxy;
 import org.junit.jupiter.api.Test;
 
-import java.util.HashSet;
-import java.util.Set;
+import java.util.List;
+import java.util.TreeSet;
 import java.util.UUID;
+import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -57,22 +60,30 @@ class RichSurfaceTermsTest {
 
     @Test
     void identitiesAreDistinct() {
-        Set<UUID> seen = new HashSet<>();
-        for (EntityProxy proxy : new EntityProxy[] {
+        List<EntityProxy> proxies = List.of(
                 RichSurfaceTerms.CONVERSATION_JOURNAL, RichSurfaceTerms.JOURNAL_ELEMENT,
                 RichSurfaceTerms.PROSE_ELEMENT, RichSurfaceTerms.COMPONENT_LIST_ELEMENT,
                 RichSurfaceTerms.REFERENCE_ELEMENT, RichSurfaceTerms.TOMBSTONE_ELEMENT,
                 RichSurfaceTerms.JOURNAL_ELEMENTS, RichSurfaceTerms.PROSE_CONTENT,
                 RichSurfaceTerms.KOMET_ASSISTANT_AUTHOR, RichSurfaceTerms.CONVERSATION_JOURNAL_MODULE,
-                RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN, RichSurfaceTerms.PROSE_ELEMENT_PATTERN}) {
-            assertTrue(seen.add(proxy.publicId().asUuidArray()[0]),
-                    "duplicate identity: " + proxy.description());
-        }
-        assertEquals(12, seen.size(), "all wave-1 identities present and distinct");
+                RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN, RichSurfaceTerms.PROSE_ELEMENT_PATTERN);
+        assertNoneShareAUuid(proxies, EntityProxy::publicId);
+        assertEquals(12, new TreeSet<>(proxies.stream().map(EntityProxy::publicId).toList()).size(),
+                "all wave-1 identities present and distinct");
     }
 
     private static void assertIdentity(EntityProxy proxy, String expectedUuid) {
-        assertEquals(UUID.fromString(expectedUuid), proxy.publicId().asUuidArray()[0],
+        assertTrue(proxy.publicId().contains(UUID.fromString(expectedUuid)),
                 "FROZEN identity forked for '" + proxy.description() + "'");
+    }
+
+    /** No two of the identities share a UUID: public ids that share any UUID are the same component. */
+    private static <T> void assertNoneShareAUuid(List<T> components, Function<T, PublicId> publicId) {
+        for (int i = 0; i < components.size(); i++) {
+            for (int j = i + 1; j < components.size(); j++) {
+                assertFalse(PublicId.equals(publicId.apply(components.get(i)), publicId.apply(components.get(j))),
+                        "shared identity: " + components.get(i) + " and " + components.get(j));
+            }
+        }
     }
 }

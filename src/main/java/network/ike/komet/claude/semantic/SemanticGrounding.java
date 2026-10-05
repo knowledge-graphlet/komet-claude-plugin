@@ -163,7 +163,7 @@ public final class SemanticGrounding implements Grounder {
             return Optional.empty();
         }
         String label = ComponentText.fullyQualifiedName(view, nid);
-        String identifier = publicId.get().asUuidArray()[0].toString();
+        String identifier = publicId.get().leastUuid().toString();
         return Optional.of(new ComponentSlot.Grounded(
                 nid, kind, ComponentText.publicIdKey(publicId.get()), identifier, label));
     }

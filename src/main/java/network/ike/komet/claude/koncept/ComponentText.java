@@ -43,7 +43,7 @@ import java.util.UUID;
  * badge token {@code k:uuid=<UUID>[Name]} built from it.
  *
  * <p>Two rules hold for every method here. When no description resolves, the name is the
- * component's first UUID. When the store has no public id for the component, the text is
+ * component's least UUID. When the store has no public id for the component, the text is
  * {@link #UNIDENTIFIED} and has no identifier in it.
  */
 public final class ComponentText {
@@ -71,7 +71,7 @@ public final class ComponentText {
     public static Optional<PublicId> publicId(int nid) {
         try {
             PublicId publicId = PrimitiveData.publicId(nid);
-            if (publicId == null || publicId.asUuidArray().length == 0) {
+            if (publicId == null || publicId.uuidCount() == 0) {
                 return Optional.empty();
             }
             return Optional.of(publicId);
@@ -81,24 +81,27 @@ public final class ComponentText {
     }
 
     /**
-     * The first UUID of the component's public id.
+     * The one UUID that stands for a component where text names it by a single UUID: the least
+     * of its public id's UUIDs ({@link PublicId#leastUuid()}). Any of them resolves the
+     * component; the least is chosen so the text does not depend on the order the store lists
+     * them in.
      *
      * @param nid the component's nid in the open store
-     * @return the first UUID, or empty when the store has no public id for the nid
+     * @return the least UUID, or empty when the store has no public id for the nid
      */
-    public static Optional<UUID> firstUuid(int nid) {
-        return publicId(nid).map(publicId -> publicId.asUuidArray()[0]);
+    public static Optional<UUID> leastUuid(int nid) {
+        return publicId(nid).map(PublicId::leastUuid);
     }
 
     /**
-     * The identifier text of a component: its first UUID.
+     * The identifier text of a component: its {@linkplain #leastUuid(int) least UUID}.
      *
      * @param nid the component's nid in the open store
-     * @return the first UUID as a string, or {@link #UNIDENTIFIED} when the store has no public id
+     * @return the least UUID as a string, or {@link #UNIDENTIFIED} when the store has no public id
      *         for the nid; never a nid
      */
     public static String identifier(int nid) {
-        return firstUuid(nid).map(UUID::toString).orElse(UNIDENTIFIED);
+        return leastUuid(nid).map(UUID::toString).orElse(UNIDENTIFIED);
     }
 
     /**
@@ -231,7 +234,7 @@ public final class ComponentText {
      * @return the badge token, or empty when the store has no public id for the nid
      */
     public static Optional<String> badge(ViewCalculator view, int nid) {
-        return firstUuid(nid).map(uuid -> KonceptTokens.token(KonceptTokens.Kind.UUID, uuid.toString(), label(view, nid)));
+        return leastUuid(nid).map(uuid -> KonceptTokens.token(KonceptTokens.Kind.UUID, uuid.toString(), label(view, nid)));
     }
 
     /** The view's description for a badge label, or the empty string when there is none. */

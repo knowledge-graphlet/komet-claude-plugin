@@ -156,7 +156,7 @@ class AssistantTextIT {
             for (SemanticEntity<SemanticEntityVersion> semantic
                     : EntityService.get().semanticsForComponent(subject.nid()).toList()) {
                 int semanticNid = semantic.nid();
-                String semanticUuid = semantic.publicId().asUuidArray()[0].toString();
+                String semanticUuid = ComponentText.identifier(semantic.nid());
                 for (ViewCalculator calculator : List.of(view, undescribed)) {
                     String text = run(calculator, "semantic_info", Map.of("id", semanticUuid));
                     assertTrue(text.startsWith("Pattern: "), "the semantic is written: " + text);
@@ -209,7 +209,8 @@ class AssistantTextIT {
         assertFalse(text.startsWith("No active"), what);
     }
 
+    /** The UUID text identifies a component by: the same helper production uses. */
     private static String uuidOf(EntityFacade facade) {
-        return PrimitiveData.publicId(facade.nid()).asUuidArray()[0].toString();
+        return ComponentText.identifier(facade.nid());
     }
 }

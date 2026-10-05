@@ -1226,7 +1226,7 @@ public final class ClaudeCard extends AbstractHostCard {
      * change.
      *
      * <p>The token written into the markdown is the badge token {@code k:uuid=<UUID>[Name]}: the
-     * component's first UUID, labelled with the coordinate-preferred description — the same name
+     * component's least UUID, labelled with the coordinate-preferred description — the same name
      * the rendered chip shows (#942). The text never holds a nid
      * ({@code IKE-Network/ike-issues#1170}).
      */
@@ -1956,7 +1956,7 @@ public final class ClaudeCard extends AbstractHostCard {
             }
             PublicId anchor = conv.journalAnchor;
             if (anchor != null) {
-                dto.put("journalAnchor", anchor.asUuidArray()[0].toString());
+                dto.put("journalAnchor", anchor.leastUuid().toString());
             }
             String json = Json.stringify(dto);
             Files.writeString(dir.resolve("conversation-" + conv.id + ".json"), json, StandardCharsets.UTF_8);
@@ -2108,7 +2108,7 @@ public final class ClaudeCard extends AbstractHostCard {
         entry.put(KEY_LAST_ACTIVE, Long.toString(System.currentTimeMillis()));
         PublicId anchor = conv.journalAnchor;
         if (anchor != null) {
-            entry.put(KEY_ANCHOR, anchor.asUuidArray()[0].toString());
+            entry.put(KEY_ANCHOR, anchor.leastUuid().toString());
         }
         entry.remove(KEY_MOVED_TO);
     }

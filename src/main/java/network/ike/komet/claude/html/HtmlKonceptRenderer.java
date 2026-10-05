@@ -129,7 +129,7 @@ public final class HtmlKonceptRenderer {
         String labelStyle = isInactive(nid) ? LABEL_INACTIVE : LABEL;
         String pill = "<span style=\"" + PILL + "\">" + statusCluster(nid) + identicon(nid)
                 + " <span style=\"" + labelStyle + "\">" + escape(name(nid)) + "</span></span>";
-        UUID uuid = firstUuid(nid);
+        UUID uuid = ComponentText.leastUuid(nid).orElse(null);
         return uuid == null ? pill
                 : "<a href=\"" + KOMPENDIUM.conceptUrl(uuid) + "\" style=\"text-decoration:none;\">" + pill + "</a>";
     }
@@ -166,15 +166,6 @@ public final class HtmlKonceptRenderer {
                 + "\" style=\"font-size:0.85em;vertical-align:middle;white-space:nowrap;\">"
                 + "<span style=\"color:" + status.core().colorHex() + ";\">" + status.glyph() + "</span>"
                 + fork + "</span> ";
-    }
-
-    private static UUID firstUuid(int nid) {
-        try {
-            UUID[] uuids = PrimitiveData.publicId(nid).asUuidArray();
-            return uuids.length > 0 ? uuids[0] : null;
-        } catch (RuntimeException e) {
-            return null;
-        }
     }
 
     private String identicon(int nid) {

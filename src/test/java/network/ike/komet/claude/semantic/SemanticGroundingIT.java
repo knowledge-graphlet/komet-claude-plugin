@@ -24,6 +24,7 @@ import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.TinkarTerm;
+import network.ike.komet.claude.koncept.ComponentText;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -134,11 +135,12 @@ class SemanticGroundingIT {
         return description.get().nid();
     }
 
+    /** The UUID text identifies a component by: the same helper production uses. */
     private static String uuidOf(EntityFacade facade) {
-        return facade.publicId().asUuidArray()[0].toString();
+        return ComponentText.identifier(facade.nid());
     }
 
     private static String uuidOf(int nid) {
-        return PrimitiveData.publicId(nid).asUuidArray()[0].toString();
+        return ComponentText.identifier(nid);
     }
 }
