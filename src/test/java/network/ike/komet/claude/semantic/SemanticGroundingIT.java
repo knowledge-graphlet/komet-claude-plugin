@@ -37,7 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Integration tests for {@link SemanticGrounding} against the Tinkar starter data — the live,
+ * Integration tests for {@link SemanticGrounding} against the IKE starter set — the live,
  * datastore-backed counterpart to the store-free {@link SemanticToolsTest}. Loads the starter
  * dataset into an ephemeral store and confirms the kind-aware grounding the unit tests faked:
  * a concept grounds as {@link ComponentSlot.Kind#CONCEPT}, a pattern as {@code PATTERN}, a

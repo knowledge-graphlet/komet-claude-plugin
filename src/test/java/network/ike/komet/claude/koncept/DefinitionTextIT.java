@@ -41,7 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Store-backed tests for {@link DefinitionText} against the Tinkar starter data in an ephemeral
+ * Store-backed tests for {@link DefinitionText} against the IKE starter set in an ephemeral
  * store ({@code IKE-Network/ike-issues#1170}): the layout of the text, the names in it, and
  * that no nid is in it — for a tree built here with every kind of property value, and for the
  * stated and inferred definitions the starter data holds.

@@ -32,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.fail;
  * What the store-backed tests of {@code IKE-Network/ike-issues#1170} share: the assertion that a
  * text holds no nid, and a view under which no component has a description.
  *
- * <p>The tests run against the Tinkar starter data in the ephemeral store. That store numbers
+ * <p>The tests run against the IKE starter set in the ephemeral store. That store numbers
  * components upward from {@code Integer.MIN_VALUE + 1}, so in decimal every nid it assigns is a
  * minus sign and ten digits beginning {@code 21474} or {@code 21473}. {@link #assertNoNid} looks
  * for a number of that shape, and for the forms a nid has been written in:

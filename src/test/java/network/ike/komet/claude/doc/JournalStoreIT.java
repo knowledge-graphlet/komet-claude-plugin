@@ -39,8 +39,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Integration tests for {@link JournalStore} against an ephemeral store seeded with the Tinkar
- * starter data — the regression gate for the conversation-journal chronology model
+ * Integration tests for {@link JournalStore} against an ephemeral store seeded with the IKE
+ * starter set — the regression gate for the conversation-journal chronology model
  * ({@code IKE-Network/ike-issues#807}).
  *
  * <p>Two behaviors asserted here are <em>load-bearing</em>: a semantic re-written at the same

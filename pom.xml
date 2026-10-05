@@ -60,9 +60,6 @@
         <!-- Main-line Komet BOM; manages komet module + tinkar versions.
              Matches ike-komet-wsr on main. -->
         <komet-bom.version>3.0.12-64bit-SNAPSHOT</komet-bom.version>
-        <!-- Tinkar starter dataset for the integration (*IT) grounding suite, loaded into an
-             ephemeral store. Pinned to the version komet/framework uses (komet/pom.xml); ike-parent
-             does not manage it. -->
         <!-- The IKE starter set the tests load, from starter-data-ws, which builds after this repository. -->
         <ike-starter-set.version>1-64bit-SNAPSHOT</ike-starter-set.version>
         <java.version>27</java.version>
@@ -95,8 +92,8 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- Integration-test datastore providers: the *IT grounding suite loads the Tinkar starter
-             data into an ephemeral store and grounds against real components (the coordinate/
+        <!-- Integration-test datastore providers: the *IT grounding suite loads the IKE starter
+             set into an ephemeral store and grounds against real components (the coordinate/
              grounding testing discipline). The providers ship only module-info `provides` (no
              META-INF/services), so the *IT classpath run (the parent runs tests with
              useModulePath=false) discovers them via the legacy META-INF/services files in
@@ -215,9 +212,9 @@
                 </configuration>
             </plugin>
 
-            <!-- Copy the Tinkar starter dataset into target/data so the *IT grounding suite can
-                 load it into an ephemeral store (the same artifact + stripped layout komet/framework
-                 uses: target/data/tinkar-starter-data-reasoned-pb.zip). -->
+            <!-- Copy the IKE starter set into target/data so the *IT grounding suite can load it
+                 into an ephemeral store (the same artifact and file name komet/framework uses:
+                 target/data/ike-starter-set-reasoned-pb.zip). -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-dependency-plugin</artifactId>

@@ -44,7 +44,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The text the assistant gives the model holds no nid ({@code IKE-Network/ike-issues#1170}).
- * Every graph tool is run against the Tinkar starter data in an ephemeral store, and what it
+ * Every graph tool is run against the IKE starter set in an ephemeral store, and what it
  * returns is examined; so is the request that opens a concept check. That text is what the
  * conversation file and the conversation journal keep.
  *

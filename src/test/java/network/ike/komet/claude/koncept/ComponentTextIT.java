@@ -46,7 +46,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Store-backed tests for {@link ComponentText} against the Tinkar starter data in an ephemeral
+ * Store-backed tests for {@link ComponentText} against the IKE starter set in an ephemeral
  * store ({@code IKE-Network/ike-issues#1170}). They hold the helper to its two rules — a name
  * that does not resolve is the component's UUID, and a component the store has no public id for
  * is stated as unidentified — and to the one behind both: no text form is ever a nid.
