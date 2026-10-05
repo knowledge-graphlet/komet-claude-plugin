@@ -21,20 +21,14 @@ import dev.ikm.tinkar.common.id.IntIds;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
-import dev.ikm.tinkar.composer.Composer;
-import dev.ikm.tinkar.composer.Session;
-import dev.ikm.tinkar.composer.assembler.ConceptAssembler;
-import dev.ikm.tinkar.composer.assembler.PatternAssembler;
-import dev.ikm.tinkar.composer.assembler.SemanticAssembler;
-import dev.ikm.tinkar.composer.template.FullyQualifiedName;
 import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
+import dev.ikm.tinkar.entity.transaction.StampedWriter;
 import dev.ikm.tinkar.terms.ConceptFacade;
-import dev.ikm.tinkar.terms.EntityBinding;
 import dev.ikm.tinkar.terms.EntityProxy;
 import dev.ikm.tinkar.terms.EntityProxy.Concept;
 import dev.ikm.tinkar.terms.EntityProxy.Semantic;
@@ -68,11 +62,12 @@ import java.util.function.Supplier;
  * completes, off the FX thread; a failed send never touches the journal. Store failures throw —
  * the caller degrades to its JSON-only persistence.
  *
- * <p><b>Sessions.</b> Sessions use the explicit-time {@code Composer.open} overload with distinct
- * times: the commit-time overload keys its session cache at {@code Long.MAX_VALUE}, so two
- * same-dimension sessions would silently coalesce. A semantic re-compose at the same public id
- * merges a new version through {@code EntityProvider.putEntity → PrimitiveData.merge} — the
- * manifest-append mechanic {@code JournalStoreIT} locks as this store's regression gate.
+ * <p><b>Writes.</b> An append is one {@link StampedWriter}: the user turn at one stamp, the
+ * assistant turn and the manifest at a second, committed or cancelled together. Each stamp takes an
+ * explicit time from the monotonic clock, so manifest versions are strictly ordered. A semantic
+ * re-written at the same public id merges a new version through
+ * {@code EntityProvider.putEntity → PrimitiveData.merge} — the manifest-append mechanic
+ * {@code JournalStoreIT} locks as this store's regression gate.
  */
 public final class JournalStore {
 
@@ -88,20 +83,6 @@ public final class JournalStore {
     /** The next STAMP time: wall time, bumped past any time already handed out. */
     private static long nextStampTime() {
         return LAST_STAMP_TIME.updateAndGet(last -> Math.max(last + 1, System.currentTimeMillis()));
-    }
-
-    /**
-     * Runs composer work with the given pattern's PublicId bound as the nid-allocation scope.
-     * The Rocks engine encodes an entity's pattern into its nid, so allocating a nid for a
-     * <em>new</em> semantic (or pattern) requires {@code SCOPED_PATTERN_PUBLICID_FOR_NID} to name
-     * the pattern being instantiated — the composer's transaction path does not bind it itself.
-     * Stores that mint nids unscoped (the ephemeral test store) ignore the binding.
-     *
-     * @param patternId the pattern whose instances the work creates
-     * @param work      the composer call
-     */
-    private static void composeInPatternScope(PublicId patternId, Runnable work) {
-        ScopedValue.where(PrimitiveData.SCOPED_PATTERN_PUBLICID_FOR_NID, patternId).run(work);
     }
 
     /**
@@ -142,7 +123,7 @@ public final class JournalStore {
     // ── Vocabulary bootstrap ─────────────────────────────────────────────
 
     /**
-     * Composes the wave-1 {@link RichSurfaceTerms} vocabulary into the open datastore if absent —
+     * Writes the wave-1 {@link RichSurfaceTerms} vocabulary into the open datastore if absent —
      * concepts (existence-gated one by one) and the two patterns. Idempotent and thread-safe; safe
      * to call before every write. The vocabulary is shared infrastructure, so it stamps under
      * {@link KometTerm#DEVELOPMENT_MODULE} (the {@code NarratorIdentity} precedent), not the
@@ -167,73 +148,46 @@ public final class JournalStore {
         if (!entityAbsent(concept)) {
             return;
         }
-        Composer composer = new Composer("rich-surface-vocabulary-seed");
-        try {
-            Session session = composer.open(State.ACTIVE, System.currentTimeMillis(), KernelTerm.USER,
-                    KometTerm.DEVELOPMENT_MODULE, KernelTerm.DEVELOPMENT_PATH);
-            // The FQN attach creates a description-pattern semantic; its nid allocation needs the
-            // description pattern bound as scope (the concept's own nid self-binds).
-            composeInPatternScope(KernelTerm.DESCRIPTION_PATTERN.publicId(),
-                    () -> session.compose((ConceptAssembler assembler) -> assembler
-                            .concept(concept)
-                            .attach(FullyQualifiedName.class, name -> name
-                                    .language(KernelTerm.ENGLISH_LANGUAGE)
-                                    .text(concept.description())
-                                    .caseSignificance(KernelTerm.DESCRIPTION_NOT_CASE_SENSITIVE))));
-            composer.commitSession(session);
-            LOG.info("Seeded rich-surface concept '{}'", concept.description());
-        } catch (RuntimeException e) {
-            composer.cancelAllSessions();
-            throw e;
+        try (StampedWriter writer = openVocabularyWriter()) {
+            writer.concept(concept);
+            writer.fullyQualifiedName(concept, concept.description());
+            writer.commit();
         }
+        LOG.info("Seeded rich-surface concept '{}'", concept.description());
     }
 
     private static void seedManifestPatternIfAbsent() {
         if (!entityAbsent(RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN)) {
             return;
         }
-        Composer composer = new Composer("rich-surface-vocabulary-seed");
-        try {
-            Session session = composer.open(State.ACTIVE, System.currentTimeMillis(), KernelTerm.USER,
-                    KometTerm.DEVELOPMENT_MODULE, KernelTerm.DEVELOPMENT_PATH);
-            composeInPatternScope(EntityBinding.Pattern.pattern().publicId(),
-                    () -> session.compose((PatternAssembler assembler) -> assembler
-                            .pattern(RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN)
-                            .meaning(RichSurfaceTerms.CONVERSATION_JOURNAL)
-                            .purpose(RichSurfaceTerms.JOURNAL_ELEMENTS)
-                            .fieldDefinition(RichSurfaceTerms.JOURNAL_ELEMENTS,
-                                    RichSurfaceTerms.JOURNAL_ELEMENTS,
-                                    KernelTerm.COMPONENT_ID_LIST_FIELD)));
-            composer.commitSession(session);
-            LOG.info("Seeded journal manifest pattern");
-        } catch (RuntimeException e) {
-            composer.cancelAllSessions();
-            throw e;
+        try (StampedWriter writer = openVocabularyWriter()) {
+            writer.pattern(RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN,
+                    RichSurfaceTerms.CONVERSATION_JOURNAL, RichSurfaceTerms.JOURNAL_ELEMENTS,
+                    StampedWriter.field(RichSurfaceTerms.JOURNAL_ELEMENTS,
+                            RichSurfaceTerms.JOURNAL_ELEMENTS, KernelTerm.COMPONENT_ID_LIST_FIELD));
+            writer.commit();
         }
+        LOG.info("Seeded journal manifest pattern");
     }
 
     private static void seedProsePatternIfAbsent() {
         if (!entityAbsent(RichSurfaceTerms.PROSE_ELEMENT_PATTERN)) {
             return;
         }
-        Composer composer = new Composer("rich-surface-vocabulary-seed");
-        try {
-            Session session = composer.open(State.ACTIVE, System.currentTimeMillis(), KernelTerm.USER,
-                    KometTerm.DEVELOPMENT_MODULE, KernelTerm.DEVELOPMENT_PATH);
-            composeInPatternScope(EntityBinding.Pattern.pattern().publicId(),
-                    () -> session.compose((PatternAssembler assembler) -> assembler
-                            .pattern(RichSurfaceTerms.PROSE_ELEMENT_PATTERN)
-                            .meaning(RichSurfaceTerms.PROSE_ELEMENT)
-                            .purpose(RichSurfaceTerms.PROSE_CONTENT)
-                            .fieldDefinition(RichSurfaceTerms.PROSE_CONTENT,
-                                    RichSurfaceTerms.PROSE_CONTENT,
-                                    KernelTerm.STRING)));
-            composer.commitSession(session);
-            LOG.info("Seeded prose element pattern");
-        } catch (RuntimeException e) {
-            composer.cancelAllSessions();
-            throw e;
+        try (StampedWriter writer = openVocabularyWriter()) {
+            writer.pattern(RichSurfaceTerms.PROSE_ELEMENT_PATTERN,
+                    RichSurfaceTerms.PROSE_ELEMENT, RichSurfaceTerms.PROSE_CONTENT,
+                    StampedWriter.field(RichSurfaceTerms.PROSE_CONTENT,
+                            RichSurfaceTerms.PROSE_CONTENT, KernelTerm.STRING));
+            writer.commit();
         }
+        LOG.info("Seeded prose element pattern");
+    }
+
+    /** A writer for the shared vocabulary: {@link KernelTerm#USER} on the development module. */
+    private static StampedWriter openVocabularyWriter() {
+        return StampedWriter.open("rich-surface-vocabulary-seed", State.ACTIVE, System.currentTimeMillis(),
+                KernelTerm.USER, KometTerm.DEVELOPMENT_MODULE, KernelTerm.DEVELOPMENT_PATH);
     }
 
     // ── Append ───────────────────────────────────────────────────────────
@@ -299,66 +253,39 @@ public final class JournalStore {
 
         long userTime = nextStampTime();
         long assistantTime = nextStampTime();
-        Composer composer = new Composer("conversation-journal-append");
-        try {
-            // Distinct explicit times: the commit-time open() overload would coalesce same-dimension
-            // sessions (its session key carries Long.MAX_VALUE), and the monotonic clock keeps
-            // manifest versions strictly ordered even across same-millisecond exchanges.
-            Session userSession = composer.open(State.ACTIVE, userTime, userAuthor(),
-                    RichSurfaceTerms.CONVERSATION_JOURNAL_MODULE, KernelTerm.DEVELOPMENT_PATH);
+        // Distinct explicit times from the monotonic clock keep manifest versions strictly ordered,
+        // even across same-millisecond exchanges. Closing the writer unfinished cancels both stamps,
+        // so a partial append leaves no durable orphans.
+        try (StampedWriter writer = StampedWriter.open("conversation-journal-append", State.ACTIVE, userTime,
+                userAuthor(), RichSurfaceTerms.CONVERSATION_JOURNAL_MODULE, KernelTerm.DEVELOPMENT_PATH)) {
             if (anchorNew) {
                 String name = (conversationName == null || conversationName.isBlank())
                         ? "Conversation journal" : conversationName;
-                composeInPatternScope(KernelTerm.DESCRIPTION_PATTERN.publicId(),
-                        () -> userSession.compose((ConceptAssembler assembler) -> assembler
-                                .concept(anchorConcept)
-                                .attach(FullyQualifiedName.class, fqn -> fqn
-                                        .language(KernelTerm.ENGLISH_LANGUAGE)
-                                        .text(name)
-                                        .caseSignificance(KernelTerm.DESCRIPTION_NOT_CASE_SENSITIVE))));
+                writer.concept(anchorConcept);
+                writer.fullyQualifiedName(anchorConcept, name);
             }
-            composeInPatternScope(RichSurfaceTerms.PROSE_ELEMENT_PATTERN.publicId(),
-                    () -> userSession.compose((SemanticAssembler assembler) -> assembler
-                            .semantic(userElement)
-                            .pattern(RichSurfaceTerms.PROSE_ELEMENT_PATTERN)
-                            .reference(anchorConcept)
-                            .fieldValues(values ->
-                                    values.with(userMarkdown == null ? "" : userMarkdown))));
+            int userNid = writer.semantic(userElement, RichSurfaceTerms.PROSE_ELEMENT_PATTERN, anchorConcept,
+                    userMarkdown == null ? "" : userMarkdown);
 
-            Session assistantSession = composer.open(State.ACTIVE, assistantTime,
-                    RichSurfaceTerms.KOMET_ASSISTANT_AUTHOR,
+            writer.restamp(State.ACTIVE, assistantTime, RichSurfaceTerms.KOMET_ASSISTANT_AUTHOR,
                     RichSurfaceTerms.CONVERSATION_JOURNAL_MODULE, KernelTerm.DEVELOPMENT_PATH);
-            composeInPatternScope(RichSurfaceTerms.PROSE_ELEMENT_PATTERN.publicId(),
-                    () -> assistantSession.compose((SemanticAssembler assembler) -> assembler
-                            .semantic(assistantElement)
-                            .pattern(RichSurfaceTerms.PROSE_ELEMENT_PATTERN)
-                            .reference(anchorConcept)
-                            .fieldValues(values ->
-                                    values.with(assistantMarkdown == null ? "" : assistantMarkdown))));
+            int assistantNid = writer.semantic(assistantElement, RichSurfaceTerms.PROSE_ELEMENT_PATTERN,
+                    anchorConcept, assistantMarkdown == null ? "" : assistantMarkdown);
 
             // Manifest: append both element nids (write order = document order) as a new version of
-            // the existing manifest semantic, or mint the manifest on first append. Composed in the
-            // same session as the assistant element so a crash cannot leave a second manifest behind.
+            // the existing manifest semantic, or mint the manifest on first append. Written at the
+            // assistant's stamp, in the same writer, so a crash cannot leave a second manifest behind.
             int[] appended = new int[priorElements.size() + 2];
             System.arraycopy(priorElements.toArray(), 0, appended, 0, priorElements.size());
-            appended[appended.length - 2] = EntityService.get().nidForPublicId(userElement.publicId());
-            appended[appended.length - 1] = EntityService.get().nidForPublicId(assistantElement.publicId());
+            appended[appended.length - 2] = userNid;
+            appended[appended.length - 1] = assistantNid;
             IntIdList newElements = IntIds.list.of(appended);
-            composeInPatternScope(RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN.publicId(),
-                    () -> assistantSession.compose((SemanticAssembler assembler) -> assembler
-                            .semantic(manifest)
-                            .pattern(RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN)
-                            .reference(anchorConcept)
-                            .fieldValues(values -> values.with(newElements))));
+            writer.semantic(manifest, RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN, anchorConcept, newElements);
 
-            composer.commitAllSessions();
+            writer.commit();
             LOG.info("Appended exchange to journal {} ({} elements)",
                     anchorId.idString(), newElements.size());
             return anchorId;
-        } catch (RuntimeException e) {
-            // A partial append must not leave durable orphans (compose writes immediately).
-            composer.cancelAllSessions();
-            throw e;
         }
     }
 

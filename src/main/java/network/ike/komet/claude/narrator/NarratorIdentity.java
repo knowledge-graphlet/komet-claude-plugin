@@ -19,10 +19,7 @@ import dev.ikm.komet.terms.KometTerm;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.util.uuid.UuidT5Generator;
-import dev.ikm.tinkar.composer.Composer;
-import dev.ikm.tinkar.composer.Session;
-import dev.ikm.tinkar.composer.assembler.ConceptAssembler;
-import dev.ikm.tinkar.composer.template.FullyQualifiedName;
+import dev.ikm.tinkar.entity.transaction.StampedWriter;
 import dev.ikm.tinkar.terms.EntityProxy.Concept;
 import dev.ikm.tinkar.terms.State;
 import dev.ikm.tinkar.terms.KernelTerm;
@@ -81,16 +78,12 @@ public final class NarratorIdentity {
         if (PrimitiveData.get().hasPublicId(concept.publicId())) {
             return;
         }
-        Composer composer = new Composer("komet-narrator-identity-seed");
-        Session session = composer.open(State.ACTIVE, KernelTerm.USER,
-                KometTerm.DEVELOPMENT_MODULE, KernelTerm.DEVELOPMENT_PATH);
-        session.compose((ConceptAssembler conceptAssembler) -> conceptAssembler
-                .concept(concept)
-                .attach(FullyQualifiedName.class, name -> name
-                        .language(KernelTerm.ENGLISH_LANGUAGE)
-                        .text(fullyQualifiedName)
-                        .caseSignificance(KernelTerm.DESCRIPTION_NOT_CASE_SENSITIVE)));
-        composer.commitSession(session);
+        try (StampedWriter writer = StampedWriter.open("komet-narrator-identity-seed", State.ACTIVE,
+                KernelTerm.USER, KometTerm.DEVELOPMENT_MODULE, KernelTerm.DEVELOPMENT_PATH)) {
+            writer.concept(concept);
+            writer.fullyQualifiedName(concept, fullyQualifiedName);
+            writer.commit();
+        }
         LOG.info("Seeded narrator identity concept '{}'", fullyQualifiedName);
     }
 }

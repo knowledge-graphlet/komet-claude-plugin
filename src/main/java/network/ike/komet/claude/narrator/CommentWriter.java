@@ -15,10 +15,10 @@
  */
 package network.ike.komet.claude.narrator;
 
-import dev.ikm.tinkar.composer.Composer;
-import dev.ikm.tinkar.composer.Session;
-import dev.ikm.tinkar.composer.template.Comment;
+import dev.ikm.tinkar.common.id.PublicIds;
+import dev.ikm.tinkar.entity.transaction.StampedWriter;
 import dev.ikm.tinkar.terms.EntityProxy;
+import dev.ikm.tinkar.terms.KernelTerm;
 import dev.ikm.tinkar.terms.State;
 
 /**
@@ -46,12 +46,13 @@ public final class CommentWriter {
         if (narrative == null || narrative.isBlank()) {
             return;
         }
-        Composer composer = new Composer("komet-narrator");
-        Session session = composer.open(State.ACTIVE,
+        try (StampedWriter writer = StampedWriter.open("komet-narrator", State.ACTIVE,
                 NarratorIdentity.NARRATOR_AUTHOR,
                 NarratorIdentity.NARRATION_MODULE,
-                NarratorIdentity.NARRATION_PATH);
-        session.compose(new Comment().text(narrative), EntityProxy.make(targetStampNid));
-        composer.commitSession(session);
+                NarratorIdentity.NARRATION_PATH)) {
+            writer.semantic(PublicIds.newRandom(), KernelTerm.COMMENT_PATTERN,
+                    EntityProxy.make(targetStampNid), narrative);
+            writer.commit();
+        }
     }
 }

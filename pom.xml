@@ -154,13 +154,6 @@
             <scope>provided</scope>
         </dependency>
 
-        <!-- Tinkar Composer: author COMMENT_PATTERN semantics (commit comments) referencing a
-             STAMP, and seed the narrator identity concepts. Version managed by komet-bom. -->
-        <dependency>
-            <groupId>dev.ikm.tinkar</groupId>
-            <artifactId>composer</artifactId>
-        </dependency>
-
         <!-- JavaFX controls/layout for the chat panel, and the incubator
              RichTextArea for the styled transcript. Versions managed by
              komet-bom (javafx.version 26.0.1). -->

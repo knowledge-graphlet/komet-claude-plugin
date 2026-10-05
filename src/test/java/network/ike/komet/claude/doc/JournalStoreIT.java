@@ -43,10 +43,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * starter data — the regression gate for the conversation-journal chronology model
  * ({@code IKE-Network/ike-issues#807}).
  *
- * <p>Two behaviors asserted here are <em>load-bearing</em> and not covered anywhere upstream: a
- * semantic re-composed at the same public id gains a new version (the composer suite only proves
- * this for concepts; the semantic path rides {@code putEntity → PrimitiveData.merge}), and a
- * component-id-list field round-trips in order (the upstream IT for it is {@code @Disabled}).
+ * <p>Two behaviors asserted here are <em>load-bearing</em>: a semantic re-written at the same
+ * public id gains a new version (tinkar-core's {@code StampedWriterIT} proves the writer's half;
+ * the manifest append rides {@code putEntity → PrimitiveData.merge}), and a component-id-list
+ * field round-trips in order (the upstream IT for it is {@code @Disabled}).
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class JournalStoreIT {
