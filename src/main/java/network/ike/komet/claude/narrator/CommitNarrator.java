@@ -30,6 +30,7 @@ import dev.ikm.tinkar.events.FrameworkTopics;
 import dev.ikm.tinkar.events.Subscriber;
 import network.ike.komet.claude.ClaudeCard;
 import network.ike.komet.claude.anthropic.AnthropicClient;
+import network.ike.komet.claude.koncept.ComponentText;
 import network.ike.komet.claude.tools.GraphTools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -222,8 +223,12 @@ public final class CommitNarrator {
         return sb.toString();
     }
 
-    /** The view's coordinate-preferred description, else the nid — the badge's own resolution (#942). */
+    /**
+     * The view's coordinate-preferred description — the badge's own resolution (#942) — else the
+     * component's UUID. The narrative is stored as a comment semantic, so it never holds a nid
+     * ({@code IKE-Network/ike-issues#1170}).
+     */
     private static String name(int nid, ViewCalculator view) {
-        return view.getDescriptionTextOrNid(nid);
+        return ComponentText.name(view, nid);
     }
 }

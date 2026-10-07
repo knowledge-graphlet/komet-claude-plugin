@@ -25,6 +25,7 @@ import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityVersion;
 import dev.ikm.tinkar.entity.StampEntity;
 import dev.ikm.komet.framework.controls.KonceptStatus;
+import network.ike.komet.claude.koncept.ComponentText;
 import network.ike.komet.claude.koncept.ConceptDefinition;
 import network.ike.komet.claude.koncept.KompendiumUrls;
 import network.ike.komet.claude.koncept.KonceptIdenticon;
@@ -128,7 +129,7 @@ public final class HtmlKonceptRenderer {
         String labelStyle = isInactive(nid) ? LABEL_INACTIVE : LABEL;
         String pill = "<span style=\"" + PILL + "\">" + statusCluster(nid) + identicon(nid)
                 + " <span style=\"" + labelStyle + "\">" + escape(name(nid)) + "</span></span>";
-        UUID uuid = firstUuid(nid);
+        UUID uuid = ComponentText.leastUuid(nid).orElse(null);
         return uuid == null ? pill
                 : "<a href=\"" + KOMPENDIUM.conceptUrl(uuid) + "\" style=\"text-decoration:none;\">" + pill + "</a>";
     }
@@ -165,15 +166,6 @@ public final class HtmlKonceptRenderer {
                 + "\" style=\"font-size:0.85em;vertical-align:middle;white-space:nowrap;\">"
                 + "<span style=\"color:" + status.core().colorHex() + ";\">" + status.glyph() + "</span>"
                 + fork + "</span> ";
-    }
-
-    private static UUID firstUuid(int nid) {
-        try {
-            UUID[] uuids = PrimitiveData.publicId(nid).asUuidArray();
-            return uuids.length > 0 ? uuids[0] : null;
-        } catch (RuntimeException e) {
-            return null;
-        }
     }
 
     private String identicon(int nid) {
@@ -380,9 +372,12 @@ public final class HtmlKonceptRenderer {
         return sb.append("</tr>").toString();
     }
 
-    /** The view's coordinate-preferred description, else the nid — the badge's own resolution (#942). */
+    /**
+     * The view's coordinate-preferred description — the badge's own resolution (#942) — else the
+     * component's UUID; never a nid, since the HTML leaves the store ({@code IKE-Network/ike-issues#1170}).
+     */
     private String name(int nid) {
-        return view.getDescriptionTextOrNid(nid);
+        return ComponentText.name(view, nid);
     }
 
     private static String escape(String text) {

@@ -35,6 +35,8 @@ import java.util.Objects;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.BooleanSupplier;
 import java.util.random.RandomGenerator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A minimal, hand-rolled client for the Anthropic Messages API
@@ -67,7 +69,7 @@ public final class AnthropicClient {
     public static final int DEFAULT_MAX_TURNS = 16;
 
     /** Logs transient-failure retries so a mid-burst recovery still leaves a trace. */
-    private static final System.Logger LOG = System.getLogger(AnthropicClient.class.getName());
+    private static final Logger LOG = LoggerFactory.getLogger(AnthropicClient.class);
 
     /** Anthropic's status page, surfaced when a retryable overload/rate-limit exhausts all attempts. */
     private static final String STATUS_PAGE = "https://status.anthropic.com";
@@ -380,8 +382,7 @@ public final class AnthropicClient {
             }
             String reason = last.getMessage();
             String retryActivity = retryReason;
-            LOG.log(System.Logger.Level.WARNING,
-                    () -> reason + "; retrying in " + waitMillis + " ms");
+            LOG.warn("{}; retrying in {} ms", reason, waitMillis);
             obs.onRetry(turn, attempt + 1, MAX_ATTEMPTS, waitMillis, retryActivity);
             if (!sleep(waitMillis)) {
                 throw new AnthropicException("Interrupted during retry backoff");

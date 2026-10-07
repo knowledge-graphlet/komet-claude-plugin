@@ -89,9 +89,14 @@ final class KonceptTreeBlockRenderer implements BlockRenderer {
     static final String TAG = "koncept-tree";
 
     /**
-     * One node line: {@code k:<kind>=<value>[label]}. Group 1 = kind (sctid/uuid/nid/id),
-     * group 2 = the id value (an SCTID, a UUID, or a comma-joined UUID array), group 3 = the
-     * optional bracketed authoring label. Applied to the already-stripped line body.
+     * One node line: {@code k:<kind>=<value>[label]}. Group 1 = kind (sctid/uuid/id, and the
+     * earlier nid kind), group 2 = the id value (an SCTID, a UUID, or a comma-joined UUID
+     * array), group 3 = the optional bracketed authoring label. Applied to the already-stripped
+     * line body.
+     *
+     * <p>The {@code nid} kind stays in the line grammar only so that a tree written before
+     * {@code IKE-Network/ike-issues#1170} still parses as a tree; {@link #resolvePid} never
+     * resolves it, so such a node shows its authoring label.
      */
     private static final Pattern TOKEN = Pattern.compile(
             "^k:\\s*(sctid|uuid|nid|id)\\s*=\\s*([^\\[\\]]+?)\\s*(?:\\[(.*)])?$");
@@ -167,8 +172,8 @@ final class KonceptTreeBlockRenderer implements BlockRenderer {
 
     /**
      * One parsed node: its indentation (leading-space count, carrying nesting depth), the token
-     * kind (sctid/uuid/nid/id), the raw id value, and the optional bracketed authoring label.
-     * Deliberately store-free — resolution happens when the tree is built.
+     * kind (sctid/uuid/id, or the earlier nid), the raw id value, and the optional bracketed
+     * authoring label. Deliberately store-free — resolution happens when the tree is built.
      */
     record ParsedNode(int indent, String kind, String value, String label) {
     }
@@ -199,12 +204,22 @@ final class KonceptTreeBlockRenderer implements BlockRenderer {
      * Resolves a token to a {@link PublicId} that actually exists in the store, or null. The
      * existence gate is what makes the chip identity-native: a fabricated id never draws a chip
      * (it falls back to the authoring label instead).
+     *
+     * <p>A {@code nid} token is never resolved. A nid is local to the store that assigned it,
+     * and the block can have been written against another store, where the same number names a
+     * different component or none ({@code IKE-Network/ike-issues#1170}). Package-visible for
+     * the store-backed test.
+     *
+     * @param kind  the token kind as parsed: {@code sctid}, {@code uuid}, {@code id}, or the
+     *              earlier {@code nid}
+     * @param value the id value as parsed
+     * @return the public id of a component the open store holds, or null
      */
-    private static PublicId resolvePid(String kind, String value) {
+    static PublicId resolvePid(String kind, String value) {
         try {
             PublicId pid = switch (kind) {
                 case "sctid" -> PublicIds.of(UuidUtil.fromSNOMED(value));
-                case "nid" -> PrimitiveData.publicId(Integer.parseInt(value));
+                case "nid" -> null;
                 default -> uuidPublicId(value); // uuid | id
             };
             if (pid != null && PrimitiveData.get().hasPublicId(pid)) {

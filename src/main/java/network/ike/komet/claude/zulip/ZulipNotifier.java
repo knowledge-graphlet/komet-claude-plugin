@@ -15,7 +15,7 @@
  */
 package network.ike.komet.claude.zulip;
 
-import dev.ikm.tinkar.common.service.PrimitiveData;
+import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.util.time.DateTimeUtil;
 import dev.ikm.tinkar.coordinate.logic.PremiseType;
 import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
@@ -23,6 +23,7 @@ import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityVersion;
 import dev.ikm.tinkar.entity.StampEntity;
+import network.ike.komet.claude.koncept.ComponentText;
 import network.ike.komet.claude.koncept.ConceptDefinition;
 import network.ike.komet.claude.koncept.IdenticonUriCache;
 import network.ike.komet.claude.koncept.KompendiumUrls;
@@ -125,7 +126,7 @@ public final class ZulipNotifier {
     private String renderConcept(int conceptNid, ViewCalculator view) {
         String name = name(conceptNid, view);
         String id = stableId(conceptNid);
-        UUID uuid = firstUuid(conceptNid);
+        UUID uuid = leastUuid(conceptNid);
         // Per-message identicon-upload cache: author/module/path recur across history
         // rows, so upload each unique concept's identicon once and reuse the URI.
         Map<Integer, String> icons = new HashMap<>();
@@ -250,15 +251,23 @@ public final class ZulipNotifier {
      * {@code ""} on failure so the caller omits the identicon.
      */
     private String resolveIconUri(int nid) {
-        UUID uuid = firstUuid(nid);
+        Optional<PublicId> pid = ComponentText.publicId(nid);
+        if (pid.isEmpty()) {
+            return "";
+        }
+        PublicId publicId = pid.get();
+        // Keyed by the least UUID: any UUID identifies the concept, and the least does not
+        // depend on the order the store lists them in.
+        UUID uuid = publicId.leastUuid();
         String cached = IdenticonUriCache.get(realm, uuid);
         if (cached != null) {
             return cached;
         }
         try {
-            String idString = PrimitiveData.publicId(nid).idString();
-            byte[] ico = KonceptIdenticon.pngAt(idString, INLINE_IDENTICON_PX);
-            String uri = client.uploadFile("k-" + nid + ".png", ico, "image/png");
+            byte[] ico = KonceptIdenticon.pngAt(publicId.idString(), INLINE_IDENTICON_PX);
+            // The upload is named for the public id: the name is part of the URI Zulip
+            // keeps, and a nid means nothing outside the store that assigned it.
+            String uri = client.uploadFile("k-" + uuid + ".png", ico, "image/png");
             IdenticonUriCache.put(realm, uuid, uri);
             return uri;
         } catch (RuntimeException e) {
@@ -310,9 +319,9 @@ public final class ZulipNotifier {
         }
     }
 
-    /** The view's coordinate-preferred description, else the nid — the badge's own resolution (#942). */
+    /** The view's coordinate-preferred description, else the least UUID — the badge's own resolution (#942). */
     private static String name(int nid, ViewCalculator view) {
-        return view.getDescriptionTextOrNid(nid);
+        return ComponentText.name(view, nid);
     }
 
     /** A "Last edited by … · …" line from the concept's latest STAMP, best-effort. */
@@ -330,19 +339,16 @@ public final class ZulipNotifier {
         return "_No version metadata available._";
     }
 
-    /** The concept's first public UUID, or null if none is resolvable. */
-    private static UUID firstUuid(int nid) {
-        try {
-            UUID[] uuids = PrimitiveData.publicId(nid).asUuidArray();
-            return uuids.length > 0 ? uuids[0] : null;
-        } catch (RuntimeException e) {
-            return null;
-        }
+    /** The concept's least public UUID, or null if none is resolvable. */
+    private static UUID leastUuid(int nid) {
+        return ComponentText.leastUuid(nid).orElse(null);
     }
 
-    /** A stable identifier string for topic/keying: the first public UUID, else the nid. */
+    /**
+     * A stable identifier string for topic/keying: the first public UUID. A concept
+     * the store has no public id for is named as unidentified, never by its nid.
+     */
     private static String stableId(int nid) {
-        UUID uuid = firstUuid(nid);
-        return uuid != null ? uuid.toString() : ("nid=" + nid);
+        return ComponentText.identifier(nid);
     }
 }

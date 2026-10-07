@@ -37,24 +37,56 @@ public final class KonceptTokens {
     }
 
     /**
+     * The id spaces a token can be written in. Both are public: an identifier in either space
+     * means the same component in every store. A nid is local to one store, so it is not a kind,
+     * and no token can be written with one ({@code IKE-Network/ike-issues#1170}).
+     */
+    public enum Kind {
+        /** A UUID of the component's public id. */
+        UUID("uuid"),
+        /** A SNOMED CT identifier. */
+        SCTID("sctid");
+
+        private final String key;
+
+        Kind(String key) {
+            this.key = key;
+        }
+
+        /**
+         * The kind as it is written in a token, between {@code k:} and {@code =}.
+         *
+         * @return the token key, {@code uuid} or {@code sctid}
+         */
+        public String key() {
+            return key;
+        }
+    }
+
+    /**
      * One id-bearing token, e.g. {@code k:uuid=e07f…[Chronic disease]}. The label is display text
      * for the reader; identity travels in the id, and the rendered chip always shows the
      * store-resolved name regardless of the label.
      *
-     * @param kind  the id space: {@code uuid}, {@code sctid}, or {@code nid}
+     * @param kind  the id space
      * @param id    the identifier in that space
      * @param label the display label; brackets are stripped (the grammar reserves them), and a
      *              blank label omits the bracket segment entirely
      * @return the serialized token
      */
-    public static String token(String kind, String id, String label) {
+    public static String token(Kind kind, String id, String label) {
         String clean = label == null ? "" : label.replace("[", "").replace("]", "").trim();
         return clean.isEmpty()
-                ? "k:" + kind + "=" + id
-                : "k:" + kind + "=" + id + "[" + clean + "]";
+                ? "k:" + kind.key() + "=" + id
+                : "k:" + kind.key() + "=" + id + "[" + clean + "]";
     }
 
-    /** The tight inline token grammar, for the display projection (kept in step with the decorator). */
+    /**
+     * The tight inline token grammar, for the display projection (kept in step with the decorator).
+     * It still recognizes the {@code nid} kind that text stored before
+     * {@code IKE-Network/ike-issues#1170} can hold, only so that such a token projects as its
+     * label; nothing here resolves an identifier.
+     */
     private static final Pattern TOKEN =
             Pattern.compile("k:(?:sctid|uuid|nid|id)=[0-9a-fA-F-]+(?:\\[([^\\[\\]]*)])?");
 

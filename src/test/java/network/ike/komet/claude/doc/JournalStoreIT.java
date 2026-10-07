@@ -19,7 +19,10 @@ import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
+import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
+import dev.ikm.tinkar.entity.SemanticEntity;
+import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -36,20 +39,20 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Integration tests for {@link JournalStore} against an ephemeral store seeded with the Tinkar
- * starter data — the regression gate for the conversation-journal chronology model
+ * Integration tests for {@link JournalStore} against an ephemeral store seeded with the IKE
+ * starter set — the regression gate for the conversation-journal chronology model
  * ({@code IKE-Network/ike-issues#807}).
  *
- * <p>Two behaviors asserted here are <em>load-bearing</em> and not covered anywhere upstream: a
- * semantic re-composed at the same public id gains a new version (the composer suite only proves
- * this for concepts; the semantic path rides {@code putEntity → PrimitiveData.merge}), and a
- * component-id-list field round-trips in order (the upstream IT for it is {@code @Disabled}).
+ * <p>Two behaviors asserted here are <em>load-bearing</em>: a semantic re-written at the same
+ * public id gains a new version (tinkar-core's {@code StampedWriterIT} proves the writer's half;
+ * the manifest append rides {@code putEntity → PrimitiveData.merge}), and a component-id-list
+ * field round-trips in order (the upstream IT for it is {@code @Disabled}).
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class JournalStoreIT {
 
     private static final File PB_STARTER_DATA =
-            new File("target/data/tinkar-starter-data-reasoned-pb.zip");
+            new File("target/data/ike-starter-set-reasoned-pb.zip");
 
     private ViewCalculator view;
     private JournalStore store;
@@ -107,13 +110,13 @@ class JournalStoreIT {
     void secondAppendGrowsTheManifestAsANewVersionInOrder() {
         PublicId anchor = store.appendExchange(null, "Growing conversation", "u1", "a1");
         int manifestNid = soleManifestNid(anchor);
-        int versionsAfterFirst = EntityService.get().getEntityFast(manifestNid).versions().size();
+        int versionsAfterFirst = EntityHandle.get(manifestNid).expectSemantic().versions().size();
 
         PublicId confirmed = store.appendExchange(anchor, "Growing conversation", "u2", "a2");
         assertEquals(anchor, confirmed, "append to an existing journal confirms the same anchor");
         assertEquals(manifestNid, soleManifestNid(anchor), "still exactly one manifest");
         assertEquals(versionsAfterFirst + 1,
-                EntityService.get().getEntityFast(manifestNid).versions().size(),
+                EntityHandle.get(manifestNid).expectSemantic().versions().size(),
                 "each exchange appends exactly one manifest version (semantic re-compose merges)");
 
         List<JournalStore.TurnRecord> turns = store.load(anchor).orElseThrow();
@@ -157,16 +160,16 @@ class JournalStoreIT {
     }
 
     private static int versionCount(PublicId publicId) {
-        return EntityService.get()
-                .getEntityFast(EntityService.get().nidForPublicId(publicId))
+        return EntityHandle.get(EntityService.get().nidForPublicId(publicId))
+                .expectEntity()
                 .versions().size();
     }
 
     private static int soleManifestNid(PublicId anchor) {
-        int[] nids = EntityService.get().semanticNidsForComponentOfPattern(
+        List<SemanticEntity<SemanticEntityVersion>> manifests = EntityService.get().semanticsForComponentOfPattern(
                 EntityService.get().nidForPublicId(anchor),
-                RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN.nid());
-        assertEquals(1, nids.length, "exactly one manifest per journal");
-        return nids[0];
+                RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN.nid()).toList();
+        assertEquals(1, manifests.size(), "exactly one manifest per journal");
+        return manifests.getFirst().nid();
     }
 }

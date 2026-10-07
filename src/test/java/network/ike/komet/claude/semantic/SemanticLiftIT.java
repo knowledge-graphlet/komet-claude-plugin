@@ -15,11 +15,11 @@
  */
 package network.ike.komet.claude.semantic;
 
+import dev.ikm.tinkar.terms.KernelTerm;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
-import dev.ikm.tinkar.terms.TinkarTerm;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -27,6 +27,7 @@ import org.junit.jupiter.api.TestInstance;
 
 import java.io.File;
 import java.util.Optional;
+import org.junit.jupiter.api.Tag;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -43,11 +44,12 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
  * pipeline <em>completes and produces structure or guidance</em> — not specific clinical groundings.
  * Richer, deterministic lift assertions arrive when full terminologies are loadable.
  */
+@Tag("external") // TestTags.EXTERNAL: needs an Anthropic API key; run with -Pexternal
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class SemanticLiftIT {
 
     private static final File PB_STARTER_DATA =
-            new File("target/data/tinkar-starter-data-reasoned-pb.zip");
+            new File("target/data/ike-starter-set-reasoned-pb.zip");
     private static final String LIFT_MODEL = "claude-opus-4-8";
 
     private ViewCalculator view;
@@ -76,7 +78,7 @@ class SemanticLiftIT {
         assumeTrue(apiKey.isPresent(),
                 "No Anthropic API key (system property / env / Komet user preferences) — skipping live lift.");
 
-        int patternNid = TinkarTerm.DESCRIPTION_PATTERN.nid();
+        int patternNid = KernelTerm.DESCRIPTION_PATTERN.nid();
         SemanticLift lift = new SemanticLift(view, apiKey.get(), LIFT_MODEL, patternNid);
 
         SemanticLift.Result result = lift.lift(

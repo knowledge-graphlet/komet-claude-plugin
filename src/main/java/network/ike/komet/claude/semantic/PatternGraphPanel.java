@@ -17,7 +17,6 @@ package network.ike.komet.claude.semantic;
 
 import dev.ikm.komet.framework.dnd.KometClipboard;
 import dev.ikm.tinkar.common.id.PublicIds;
-import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.Entity;
@@ -43,6 +42,7 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.util.StringConverter;
+import network.ike.komet.claude.koncept.ComponentText;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -284,12 +284,7 @@ public final class PatternGraphPanel extends VBox {
     }
 
     private static String uuidOf(int nid) {
-        try {
-            UUID[] uuids = PrimitiveData.publicId(nid).asUuidArray();
-            return uuids.length == 0 ? null : uuids[0].toString();
-        } catch (RuntimeException e) {
-            return null;
-        }
+        return ComponentText.leastUuid(nid).map(UUID::toString).orElse(null);
     }
 
     /** Resolves a UUID string to a nid, or {@link #SUBJECT} (used here as a "no nid" marker) on failure. */
@@ -451,8 +446,7 @@ public final class PatternGraphPanel extends VBox {
     }
 
     private static String label(ViewCalculator view, int nid) {
-        return view.getFullyQualifiedNameText(nid)
-                .orElseGet(() -> view.getPreferredDescriptionTextWithFallbackOrNid(nid));
+        return ComponentText.fullyQualifiedName(view, nid);
     }
 
     /**

@@ -17,9 +17,12 @@ package network.ike.komet.claude.ui;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.regex.Matcher;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -33,29 +36,49 @@ class KonceptTokensTest {
     @Test
     void tokenSerializesTheTightGrammar() {
         assertEquals("k:uuid=" + UUID_A + "[Chronic disease]",
-                KonceptTokens.token("uuid", UUID_A, "Chronic disease"));
-        assertEquals("k:nid=-42", KonceptTokens.token("nid", "-42", null));
-        assertEquals("k:sctid=73211009", KonceptTokens.token("sctid", "73211009", "   "));
+                KonceptTokens.token(KonceptTokens.Kind.UUID, UUID_A, "Chronic disease"));
+        assertEquals("k:uuid=" + UUID_A, KonceptTokens.token(KonceptTokens.Kind.UUID, UUID_A, null));
+        assertEquals("k:sctid=73211009", KonceptTokens.token(KonceptTokens.Kind.SCTID, "73211009", "   "));
+    }
+
+    @Test
+    void aTokenIsWrittenOnlyInAPublicIdSpace() {
+        // The kinds are every id space a token can be written in. A nid is local to one store,
+        // so it is not among them, and no caller can serialize k:nid=…
+        // (IKE-Network/ike-issues#1170). Adding a kind fails this test on purpose.
+        List<String> keys = Arrays.stream(KonceptTokens.Kind.values()).map(KonceptTokens.Kind::key).toList();
+        assertEquals(List.of("uuid", "sctid"), keys);
+        assertFalse(keys.contains("nid"), "a nid is never a token kind");
     }
 
     @Test
     void labelsNeverSmuggleBrackets() {
         assertEquals("k:uuid=" + UUID_A + "[Body mass index observable entity]",
-                KonceptTokens.token("uuid", UUID_A, "Body mass [index] observable entity"));
+                KonceptTokens.token(KonceptTokens.Kind.UUID, UUID_A, "Body mass [index] observable entity"));
     }
 
     @Test
     void displayProjectsTokensAsTheirLabels() {
         String text = "Compare k:uuid=" + UUID_A + "[Chronic disease] with k:sctid=73211009[Diabetes mellitus].";
         assertEquals("Compare Chronic disease with Diabetes mellitus.", KonceptTokens.display(text));
-        assertEquals("evaluate for tests", KonceptTokens.display("evaluate k:nid=-42 for tests"),
+        assertEquals("evaluate for tests", KonceptTokens.display("evaluate k:sctid=73211009 for tests"),
                 "an unlabelled token elides rather than reading as noise");
         assertEquals("", KonceptTokens.display(null));
     }
 
     @Test
+    void displayStillProjectsATokenOfTheEarlierNidKind() {
+        // Text stored before IKE-Network/ike-issues#1170 can hold k:nid=…[Label]. The display
+        // projection resolves nothing, so it shows such a token as its label like any other —
+        // a conversation's name in the rail does not turn into token text.
+        assertEquals("Compare Chronic disease today",
+                KonceptTokens.display("Compare k:nid=-42[Chronic disease] today"));
+        assertEquals("evaluate for tests", KonceptTokens.display("evaluate k:nid=-42 for tests"));
+    }
+
+    @Test
     void emittedTokensRoundTripThroughTheInlineGrammar() {
-        String token = KonceptTokens.token("uuid", UUID_A, "Chronic disease (disorder)");
+        String token = KonceptTokens.token(KonceptTokens.Kind.UUID, UUID_A, "Chronic disease (disorder)");
         Matcher m = ConceptChipInlineDecorator.TOKEN.matcher(token);
         assertTrue(m.find() && m.start() == 0 && m.end() == token.length(),
                 "the compose form parses whole as the read form");

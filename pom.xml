@@ -7,7 +7,7 @@
     <parent>
         <groupId>network.ike.platform</groupId>
         <artifactId>ike-parent</artifactId>
-        <version>191</version>
+        <version>196</version>
         <relativePath/>
     </parent>
 
@@ -56,14 +56,19 @@
     </distributionManagement>
 
     <properties>
+        <test.excludedGroups>external</test.excludedGroups>
         <!-- Main-line Komet BOM; manages komet module + tinkar versions.
              Matches ike-komet-wsr on main. -->
         <komet-bom.version>3.0.12-SNAPSHOT</komet-bom.version>
-        <!-- Tinkar starter dataset for the integration (*IT) grounding suite, loaded into an
-             ephemeral store. Pinned to the version komet/framework uses (komet/pom.xml); ike-parent
-             does not manage it. -->
-        <tinkar-starter-data.version>1.1.2</tinkar-starter-data.version>
+        <!-- The IKE starter set the tests load, from starter-data-ws, which builds after this repository. -->
+        <ike-starter-set.version>1-SNAPSHOT</ike-starter-set.version>
         <java.version>27</java.version>
+        <!-- The nid build check (tinkar-core nid-check, IKE-Network/ike-issues#1244): how it
+             reports (error, or warning for a census), which classes may narrow a nid, and
+             javac's cap on warnings, raised for a census. -->
+        <nid-check.report>error</nid-check.report>
+        <nid-check.allow></nid-check.allow>
+        <javac.maxwarns>100</javac.maxwarns>
     </properties>
 
     <dependencyManagement>
@@ -93,8 +98,8 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- Integration-test datastore providers: the *IT grounding suite loads the Tinkar starter
-             data into an ephemeral store and grounds against real components (the coordinate/
+        <!-- Integration-test datastore providers: the *IT grounding suite loads the IKE starter
+             set into an ephemeral store and grounds against real components (the coordinate/
              grounding testing discipline). The providers ship only module-info `provides` (no
              META-INF/services), so the *IT classpath run (the parent runs tests with
              useModulePath=false) discovers them via the legacy META-INF/services files in
@@ -153,13 +158,6 @@
             <scope>provided</scope>
         </dependency>
 
-        <!-- Tinkar Composer: author COMMENT_PATTERN semantics (commit comments) referencing a
-             STAMP, and seed the narrator identity concepts. Version managed by komet-bom. -->
-        <dependency>
-            <groupId>dev.ikm.tinkar</groupId>
-            <artifactId>composer</artifactId>
-        </dependency>
-
         <!-- JavaFX controls/layout for the chat panel, and the incubator
              RichTextArea for the styled transcript. Versions managed by
              komet-bom (javafx.version 26.0.1). -->
@@ -195,6 +193,17 @@
             <groupId>com.sparrowwallet</groupId>
             <artifactId>toucan</artifactId>
         </dependency>
+        <!-- The shared test logging configuration (log4j2-test.xml); a library ships none of its own. -->
+        <dependency>
+            <groupId>dev.ikm.tinkar</groupId>
+            <artifactId>test-logging</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-jul</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -206,12 +215,25 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
                     <parameters>true</parameters>
+                    <!-- The nid build check (tinkar-core nid-check, IKE-Network/ike-issues#1244). -->
+                    <compilerArgs combine.children="append">
+                        <arg>-Xplugin:NidCheck report=${nid-check.report} allow=${nid-check.allow}</arg>
+                        <arg>-Xmaxwarns</arg>
+                        <arg>${javac.maxwarns}</arg>
+                    </compilerArgs>
+                    <annotationProcessorPathsUseDepMgmt>true</annotationProcessorPathsUseDepMgmt>
+                    <annotationProcessorPaths combine.children="append">
+                        <path>
+                            <groupId>dev.ikm.tinkar</groupId>
+                            <artifactId>nid-check</artifactId>
+                        </path>
+                    </annotationProcessorPaths>
                 </configuration>
             </plugin>
 
-            <!-- Copy the Tinkar starter dataset into target/data so the *IT grounding suite can
-                 load it into an ephemeral store (the same artifact + stripped layout komet/framework
-                 uses: target/data/tinkar-starter-data-reasoned-pb.zip). -->
+            <!-- Copy the IKE starter set into target/data so the *IT grounding suite can load it
+                 into an ephemeral store (the same artifact and file name komet/framework uses:
+                 target/data/ike-starter-set-reasoned-pb.zip). -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-dependency-plugin</artifactId>
@@ -225,19 +247,23 @@
                         <configuration>
                             <artifactItems>
                                 <artifactItem>
-                                    <groupId>dev.ikm.data.tinkar</groupId>
-                                    <artifactId>tinkar-starter-data</artifactId>
-                                    <version>${tinkar-starter-data.version}</version>
+                                    <groupId>network.ike.foundation</groupId>
+                                    <artifactId>ike-starter-set</artifactId>
+                                    <version>${ike-starter-set.version}</version>
                                     <classifier>reasoned-pb</classifier>
                                     <type>zip</type>
                                     <overWrite>false</overWrite>
                                     <outputDirectory>${project.build.directory}/data</outputDirectory>
+                                    <destFileName>ike-starter-set-reasoned-pb.zip</destFileName>
                                 </artifactItem>
                             </artifactItems>
                             <stripVersion>true</stripVersion>
                             <outputDirectory>${project.build.directory}/data</outputDirectory>
                             <overWriteReleases>false</overWriteReleases>
-                            <overWriteSnapshots>true</overWriteSnapshots>
+                            <!-- Copy only when the installed starter set is newer than the copy here, rather than
+                                 overwriting it on every build. -->
+                            <overWriteSnapshots>false</overWriteSnapshots>
+                            <overWriteIfNewer>true</overWriteIfNewer>
                         </configuration>
                     </execution>
                 </executions>
@@ -261,10 +287,20 @@
                             <includes>
                                 <include>**/*IT.java</include>
                             </includes>
+                            <!-- Tests tagged "external" need a service or key outside the
+                                 build; -Pexternal runs them. -->
+                            <excludedGroups>${test.excludedGroups}</excludedGroups>
+                            <!-- Lucene 10.5.1 turns its Vector API code on only up to Java 26 and warns on 27.
+                                 The property raises that limit; the full suite passes with it. Drop it when
+                                 a Lucene release supports Java 27. -->
                             <argLine>
+                                @{failsafeArgLine}
                                 --enable-preview
                                 --add-modules jdk.incubator.vector
+                                -Dorg.apache.lucene.vectorization.upperJavaFeatureVersion=27
                                 --enable-native-access=ALL-UNNAMED
+                                --sun-misc-unsafe-memory-access=allow
+                                -Djava.util.logging.manager=org.apache.logging.log4j.jul.LogManager
                                 --add-opens java.base/java.lang=ALL-UNNAMED
                                 --add-opens java.base/java.util=ALL-UNNAMED
                                 --add-opens java.base/java.lang.reflect=ALL-UNNAMED
@@ -276,4 +312,12 @@
             </plugin>
         </plugins>
     </build>
+    <profiles>
+        <profile>
+            <id>external</id>
+            <properties>
+                <test.excludedGroups/>
+            </properties>
+        </profile>
+    </profiles>
 </project>

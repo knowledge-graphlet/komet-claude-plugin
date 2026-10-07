@@ -79,7 +79,6 @@ import javafx.scene.input.TransferMode;
 import dev.ikm.komet.framework.dnd.KometClipboard;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
-import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.events.EvtBusFactory;
 import network.ike.komet.claude.instructions.InstructionEditorCard;
 import java.util.LinkedHashMap;
@@ -98,6 +97,7 @@ import jfx.incubator.scene.control.richtext.RichTextArea;
 import jfx.incubator.scene.control.richtext.TextPos;
 import dev.ikm.komet.markdown.richtext.ConceptChipTextModel;
 import dev.ikm.komet.markdown.richtext.TableColumnWidths;
+import network.ike.komet.claude.koncept.ComponentText;
 import network.ike.komet.claude.ui.ComposeChips;
 import network.ike.komet.claude.ui.KonceptTokens;
 import network.ike.komet.claude.ui.MarkdownEditPane;
@@ -1221,43 +1221,24 @@ public final class ClaudeCard extends AbstractHostCard {
 
     /**
      * Inserts one live chip at {@code at} and returns the position just after it, or {@code null}
-     * when the concept has no resolvable identity (nothing composed). The supplier re-reads the live
-     * view and font size per render, so a chip re-renders current after a view or font change.
+     * when the store has no public id for the component (nothing composed). The supplier re-reads
+     * the live view and font size per render, so a chip re-renders current after a view or font
+     * change.
+     *
+     * <p>The token written into the markdown is the badge token {@code k:uuid=<UUID>[Name]}: the
+     * component's least UUID, labelled with the coordinate-preferred description — the same name
+     * the rendered chip shows (#942). The text never holds a nid
+     * ({@code IKE-Network/ike-issues#1170}).
      */
     private TextPos insertChipReturning(TextPos at, int nid) {
-        PublicId pid;
-        try {
-            pid = PrimitiveData.publicId(nid);
-        } catch (RuntimeException e) {
+        Optional<PublicId> pid = ComponentText.publicId(nid);
+        Optional<String> token = ComponentText.badge(safeViewCalculator(), nid);
+        if (pid.isEmpty() || token.isEmpty()) {
             return null;
         }
-        return composeModel.insertChip(at, konceptToken(nid),
-                () -> ComposeChips.chip(pid, safeViewProperties(), baseFontSize, chipTypography()));
-    }
-
-    /** The id-bearing {@code k:} token for a concept: UUID-keyed, labelled with the resolved name. */
-    private String konceptToken(int nid) {
-        String label = conceptName(nid);
-        try {
-            String uuid = PrimitiveData.publicId(nid).asUuidArray()[0].toString();
-            return KonceptTokens.token("uuid", uuid, label);
-        } catch (RuntimeException e) {
-            return KonceptTokens.token("nid", Integer.toString(nid), label);
-        }
-    }
-
-    private String conceptName(int nid) {
-        try {
-            ViewCalculator vc = viewCalculator();
-            if (vc != null) {
-                // The coordinate-preferred description — the same name the rendered chip shows,
-                // so the token label written into the markdown matches the display (#942).
-                return vc.getDescriptionTextOrNid(nid);
-            }
-        } catch (RuntimeException e) {
-            // No usable view — fall back to the nid marker.
-        }
-        return "nid=" + nid;
+        PublicId publicId = pid.get();
+        return composeModel.insertChip(at, token.get(),
+                () -> ComposeChips.chip(publicId, safeViewProperties(), baseFontSize, chipTypography()));
     }
 
     private void buildFindBar() {
@@ -1975,7 +1956,7 @@ public final class ClaudeCard extends AbstractHostCard {
             }
             PublicId anchor = conv.journalAnchor;
             if (anchor != null) {
-                dto.put("journalAnchor", anchor.asUuidArray()[0].toString());
+                dto.put("journalAnchor", anchor.leastUuid().toString());
             }
             String json = Json.stringify(dto);
             Files.writeString(dir.resolve("conversation-" + conv.id + ".json"), json, StandardCharsets.UTF_8);
@@ -2127,7 +2108,7 @@ public final class ClaudeCard extends AbstractHostCard {
         entry.put(KEY_LAST_ACTIVE, Long.toString(System.currentTimeMillis()));
         PublicId anchor = conv.journalAnchor;
         if (anchor != null) {
-            entry.put(KEY_ANCHOR, anchor.asUuidArray()[0].toString());
+            entry.put(KEY_ANCHOR, anchor.leastUuid().toString());
         }
         entry.remove(KEY_MOVED_TO);
     }

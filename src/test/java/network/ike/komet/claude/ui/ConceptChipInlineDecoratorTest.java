@@ -55,10 +55,6 @@ class ConceptChipInlineDecoratorTest {
         assertEquals("73211009", m.group("kid"));
         assertEquals("Diabetes mellitus", m.group("klabel"));
 
-        m = first("k:nid=-2147481234[Thing]");
-        assertEquals("nid", m.group("kind"));
-        assertEquals("-2147481234", m.group("kid"));
-
         m = first("k:id=" + UUID_A);
         assertEquals("id", m.group("kind"));
         assertEquals(UUID_A, m.group("kid"));
@@ -93,8 +89,52 @@ class ConceptChipInlineDecoratorTest {
     @Test
     void bareIdentifierFamiliesStillMatch() {
         assertEquals(UUID_A, first("see " + UUID_A + " here").group("uuid"));
-        assertEquals("-42", first("component nid=-42 resolved").group("nid"));
         assertEquals("73211009", first("code 73211009 appears").group("sctid"));
+    }
+
+    @Test
+    void anEarlierNidTokenIsConsumedWholeAndIsNotAnInterchangeKind() {
+        // Text stored before IKE-Network/ike-issues#1170 can hold k:nid=…[Label]. The legacy
+        // group takes the whole token, so nothing in it is offered for resolution.
+        String token = "k:nid=-2147481234[Thing]";
+        Matcher m = first(token);
+        assertEquals(token, m.group("legacy"));
+        assertNull(m.group("kind"), "nid is not an interchange kind");
+        assertNull(m.group("kid"), "a nid token has no id to resolve");
+        assertFalse(m.find(), "nothing inside the token is matched a second time");
+
+        // Without a label the token ends at the last digit, exactly as it did before.
+        m = first("see k:nid=-42 today");
+        assertEquals("k:nid=-42", m.group("legacy"));
+    }
+
+    @Test
+    void theDigitsOfABareNidAreNeverReadAsAnSctid() {
+        // A nid can be positive and long enough to look like an SCTID. The legacy group takes
+        // "nid=" together with its digits, so the number never reaches the sctid alternative —
+        // in a store that holds SNOMED CT it would otherwise get the badge of an unrelated concept.
+        Matcher m = first("component nid=73211009 resolved");
+        assertEquals("nid=73211009", m.group("legacy"));
+        assertNull(m.group("sctid"));
+        assertFalse(m.find(), "the digits are not matched a second time as an SCTID");
+
+        m = first("component nid=-42 resolved");
+        assertEquals("nid=-42", m.group("legacy"));
+    }
+
+    @Test
+    void earlierNidFormsStayLiteralBesideOtherTokens() {
+        // Store-free: here every token is literal. That the nid forms stay literal in a live
+        // store, where the UUID beside them gets its badge, is asserted by NidInTextIT.
+        ConceptChipInlineDecorator decorator = new ConceptChipInlineDecorator(
+                (dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator) null, 13);
+        String text = "k:nid=-42[Thing] then nid=73211009, then k:uuid=" + UUID_A + "[A].";
+        StringBuilder plain = new StringBuilder();
+        for (InlinePiece piece : decorator.decorate(text, StyleAttributeMap.EMPTY)) {
+            assertTrue(piece instanceof InlinePiece.TextRun, "no badges without a store");
+            plain.append(((InlinePiece.TextRun) piece).text());
+        }
+        assertEquals(text, plain.toString(), "nothing is lost or reordered");
     }
 
     @Test

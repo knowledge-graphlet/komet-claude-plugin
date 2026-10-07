@@ -15,13 +15,16 @@
  */
 package network.ike.komet.claude.semantic;
 
+import dev.ikm.tinkar.terms.KernelTerm;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.EntityService;
+import dev.ikm.tinkar.entity.SemanticEntity;
+import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.terms.EntityFacade;
-import dev.ikm.tinkar.terms.TinkarTerm;
+import network.ike.komet.claude.koncept.ComponentText;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -34,7 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Integration tests for {@link SemanticGrounding} against the Tinkar starter data — the live,
+ * Integration tests for {@link SemanticGrounding} against the IKE starter set — the live,
  * datastore-backed counterpart to the store-free {@link SemanticToolsTest}. Loads the starter
  * dataset into an ephemeral store and confirms the kind-aware grounding the unit tests faked:
  * a concept grounds as {@link ComponentSlot.Kind#CONCEPT}, a pattern as {@code PATTERN}, a
@@ -48,7 +51,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class SemanticGroundingIT {
 
     private static final File PB_STARTER_DATA =
-            new File("target/data/tinkar-starter-data-reasoned-pb.zip");
+            new File("target/data/ike-starter-set-reasoned-pb.zip");
 
     private ViewCalculator view;
     private Grounder grounder;
@@ -78,18 +81,18 @@ class SemanticGroundingIT {
 
     @Test
     void groundsAConceptAsConcept() {
-        Optional<ComponentSlot.Grounded> grounded = grounder.ground(uuidOf(TinkarTerm.ENGLISH_LANGUAGE), null);
+        Optional<ComponentSlot.Grounded> grounded = grounder.ground(uuidOf(KernelTerm.ENGLISH_LANGUAGE), null);
         assertTrue(grounded.isPresent(), "English Language should ground");
         assertEquals(ComponentSlot.Kind.CONCEPT, grounded.get().kind());
-        assertEquals(TinkarTerm.ENGLISH_LANGUAGE.nid(), grounded.get().nid());
+        assertEquals(KernelTerm.ENGLISH_LANGUAGE.nid(), grounded.get().nid());
     }
 
     @Test
     void groundsAPatternAsPattern() {
-        Optional<ComponentSlot.Grounded> grounded = grounder.ground(uuidOf(TinkarTerm.DESCRIPTION_PATTERN), null);
+        Optional<ComponentSlot.Grounded> grounded = grounder.ground(uuidOf(KernelTerm.DESCRIPTION_PATTERN), null);
         assertTrue(grounded.isPresent(), "Description Pattern should ground");
         assertEquals(ComponentSlot.Kind.PATTERN, grounded.get().kind());
-        assertEquals(TinkarTerm.DESCRIPTION_PATTERN.nid(), grounded.get().nid());
+        assertEquals(KernelTerm.DESCRIPTION_PATTERN.nid(), grounded.get().nid());
     }
 
     @Test
@@ -111,8 +114,8 @@ class SemanticGroundingIT {
 
     @Test
     void aConceptOnlyFieldAcceptsAConceptButNotUnderASemanticConstraint() {
-        assertTrue(grounder.ground(uuidOf(TinkarTerm.ENGLISH_LANGUAGE), ComponentSlot.Kind.CONCEPT).isPresent());
-        assertTrue(grounder.ground(uuidOf(TinkarTerm.ENGLISH_LANGUAGE), ComponentSlot.Kind.SEMANTIC).isEmpty(),
+        assertTrue(grounder.ground(uuidOf(KernelTerm.ENGLISH_LANGUAGE), ComponentSlot.Kind.CONCEPT).isPresent());
+        assertTrue(grounder.ground(uuidOf(KernelTerm.ENGLISH_LANGUAGE), ComponentSlot.Kind.SEMANTIC).isEmpty(),
                 "a concept must not satisfy a semantic-only field");
     }
 
@@ -125,17 +128,19 @@ class SemanticGroundingIT {
 
     /** The nid of a description semantic on English Language — a stable non-concept component to ground. */
     private static int aDescriptionSemanticNid() {
-        int[] descriptionNids = EntityService.get().semanticNidsForComponentOfPattern(
-                TinkarTerm.ENGLISH_LANGUAGE.nid(), TinkarTerm.DESCRIPTION_PATTERN.nid());
-        assertTrue(descriptionNids.length > 0, "English Language must carry description semantics");
-        return descriptionNids[0];
+        Optional<SemanticEntity<SemanticEntityVersion>> description = EntityService.get()
+                .semanticsForComponentOfPattern(KernelTerm.ENGLISH_LANGUAGE.nid(), KernelTerm.DESCRIPTION_PATTERN.nid())
+                .findFirst();
+        assertTrue(description.isPresent(), "English Language must carry description semantics");
+        return description.get().nid();
     }
 
+    /** The UUID text identifies a component by: the same helper production uses. */
     private static String uuidOf(EntityFacade facade) {
-        return facade.publicId().asUuidArray()[0].toString();
+        return ComponentText.identifier(facade.nid());
     }
 
     private static String uuidOf(int nid) {
-        return PrimitiveData.publicId(nid).asUuidArray()[0].toString();
+        return ComponentText.identifier(nid);
     }
 }

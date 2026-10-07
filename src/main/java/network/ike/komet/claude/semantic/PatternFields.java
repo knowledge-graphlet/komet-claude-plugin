@@ -19,6 +19,7 @@ import dev.ikm.tinkar.component.FieldDataType;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.FieldDefinitionForEntity;
 import dev.ikm.tinkar.entity.PatternEntityVersion;
+import network.ike.komet.claude.koncept.ComponentText;
 import org.eclipse.collections.api.list.ImmutableList;
 
 import java.util.ArrayList;
@@ -154,8 +155,7 @@ public record PatternFields(int patternNid, String patternLabel, List<FieldMeta>
     }
 
     private static String label(ViewCalculator view, int nid) {
-        return view.getFullyQualifiedNameText(nid)
-                .orElseGet(() -> view.getPreferredDescriptionTextWithFallbackOrNid(nid));
+        return ComponentText.fullyQualifiedName(view, nid);
     }
 
     /** Reads a field's datatype, treating an unreadable datatype as a deferred (null) field. */

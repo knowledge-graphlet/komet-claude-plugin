@@ -16,6 +16,7 @@
 package network.ike.komet.claude.tools;
 
 import dev.ikm.tinkar.common.id.IntIdCollection;
+import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.service.PrimitiveDataSearchResult;
@@ -31,12 +32,15 @@ import dev.ikm.tinkar.entity.PatternEntityVersion;
 import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
+import dev.ikm.tinkar.entity.graph.EntityVertex;
 import dev.ikm.tinkar.provider.grpc.GrpcSearchService;
 import dev.ikm.tinkar.provider.search.Searcher;
 import dev.ikm.tinkar.terms.EntityFacade;
-import dev.ikm.tinkar.terms.TinkarTerm;
+import dev.ikm.tinkar.terms.KernelTerm;
 import network.ike.komet.claude.anf.AnfSlot;
 import network.ike.komet.claude.anthropic.AnthropicTool;
+import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.koncept.DefinitionText;
 
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -206,10 +210,10 @@ public final class GraphTools {
                             .getInferredLogicalExpressionForEntity(nid, v.stampCalculator());
                     StringBuilder sb = new StringBuilder(nameAndId(v, nid)).append('\n');
                     sb.append("Stated:\n").append(stated.isPresent()
-                            ? stated.get().toString()
+                            ? DefinitionText.tree(stated.get(), v)
                             : "  (none on this view)").append('\n');
                     sb.append("Inferred:\n").append(inferred.isPresent()
-                            ? inferred.get().toString()
+                            ? DefinitionText.tree(inferred.get(), v)
                             : "  (none on this view — the concept may be primitive, or classification "
                               + "is not on this view's path; call view_info to see the active coordinate)");
                     return sb.toString();
@@ -232,7 +236,7 @@ public final class GraphTools {
                     try {
                         return "Active view coordinate:\n" + v.viewCoordinateRecord().toUserString();
                     } catch (RuntimeException e) {
-                        return "Active view coordinate:\n" + v.viewCoordinateRecord();
+                        return "Active view coordinate:\n" + VIEW_NOT_DESCRIBED;
                     }
                 });
     }
@@ -257,21 +261,21 @@ public final class GraphTools {
                     EntityService es = EntityService.get();
                     StringBuilder sb = new StringBuilder(nameAndId(v, nid)).append("\n\n");
 
-                    int[] rawInfNav = es.semanticNidsForComponentOfPattern(
-                            nid, TinkarTerm.INFERRED_NAVIGATION_PATTERN.nid());
-                    int[] rawStaNav = es.semanticNidsForComponentOfPattern(
-                            nid, TinkarTerm.STATED_NAVIGATION_PATTERN.nid());
-                    int[] rawInfAx = es.semanticNidsForComponentOfPattern(
-                            nid, TinkarTerm.EL_PLUS_PLUS_INFERRED_AXIOMS_PATTERN.nid());
-                    int[] rawStaAx = es.semanticNidsForComponentOfPattern(
-                            nid, TinkarTerm.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN.nid());
+                    List<SemanticEntity<SemanticEntityVersion>> rawInfNav = es.semanticsForComponentOfPattern(
+                            nid, KernelTerm.INFERRED_NAVIGATION_PATTERN.nid()).toList();
+                    long rawStaNav = es.semanticsForComponentOfPattern(
+                            nid, KernelTerm.STATED_NAVIGATION_PATTERN.nid()).count();
+                    long rawInfAx = es.semanticsForComponentOfPattern(
+                            nid, KernelTerm.EL_PLUS_PLUS_INFERRED_AXIOMS_PATTERN.nid()).count();
+                    long rawStaAx = es.semanticsForComponentOfPattern(
+                            nid, KernelTerm.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN.nid()).count();
                     sb.append("RAW store semantics (no view filter):\n")
-                            .append("  inferred-nav: ").append(rawInfNav.length).append('\n')
-                            .append("  stated-nav: ").append(rawStaNav.length).append('\n')
-                            .append("  inferred-axiom: ").append(rawInfAx.length).append('\n')
-                            .append("  stated-axiom: ").append(rawStaAx.length).append('\n');
-                    if (rawInfNav.length > 0) {
-                        Latest<SemanticEntityVersion> latest = v.stampCalculator().latest(rawInfNav[0]);
+                            .append("  inferred-nav: ").append(rawInfNav.size()).append('\n')
+                            .append("  stated-nav: ").append(rawStaNav).append('\n')
+                            .append("  inferred-axiom: ").append(rawInfAx).append('\n')
+                            .append("  stated-axiom: ").append(rawStaAx).append('\n');
+                    if (!rawInfNav.isEmpty()) {
+                        Latest<SemanticEntityVersion> latest = v.stampCalculator().latest(rawInfNav.getFirst());
                         sb.append("  inferred-nav[0] latest present under THIS view's STAMP? ")
                                 .append(latest.isPresent()).append('\n');
                     }
@@ -291,15 +295,15 @@ public final class GraphTools {
                     try {
                         sb.append(vc.toUserString()).append('\n');
                     } catch (RuntimeException e) {
-                        sb.append(vc).append('\n');
+                        sb.append(VIEW_NOT_DESCRIBED).append('\n');
                     }
 
                     sb.append("\nVERDICT: ");
-                    if ((rawInfNav.length > 0 && parents == 0) || (rawInfAx.length > 0 && !infAx.isPresent())) {
+                    if ((!rawInfNav.isEmpty() && parents == 0) || (rawInfAx > 0 && !infAx.isPresent())) {
                         sb.append("RAW DATA EXISTS BUT THIS VIEW RETURNS EMPTY — the tools are on the wrong view "
                                 + "coordinate (its STAMP path/module filter excludes the loaded data; likely the "
                                 + "DEFAULT view, not the journal view).");
-                    } else if (rawInfNav.length == 0 && rawInfAx.length == 0) {
+                    } else if (rawInfNav.isEmpty() && rawInfAx == 0) {
                         sb.append("No raw nav/axiom data under the standard patterns — data genuinely absent for "
                                 + "this concept.");
                     } else {
@@ -346,7 +350,7 @@ public final class GraphTools {
                         return "No id provided.";
                     }
                     String trimmed = id.trim();
-                    // Semantic traversal (semanticNidsForComponent) is not served
+                    // Semantic traversal (semanticsForComponent) is not served
                     // over gRPC, so the nid-based path below returns nothing even
                     // though concept lookups work. The service does the traversal
                     // remotely and returns the same shape.
@@ -439,7 +443,7 @@ public final class GraphTools {
 
     // ── gRPC-mode variants ───────────────────────────────────────────────
     // Concept lookups resolve in gRPC mode, but semantic traversal
-    // (semanticNidsForComponent) is not served, so the nid-based path above
+    // (semanticsForComponent) is not served, so the nid-based path above
     // finds nothing. The service performs the traversal server-side and returns
     // records of identical shape, so both modes render through renderSemantic
     // and produce identical output.
@@ -469,11 +473,13 @@ public final class GraphTools {
             if (nid == NONE) {
                 return notFound(trimmed);
             }
-            UUID[] uuids = PrimitiveData.publicId(toConceptNid(nid)).asUuidArray();
-            if (uuids.length == 0) {
+            // Any of the concept's UUIDs finds it in the remote store; the least is the one
+            // ComponentText names it by.
+            Optional<UUID> least = ComponentText.leastUuid(toConceptNid(nid));
+            if (least.isEmpty()) {
                 return "No public UUID for '" + trimmed + "'.";
             }
-            target = uuids[0];
+            target = least.get();
         }
         try {
             List<GrpcSearchService.SemanticInfo> semantics =
@@ -598,7 +604,7 @@ public final class GraphTools {
     /**
      * The semantics attached to {@code componentNid}.
      *
-     * <p>{@code semanticNidsForComponent} works for any component, so passing a semantic's nid
+     * <p>{@code semanticsForComponent} works for any component, so passing a semantic's nid
      * lists the semantics attached to <em>it</em> (e.g. Allowed Results on a Test Performed
      * record) rather than only concept-level annotations.
      *
@@ -611,8 +617,9 @@ public final class GraphTools {
         String filter = (patternFilter == null || patternFilter.isBlank())
                 ? null : patternFilter.trim().toLowerCase();
         List<SemanticInfo> results = new java.util.ArrayList<>();
-        for (int semanticNid : EntityService.get().semanticNidsForComponent(componentNid)) {
-            SemanticInfo info = semanticFor(semanticNid, v);
+        for (SemanticEntity<SemanticEntityVersion> semantic
+                : EntityService.get().semanticsForComponent(componentNid).toList()) {
+            SemanticInfo info = semanticFor(semantic.nid(), v);
             if (info != null && (filter == null || info.patternName().toLowerCase().contains(filter))) {
                 results.add(info);
             }
@@ -639,7 +646,7 @@ public final class GraphTools {
             if (!latest.isPresent()) {
                 return null;
             }
-            String patternName = v.getPreferredDescriptionTextWithFallbackOrNid(semantic.patternNid());
+            String patternName = ComponentText.preferredName(v, semantic.patternNid());
             List<String> fieldNames = fieldNamesFor(semantic.patternNid(), v);
 
             List<NamedField> fields = new java.util.ArrayList<>();
@@ -648,8 +655,8 @@ public final class GraphTools {
                 String name = i < fieldNames.size() ? fieldNames.get(i) : "field " + i;
                 fields.add(new NamedField(name, fieldValue(values[i], v)));
             }
-            UUID[] uuids = semantic.publicId().asUuidArray();
-            return new SemanticInfo(patternName, uuids.length > 0 ? uuids[0].toString() : "", fields);
+            String semanticId = ComponentText.leastUuid(semantic.nid()).map(UUID::toString).orElse("");
+            return new SemanticInfo(patternName, semanticId, fields);
         } catch (RuntimeException e) {
             return null;
         }
@@ -664,7 +671,7 @@ public final class GraphTools {
             }
             List<String> names = new java.util.ArrayList<>();
             pattern.get().fieldDefinitions().forEach(fd ->
-                    names.add(v.getPreferredDescriptionTextWithFallbackOrNid(fd.meaningNid())));
+                    names.add(ComponentText.preferredName(v, fd.meaningNid())));
             return names;
         } catch (RuntimeException e) {
             return List.of();
@@ -673,8 +680,8 @@ public final class GraphTools {
 
     /**
      * Formats a field value. Component references render as {@code name [SCTID x]} /
-     * {@code [UUID x]} rather than leaking bare nids — a nid is machine-local and ephemeral, and
-     * an unlabelled number beside a clinical concept name reads like a terminology code.
+     * {@code [UUID x]} and never as a nid — a nid is local to one store, and an unlabelled number
+     * beside a clinical concept name reads like a terminology code.
      */
     private static String fieldValue(Object value, ViewCalculator v) {
         if (value == null) {
@@ -687,33 +694,38 @@ public final class GraphTools {
                 if (i > 0) {
                     sb.append(", ");
                 }
-                sb.append(v.getPreferredDescriptionTextWithFallbackOrNid(nids[i]))
+                sb.append(ComponentText.preferredName(v, nids[i]))
                         .append(' ').append(typedIdentifier(nids[i], v));
             }
             return sb.append(']').toString();
         }
         if (value instanceof EntityFacade facade) {
-            return v.getPreferredDescriptionTextWithFallbackOrNid(facade.nid())
+            return ComponentText.preferredName(v, facade.nid())
                     + ' ' + typedIdentifier(facade.nid(), v);
+        }
+        // A definition tree or a vertex names components at every node, and its own toString()
+        // writes their nids; DefinitionText writes the same structure with names only.
+        if (value instanceof DiTreeEntity tree) {
+            return '\n' + DefinitionText.tree(tree, v);
+        }
+        if (value instanceof EntityVertex vertex) {
+            return DefinitionText.vertex(vertex, v);
         }
         return value.toString();
     }
 
-    /** An explicitly-typed identifier — SCTID when present, else UUID, else a labelled nid. */
+    /**
+     * An explicitly-typed identifier — SCTID when present, else UUID. A component the store has
+     * no public id for is marked as unidentified; the text never holds a nid.
+     */
     private static String typedIdentifier(int nid, ViewCalculator v) {
         String sctid = sctidOf(v, nid);
         if (sctid != null) {
             return "[SCTID " + sctid + "]";
         }
-        try {
-            UUID[] uuids = PrimitiveData.publicId(nid).asUuidArray();
-            if (uuids.length > 0) {
-                return "[UUID " + uuids[0] + "]";
-            }
-        } catch (RuntimeException ignored) {
-            // fall through to the nid, explicitly labelled
-        }
-        return "[nid " + nid + "]";
+        return ComponentText.leastUuid(nid)
+                .map(uuid -> "[UUID " + uuid + "]")
+                .orElse("[" + ComponentText.UNIDENTIFIED + "]");
     }
 
     /**
@@ -748,13 +760,7 @@ public final class GraphTools {
         String name = v.getFullyQualifiedNameText(nid)
                 .or(() -> v.getDescriptionText(nid))
                 .orElse(null);
-        UUID[] uuids;
-        try {
-            uuids = PrimitiveData.publicId(nid).asUuidArray();
-        } catch (RuntimeException e) {
-            uuids = new UUID[0];
-        }
-        String id = uuids.length > 0 ? uuids[0].toString() : "nid=" + nid;
+        String id = ComponentText.identifier(nid);
         return (name == null || name.isBlank()) ? id : name + "  [" + id + "]";
     }
 
@@ -860,6 +866,11 @@ public final class GraphTools {
 
     private static final int NONE = Integer.MIN_VALUE;
     private static final String NO_VIEW = "No active knowledge-base view is available.";
+    /**
+     * What a tool reports when the view coordinate cannot write its own description. The
+     * coordinate record is not printed in its place: its {@code toString()} writes nids.
+     */
+    private static final String VIEW_NOT_DESCRIBED = "(the view coordinate could not be described)";
 
     private ViewCalculator view() {
         try {
@@ -999,44 +1010,18 @@ public final class GraphTools {
      * @param v   the active view calculator
      * @param nid the resolved concept nid
      * @return the grounded slot
+     * @throws IllegalStateException if the store has no public id for the concept; a slot's key
+     *                               is the public id, never the nid
      */
     public static AnfSlot.Grounded groundedOf(ViewCalculator v, int nid) {
         int conceptNid = toConceptNid(nid);
-        String label = v.getFullyQualifiedNameText(conceptNid)
-                .orElseGet(() -> v.getPreferredDescriptionTextWithFallbackOrNid(conceptNid));
-        UUID[] uuids = PrimitiveData.publicId(conceptNid).asUuidArray();
-        String publicId = publicIdKey(uuids, conceptNid);
+        String label = ComponentText.fullyQualifiedName(v, conceptNid);
+        // The durable round-trip key is the public id; a concept without one cannot be grounded.
+        PublicId publicId = ComponentText.publicId(conceptNid).orElseThrow(() ->
+                new IllegalStateException("A concept the store has no public id for cannot be grounded"));
         String sctid = sctidOf(v, conceptNid);
-        String identifier;
-        if (sctid != null) {
-            identifier = sctid;
-        } else {
-            identifier = uuids.length > 0 ? uuids[0].toString() : "nid=" + conceptNid;
-        }
-        return new AnfSlot.Grounded(conceptNid, publicId, identifier, label);
-    }
-
-    /**
-     * The durable round-trip key for a concept: its {@code PublicId} UUID array as comma-joined
-     * UUIDs. Resolving these back through {@code PublicIds.of(...)} reconstructs the same concept
-     * (and the same identicon) under any later coordinate — identity, not a terminology code.
-     *
-     * @param uuids      the concept's UUID array
-     * @param conceptNid the concept nid, for the degenerate no-UUID fallback
-     * @return the comma-joined UUID key (never null)
-     */
-    private static String publicIdKey(UUID[] uuids, int conceptNid) {
-        if (uuids.length == 0) {
-            return "nid=" + conceptNid;
-        }
-        StringBuilder key = new StringBuilder();
-        for (int i = 0; i < uuids.length; i++) {
-            if (i > 0) {
-                key.append(',');
-            }
-            key.append(uuids[i]);
-        }
-        return key.toString();
+        String identifier = sctid != null ? sctid : publicId.leastUuid().toString();
+        return new AnfSlot.Grounded(conceptNid, ComponentText.publicIdKey(publicId), identifier, label);
     }
 
     /**
@@ -1092,42 +1077,33 @@ public final class GraphTools {
     }
 
     private static String nameAndId(ViewCalculator v, int nid) {
-        String name = v.getFullyQualifiedNameText(nid)
-                .orElseGet(() -> v.getPreferredDescriptionTextWithFallbackOrNid(nid));
-        return name + "  [" + idString(v, nid) + "]";
+        return ComponentText.fullyQualifiedName(v, nid) + "  [" + idString(v, nid) + "]";
     }
 
     /**
      * Renders a concept's identifier: its SCTID when the concept carries a SNOMED
-     * identifier semantic, otherwise its first public UUID, otherwise the nid.
+     * identifier semantic, otherwise its first public UUID. A concept the store has no public id
+     * for is marked as unidentified; the text never holds a nid.
      */
     private static String idString(ViewCalculator v, int nid) {
         String sctid = sctidOf(v, nid);
         if (sctid != null) {
             return "SCTID " + sctid;
         }
-        try {
-            UUID[] uuids = PrimitiveData.publicId(nid).asUuidArray();
-            if (uuids.length > 0) {
-                return uuids[0].toString();
-            }
-        } catch (RuntimeException ignored) {
-            // fall through to nid
-        }
-        return "nid=" + nid;
+        return ComponentText.identifier(nid);
     }
 
     /**
      * Resolves the SNOMED CT identifier of a concept from its identifier semantic
-     * ({@link TinkarTerm#IDENTIFIER_PATTERN} with source {@link TinkarTerm#SCTID}),
+     * ({@link KernelTerm#IDENTIFIER_PATTERN} with source {@link KernelTerm#SCTID}),
      * or {@code null} if the concept has no SCTID in this knowledge base.
      */
     private static String sctidOf(ViewCalculator v, int nid) {
         try {
-            int[] idSemantics = EntityService.get()
-                    .semanticNidsForComponentOfPattern(nid, TinkarTerm.IDENTIFIER_PATTERN.nid());
-            for (int semanticNid : idSemantics) {
-                Latest<SemanticEntityVersion> latest = v.stampCalculator().latest(semanticNid);
+            List<SemanticEntity<SemanticEntityVersion>> idSemantics = EntityService.get()
+                    .semanticsForComponentOfPattern(nid, KernelTerm.IDENTIFIER_PATTERN.nid()).toList();
+            for (SemanticEntity<SemanticEntityVersion> semantic : idSemantics) {
+                Latest<SemanticEntityVersion> latest = v.stampCalculator().latest(semantic);
                 if (latest.isPresent()) {
                     String value = null;
                     EntityFacade source = null;
@@ -1138,7 +1114,7 @@ public final class GraphTools {
                             source = ef;
                         }
                     }
-                    if (value != null && source != null && source.nid() == TinkarTerm.SCTID.nid()) {
+                    if (value != null && source != null && source.nid() == KernelTerm.SCTID.nid()) {
                         return value;
                     }
                 }
