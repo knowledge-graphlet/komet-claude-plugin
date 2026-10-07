@@ -13,7 +13,7 @@
 
     <groupId>network.ike.komet</groupId>
     <artifactId>komet-claude-plugin</artifactId>
-    <version>7-64bit-SNAPSHOT</version>
+    <version>7-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>Komet Claude Plugin</name>
@@ -59,9 +59,9 @@
         <test.excludedGroups>external</test.excludedGroups>
         <!-- Main-line Komet BOM; manages komet module + tinkar versions.
              Matches ike-komet-wsr on main. -->
-        <komet-bom.version>3.0.12-64bit-SNAPSHOT</komet-bom.version>
+        <komet-bom.version>3.0.12-SNAPSHOT</komet-bom.version>
         <!-- The IKE starter set the tests load, from starter-data-ws, which builds after this repository. -->
-        <ike-starter-set.version>1-64bit-SNAPSHOT</ike-starter-set.version>
+        <ike-starter-set.version>1-SNAPSHOT</ike-starter-set.version>
         <java.version>27</java.version>
         <!-- The nid build check (tinkar-core nid-check, IKE-Network/ike-issues#1244): how it
              reports (error, or warning for a census), which classes may narrow a nid, and
@@ -76,7 +76,7 @@
             <dependency>
                 <groupId>dev.ikm.komet</groupId>
                 <artifactId>komet-bom</artifactId>
-                <version>3.0.12-64bit-SNAPSHOT</version>
+                <version>3.0.12-SNAPSHOT</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
