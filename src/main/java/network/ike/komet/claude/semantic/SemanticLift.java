@@ -54,7 +54,7 @@ public final class SemanticLift {
     private final ViewCalculator view;
     private final String apiKey;
     private final String model;
-    private final int patternNid;
+    private final long patternNid;
 
     /**
      * Creates a lift engine bound to a view, key, model, and target pattern.
@@ -65,7 +65,7 @@ public final class SemanticLift {
      *                   the client default
      * @param patternNid the nid of the pattern to lift a semantic for
      */
-    public SemanticLift(ViewCalculator view, String apiKey, String model, int patternNid) {
+    public SemanticLift(ViewCalculator view, String apiKey, String model, long patternNid) {
         this.view = Objects.requireNonNull(view, "view");
         this.apiKey = Objects.requireNonNull(apiKey, "apiKey");
         this.model = model;

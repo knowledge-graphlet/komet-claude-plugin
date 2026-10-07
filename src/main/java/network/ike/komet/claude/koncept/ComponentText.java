@@ -68,7 +68,7 @@ public final class ComponentText {
      * @param nid the component's nid in the open store
      * @return the public id, or empty when the store has none for the nid or it holds no UUID
      */
-    public static Optional<PublicId> publicId(int nid) {
+    public static Optional<PublicId> publicId(long nid) {
         try {
             PublicId publicId = PrimitiveData.publicId(nid);
             if (publicId == null || publicId.uuidCount() == 0) {
@@ -89,7 +89,7 @@ public final class ComponentText {
      * @param nid the component's nid in the open store
      * @return the least UUID, or empty when the store has no public id for the nid
      */
-    public static Optional<UUID> leastUuid(int nid) {
+    public static Optional<UUID> leastUuid(long nid) {
         return publicId(nid).map(PublicId::leastUuid);
     }
 
@@ -100,7 +100,7 @@ public final class ComponentText {
      * @return the least UUID as a string, or {@link #UNIDENTIFIED} when the store has no public id
      *         for the nid; never a nid
      */
-    public static String identifier(int nid) {
+    public static String identifier(long nid) {
         return leastUuid(nid).map(UUID::toString).orElse(UNIDENTIFIED);
     }
 
@@ -112,7 +112,7 @@ public final class ComponentText {
      * @param nid the component's nid in the open store
      * @return the comma-joined UUIDs, or empty when the store has no public id for the nid
      */
-    public static Optional<String> publicIdKey(int nid) {
+    public static Optional<String> publicIdKey(long nid) {
         return publicId(nid).map(ComponentText::publicIdKey);
     }
 
@@ -147,7 +147,7 @@ public final class ComponentText {
      * @return the description text; when none resolves, the {@link #identifier(int) identifier};
      *         never a nid
      */
-    public static String name(ViewCalculator view, int nid) {
+    public static String name(ViewCalculator view, long nid) {
         return described(view.getDescriptionText(nid)).orElseGet(() -> identifier(nid));
     }
 
@@ -167,12 +167,12 @@ public final class ComponentText {
      * @return the preferred name; when none resolves, the {@link #identifier(int) identifier};
      *         never a nid
      */
-    public static String preferredName(ViewCalculator view, int nid) {
+    public static String preferredName(ViewCalculator view, long nid) {
         return preferredName(view, nid, 0);
     }
 
     /** {@link #preferredName(ViewCalculator, int)}, counting how many semantics deep it is. */
-    private static String preferredName(ViewCalculator view, int nid, int depth) {
+    private static String preferredName(ViewCalculator view, long nid, int depth) {
         return described(view.getRegularDescriptionText(nid))
                 .or(() -> described(view.getFullyQualifiedNameText(nid)))
                 .or(() -> semanticText(view, nid, depth))
@@ -184,7 +184,7 @@ public final class ComponentText {
      * [purpose]}. Empty for a component that is not a semantic, for a semantic whose pattern has
      * no version under the view, and past {@link #MAX_SEMANTIC_DEPTH}.
      */
-    private static Optional<String> semanticText(ViewCalculator view, int nid, int depth) {
+    private static Optional<String> semanticText(ViewCalculator view, long nid, int depth) {
         StampCalculator stamps = view.stampCalculator();
         Latest<Field<String>> description = stamps.getFieldForSemantic(
                 nid, KernelTerm.TEXT_FOR_DESCRIPTION.nid(), StampCalculator.FieldCriterion.MEANING);
@@ -219,7 +219,7 @@ public final class ComponentText {
      * @return the fully qualified name, else the preferred name, else the
      *         {@link #identifier(int) identifier}; never a nid
      */
-    public static String fullyQualifiedName(ViewCalculator view, int nid) {
+    public static String fullyQualifiedName(ViewCalculator view, long nid) {
         return described(view.getFullyQualifiedNameText(nid)).orElseGet(() -> preferredName(view, nid));
     }
 
@@ -233,12 +233,12 @@ public final class ComponentText {
      * @param nid  the component's nid in the open store
      * @return the badge token, or empty when the store has no public id for the nid
      */
-    public static Optional<String> badge(ViewCalculator view, int nid) {
+    public static Optional<String> badge(ViewCalculator view, long nid) {
         return leastUuid(nid).map(uuid -> KonceptTokens.token(KonceptTokens.Kind.UUID, uuid.toString(), label(view, nid)));
     }
 
     /** The view's description for a badge label, or the empty string when there is none. */
-    private static String label(ViewCalculator view, int nid) {
+    private static String label(ViewCalculator view, long nid) {
         if (view == null) {
             return "";
         }

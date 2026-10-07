@@ -97,7 +97,7 @@ class SemanticGroundingIT {
 
     @Test
     void groundsASemanticAsSemanticAndDoesNotWalkUpToItsConcept() {
-        int semanticNid = aDescriptionSemanticNid();
+        long semanticNid = aDescriptionSemanticNid();
         Optional<ComponentSlot.Grounded> grounded = grounder.ground(uuidOf(semanticNid), null);
         assertTrue(grounded.isPresent(), "a description semantic should ground");
         assertEquals(ComponentSlot.Kind.SEMANTIC, grounded.get().kind());
@@ -107,7 +107,7 @@ class SemanticGroundingIT {
 
     @Test
     void aConceptOnlyFieldRejectsASemanticReferent() {
-        int semanticNid = aDescriptionSemanticNid();
+        long semanticNid = aDescriptionSemanticNid();
         assertTrue(grounder.ground(uuidOf(semanticNid), ComponentSlot.Kind.CONCEPT).isEmpty(),
                 "a semantic must not satisfy a concept-only field");
     }
@@ -127,7 +127,7 @@ class SemanticGroundingIT {
     }
 
     /** The nid of a description semantic on English Language — a stable non-concept component to ground. */
-    private static int aDescriptionSemanticNid() {
+    private static long aDescriptionSemanticNid() {
         Optional<SemanticEntity<SemanticEntityVersion>> description = EntityService.get()
                 .semanticsForComponentOfPattern(KernelTerm.ENGLISH_LANGUAGE.nid(), KernelTerm.DESCRIPTION_PATTERN.nid())
                 .findFirst();
@@ -140,7 +140,7 @@ class SemanticGroundingIT {
         return ComponentText.identifier(facade.nid());
     }
 
-    private static String uuidOf(int nid) {
+    private static String uuidOf(long nid) {
         return ComponentText.identifier(nid);
     }
 }

@@ -135,12 +135,12 @@ public final class CommitNarrator {
      * before any work is scheduled, so the synchronous bus cannot recurse into narration.
      */
     private boolean isWorthy(CommitEvent evt) {
-        int[] stampNids = evt.stampNids();
+        long[] stampNids = evt.stampNids();
         if (stampNids == null || stampNids.length == 0) {
             return false;
         }
         boolean allNarratorAuthored = true;
-        for (int stampNid : stampNids) {
+        for (long stampNid : stampNids) {
             StampEntityVersion stamp = Entity.getStamp(stampNid).lastVersion();
             if (stamp.authorNid() != NarratorIdentity.NARRATOR_AUTHOR.nid()
                     || stamp.moduleNid() != NarratorIdentity.NARRATION_MODULE.nid()) {
@@ -151,20 +151,20 @@ public final class CommitNarrator {
         if (allNarratorAuthored) {
             return false; // our own comment commit
         }
-        int[] componentNids = evt.componentNids();
+        long[] componentNids = evt.componentNids();
         return componentNids != null && componentNids.length > 0;
     }
 
     private void narrateAndWrite(CommitEvent evt, String key, String model) {
         ViewCalculator view = Calculators.View.Default();
         AnthropicClient client = new AnthropicClient(key, model, MAX_TOKENS);
-        int[] components = evt.componentNids();
+        long[] components = evt.componentNids();
 
         if (evt.stampCount() > BULK_THRESHOLD || components.length > BULK_THRESHOLD) {
             narrateBulk(evt, client, view, components);
             return;
         }
-        for (int componentNid : components) {
+        for (long componentNid : components) {
             try {
                 narrateComponent(componentNid, client, view);
             } catch (Throwable t) {
@@ -173,7 +173,7 @@ public final class CommitNarrator {
         }
     }
 
-    private void narrateComponent(int componentNid, AnthropicClient client, ViewCalculator view) {
+    private void narrateComponent(long componentNid, AnthropicClient client, ViewCalculator view) {
         var optEntity = EntityHandle.get(componentNid).entity();
         if (optEntity.isEmpty()) {
             return;
@@ -186,7 +186,7 @@ public final class CommitNarrator {
             return;
         }
         versions.sort((a, b) -> Long.compare(b.stamp().time(), a.stamp().time()));
-        int stampNid = versions.get(0).stampNid();
+        long stampNid = versions.get(0).stampNid();
         String context = componentContext(componentNid, versions, view);
         String narrative = client.ask(SYSTEM_PROMPT, graphTools.tools(),
                 "A curator just committed a change.\n" + context
@@ -194,7 +194,7 @@ public final class CommitNarrator {
         commentWriter.writeComment(stampNid, narrative);
     }
 
-    private void narrateBulk(CommitEvent evt, AnthropicClient client, ViewCalculator view, int[] components) {
+    private void narrateBulk(CommitEvent evt, AnthropicClient client, ViewCalculator view, long[] components) {
         StringBuilder sb = new StringBuilder();
         sb.append(components.length).append(" components changed in transaction '")
                 .append(evt.transactionName()).append("'. Examples: ");
@@ -208,7 +208,7 @@ public final class CommitNarrator {
         commentWriter.writeComment(evt.stampNids()[0], narrative);
     }
 
-    private static String componentContext(int nid, List<EntityVersion> versionsNewestFirst, ViewCalculator view) {
+    private static String componentContext(long nid, List<EntityVersion> versionsNewestFirst, ViewCalculator view) {
         StringBuilder sb = new StringBuilder();
         sb.append("Component: ").append(name(nid, view)).append('.');
         StampEntity<?> after = versionsNewestFirst.get(0).stamp();
@@ -228,7 +228,7 @@ public final class CommitNarrator {
      * component's UUID. The narrative is stored as a comment semantic, so it never holds a nid
      * ({@code IKE-Network/ike-issues#1170}).
      */
-    private static String name(int nid, ViewCalculator view) {
+    private static String name(long nid, ViewCalculator view) {
         return ComponentText.name(view, nid);
     }
 }

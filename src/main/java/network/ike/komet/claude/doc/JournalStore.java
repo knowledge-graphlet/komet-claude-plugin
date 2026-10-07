@@ -16,8 +16,8 @@
 package network.ike.komet.claude.doc;
 
 import dev.ikm.komet.terms.KometTerm;
-import dev.ikm.tinkar.common.id.IntIdList;
-import dev.ikm.tinkar.common.id.IntIds;
+import dev.ikm.tinkar.common.id.LongIdList;
+import dev.ikm.tinkar.common.id.LongIds;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
@@ -225,7 +225,7 @@ public final class JournalStore {
         // filtered, or torn down mid-append must never truncate the journal. A resolvable manifest
         // whose head cannot be read fails CLOSED (throw → the caller degrades to JSON-only), never
         // open (an empty prior list would orphan every earlier turn).
-        IntIdList priorElements = IntIds.list.empty();
+        LongIdList priorElements = LongIds.list.empty();
         Semantic manifest;
         List<SemanticEntity<SemanticEntityVersion>> manifests = anchorNew ? List.of()
                 : EntityService.get().semanticsForComponentOfPattern(
@@ -243,7 +243,7 @@ public final class JournalStore {
                 throw new IllegalStateException("Journal manifest for " + anchorId.idString()
                         + " has no committed version; refusing an append that would orphan prior turns");
             }
-            priorElements = (IntIdList) head.fieldValues().get(0);
+            priorElements = (LongIdList) head.fieldValues().get(0);
             // Seed the monotonic clock past the head, so a wall-clock regression (a restart or a
             // second process) cannot mint a version that hides behind the existing head.
             LAST_STAMP_TIME.updateAndGet(last -> Math.max(last, head.time()));
@@ -264,22 +264,22 @@ public final class JournalStore {
                 writer.concept(anchorConcept);
                 writer.fullyQualifiedName(anchorConcept, name);
             }
-            int userNid = writer.semantic(userElement, RichSurfaceTerms.PROSE_ELEMENT_PATTERN, anchorConcept,
+            long userNid = writer.semantic(userElement, RichSurfaceTerms.PROSE_ELEMENT_PATTERN, anchorConcept,
                     userMarkdown == null ? "" : userMarkdown);
 
             writer.restamp(State.ACTIVE, assistantTime, RichSurfaceTerms.KOMET_ASSISTANT_AUTHOR,
                     RichSurfaceTerms.CONVERSATION_JOURNAL_MODULE, KernelTerm.DEVELOPMENT_PATH);
-            int assistantNid = writer.semantic(assistantElement, RichSurfaceTerms.PROSE_ELEMENT_PATTERN,
+            long assistantNid = writer.semantic(assistantElement, RichSurfaceTerms.PROSE_ELEMENT_PATTERN,
                     anchorConcept, assistantMarkdown == null ? "" : assistantMarkdown);
 
             // Manifest: append both element nids (write order = document order) as a new version of
             // the existing manifest semantic, or mint the manifest on first append. Written at the
             // assistant's stamp, in the same writer, so a crash cannot leave a second manifest behind.
-            int[] appended = new int[priorElements.size() + 2];
+            long[] appended = new long[priorElements.size() + 2];
             System.arraycopy(priorElements.toArray(), 0, appended, 0, priorElements.size());
             appended[appended.length - 2] = userNid;
             appended[appended.length - 1] = assistantNid;
-            IntIdList newElements = IntIds.list.of(appended);
+            LongIdList newElements = LongIds.list.of(appended);
             writer.semantic(manifest, RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN, anchorConcept, newElements);
 
             writer.commit();
@@ -359,10 +359,10 @@ public final class JournalStore {
         if (!manifest.isPresent()) {
             return Optional.empty();
         }
-        IntIdList elements = (IntIdList) manifest.get().fieldValues().get(0);
-        int assistantAuthorNid = RichSurfaceTerms.KOMET_ASSISTANT_AUTHOR.nid();
+        LongIdList elements = (LongIdList) manifest.get().fieldValues().get(0);
+        long assistantAuthorNid = RichSurfaceTerms.KOMET_ASSISTANT_AUTHOR.nid();
         List<TurnRecord> turns = new ArrayList<>(elements.size());
-        for (int elementNid : elements.toArray()) {
+        for (long elementNid : elements.toArray()) {
             Latest<SemanticEntityVersion> element =
                     calculator.stampCalculator().latestSemanticVersion(elementNid);
             if (!element.isPresent()) {

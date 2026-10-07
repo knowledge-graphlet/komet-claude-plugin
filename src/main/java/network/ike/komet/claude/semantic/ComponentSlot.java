@@ -54,7 +54,7 @@ public sealed interface ComponentSlot permits ComponentSlot.Grounded, ComponentS
      *                   (an SCTID, or a UUID when none) — for display, not the durable key
      * @param label      the component's fully-specified or preferred name
      */
-    record Grounded(int nid, Kind kind, String publicId, String identifier, String label)
+    record Grounded(long nid, Kind kind, String publicId, String identifier, String label)
             implements ComponentSlot {
         /**
          * Validates the grounded slot.

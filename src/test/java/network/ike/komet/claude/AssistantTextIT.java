@@ -156,7 +156,7 @@ class AssistantTextIT {
         for (EntityFacade subject : SUBJECTS) {
             for (SemanticEntity<SemanticEntityVersion> semantic
                     : EntityService.get().semanticsForComponent(subject.nid()).toList()) {
-                int semanticNid = semantic.nid();
+                long semanticNid = semantic.nid();
                 String semanticUuid = ComponentText.identifier(semantic.nid());
                 for (ViewCalculator calculator : List.of(view, undescribed)) {
                     String text = run(calculator, "semantic_info", Map.of("id", semanticUuid));
@@ -172,7 +172,7 @@ class AssistantTextIT {
 
     @Test
     void aCheckRequestNamesTheConceptByItsUuid() {
-        int nid = KernelTerm.ENGLISH_LANGUAGE.nid();
+        long nid = KernelTerm.ENGLISH_LANGUAGE.nid();
         String uuid = uuidOf(KernelTerm.ENGLISH_LANGUAGE);
 
         String request = ClaudeCheckArea.checkRequest(view, nid, "Has a parent.");

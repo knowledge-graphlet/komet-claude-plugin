@@ -42,7 +42,7 @@ public final class CommentWriter {
      * @param targetStampNid the STAMP nid the comment is about (the commit being narrated)
      * @param narrative      the comment text
      */
-    public void writeComment(int targetStampNid, String narrative) {
+    public void writeComment(long targetStampNid, String narrative) {
         if (narrative == null || narrative.isBlank()) {
             return;
         }

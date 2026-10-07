@@ -279,7 +279,7 @@ public final class AnfStatementView {
          * @param conceptNid the dropped concept's nid
          * @return the grounded slot, or null if it does not resolve
          */
-        AnfSlot.Grounded resolve(int conceptNid);
+        AnfSlot.Grounded resolve(long conceptNid);
 
         /**
          * Receives the statement after a STRUCTURAL change (drop substitution, load), to store and

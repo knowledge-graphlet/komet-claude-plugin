@@ -124,7 +124,7 @@ public final class ClaudeCheckArea extends AbstractCheckArea {
      * @param criterion  the criterion it is checked against
      * @return the user message of the check request
      */
-    static String checkRequest(ViewCalculator view, int conceptNid, String criterion) {
+    static String checkRequest(ViewCalculator view, long conceptNid, String criterion) {
         return "Concept under review: " + ComponentText.preferredName(view, conceptNid)
                 + "  [" + ComponentText.identifier(conceptNid) + "].\n"
                 + "Criterion: " + criterion + "\n"

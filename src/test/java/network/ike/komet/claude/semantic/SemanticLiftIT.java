@@ -78,7 +78,7 @@ class SemanticLiftIT {
         assumeTrue(apiKey.isPresent(),
                 "No Anthropic API key (system property / env / Komet user preferences) — skipping live lift.");
 
-        int patternNid = KernelTerm.DESCRIPTION_PATTERN.nid();
+        long patternNid = KernelTerm.DESCRIPTION_PATTERN.nid();
         SemanticLift lift = new SemanticLift(view, apiKey.get(), LIFT_MODEL, patternNid);
 
         SemanticLift.Result result = lift.lift(

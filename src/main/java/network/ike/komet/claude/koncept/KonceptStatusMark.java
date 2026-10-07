@@ -44,7 +44,7 @@ public final class KonceptStatusMark {
      * @param view the view used to classify; {@code null} yields {@link KonceptStatus#NONE}
      * @return the resolved status, never {@code null}
      */
-    public static KonceptStatus resolve(int nid, ViewCalculator view) {
+    public static KonceptStatus resolve(long nid, ViewCalculator view) {
         if (view == null) {
             return KonceptStatus.NONE;
         }

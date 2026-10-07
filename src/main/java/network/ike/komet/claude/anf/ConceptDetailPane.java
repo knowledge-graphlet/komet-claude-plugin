@@ -90,7 +90,7 @@ public final class ConceptDetailPane {
         box.getChildren().add(axioms(g.nid(), v, view));
     }
 
-    private static Node describe(int conceptNid, ViewCalculator v) {
+    private static Node describe(long conceptNid, ViewCalculator v) {
         VBox box = new VBox(2);
         box.getChildren().add(section("Descriptions"));
         String fsn = v.getFullyQualifiedNameText(conceptNid).orElse("");
@@ -125,7 +125,7 @@ public final class ConceptDetailPane {
         return null;
     }
 
-    private static Node axioms(int conceptNid, ViewCalculator v, ViewProperties view) {
+    private static Node axioms(long conceptNid, ViewCalculator v, ViewProperties view) {
         VBox box = new VBox(4);
         box.getChildren().add(section("Axioms"));
         box.getChildren().add(premise("Stated", conceptNid, v, view, PremiseType.STATED));
@@ -133,7 +133,7 @@ public final class ConceptDetailPane {
         return box;
     }
 
-    private static Node premise(String label, int conceptNid, ViewCalculator v, ViewProperties view,
+    private static Node premise(String label, long conceptNid, ViewCalculator v, ViewProperties view,
                                 PremiseType premise) {
         VBox box = new VBox(2);
         box.getChildren().add(subSection(label));
@@ -146,7 +146,7 @@ public final class ConceptDetailPane {
         box.getChildren().add(new Label(def.defined() ? "Defined (≡)" : "Primitive (⊑)"));
         if (def.supertypes().length > 0) {
             HBox supertypes = new HBox(4, new Label("is-a:"));
-            for (int supertype : def.supertypes()) {
+            for (long supertype : def.supertypes()) {
                 supertypes.getChildren().add(new KonceptBadge(supertype, view));
             }
             box.getChildren().add(supertypes);

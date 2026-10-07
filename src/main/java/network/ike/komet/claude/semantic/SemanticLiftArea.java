@@ -240,7 +240,7 @@ public final class SemanticLiftArea extends SupplementalAreaBlueprint implements
             return;
         }
         PatternGraphPanel.PatternNode target = patternPanel.nodes().get(0);
-        int patternNid = target.patternNid;
+        long patternNid = target.patternNid;
 
         liftButton.setDisable(true);
         results.getChildren().clear();

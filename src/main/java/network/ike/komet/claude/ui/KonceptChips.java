@@ -126,7 +126,7 @@ final class KonceptChips {
                              ViewProperties viewProperties, double base,
                              KonceptLabelTypography typography) {
         try {
-            int nid = PrimitiveData.nid(pid);
+            long nid = PrimitiveData.nid(pid);
             int iconPx = (int) Math.round(base * 0.92);
             ImageView icon = Identicon.generateIdenticon(pid, iconPx, iconPx);
             icon.setSmooth(false);
@@ -179,7 +179,7 @@ final class KonceptChips {
 
 
     /** True if the component's latest version in the current view is inactive (retired). */
-    private static boolean isInactive(ViewCalculator viewCalc, int nid) {
+    private static boolean isInactive(ViewCalculator viewCalc, long nid) {
         if (viewCalc == null) {
             return false;
         }

@@ -93,22 +93,22 @@ public final class HtmlKonceptRenderer {
 
     private final ViewCalculator view;
     /** Per-render data-URI cache: a concept that recurs encodes its identicon once. */
-    private final Map<Integer, String> iconCache = new HashMap<>();
+    private final Map<Long, String> iconCache = new HashMap<>();
 
     public HtmlKonceptRenderer(ViewCalculator view) {
         this.view = view;
     }
 
     /** Renders the full concept fragment (badge, parents, definition, history). */
-    public String render(int conceptNid) {
+    public String render(long conceptNid) {
         StringBuilder sb = new StringBuilder();
         sb.append("<div style=\"font-family:-apple-system,'Segoe UI',Helvetica,Arial,sans-serif;font-size:13px;color:#222;\">");
         sb.append("<div style=\"font-size:15px;margin-bottom:6px;\">").append(badge(conceptNid)).append("</div>");
 
-        int[] parents = view.parentsOf(conceptNid).intStream().toArray();
+        long[] parents = view.parentsOf(conceptNid).longStream().toArray();
         if (parents.length > 0) {
             sb.append("<div style=\"margin:6px 0;\"><b>Parents</b>");
-            for (int parent : parents) {
+            for (long parent : parents) {
                 sb.append("<div style=\"margin:2px 0;\">").append(badge(parent)).append("</div>");
             }
             sb.append("</div>");
@@ -123,7 +123,7 @@ public final class HtmlKonceptRenderer {
     /** The adoc Koncept pill (leading status marks + inline identicon + small-caps IKE-blue
      *  label), linked to the concept's Kompendium entry so every concept reference is
      *  clickable in the email. */
-    private String badge(int nid) {
+    private String badge(long nid) {
         // Retired parity (#742/#863): a retired referent's label strikes through in the retired
         // colour, in email exactly as on screen and in adoc.
         String labelStyle = isInactive(nid) ? LABEL_INACTIVE : LABEL;
@@ -138,7 +138,7 @@ public final class HtmlKonceptRenderer {
      * Whether {@code nid}'s latest version is inactive in this renderer's view — {@code false}
      * when the state cannot be resolved, so a badge never fails on it.
      */
-    private boolean isInactive(int nid) {
+    private boolean isInactive(long nid) {
         try {
             Latest<EntityVersion> latest = view.stampCalculator().latest(nid);
             return latest.isPresent() && latest.get().inactive();
@@ -153,7 +153,7 @@ public final class HtmlKonceptRenderer {
      * appended for multi-parent, each glyph in its single-sourced colour, always visible; the
      * {@code title} only explains the mark. Inline styles only — email clients drop stylesheets.
      */
-    private String statusCluster(int nid) {
+    private String statusCluster(long nid) {
         KonceptStatus status = KonceptStatusMark.resolve(nid, view);
         if (!status.hasGlyph()) {
             return "";
@@ -168,7 +168,7 @@ public final class HtmlKonceptRenderer {
                 + fork + "</span> ";
     }
 
-    private String identicon(int nid) {
+    private String identicon(long nid) {
         return iconCache.computeIfAbsent(nid, n -> {
             try {
                 byte[] png = KonceptIdenticon.pngAt(PrimitiveData.publicId(n).idString(), ICON_PX * 2);
@@ -181,7 +181,7 @@ public final class HtmlKonceptRenderer {
         });
     }
 
-    private String definition(int conceptNid) {
+    private String definition(long conceptNid) {
         String stated = oneDefinition("Stated", conceptNid, PremiseType.STATED);
         String inferred = oneDefinition("Inferred", conceptNid, PremiseType.INFERRED);
         if (stated.isEmpty() && inferred.isEmpty()) {
@@ -190,7 +190,7 @@ public final class HtmlKonceptRenderer {
         return "<div style=\"margin:6px 0;\"><b>Definition</b>" + stated + inferred + "</div>";
     }
 
-    private String oneDefinition(String label, int conceptNid, PremiseType premise) {
+    private String oneDefinition(String label, long conceptNid, PremiseType premise) {
         Optional<ConceptDefinition> opt;
         try {
             opt = ConceptDefinition.extract(conceptNid, view, premise);
@@ -205,7 +205,7 @@ public final class HtmlKonceptRenderer {
         sb.append("<div style=\"margin-top:4px;font-style:italic;color:#555;\">")
                 .append(label).append(" — ").append(def.defined() ? "Defined (≡)" : "Primitive (⊑)").append("</div>");
         sb.append(tableOpen("Group", "Attribute", "Value"));
-        for (int superNid : def.supertypes()) {
+        for (long superNid : def.supertypes()) {
             sb.append(row("Is-a", "", badge(superNid)));
         }
         for (ConceptDefinition.Role role : def.ungroupedRoles()) {
@@ -227,7 +227,7 @@ public final class HtmlKonceptRenderer {
     private record Node(String html, List<Node> children) {
     }
 
-    private String definitionTrees(int conceptNid) {
+    private String definitionTrees(long conceptNid) {
         String stated = oneTree("Stated", conceptNid, PremiseType.STATED);
         String inferred = oneTree("Inferred", conceptNid, PremiseType.INFERRED);
         if (stated.isEmpty() && inferred.isEmpty()) {
@@ -236,7 +236,7 @@ public final class HtmlKonceptRenderer {
         return "<div style=\"margin:6px 0;\"><b>Definition (tree)</b>" + stated + inferred + "</div>";
     }
 
-    private String oneTree(String label, int conceptNid, PremiseType premise) {
+    private String oneTree(String label, long conceptNid, PremiseType premise) {
         Optional<Node> root = buildDefinitionTree(conceptNid, premise);
         if (root.isEmpty()) {
             return "";
@@ -254,7 +254,7 @@ public final class HtmlKonceptRenderer {
         return sb.append("</table>").toString();
     }
 
-    private Optional<Node> buildDefinitionTree(int conceptNid, PremiseType premise) {
+    private Optional<Node> buildDefinitionTree(long conceptNid, PremiseType premise) {
         Optional<ConceptDefinition> opt;
         try {
             opt = ConceptDefinition.extract(conceptNid, view, premise);
@@ -266,7 +266,7 @@ public final class HtmlKonceptRenderer {
         }
         ConceptDefinition def = opt.get();
         List<Node> children = new ArrayList<>();
-        for (int superNid : def.supertypes()) {
+        for (long superNid : def.supertypes()) {
             children.add(new Node(inlineRow("<span style=\"color:#555;\">Is-a</span>", badge(superNid)), List.of()));
         }
         int group = 0;
@@ -329,7 +329,7 @@ public final class HtmlKonceptRenderer {
         return sb.append("</tr></table>").toString();
     }
 
-    private String history(int conceptNid) {
+    private String history(long conceptNid) {
         try {
             var optEntity = EntityHandle.get(conceptNid).entity();
             if (optEntity.isEmpty()) {
@@ -376,7 +376,7 @@ public final class HtmlKonceptRenderer {
      * The view's coordinate-preferred description — the badge's own resolution (#942) — else the
      * component's UUID; never a nid, since the HTML leaves the store ({@code IKE-Network/ike-issues#1170}).
      */
-    private String name(int nid) {
+    private String name(long nid) {
         return ComponentText.name(view, nid);
     }
 

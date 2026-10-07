@@ -43,7 +43,7 @@ public sealed interface AnfSlot permits AnfSlot.Grounded, AnfSlot.Candidate, Anf
      *                   grounding contract, not the durable key
      * @param label      the concept's fully-specified or preferred name
      */
-    record Grounded(int nid, String publicId, String identifier, String label) implements AnfSlot {
+    record Grounded(long nid, String publicId, String identifier, String label) implements AnfSlot {
         /**
          * Validates the grounded slot.
          *

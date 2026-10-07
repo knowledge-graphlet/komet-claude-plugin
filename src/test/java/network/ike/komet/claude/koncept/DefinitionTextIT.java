@@ -17,7 +17,7 @@ package network.ike.komet.claude.koncept;
 
 import dev.ikm.komet.terms.KometTerm;
 import dev.ikm.tinkar.terms.KernelTerm;
-import dev.ikm.tinkar.common.id.IntIds;
+import dev.ikm.tinkar.common.id.LongIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
@@ -26,8 +26,8 @@ import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.entity.graph.EntityVertex;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.terms.EntityFacade;
-import org.eclipse.collections.api.factory.primitive.IntObjectMaps;
-import org.eclipse.collections.api.map.primitive.MutableIntObjectMap;
+import org.eclipse.collections.api.factory.primitive.LongObjectMaps;
+import org.eclipse.collections.api.map.primitive.MutableLongObjectMap;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -112,7 +112,7 @@ class DefinitionTextIT {
         // every element of an id list whatever the view — the assertion on it fails when
         // tinkar-core stops, which is the moment to reconsider this class.
         DiTreeEntity tree = aTreeWithEveryKindOfPropertyValue();
-        int partOf = KometTerm.PART_OF.nid();
+        long partOf = KometTerm.PART_OF.nid();
 
         assertTrue(tree.toString().contains("<" + partOf + ">"),
                 "tinkar-core writes the nid of each element of an id list");
@@ -186,14 +186,14 @@ class DefinitionTextIT {
         setProperties(reference, KernelTerm.CONCEPT_REFERENCE, KernelTerm.LANGUAGE);
 
         EntityVertex role = EntityVertex.make(KernelTerm.ROLE);
-        MutableIntObjectMap<Object> roleProperties = IntObjectMaps.mutable.empty();
+        MutableLongObjectMap<Object> roleProperties = LongObjectMaps.mutable.empty();
         roleProperties.put(KernelTerm.ROLE_TYPE.nid(), KometTerm.PART_OF);
         roleProperties.put(KernelTerm.ROLE_OPERATOR.nid(), KernelTerm.EXISTENTIAL_RESTRICTION);
         role.setProperties(roleProperties);
 
         EntityVertex propertySet = EntityVertex.make(KernelTerm.PROPERTY_SET);
         setProperties(propertySet, KernelTerm.PROPERTY_SEQUENCE,
-                IntIds.list.of(KometTerm.PART_OF.nid(), KernelTerm.ROLE_TYPE.nid()));
+                LongIds.list.of(KometTerm.PART_OF.nid(), KernelTerm.ROLE_TYPE.nid()));
 
         DiTreeEntity.Builder builder = DiTreeEntity.builder();
         builder.setRoot(root);
@@ -207,7 +207,7 @@ class DefinitionTextIT {
 
     /** Gives a vertex one property. */
     private static void setProperties(EntityVertex vertex, EntityFacade key, Object value) {
-        MutableIntObjectMap<Object> properties = IntObjectMaps.mutable.empty();
+        MutableLongObjectMap<Object> properties = LongObjectMaps.mutable.empty();
         properties.put(key.nid(), value);
         vertex.setProperties(properties);
     }

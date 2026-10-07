@@ -15,7 +15,8 @@
  */
 package network.ike.komet.claude.tools;
 
-import dev.ikm.tinkar.common.id.IntIdCollection;
+import dev.ikm.tinkar.common.id.Nid;
+import dev.ikm.tinkar.common.id.LongIdCollection;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
@@ -122,8 +123,8 @@ public final class GraphTools {
                     if (v == null) {
                         return NO_VIEW;
                     }
-                    int nid = resolve(str(in, "id"), v);
-                    if (nid == NONE) {
+                    long nid = resolve(str(in, "id"), v);
+                    if (Nid.isNone(nid)) {
                         return notFound(str(in, "id"));
                     }
                     // Active-only grounding (#739): a retired concept is reported but NOT discovered
@@ -136,7 +137,7 @@ public final class GraphTools {
                             : "\n(INACTIVE — retired in this view; do not ground to this concept; "
                               + "find an ACTIVE concept or propose a candidate)";
                     return nameAndId(v, nid) + retiredNote + "\nParents:\n"
-                            + renderIds(v, v.parentsOf(nid).intStream().toArray(), DEFAULT_LIMIT);
+                            + renderIds(v, v.parentsOf(nid).longStream().toArray(), DEFAULT_LIMIT);
                 });
     }
 
@@ -174,16 +175,16 @@ public final class GraphTools {
                     if (v == null) {
                         return NO_VIEW;
                     }
-                    int childNid = resolve(str(in, "child"), v);
-                    int parentNid = resolve(str(in, "parent"), v);
-                    if (childNid == NONE) {
+                    long childNid = resolve(str(in, "child"), v);
+                    long parentNid = resolve(str(in, "parent"), v);
+                    if (Nid.isNone(childNid)) {
                         return notFound(str(in, "child"));
                     }
-                    if (parentNid == NONE) {
+                    if (Nid.isNone(parentNid)) {
                         return notFound(str(in, "parent"));
                     }
                     boolean isa = childNid == parentNid
-                            || v.ancestorsOf(childNid).intStream().anyMatch(n -> n == parentNid);
+                            || v.ancestorsOf(childNid).longStream().anyMatch(n -> n == parentNid);
                     return (isa ? "YES — " : "NO — ")
                             + nameAndId(v, childNid) + (isa ? " is-a " : " is NOT a ") + nameAndId(v, parentNid);
                 });
@@ -200,8 +201,8 @@ public final class GraphTools {
                     if (v == null) {
                         return NO_VIEW;
                     }
-                    int nid = resolve(str(in, "id"), v);
-                    if (nid == NONE) {
+                    long nid = resolve(str(in, "id"), v);
+                    if (Nid.isNone(nid)) {
                         return notFound(str(in, "id"));
                     }
                     Latest<DiTreeEntity> stated = v.logicCalculator()
@@ -254,8 +255,8 @@ public final class GraphTools {
                     if (v == null) {
                         return NO_VIEW;
                     }
-                    int nid = resolve(str(in, "id"), v);
-                    if (nid == NONE) {
+                    long nid = resolve(str(in, "id"), v);
+                    if (Nid.isNone(nid)) {
                         return notFound(str(in, "id"));
                     }
                     EntityService es = EntityService.get();
@@ -357,7 +358,7 @@ public final class GraphTools {
                     if (GrpcSearchService.isActive()) {
                         return grpcConceptSemantics(trimmed, str(in, "pattern"), v);
                     }
-                    int targetNid;
+                    long targetNid;
                     try {
                         // A UUID is used AS GIVEN — never canonicalized to its enclosing concept.
                         // Semantics can be attached to a semantic (e.g. Allowed Results on a Test
@@ -367,8 +368,8 @@ public final class GraphTools {
                                 .nidForPublicId(PublicIds.of(UUID.fromString(trimmed)));
                     } catch (IllegalArgumentException notUuid) {
                         // An SCTID always denotes a concept, so resolving is safe here.
-                        int nid = resolve(trimmed, v);
-                        if (nid == NONE) {
+                        long nid = resolve(trimmed, v);
+                        if (Nid.isNone(nid)) {
                             return notFound(trimmed);
                         }
                         targetNid = toConceptNid(nid);
@@ -469,8 +470,8 @@ public final class GraphTools {
             target = UUID.fromString(trimmed);
         } catch (IllegalArgumentException notUuid) {
             // An SCTID always denotes a concept, so resolving is safe here.
-            int nid = resolve(trimmed, v);
-            if (nid == NONE) {
+            long nid = resolve(trimmed, v);
+            if (Nid.isNone(nid)) {
                 return notFound(trimmed);
             }
             // Any of the concept's UUIDs finds it in the remote store; the least is the one
@@ -613,7 +614,7 @@ public final class GraphTools {
      * @param v             the active view, used for stamp/language resolution
      * @return the attached semantics, filtered when a pattern filter is given
      */
-    private static List<SemanticInfo> semanticsFor(int componentNid, String patternFilter, ViewCalculator v) {
+    private static List<SemanticInfo> semanticsFor(long componentNid, String patternFilter, ViewCalculator v) {
         String filter = (patternFilter == null || patternFilter.isBlank())
                 ? null : patternFilter.trim().toLowerCase();
         List<SemanticInfo> results = new java.util.ArrayList<>();
@@ -636,7 +637,7 @@ public final class GraphTools {
      * @return the semantic, or {@code null} when the nid is not a semantic or has no version
      *         visible under this view's coordinate
      */
-    private static SemanticInfo semanticFor(int semanticNid, ViewCalculator v) {
+    private static SemanticInfo semanticFor(long semanticNid, ViewCalculator v) {
         try {
             Entity<?> entity = EntityHandle.getEntityOrThrow(semanticNid);
             if (!(entity instanceof SemanticEntity<?> semantic)) {
@@ -663,7 +664,7 @@ public final class GraphTools {
     }
 
     /** Field names of a pattern, in definition order — each field's meaning concept. */
-    private static List<String> fieldNamesFor(int patternNid, ViewCalculator v) {
+    private static List<String> fieldNamesFor(long patternNid, ViewCalculator v) {
         try {
             Latest<PatternEntityVersion> pattern = v.stampCalculator().latest(patternNid);
             if (!pattern.isPresent()) {
@@ -687,9 +688,9 @@ public final class GraphTools {
         if (value == null) {
             return "";
         }
-        if (value instanceof IntIdCollection ids) {
+        if (value instanceof LongIdCollection ids) {
             StringBuilder sb = new StringBuilder("[");
-            int[] nids = ids.toArray();
+            long[] nids = ids.toArray();
             for (int i = 0; i < nids.length; i++) {
                 if (i > 0) {
                     sb.append(", ");
@@ -718,7 +719,7 @@ public final class GraphTools {
      * An explicitly-typed identifier — SCTID when present, else UUID. A component the store has
      * no public id for is marked as unidentified; the text never holds a nid.
      */
-    private static String typedIdentifier(int nid, ViewCalculator v) {
+    private static String typedIdentifier(long nid, ViewCalculator v) {
         String sctid = sctidOf(v, nid);
         if (sctid != null) {
             return "[SCTID " + sctid + "]";
@@ -739,7 +740,7 @@ public final class GraphTools {
      */
     private static String labelFor(ViewCalculator v, UUID uuid) {
         try {
-            int nid = EntityService.get().nidForPublicId(PublicIds.of(uuid));
+            long nid = EntityService.get().nidForPublicId(PublicIds.of(uuid));
             String name = v.getFullyQualifiedNameText(nid)
                     .or(() -> v.getDescriptionText(nid))
                     .orElse(null);
@@ -756,7 +757,7 @@ public final class GraphTools {
      * A display label for an entity. Unlike {@link #nameAndId} this never canonicalizes to a
      * concept, so it stays correct when the nid identifies a semantic (which has no name).
      */
-    private static String labelFor(ViewCalculator v, int nid) {
+    private static String labelFor(ViewCalculator v, long nid) {
         String name = v.getFullyQualifiedNameText(nid)
                 .or(() -> v.getDescriptionText(nid))
                 .orElse(null);
@@ -808,14 +809,14 @@ public final class GraphTools {
                     try {
                         searcher = new Searcher();
                         PrimitiveDataSearchResult[] results = searcher.search(query.trim(), Math.max(1, limit));
-                        LinkedHashSet<Integer> seen = new LinkedHashSet<>();
+                        LinkedHashSet<Long> seen = new LinkedHashSet<>();
                         StringBuilder sb = new StringBuilder();
                         for (PrimitiveDataSearchResult r : results) {
                             // A full-text hit is a DESCRIPTION semantic (r.nid()); walk it up to the
                             // concept it describes. Return (and de-duplicate by) the concept, never the
                             // description, so the model grounds concepts — several matching descriptions
                             // of one concept collapse to a single result.
-                            int conceptNid = toConceptNid(r.nid());
+                            long conceptNid = toConceptNid(r.nid());
                             // Active-only: never offer a retired concept as a grounding option (#739).
                             if (conceptNid != 0 && isActive(v, conceptNid) && seen.add(conceptNid)) {
                                 sb.append("  - ").append(nameAndId(v, conceptNid)).append('\n');
@@ -847,16 +848,16 @@ public final class GraphTools {
             if (v == null) {
                 return NO_VIEW;
             }
-            int nid = resolve(str(in, "id"), v);
-            if (nid == NONE) {
+            long nid = resolve(str(in, "id"), v);
+            if (Nid.isNone(nid)) {
                 return notFound(str(in, "id"));
             }
-            int[] nids = switch (name) {
-                case "children" -> v.childrenOf(nid).intStream().toArray();
-                case "parents" -> v.parentsOf(nid).intStream().toArray();
-                case "ancestors" -> v.ancestorsOf(nid).intStream().toArray();
-                case "descendants" -> v.descendentsOf(nid).intStream().toArray();
-                default -> new int[0];
+            long[] nids = switch (name) {
+                case "children" -> v.childrenOf(nid).longStream().toArray();
+                case "parents" -> v.parentsOf(nid).longStream().toArray();
+                case "ancestors" -> v.ancestorsOf(nid).longStream().toArray();
+                case "descendants" -> v.descendentsOf(nid).longStream().toArray();
+                default -> new long[0];
             };
             return nameAndId(v, nid) + "\n" + renderIds(v, nids, DEFAULT_LIMIT);
         });
@@ -864,7 +865,7 @@ public final class GraphTools {
 
     // ── Resolution + rendering helpers ──────────────────────────────────
 
-    private static final int NONE = Integer.MIN_VALUE;
+    private static final long NONE = Integer.MIN_VALUE;
     private static final String NO_VIEW = "No active knowledge-base view is available.";
     /**
      * What a tool reports when the view coordinate cannot write its own description. The
@@ -881,7 +882,7 @@ public final class GraphTools {
     }
 
     /** Resolves an SCTID or UUID string to a nid, or {@link #NONE} if unknown. */
-    private static int resolve(String id, ViewCalculator v) {
+    private static long resolve(String id, ViewCalculator v) {
         if (id == null || id.isBlank()) {
             return NONE;
         }
@@ -900,7 +901,7 @@ public final class GraphTools {
                 return NONE;
             }
         }
-        int nid = toConceptNid(EntityService.get().nidForPublicId(PublicIds.of(uuid)));
+        long nid = toConceptNid(EntityService.get().nidForPublicId(PublicIds.of(uuid)));
         // A nid may be minted for an unknown id; treat "no name" as not present.
         if (v.getFullyQualifiedNameText(nid).isEmpty() && v.getDescriptionText(nid).isEmpty()) {
             return NONE;
@@ -918,7 +919,7 @@ public final class GraphTools {
      * @param v     the active view
      * @return the concept nid, or {@link #NONE}
      */
-    private static int resolvePublicIdArray(String array, ViewCalculator v) {
+    private static long resolvePublicIdArray(String array, ViewCalculator v) {
         String[] parts = array.split(",");
         java.util.List<UUID> uuids = new java.util.ArrayList<>(parts.length);
         for (String part : parts) {
@@ -931,7 +932,7 @@ public final class GraphTools {
         if (uuids.isEmpty()) {
             return NONE;
         }
-        int nid = toConceptNid(EntityService.get().nidForPublicId(PublicIds.of(uuids.toArray(new UUID[0]))));
+        long nid = toConceptNid(EntityService.get().nidForPublicId(PublicIds.of(uuids.toArray(new UUID[0]))));
         if (v.getFullyQualifiedNameText(nid).isEmpty() && v.getDescriptionText(nid).isEmpty()) {
             return NONE;
         }
@@ -950,7 +951,7 @@ public final class GraphTools {
      * @param nid any component nid
      * @return the concept nid (the nid itself when it is already a concept or cannot be resolved)
      */
-    private static int toConceptNid(int nid) {
+    private static long toConceptNid(long nid) {
         try {
             Entity<?> entity = EntityHandle.getEntityOrThrow(nid);
             if (entity instanceof SemanticEntity<?> semantic) {
@@ -976,8 +977,8 @@ public final class GraphTools {
         if (v == null) {
             return Optional.empty();
         }
-        int nid = resolve(id, v);
-        if (nid == NONE) {
+        long nid = resolve(id, v);
+        if (Nid.isNone(nid)) {
             return Optional.empty();
         }
         // Active-only grounding: a retired concept must never ground into the ANF — the lift
@@ -998,7 +999,7 @@ public final class GraphTools {
      * @param nid the concept nid
      * @return {@code true} if the concept's latest version is active
      */
-    public static boolean isActive(ViewCalculator v, int nid) {
+    public static boolean isActive(ViewCalculator v, long nid) {
         return v != null && v.stampCalculator().isLatestActive(nid);
     }
 
@@ -1013,8 +1014,8 @@ public final class GraphTools {
      * @throws IllegalStateException if the store has no public id for the concept; a slot's key
      *                               is the public id, never the nid
      */
-    public static AnfSlot.Grounded groundedOf(ViewCalculator v, int nid) {
-        int conceptNid = toConceptNid(nid);
+    public static AnfSlot.Grounded groundedOf(ViewCalculator v, long nid) {
+        long conceptNid = toConceptNid(nid);
         String label = ComponentText.fullyQualifiedName(v, conceptNid);
         // The durable round-trip key is the public id; a concept without one cannot be grounded.
         PublicId publicId = ComponentText.publicId(conceptNid).orElseThrow(() ->
@@ -1043,9 +1044,9 @@ public final class GraphTools {
         try {
             searcher = new Searcher();
             PrimitiveDataSearchResult[] hits = searcher.search(query.trim(), max * 4);
-            LinkedHashSet<Integer> seen = new LinkedHashSet<>();
+            LinkedHashSet<Long> seen = new LinkedHashSet<>();
             for (PrimitiveDataSearchResult hit : hits) {
-                int conceptNid = toConceptNid(hit.nid());
+                long conceptNid = toConceptNid(hit.nid());
                 if (conceptNid != 0 && seen.add(conceptNid)) {
                     rows.add(groundedOf(v, conceptNid));
                     if (rows.size() >= max) {
@@ -1076,7 +1077,7 @@ public final class GraphTools {
         }
     }
 
-    private static String nameAndId(ViewCalculator v, int nid) {
+    private static String nameAndId(ViewCalculator v, long nid) {
         return ComponentText.fullyQualifiedName(v, nid) + "  [" + idString(v, nid) + "]";
     }
 
@@ -1085,7 +1086,7 @@ public final class GraphTools {
      * identifier semantic, otherwise its first public UUID. A concept the store has no public id
      * for is marked as unidentified; the text never holds a nid.
      */
-    private static String idString(ViewCalculator v, int nid) {
+    private static String idString(ViewCalculator v, long nid) {
         String sctid = sctidOf(v, nid);
         if (sctid != null) {
             return "SCTID " + sctid;
@@ -1098,7 +1099,7 @@ public final class GraphTools {
      * ({@link KernelTerm#IDENTIFIER_PATTERN} with source {@link KernelTerm#SCTID}),
      * or {@code null} if the concept has no SCTID in this knowledge base.
      */
-    private static String sctidOf(ViewCalculator v, int nid) {
+    private static String sctidOf(ViewCalculator v, long nid) {
         try {
             List<SemanticEntity<SemanticEntityVersion>> idSemantics = EntityService.get()
                     .semanticsForComponentOfPattern(nid, KernelTerm.IDENTIFIER_PATTERN.nid()).toList();
@@ -1125,7 +1126,7 @@ public final class GraphTools {
         return null;
     }
 
-    private static String renderIds(ViewCalculator v, int[] nids, int limit) {
+    private static String renderIds(ViewCalculator v, long[] nids, int limit) {
         if (nids.length == 0) {
             return "  (none)";
         }

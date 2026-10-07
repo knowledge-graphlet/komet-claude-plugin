@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.semantic;
 
+import dev.ikm.tinkar.common.id.Nid;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.util.uuid.UuidUtil;
@@ -45,7 +46,7 @@ import java.util.UUID;
  */
 public final class SemanticGrounding implements Grounder {
 
-    private static final int NONE = Integer.MIN_VALUE;
+    private static final long NONE = Integer.MIN_VALUE;
 
     private final ViewCalculator view;
 
@@ -65,8 +66,8 @@ public final class SemanticGrounding implements Grounder {
 
     @Override
     public Optional<ComponentSlot.Grounded> ground(String id, ComponentSlot.Kind requiredKind) {
-        int nid = resolveRaw(id);
-        if (nid == NONE) {
+        long nid = resolveRaw(id);
+        if (Nid.isNone(nid)) {
             return Optional.empty();
         }
         ComponentSlot.Kind kind;
@@ -91,7 +92,7 @@ public final class SemanticGrounding implements Grounder {
     }
 
     /** Resolves an SCTID, UUID, or comma-joined PublicId array to a nid, WITHOUT walking up to a concept. */
-    private static int resolveRaw(String id) {
+    private static long resolveRaw(String id) {
         if (id == null) {
             return NONE;
         }
@@ -116,7 +117,7 @@ public final class SemanticGrounding implements Grounder {
     }
 
     /** Resolves a comma-joined {@code PublicId} UUID array (the durable round-trip key) to a nid. */
-    private static int resolvePublicIdArray(String array) {
+    private static long resolvePublicIdArray(String array) {
         String[] parts = array.split(",");
         List<UUID> uuids = new ArrayList<>(parts.length);
         for (String part : parts) {
@@ -136,7 +137,7 @@ public final class SemanticGrounding implements Grounder {
      * The component kind of a nid from the entity hierarchy, or {@code null} when the entity is
      * neither concept, semantic, nor pattern. Throws when the nid resolves to no entity.
      */
-    private static ComponentSlot.Kind kindOf(int nid) {
+    private static ComponentSlot.Kind kindOf(long nid) {
         Entity<?> entity = EntityHandle.getEntityOrThrow(nid);
         if (entity instanceof ConceptEntity) {
             return ComponentSlot.Kind.CONCEPT;
@@ -157,7 +158,7 @@ public final class SemanticGrounding implements Grounder {
      *
      * @return the grounded slot, or empty when the store has no public id for the component
      */
-    private Optional<ComponentSlot.Grounded> build(int nid, ComponentSlot.Kind kind) {
+    private Optional<ComponentSlot.Grounded> build(long nid, ComponentSlot.Kind kind) {
         Optional<PublicId> publicId = ComponentText.publicId(nid);
         if (publicId.isEmpty()) {
             return Optional.empty();

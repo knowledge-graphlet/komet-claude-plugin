@@ -52,7 +52,7 @@ public final class CopyKonceptHtmlAction extends AbstractActionSuggested {
         return thread;
     });
 
-    private final int nid;
+    private final long nid;
 
     /**
      * Creates the action for a focused component version.

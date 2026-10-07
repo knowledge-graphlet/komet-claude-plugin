@@ -66,7 +66,7 @@ class ComponentTextIT {
      * A nid the store has assigned to no component: the ephemeral store numbers components
      * upward from the bottom of the int range, so the top of the range is never reached.
      */
-    private static final int UNASSIGNED_NID = Integer.MAX_VALUE - 1;
+    private static final long UNASSIGNED_NID = Integer.MAX_VALUE - 1;
 
     private ViewCalculator view;
     private ViewCalculator undescribed;
@@ -91,7 +91,7 @@ class ComponentTextIT {
 
     @Test
     void theIdentifierIsAUuidThatResolvesBackToTheSameComponent() {
-        for (int nid : new int[]{KernelTerm.ENGLISH_LANGUAGE.nid(), KernelTerm.DESCRIPTION_PATTERN.nid(),
+        for (long nid : new long[]{KernelTerm.ENGLISH_LANGUAGE.nid(), KernelTerm.DESCRIPTION_PATTERN.nid(),
                 aDescriptionSemanticNid(), aSemanticThatIsNotADescription()}) {
             String identifier = ComponentText.identifier(nid);
             assertEquals(nid, PrimitiveData.nid(PublicIds.of(identifier)),
@@ -106,7 +106,7 @@ class ComponentTextIT {
 
     @Test
     void theDurableKeyHoldsEveryUuidInOrderAndResolvesBack() {
-        int nid = KernelTerm.ENGLISH_LANGUAGE.nid();
+        long nid = KernelTerm.ENGLISH_LANGUAGE.nid();
         String key = ComponentText.publicIdKey(nid).orElseThrow();
         UUID[] uuids = Arrays.stream(key.split(",")).map(UUID::fromString).toArray(UUID[]::new);
         assertArrayEquals(PrimitiveData.publicId(nid).asUuidArray(), uuids);
@@ -122,7 +122,7 @@ class ComponentTextIT {
 
     @Test
     void underAViewThatDescribesTheConceptEveryNameIsADescription() {
-        int nid = KernelTerm.ENGLISH_LANGUAGE.nid();
+        long nid = KernelTerm.ENGLISH_LANGUAGE.nid();
         assertEquals(view.getDescriptionText(nid).orElseThrow(), ComponentText.name(view, nid));
         assertEquals(view.getRegularDescriptionText(nid).orElseThrow(), ComponentText.preferredName(view, nid));
         assertEquals(view.getFullyQualifiedNameText(nid).orElseThrow(), ComponentText.fullyQualifiedName(view, nid));
@@ -130,15 +130,15 @@ class ComponentTextIT {
 
     @Test
     void aConceptWithNoDescriptionIsNamedByItsUuid() {
-        int nid = KernelTerm.ENGLISH_LANGUAGE.nid();
+        long nid = KernelTerm.ENGLISH_LANGUAGE.nid();
         assertTrue(undescribed.getDescriptionText(nid).isEmpty()
                         && undescribed.getRegularDescriptionText(nid).isEmpty()
                         && undescribed.getFullyQualifiedNameText(nid).isEmpty(),
                 "precondition: the view resolves no description for the concept");
         // The calculator methods this helper replaces answer with the nid here. That is the
         // defect of IKE-Network/ike-issues#1170; these two lines fail when tinkar-core stops.
-        assertEquals(Integer.toString(nid), undescribed.getDescriptionTextOrNid(nid));
-        assertEquals(Integer.toString(nid), undescribed.getPreferredDescriptionTextWithFallbackOrNid(nid));
+        assertEquals(Long.toString(nid), undescribed.getDescriptionTextOrNid(nid));
+        assertEquals(Long.toString(nid), undescribed.getPreferredDescriptionTextWithFallbackOrNid(nid));
 
         String uuid = ComponentText.identifier(nid);
         for (String name : List.of(ComponentText.name(undescribed, nid),
@@ -151,7 +151,7 @@ class ComponentTextIT {
 
     @Test
     void aDescriptionSemanticIsNamedByItsOwnText() {
-        int semanticNid = aDescriptionSemanticNid();
+        long semanticNid = aDescriptionSemanticNid();
         String text = ComponentText.preferredName(view, semanticNid);
         assertFalse(text.isBlank());
         assertEquals(view.getDescriptionText(semanticNid).orElseThrow(), text,
@@ -161,7 +161,7 @@ class ComponentTextIT {
 
     @Test
     void aSemanticThatIsNotADescriptionIsNamedForWhatItIs() {
-        int semanticNid = aSemanticThatIsNotADescription();
+        long semanticNid = aSemanticThatIsNotADescription();
         SemanticEntity<?> semantic = (SemanticEntity<?>) EntityHandle.getEntityOrThrow(semanticNid);
         PatternEntityVersion pattern =
                 view.stampCalculator().latestPatternEntityVersion(semantic.patternNid()).get();
@@ -181,7 +181,7 @@ class ComponentTextIT {
     void aSemanticIsNamedWithoutANidEvenWhenNothingItNamesHasADescription() {
         // The form is [meaning] of <component> for [purpose]. Under this view none of the three
         // has a description, which is where LanguageCalculator.getSemanticText writes three nids.
-        int semanticNid = aSemanticThatIsNotADescription();
+        long semanticNid = aSemanticThatIsNotADescription();
         SemanticEntity<?> semantic = (SemanticEntity<?>) EntityHandle.getEntityOrThrow(semanticNid);
         PatternEntityVersion pattern =
                 undescribed.stampCalculator().latestPatternEntityVersion(semantic.patternNid()).get();
@@ -196,7 +196,7 @@ class ComponentTextIT {
 
     @Test
     void theBadgeIsAUuidTokenLabelledByTheView() {
-        int nid = KernelTerm.ENGLISH_LANGUAGE.nid();
+        long nid = KernelTerm.ENGLISH_LANGUAGE.nid();
         String uuid = ComponentText.identifier(nid);
 
         String labelled = ComponentText.badge(view, nid).orElseThrow();
@@ -221,7 +221,7 @@ class ComponentTextIT {
     }
 
     /** The nid of a description of English Language. */
-    private static int aDescriptionSemanticNid() {
+    private static long aDescriptionSemanticNid() {
         Optional<SemanticEntity<SemanticEntityVersion>> description = EntityService.get()
                 .semanticsForComponentOfPattern(KernelTerm.ENGLISH_LANGUAGE.nid(), KernelTerm.DESCRIPTION_PATTERN.nid())
                 .findFirst();
@@ -233,7 +233,7 @@ class ComponentTextIT {
      * The nid of a semantic attached to English Language that is not a description, and so has
      * no text of its own under any view.
      */
-    private int aSemanticThatIsNotADescription() {
+    private long aSemanticThatIsNotADescription() {
         EntityFacade concept = KernelTerm.ENGLISH_LANGUAGE;
         for (SemanticEntity<SemanticEntityVersion> semantic
                 : EntityService.get().semanticsForComponent(concept.nid()).toList()) {

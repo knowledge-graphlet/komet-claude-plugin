@@ -27,7 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Optional;
-import java.util.OptionalInt;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
@@ -75,19 +75,19 @@ public final class KonceptTokenDrop {
             if (!accepts(e.getDragboard())) {
                 return;
             }
-            int[] nids = KometClipboard.conceptNidsFrom(e.getDragboard());
+            long[] nids = KometClipboard.conceptNidsFrom(e.getDragboard());
             if (nids.length == 0) {
-                OptionalInt nid = KometClipboard.conceptNid(e.getDragboard());
+                OptionalLong nid = KometClipboard.conceptNid(e.getDragboard());
                 if (nid.isEmpty()) {
                     nid = KometClipboard.entityNidFrom(e.getDragboard());
                 }
                 if (nid.isPresent()) {
-                    nids = new int[] {nid.getAsInt()};
+                    nids = new long[] {nid.getAsLong()};
                 }
             }
             if (nids.length > 0) {
                 StringBuilder tokens = new StringBuilder();
-                for (int nid : nids) {
+                for (long nid : nids) {
                     Optional<String> token = tokenFor(nid, viewCalc);
                     if (token.isEmpty()) {
                         continue;
@@ -117,7 +117,7 @@ public final class KonceptTokenDrop {
      * store has no public id for it. The token never holds a nid
      * ({@code IKE-Network/ike-issues#1170}).
      */
-    private static Optional<String> tokenFor(int nid, Supplier<ViewCalculator> viewCalc) {
+    private static Optional<String> tokenFor(long nid, Supplier<ViewCalculator> viewCalc) {
         ViewCalculator calculator = null;
         try {
             calculator = viewCalc == null ? null : viewCalc.get();

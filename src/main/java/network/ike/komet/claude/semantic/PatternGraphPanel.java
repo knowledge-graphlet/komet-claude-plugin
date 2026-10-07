@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.semantic;
 
+import dev.ikm.tinkar.common.id.Nid;
 import dev.ikm.komet.framework.dnd.KometClipboard;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
@@ -46,7 +47,7 @@ import network.ike.komet.claude.koncept.ComponentText;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.OptionalInt;
+import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.function.Supplier;
 
@@ -66,7 +67,7 @@ import java.util.function.Supplier;
 public final class PatternGraphPanel extends VBox {
 
     /** Sentinel "parent" denoting the subject concept (the graph root). */
-    static final int SUBJECT = Integer.MIN_VALUE;
+    static final long SUBJECT = Integer.MIN_VALUE;
     private static final String SUBJECT_TOKEN = "S";
 
     private final Supplier<ViewCalculator> viewSupplier;
@@ -121,8 +122,8 @@ public final class PatternGraphPanel extends VBox {
             event.consume();
         });
         zone.setOnDragDropped(event -> {
-            OptionalInt nid = KometClipboard.entityNidFrom(event.getDragboard());
-            boolean added = nid.isPresent() && addPattern(nid.getAsInt());
+            OptionalLong nid = KometClipboard.entityNidFrom(event.getDragboard());
+            boolean added = nid.isPresent() && addPattern(nid.getAsLong());
             event.setDropCompleted(added);
             event.consume();
         });
@@ -141,7 +142,7 @@ public final class PatternGraphPanel extends VBox {
      * @param nid the dropped component nid
      * @return true if a pattern node was added
      */
-    boolean addPattern(int nid) {
+    boolean addPattern(long nid) {
         if (containsPattern(nid)) {
             return false;
         }
@@ -154,7 +155,7 @@ public final class PatternGraphPanel extends VBox {
         return true;
     }
 
-    private boolean containsPattern(int nid) {
+    private boolean containsPattern(long nid) {
         for (PatternNode existing : nodes) {
             if (existing.patternNid == nid) {
                 return true;
@@ -164,7 +165,7 @@ public final class PatternGraphPanel extends VBox {
     }
 
     /** Builds a node for a pattern nid (resolving label + referenced-component meaning/purpose), or null. */
-    private PatternNode createNode(int nid) {
+    private PatternNode createNode(long nid) {
         ViewCalculator view = view();
         if (view == null) {
             return null;
@@ -215,11 +216,11 @@ public final class PatternGraphPanel extends VBox {
                 continue;
             }
             StringBuilder parents = new StringBuilder();
-            for (Integer parent : node.parents) {
+            for (Long parent : node.parents) {
                 if (parents.length() > 0) {
                     parents.append(',');
                 }
-                parents.append(parent == SUBJECT ? SUBJECT_TOKEN : uuidOf(parent));
+                parents.append(Nid.isNone(parent) ? SUBJECT_TOKEN : uuidOf(parent));
             }
             if (out.length() > 0) {
                 out.append('\n');
@@ -252,8 +253,8 @@ public final class PatternGraphPanel extends VBox {
             if (parts.length < 2) {
                 return;
             }
-            int nid = resolveUuid(parts[0]);
-            if (nid == SUBJECT || containsPattern(nid)) {
+            long nid = resolveUuid(parts[0]);
+            if (Nid.isNone(nid) || containsPattern(nid)) {
                 return;
             }
             PatternNode node = createNode(nid);
@@ -267,8 +268,8 @@ public final class PatternGraphPanel extends VBox {
                     if (SUBJECT_TOKEN.equals(token)) {
                         node.parents.add(SUBJECT);
                     } else {
-                        int parentNid = resolveUuid(token);
-                        if (parentNid != SUBJECT) {
+                        long parentNid = resolveUuid(token);
+                        if (!Nid.isNone(parentNid)) {
                             node.parents.add(parentNid);
                         }
                     }
@@ -283,12 +284,12 @@ public final class PatternGraphPanel extends VBox {
         }
     }
 
-    private static String uuidOf(int nid) {
+    private static String uuidOf(long nid) {
         return ComponentText.leastUuid(nid).map(UUID::toString).orElse(null);
     }
 
     /** Resolves a UUID string to a nid, or {@link #SUBJECT} (used here as a "no nid" marker) on failure. */
-    private static int resolveUuid(String uuidStr) {
+    private static long resolveUuid(String uuidStr) {
         try {
             return EntityService.get().nidForPublicId(PublicIds.of(UUID.fromString(uuidStr.trim())));
         } catch (RuntimeException notResolvable) {
@@ -361,21 +362,21 @@ public final class PatternGraphPanel extends VBox {
         }
 
         FlowPane chips = new FlowPane(4, 4);
-        for (Integer parent : new ArrayList<>(node.parents)) {
+        for (Long parent : new ArrayList<>(node.parents)) {
             chips.getChildren().add(parentChip(node, parent));
         }
-        ComboBox<Integer> addParent = new ComboBox<>();
+        ComboBox<Long> addParent = new ComboBox<>();
         addParent.setPromptText("add parent…");
         addParent.setStyle("-fx-font-size: 10;");
         addParent.getItems().addAll(candidateParents(node));
         addParent.setConverter(new StringConverter<>() {
             @Override
-            public String toString(Integer id) {
+            public String toString(Long id) {
                 return id == null ? "" : parentLabel(id);
             }
 
             @Override
-            public Integer fromString(String s) {
+            public Long fromString(String s) {
                 return null;
             }
         });
@@ -391,7 +392,7 @@ public final class PatternGraphPanel extends VBox {
         return line;
     }
 
-    private Region parentChip(PatternNode node, Integer parent) {
+    private Region parentChip(PatternNode node, Long parent) {
         Label text = new Label(parentLabel(parent));
         text.setStyle("-fx-font-size: 10;");
         Button drop = new Button("✕");
@@ -407,8 +408,8 @@ public final class PatternGraphPanel extends VBox {
     }
 
     /** Candidate parents to offer: the subject (if not already a parent) plus the other patterns. */
-    private List<Integer> candidateParents(PatternNode node) {
-        List<Integer> candidates = new ArrayList<>();
+    private List<Long> candidateParents(PatternNode node) {
+        List<Long> candidates = new ArrayList<>();
         if (!node.parents.contains(SUBJECT)) {
             candidates.add(SUBJECT);
         }
@@ -420,11 +421,11 @@ public final class PatternGraphPanel extends VBox {
         return candidates;
     }
 
-    private String parentLabel(Integer parent) {
+    private String parentLabel(Long parent) {
         if (parent == null) {
             return "";
         }
-        if (parent == SUBJECT) {
+        if (Nid.isNone(parent)) {
             return "subject";
         }
         for (PatternNode node : nodes) {
@@ -445,7 +446,7 @@ public final class PatternGraphPanel extends VBox {
         }
     }
 
-    private static String label(ViewCalculator view, int nid) {
+    private static String label(ViewCalculator view, long nid) {
         return ComponentText.fullyQualifiedName(view, nid);
     }
 
@@ -456,14 +457,14 @@ public final class PatternGraphPanel extends VBox {
      * subject.
      */
     static final class PatternNode {
-        final int patternNid;
+        final long patternNid;
         final String label;
         final String meaningLabel;
         final String purposeLabel;
-        final ObservableList<Integer> parents = FXCollections.observableArrayList(SUBJECT);
+        final ObservableList<Long> parents = FXCollections.observableArrayList(SUBJECT);
         final BooleanProperty ambient = new SimpleBooleanProperty(false);
 
-        PatternNode(int patternNid, String label, String meaningLabel, String purposeLabel) {
+        PatternNode(long patternNid, String label, String meaningLabel, String purposeLabel) {
             this.patternNid = patternNid;
             this.label = label;
             this.meaningLabel = meaningLabel;

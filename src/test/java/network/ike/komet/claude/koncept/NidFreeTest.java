@@ -39,7 +39,7 @@ class NidFreeTest {
                 "k:nid=-2147483621[English Language]",           // the compose token fallback
                 "-2147483621",                                   // the OrNid name fallback
                 "[0] <-2147483621>",                             // the store's default text
-                "IntIdList[Part of <-2147483500>, Role type <-2147483499>]",
+                "LongIdList[Part of <-2147483500>, Role type <-2147483499>]",
                 "nid: 7",
                 "<42>"}) {
             assertThrows(AssertionFailedError.class, () -> NidFree.assertNoNid("the text", text), text);

@@ -40,12 +40,12 @@ import java.util.Set;
  * list of {@code ∃ attribute . value} restrictions). Every nid is a concept.
  */
 public record ConceptDefinition(boolean defined,
-                                int[] supertypes,
+                                long[] supertypes,
                                 List<Role> ungroupedRoles,
                                 List<List<Role>> roleGroups) {
 
     /** A single {@code ∃ attribute . value} existential restriction (both concept nids). */
-    public record Role(int attributeNid, int valueNid) {
+    public record Role(long attributeNid, long valueNid) {
     }
 
     /**
@@ -56,7 +56,7 @@ public record ConceptDefinition(boolean defined,
      * @param premise    {@link PremiseType#STATED} or {@link PremiseType#INFERRED}
      * @return the flattened definition, or empty if the concept has no such axioms / no content
      */
-    public static Optional<ConceptDefinition> extract(int conceptNid, ViewCalculator view, PremiseType premise) {
+    public static Optional<ConceptDefinition> extract(long conceptNid, ViewCalculator view, PremiseType premise) {
         Latest<DiTreeEntity> latest = view.getAxiomTreeForEntity(conceptNid, premise);
         if (!latest.isPresent()) {
             return Optional.empty();
@@ -64,17 +64,17 @@ public record ConceptDefinition(boolean defined,
         DiTreeEntity tree = latest.get();
         boolean defined = tree.containsVertexWithMeaning(KernelTerm.SUFFICIENT_SET);
 
-        Set<Integer> supertypes = new LinkedHashSet<>();
+        Set<Long> supertypes = new LinkedHashSet<>();
         List<Role> ungrouped = new ArrayList<>();
         List<List<Role>> groups = new ArrayList<>();
 
         for (EntityVertex set : conjuncts(tree, tree.root())) {
-            int meaning = set.getMeaningNid();
+            long meaning = set.getMeaningNid();
             if (meaning != KernelTerm.NECESSARY_SET.nid() && meaning != KernelTerm.SUFFICIENT_SET.nid()) {
                 continue;
             }
             for (EntityVertex conjunct : conjuncts(tree, set)) {
-                int cm = conjunct.getMeaningNid();
+                long cm = conjunct.getMeaningNid();
                 if (cm == KernelTerm.CONCEPT_REFERENCE.nid()) {
                     supertypes.add(conceptNidOf(conjunct));
                 } else if (cm == KernelTerm.ROLE.nid()) {
@@ -100,7 +100,7 @@ public record ConceptDefinition(boolean defined,
             return Optional.empty();
         }
         return Optional.of(new ConceptDefinition(defined,
-                supertypes.stream().mapToInt(Integer::intValue).toArray(), ungrouped, groups));
+                supertypes.stream().mapToLong(Long::longValue).toArray(), ungrouped, groups));
     }
 
     /** Successors of a vertex, transparently descending a single {@code AND} layer. */
@@ -129,7 +129,7 @@ public record ConceptDefinition(boolean defined,
         return Optional.empty();
     }
 
-    private static int conceptNidOf(EntityVertex conceptVertex) {
+    private static long conceptNidOf(EntityVertex conceptVertex) {
         ConceptFacade concept = conceptVertex.propertyFast(KernelTerm.CONCEPT_REFERENCE);
         return concept.nid();
     }

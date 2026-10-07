@@ -82,7 +82,7 @@ import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.events.EvtBusFactory;
 import network.ike.komet.claude.instructions.InstructionEditorCard;
 import java.util.LinkedHashMap;
-import java.util.OptionalInt;
+import java.util.OptionalLong;
 import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.anthropic.AskListener;
@@ -1120,14 +1120,14 @@ public final class ClaudeCard extends AbstractHostCard {
             }
             // A multi-concept drag (navigator multi-select) carries the whole set; a single drag
             // carries one component proxy. Accept either.
-            int[] nids = KometClipboard.conceptNidsFrom(e.getDragboard());
+            long[] nids = KometClipboard.conceptNidsFrom(e.getDragboard());
             if (nids.length == 0) {
-                OptionalInt nid = KometClipboard.conceptNid(e.getDragboard());
+                OptionalLong nid = KometClipboard.conceptNid(e.getDragboard());
                 if (nid.isEmpty()) {
                     nid = KometClipboard.entityNidFrom(e.getDragboard());
                 }
                 if (nid.isPresent()) {
-                    nids = new int[]{nid.getAsInt()};
+                    nids = new long[]{nid.getAsLong()};
                 }
             }
             if (nids.length > 0) {
@@ -1185,7 +1185,7 @@ public final class ClaudeCard extends AbstractHostCard {
      *             the document end
      * @param nids the dropped koncepts, in order
      */
-    private void insertKonceptsAt(TextPos at, int[] nids) {
+    private void insertKonceptsAt(TextPos at, long[] nids) {
         if (at == null) {
             at = input.getCaretPosition();
         }
@@ -1230,7 +1230,7 @@ public final class ClaudeCard extends AbstractHostCard {
      * the rendered chip shows (#942). The text never holds a nid
      * ({@code IKE-Network/ike-issues#1170}).
      */
-    private TextPos insertChipReturning(TextPos at, int nid) {
+    private TextPos insertChipReturning(TextPos at, long nid) {
         Optional<PublicId> pid = ComponentText.publicId(nid);
         Optional<String> token = ComponentText.badge(safeViewCalculator(), nid);
         if (pid.isEmpty() || token.isEmpty()) {

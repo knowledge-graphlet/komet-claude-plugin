@@ -16,7 +16,7 @@
 package network.ike.komet.claude.koncept;
 
 import dev.ikm.tinkar.terms.KernelTerm;
-import dev.ikm.tinkar.common.id.IntIds;
+import dev.ikm.tinkar.common.id.LongIds;
 import dev.ikm.tinkar.coordinate.Coordinates;
 import dev.ikm.tinkar.coordinate.language.LanguageCoordinateRecord;
 import dev.ikm.tinkar.coordinate.view.ViewCoordinateRecord;
@@ -74,9 +74,9 @@ public final class NidFree {
      * @param text the text to examine
      * @param nid  the nid that must not appear
      */
-    public static void assertNoNid(String what, String text, int nid) {
+    public static void assertNoNid(String what, String text, long nid) {
         assertNoNid(what, text);
-        if (text.contains(Integer.toString(nid))) {
+        if (text.contains(Long.toString(nid))) {
             fail(what + " holds the nid " + nid + " in:\n" + text);
         }
     }
@@ -96,11 +96,11 @@ public final class NidFree {
     public static ViewCalculator viewWithNoDescriptions() {
         LanguageCoordinateRecord noDescriptions = LanguageCoordinateRecord.make(
                 KernelTerm.ENGLISH_LANGUAGE.nid(),
-                IntIds.list.of(KernelTerm.COMMENT_PATTERN.nid()),
-                IntIds.list.of(KernelTerm.REGULAR_NAME_DESCRIPTION_TYPE.nid(),
+                LongIds.list.of(KernelTerm.COMMENT_PATTERN.nid()),
+                LongIds.list.of(KernelTerm.REGULAR_NAME_DESCRIPTION_TYPE.nid(),
                         KernelTerm.FULLY_QUALIFIED_NAME_DESCRIPTION_TYPE.nid()),
-                IntIds.list.empty(),
-                IntIds.list.empty());
+                LongIds.list.empty(),
+                LongIds.list.empty());
         ViewCoordinateRecord coordinate = ViewCoordinateRecord.make(
                 Coordinates.Stamp.DevelopmentLatest(),
                 noDescriptions,

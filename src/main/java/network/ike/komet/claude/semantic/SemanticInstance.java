@@ -34,7 +34,7 @@ import java.util.stream.Collectors;
  * @param patternLabel the bound pattern's display label
  * @param fields       the filled field values, in pattern field order; never null (copied)
  */
-public record SemanticInstance(int patternNid, String patternLabel, List<FieldValue> fields) {
+public record SemanticInstance(long patternNid, String patternLabel, List<FieldValue> fields) {
 
     /**
      * Validates and defensively copies the instance.

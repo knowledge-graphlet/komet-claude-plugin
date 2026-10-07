@@ -94,7 +94,7 @@ public final class ZulipNotifier {
      * @return the posted Zulip message id
      * @throws ZulipException on a Zulip API or transport failure
      */
-    public long notifyConcept(int conceptNid, ViewCalculator view) {
+    public long notifyConcept(long conceptNid, ViewCalculator view) {
         Objects.requireNonNull(view, "view");
         ZulipChannel channel = channelForConcept(conceptNid, view);
         String content = renderConcept(conceptNid, view);
@@ -112,7 +112,7 @@ public final class ZulipNotifier {
      * @param view       the active view
      * @return the channel to post to
      */
-    private ZulipChannel channelForConcept(int conceptNid, ViewCalculator view) {
+    private ZulipChannel channelForConcept(long conceptNid, ViewCalculator view) {
         return ZulipChannel.of(defaultStream, name(conceptNid, view) + " · " + stableId(conceptNid));
     }
 
@@ -123,13 +123,13 @@ public final class ZulipNotifier {
      * @param view       the active view
      * @return Zulip-flavored Markdown
      */
-    private String renderConcept(int conceptNid, ViewCalculator view) {
+    private String renderConcept(long conceptNid, ViewCalculator view) {
         String name = name(conceptNid, view);
         String id = stableId(conceptNid);
         UUID uuid = leastUuid(conceptNid);
         // Per-message identicon-upload cache: author/module/path recur across history
         // rows, so upload each unique concept's identicon once and reuse the URI.
-        Map<Integer, String> icons = new HashMap<>();
+        Map<Long, String> icons = new HashMap<>();
 
         StringBuilder sb = new StringBuilder();
         // Header: the INLINE identicon flowed next to the linked label on one line.
@@ -146,7 +146,7 @@ public final class ZulipNotifier {
         }
         sb.append('\n').append(latestStampLine(conceptNid, view)).append('\n');
 
-        int[] parents = view.parentsOf(conceptNid).intStream().toArray();
+        long[] parents = view.parentsOf(conceptNid).longStream().toArray();
         if (parents.length > 0) {
             sb.append("\n**Parents**\n");
             int shown = Math.min(parents.length, 12);
@@ -164,7 +164,7 @@ public final class ZulipNotifier {
     }
 
     /** Renders the concept's stated and inferred logical definitions as Koncept tables. */
-    private String renderDefinition(int conceptNid, ViewCalculator view, Map<Integer, String> icons) {
+    private String renderDefinition(long conceptNid, ViewCalculator view, Map<Long, String> icons) {
         String stated = renderOneDefinition("Stated", conceptNid, view, PremiseType.STATED, icons);
         String inferred = renderOneDefinition("Inferred", conceptNid, view, PremiseType.INFERRED, icons);
         if (stated.isEmpty() && inferred.isEmpty()) {
@@ -174,8 +174,8 @@ public final class ZulipNotifier {
     }
 
     /** One premise's definition as a Group / Attribute / Value table, or "" if absent. */
-    private String renderOneDefinition(String label, int conceptNid, ViewCalculator view,
-                                       PremiseType premise, Map<Integer, String> icons) {
+    private String renderOneDefinition(String label, long conceptNid, ViewCalculator view,
+                                       PremiseType premise, Map<Long, String> icons) {
         Optional<ConceptDefinition> opt;
         try {
             opt = ConceptDefinition.extract(conceptNid, view, premise);
@@ -192,7 +192,7 @@ public final class ZulipNotifier {
                 .append(def.defined() ? "Defined (≡)" : "Primitive (⊑)").append("_\n\n");
         sb.append("| Group | Attribute | Value |\n");
         sb.append("| :-- | :-- | :-- |\n");
-        for (int superNid : def.supertypes()) {
+        for (long superNid : def.supertypes()) {
             sb.append("| Is-a |  | ").append(konceptInline(superNid, view, icons)).append(" |\n");
         }
         for (ConceptDefinition.Role role : def.ungroupedRoles()) {
@@ -216,8 +216,8 @@ public final class ZulipNotifier {
      * renders it as an inline image with no block frame. Best-effort: on failure, falls
      * back to the linked text label without an identicon.
      */
-    private String renderInlineHeader(int conceptNid, String name, UUID uuid, String id,
-                                      ViewCalculator view, Map<Integer, String> icons) {
+    private String renderInlineHeader(long conceptNid, String name, UUID uuid, String id,
+                                      ViewCalculator view, Map<Long, String> icons) {
         String labelMd = (uuid != null)
                 ? "**[" + name + "](" + KOMPENDIUM.conceptUrl(uuid) + ")**"
                 : "**" + name + "**";
@@ -231,7 +231,7 @@ public final class ZulipNotifier {
      * ike-issues#742 amendment, #862): Zulip markdown carries the glyph, not its colour —
      * the data channel, matching the adoc renderer's FO/Prawn convention.
      */
-    private static String statusPrefix(int nid, ViewCalculator view) {
+    private static String statusPrefix(long nid, ViewCalculator view) {
         String cluster = KonceptStatusMark.clusterText(KonceptStatusMark.resolve(nid, view));
         return cluster.isEmpty() ? "" : cluster + " ";
     }
@@ -241,7 +241,7 @@ public final class ZulipNotifier {
      * concept that recurs (author/module/path across history rows) uploads only once.
      * Returns {@code ""} on failure (the caller then omits the identicon).
      */
-    private String iconUri(int nid, Map<Integer, String> icons) {
+    private String iconUri(long nid, Map<Long, String> icons) {
         return icons.computeIfAbsent(nid, this::resolveIconUri);
     }
 
@@ -250,7 +250,7 @@ public final class ZulipNotifier {
      * cache first (upload once, ever), then a fresh upload (cached) on a miss. Returns
      * {@code ""} on failure so the caller omits the identicon.
      */
-    private String resolveIconUri(int nid) {
+    private String resolveIconUri(long nid) {
         Optional<PublicId> pid = ComponentText.publicId(nid);
         if (pid.isEmpty()) {
             return "";
@@ -277,14 +277,14 @@ public final class ZulipNotifier {
     }
 
     /** A concept rendered as the standard inline Koncept: identicon + name (no link). */
-    private String konceptInline(int nid, ViewCalculator view, Map<Integer, String> icons) {
+    private String konceptInline(long nid, ViewCalculator view, Map<Long, String> icons) {
         String uri = iconUri(nid, icons);
         String nm = name(nid, view);
         return statusPrefix(nid, view) + (uri.isEmpty() ? nm : "![k](" + uri + ") " + nm);
     }
 
     /** The component's STAMP versions, newest first, as Markdown list rows. */
-    private String renderHistory(int conceptNid, ViewCalculator view, Map<Integer, String> icons) {
+    private String renderHistory(long conceptNid, ViewCalculator view, Map<Long, String> icons) {
         try {
             var optEntity = EntityHandle.get(conceptNid).entity();
             if (optEntity.isEmpty()) {
@@ -320,12 +320,12 @@ public final class ZulipNotifier {
     }
 
     /** The view's coordinate-preferred description, else the least UUID — the badge's own resolution (#942). */
-    private static String name(int nid, ViewCalculator view) {
+    private static String name(long nid, ViewCalculator view) {
         return ComponentText.name(view, nid);
     }
 
     /** A "Last edited by … · …" line from the concept's latest STAMP, best-effort. */
-    private static String latestStampLine(int conceptNid, ViewCalculator view) {
+    private static String latestStampLine(long conceptNid, ViewCalculator view) {
         try {
             Latest<EntityVersion> latest = view.stampCalculator().latest(conceptNid);
             if (latest.isPresent()) {
@@ -340,7 +340,7 @@ public final class ZulipNotifier {
     }
 
     /** The concept's least public UUID, or null if none is resolvable. */
-    private static UUID leastUuid(int nid) {
+    private static UUID leastUuid(long nid) {
         return ComponentText.leastUuid(nid).orElse(null);
     }
 
@@ -348,7 +348,7 @@ public final class ZulipNotifier {
      * A stable identifier string for topic/keying: the first public UUID. A concept
      * the store has no public id for is named as unidentified, never by its nid.
      */
-    private static String stableId(int nid) {
+    private static String stableId(long nid) {
         return ComponentText.identifier(nid);
     }
 }

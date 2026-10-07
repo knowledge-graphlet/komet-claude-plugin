@@ -41,7 +41,7 @@ import java.util.Set;
  * @param patternLabel the bound pattern's display label
  * @param fields       the field metadata, in pattern field order; never null (copied)
  */
-public record PatternFields(int patternNid, String patternLabel, List<FieldMeta> fields) {
+public record PatternFields(long patternNid, String patternLabel, List<FieldMeta> fields) {
 
     /**
      * Validates and defensively copies the field metadata.
@@ -100,7 +100,7 @@ public record PatternFields(int patternNid, String patternLabel, List<FieldMeta>
      * @param view       the view that resolves labels; must not be null
      * @return the field metadata snapshot (never null)
      */
-    public static PatternFields from(int patternNid, PatternEntityVersion version, ViewCalculator view) {
+    public static PatternFields from(long patternNid, PatternEntityVersion version, ViewCalculator view) {
         Objects.requireNonNull(version, "version");
         Objects.requireNonNull(view, "view");
         String patternLabel = label(view, patternNid);
@@ -154,7 +154,7 @@ public record PatternFields(int patternNid, String patternLabel, List<FieldMeta>
         };
     }
 
-    private static String label(ViewCalculator view, int nid) {
+    private static String label(ViewCalculator view, long nid) {
         return ComponentText.fullyQualifiedName(view, nid);
     }
 

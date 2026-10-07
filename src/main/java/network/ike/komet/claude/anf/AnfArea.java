@@ -105,7 +105,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
     private Label progressLabel;
     private ListView<AnfSlot> inventoryView;
     private final ObservableList<AnfSlot> inventory = FXCollections.observableArrayList();
-    private final Set<Integer> seenNids = new HashSet<>();
+    private final Set<Long> seenNids = new HashSet<>();
     private final List<AnfStatement> statements = new ArrayList<>();
     private ComboBox<LiftRecord> recallBox;
     private final ObservableList<LiftRecord> history = FXCollections.observableArrayList();
@@ -130,7 +130,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
     private AnfStatementView.Editor editorFor(int index) {
         return new AnfStatementView.Editor() {
             @Override
-            public AnfSlot.Grounded resolve(int conceptNid) {
+            public AnfSlot.Grounded resolve(long conceptNid) {
                 ViewCalculator view = viewCalculator();
                 // Active-only grounding (#739): dropping a retired concept onto a slot is rejected.
                 if (view == null || !GraphTools.isActive(view, conceptNid)) {

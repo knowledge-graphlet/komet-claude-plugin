@@ -59,7 +59,7 @@ class NidInTextIT {
 
     private ViewCalculator view;
     /** A component the store holds, in the three forms text can name it. */
-    private int nid;
+    private long nid;
     private String uuid;
     private String uuidToken;
 
@@ -121,7 +121,7 @@ class NidInTextIT {
         assertNotNull(byUuid, "the store holds the component, so its UUID resolves");
         assertTrue(PublicId.equals(PrimitiveData.publicId(nid), byUuid));
 
-        assertNull(KonceptTreeBlockRenderer.resolvePid("nid", Integer.toString(nid)),
+        assertNull(KonceptTreeBlockRenderer.resolvePid("nid", Long.toString(nid)),
                 "the store holds a component with this nid, and the tree line does not resolve to it");
     }
 

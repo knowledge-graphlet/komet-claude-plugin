@@ -109,7 +109,7 @@ class JournalStoreIT {
     @Test
     void secondAppendGrowsTheManifestAsANewVersionInOrder() {
         PublicId anchor = store.appendExchange(null, "Growing conversation", "u1", "a1");
-        int manifestNid = soleManifestNid(anchor);
+        long manifestNid = soleManifestNid(anchor);
         int versionsAfterFirst = EntityHandle.get(manifestNid).expectSemantic().versions().size();
 
         PublicId confirmed = store.appendExchange(anchor, "Growing conversation", "u2", "a2");
@@ -165,7 +165,7 @@ class JournalStoreIT {
                 .versions().size();
     }
 
-    private static int soleManifestNid(PublicId anchor) {
+    private static long soleManifestNid(PublicId anchor) {
         List<SemanticEntity<SemanticEntityVersion>> manifests = EntityService.get().semanticsForComponentOfPattern(
                 EntityService.get().nidForPublicId(anchor),
                 RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN.nid()).toList();
