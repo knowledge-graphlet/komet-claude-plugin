@@ -99,14 +99,14 @@
         </dependency>
 
         <!-- Integration-test datastore providers: the *IT grounding suite loads the IKE starter
-             set into an ephemeral store and grounds against real components (the coordinate/
+             set into the spined array's ephemeral mode and grounds against real components (the coordinate/
              grounding testing discipline). The providers ship only module-info `provides` (no
              META-INF/services), so the *IT classpath run (the parent runs tests with
              useModulePath=false) discovers them via the legacy META-INF/services files in
              src/test/resources. Mirrors complex-clause-plugin's classpath IT setup. -->
         <dependency>
             <groupId>dev.ikm.tinkar</groupId>
-            <artifactId>data-ephemeral-provider</artifactId>
+            <artifactId>data-spinedarray-provider</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>
