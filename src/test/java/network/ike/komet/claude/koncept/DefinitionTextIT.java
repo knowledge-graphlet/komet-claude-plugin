@@ -38,6 +38,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -83,22 +84,22 @@ class DefinitionTextIT {
         DiTreeEntity tree = aTreeWithEveryKindOfPropertyValue();
 
         // Role's two properties are written in the order of their names, whatever order the
-        // vertex holds them in.
+        // vertex holds them in. The structure is named; each component it holds is identified.
         List<String> roleProperties = new ArrayList<>(List.of(
-                name(KernelTerm.ROLE_TYPE) + ": " + name(KometTerm.PART_OF),
-                name(KernelTerm.ROLE_OPERATOR) + ": " + name(KernelTerm.EXISTENTIAL_RESTRICTION)));
+                name(KernelTerm.ROLE_TYPE) + ": " + identified(KometTerm.PART_OF),
+                name(KernelTerm.ROLE_OPERATOR) + ": " + identified(KernelTerm.EXISTENTIAL_RESTRICTION)));
         roleProperties.sort(null);
 
         String expected = "   [0]➞[1] " + name(KernelTerm.DEFINITION_ROOT) + "\n"
                 + "     [1]➞[2] " + name(KernelTerm.NECESSARY_SET) + "\n"
                 + "       [2]➞[3,4,5] " + name(KernelTerm.AND) + "\n"
-                + "         [3] " + name(KernelTerm.CONCEPT_REFERENCE) + ": " + name(KernelTerm.LANGUAGE) + "\n"
+                + "         [3] " + name(KernelTerm.CONCEPT_REFERENCE) + ": " + identified(KernelTerm.LANGUAGE) + "\n"
                 + "         [4] " + name(KernelTerm.ROLE) + "\n"
                 + "            •" + roleProperties.get(0) + "\n"
                 + "            •" + roleProperties.get(1) + "\n"
                 + "         [5] " + name(KernelTerm.PROPERTY_SET) + "\n"
                 + "            •" + name(KernelTerm.PROPERTY_SEQUENCE) + ": ["
-                + name(KometTerm.PART_OF) + ", " + name(KernelTerm.ROLE_TYPE) + "]\n";
+                + identified(KometTerm.PART_OF) + ", " + identified(KernelTerm.ROLE_TYPE) + "]\n";
 
         String text = DefinitionText.tree(tree, view);
         assertEquals(expected, text);
@@ -119,9 +120,9 @@ class DefinitionTextIT {
 
         String text = DefinitionText.tree(tree, undescribed);
         NidFree.assertNoNid("the tree under a view with no descriptions", text, partOf);
-        assertTrue(text.contains("[" + ComponentText.identifier(partOf) + ", "
-                        + ComponentText.identifier(KernelTerm.ROLE_TYPE.nid()) + "]"),
-                "an id list is the list of its components' names; with no description, their UUIDs");
+        assertTrue(text.contains("[" + ComponentText.identified(undescribed, partOf) + ", "
+                        + ComponentText.identified(undescribed, KernelTerm.ROLE_TYPE.nid()) + "]"),
+                "an id list is the list of its components, identified; with no description, named by UUID");
         assertTrue(text.startsWith("   [0]➞[1] " + ComponentText.identifier(KernelTerm.DEFINITION_ROOT.nid()) + "\n"),
                 "a vertex whose meaning has no description is named by the meaning's UUID");
     }
@@ -155,10 +156,26 @@ class DefinitionTextIT {
     }
 
     @Test
+    void everyComponentADefinitionRefersToCarriesItsIdentifierAndTheStructureDoesNot() {
+        String text = DefinitionText.tree(aTreeWithEveryKindOfPropertyValue(), view);
+        for (EntityFacade referred : List.of(KernelTerm.LANGUAGE, KometTerm.PART_OF,
+                KernelTerm.EXISTENTIAL_RESTRICTION, KernelTerm.ROLE_TYPE)) {
+            assertTrue(text.contains(ComponentText.typedIdentifier(view, referred.nid())),
+                    referred.description() + " is identified in\n" + text);
+        }
+        for (EntityFacade structure : List.of(KernelTerm.DEFINITION_ROOT, KernelTerm.NECESSARY_SET,
+                KernelTerm.AND, KernelTerm.CONCEPT_REFERENCE, KernelTerm.ROLE, KernelTerm.PROPERTY_SET,
+                KernelTerm.ROLE_OPERATOR, KernelTerm.PROPERTY_SEQUENCE)) {
+            assertFalse(text.contains(ComponentText.typedIdentifier(view, structure.nid())),
+                    structure.description() + " is a word of the structure and stays bare in\n" + text);
+        }
+    }
+
+    @Test
     void aVertexOnItsOwnIsOneLineOfNames() {
         EntityVertex reference = EntityVertex.make(KernelTerm.CONCEPT_REFERENCE);
         setProperties(reference, KernelTerm.CONCEPT_REFERENCE, KernelTerm.LANGUAGE);
-        assertEquals(name(KernelTerm.CONCEPT_REFERENCE) + ": " + name(KernelTerm.LANGUAGE),
+        assertEquals(name(KernelTerm.CONCEPT_REFERENCE) + ": " + identified(KernelTerm.LANGUAGE),
                 DefinitionText.vertex(reference, view));
 
         EntityVertex bare = EntityVertex.make(KernelTerm.AND);
@@ -167,7 +184,7 @@ class DefinitionTextIT {
         EntityVertex role = EntityVertex.make(KernelTerm.ROLE);
         setProperties(role, KernelTerm.ROLE_TYPE, KometTerm.PART_OF);
         String text = DefinitionText.vertex(role, view);
-        assertEquals(name(KernelTerm.ROLE) + " {" + name(KernelTerm.ROLE_TYPE) + "=" + name(KometTerm.PART_OF) + "}",
+        assertEquals(name(KernelTerm.ROLE) + " {" + name(KernelTerm.ROLE_TYPE) + "=" + identified(KometTerm.PART_OF) + "}",
                 text);
         NidFree.assertNoNid("the vertex", text, KometTerm.PART_OF.nid());
     }
@@ -214,5 +231,9 @@ class DefinitionTextIT {
 
     private String name(EntityFacade component) {
         return ComponentText.name(view, component.nid());
+    }
+
+    private String identified(EntityFacade component) {
+        return ComponentText.identified(view, component.nid());
     }
 }

@@ -22,10 +22,13 @@ import dev.ikm.tinkar.coordinate.stamp.calculator.StampCalculator;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.Entity;
 import dev.ikm.tinkar.entity.EntityHandle;
+import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.entity.EntityVersion;
 import dev.ikm.tinkar.entity.Field;
 import dev.ikm.tinkar.entity.PatternEntityVersion;
 import dev.ikm.tinkar.entity.SemanticEntity;
+import dev.ikm.tinkar.entity.SemanticEntityVersion;
+import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.KernelTerm;
 import network.ike.komet.claude.ui.KonceptTokens;
 
@@ -102,6 +105,71 @@ public final class ComponentText {
      */
     public static String identifier(long nid) {
         return leastUuid(nid).map(UUID::toString).orElse(UNIDENTIFIED);
+    }
+
+    /**
+     * The SNOMED CT identifier of a component: the value of its identifier semantic
+     * ({@link KernelTerm#IDENTIFIER_PATTERN}) whose source is {@link KernelTerm#SCTID}, latest on
+     * the view.
+     *
+     * @param view the view whose stamp coordinate selects the identifier semantic's version
+     * @param nid  the component's nid in the open store
+     * @return the SCTID, or empty when the component has none in this knowledge base
+     */
+    public static Optional<String> sctid(ViewCalculator view, long nid) {
+        try {
+            for (SemanticEntity<SemanticEntityVersion> semantic : EntityService.get()
+                    .semanticsForComponentOfPattern(nid, KernelTerm.IDENTIFIER_PATTERN.nid()).toList()) {
+                Latest<SemanticEntityVersion> latest = view.stampCalculator().latest(semantic);
+                if (latest.isPresent()) {
+                    String value = null;
+                    EntityFacade source = null;
+                    for (Object field : latest.get().fieldValues()) {
+                        if (field instanceof String s) {
+                            value = s;
+                        } else if (field instanceof EntityFacade ef) {
+                            source = ef;
+                        }
+                    }
+                    if (value != null && source != null && source.nid() == KernelTerm.SCTID.nid()) {
+                        return Optional.of(value);
+                    }
+                }
+            }
+        } catch (RuntimeException unresolvable) {
+            // No resolvable SCTID; the caller falls back to the UUID.
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * An explicitly typed identifier of a component, bracketed: {@code [SCTID x]} when it has an
+     * {@linkplain #sctid SCTID}, else {@code [UUID x]} with its {@linkplain #leastUuid least UUID}.
+     * A component the store has no public id for is marked {@code [}{@value #UNIDENTIFIED}{@code ]}.
+     *
+     * @param view the view that selects the identifier semantic
+     * @param nid  the component's nid in the open store
+     * @return the bracketed, typed identifier; never a nid
+     */
+    public static String typedIdentifier(ViewCalculator view, long nid) {
+        return sctid(view, nid)
+                .map(sctid -> "[SCTID " + sctid + "]")
+                .or(() -> leastUuid(nid).map(uuid -> "[UUID " + uuid + "]"))
+                .orElse("[" + UNIDENTIFIED + "]");
+    }
+
+    /**
+     * A component as text that names and identifies it: its {@linkplain #name name} followed by
+     * its {@linkplain #typedIdentifier typed identifier}, as {@code Finding site [SCTID 363698007]}.
+     * A reader can act on the component — draw its badge, resolve it — without a lookup by name
+     * ({@code IKE-Network/ike-issues#1291}).
+     *
+     * @param view the view that selects the description and the identifier semantic
+     * @param nid  the component's nid in the open store
+     * @return the name and the bracketed identifier; never a nid
+     */
+    public static String identified(ViewCalculator view, long nid) {
+        return name(view, nid) + ' ' + typedIdentifier(view, nid);
     }
 
     /**

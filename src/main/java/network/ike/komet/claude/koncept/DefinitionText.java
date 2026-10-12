@@ -33,9 +33,14 @@ import dev.ikm.tinkar.entity.graph.EntityVertex;
  *
  * <p>The names are what this class decides. {@code toString()} takes a name from the store's
  * default description service and writes {@code <nid>} when that has none, and it writes an id
- * list with the nid of every element. Here a name is the description the view selects, a
- * component with no description is named by its UUID ({@link ComponentText#name}), and an id
- * list is a list of names.
+ * list with the nid of every element. Here a name is the description the view selects, and a
+ * component with no description is named by its UUID ({@link ComponentText#name}).
+ *
+ * <p>The words of the tree's structure — {@code Necessary set}, {@code And}, {@code Role type} —
+ * are written by name alone. Every component the definition refers to — a supertype, a role
+ * type, a role filler, each element of an id list — is written by name and typed identifier,
+ * {@code Finding site [SCTID 363698007]} ({@link ComponentText#identified}), so a reader can
+ * badge or resolve each one without a lookup by name ({@code IKE-Network/ike-issues#1291}).
  */
 public final class DefinitionText {
 
@@ -47,10 +52,12 @@ public final class DefinitionText {
      *
      * @param tree the definition tree
      * @param view the view that selects each description
-     * @return the tree, one vertex per line with its properties beneath it; never a nid
+     * @return the tree, one vertex per line with its properties beneath it, each referenced
+     *         component identified; never a nid
      */
     public static String tree(DiTreeEntity tree, ViewCalculator view) {
-        return DiTreeText.tree(tree, nid -> ComponentText.name(view, nid));
+        return DiTreeText.tree(tree, nid -> ComponentText.name(view, nid),
+                nid -> ComponentText.identified(view, nid));
     }
 
     /**
@@ -63,6 +70,7 @@ public final class DefinitionText {
      *         {@code {Property=value, …}}; never a nid
      */
     public static String vertex(EntityVertex vertex, ViewCalculator view) {
-        return DiTreeText.vertex(vertex, nid -> ComponentText.name(view, nid));
+        return DiTreeText.vertex(vertex, nid -> ComponentText.name(view, nid),
+                nid -> ComponentText.identified(view, nid));
     }
 }

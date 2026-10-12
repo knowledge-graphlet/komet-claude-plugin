@@ -194,7 +194,11 @@ public final class GraphTools {
         return tool("axioms",
                 "Show the logical definition (EL++ axioms / role groups) of a concept — both its "
                         + "stated form (as authored) and its inferred form (after classification). "
-                        + "Call this to read how a concept is defined.",
+                        + "Every concept the definition refers to — supertype, role type, role "
+                        + "filler — carries its identifier, as `name [SCTID x]` or `name [UUID x]`, "
+                        + "so it can be badged or passed to another tool without a search. "
+                        + "Call this to read how a concept is defined, and on a concept's nearest "
+                        + "peers before proposing a definition modelled on them.",
                 idSchema(),
                 in -> {
                     ViewCalculator v = view();
@@ -696,16 +700,16 @@ public final class GraphTools {
                     sb.append(", ");
                 }
                 sb.append(ComponentText.preferredName(v, nids[i]))
-                        .append(' ').append(typedIdentifier(nids[i], v));
+                        .append(' ').append(ComponentText.typedIdentifier(v, nids[i]));
             }
             return sb.append(']').toString();
         }
         if (value instanceof EntityFacade facade) {
             return ComponentText.preferredName(v, facade.nid())
-                    + ' ' + typedIdentifier(facade.nid(), v);
+                    + ' ' + ComponentText.typedIdentifier(v, facade.nid());
         }
         // A definition tree or a vertex names components at every node, and its own toString()
-        // writes their nids; DefinitionText writes the same structure with names only.
+        // writes their nids; DefinitionText writes the same structure with no nid in it.
         if (value instanceof DiTreeEntity tree) {
             return '\n' + DefinitionText.tree(tree, v);
         }
@@ -713,20 +717,6 @@ public final class GraphTools {
             return DefinitionText.vertex(vertex, v);
         }
         return value.toString();
-    }
-
-    /**
-     * An explicitly-typed identifier — SCTID when present, else UUID. A component the store has
-     * no public id for is marked as unidentified; the text never holds a nid.
-     */
-    private static String typedIdentifier(long nid, ViewCalculator v) {
-        String sctid = sctidOf(v, nid);
-        if (sctid != null) {
-            return "[SCTID " + sctid + "]";
-        }
-        return ComponentText.leastUuid(nid)
-                .map(uuid -> "[UUID " + uuid + "]")
-                .orElse("[" + ComponentText.UNIDENTIFIED + "]");
     }
 
     /**
@@ -1020,7 +1010,7 @@ public final class GraphTools {
         // The durable round-trip key is the public id; a concept without one cannot be grounded.
         PublicId publicId = ComponentText.publicId(conceptNid).orElseThrow(() ->
                 new IllegalStateException("A concept the store has no public id for cannot be grounded"));
-        String sctid = sctidOf(v, conceptNid);
+        String sctid = ComponentText.sctid(v, conceptNid).orElse(null);
         String identifier = sctid != null ? sctid : publicId.leastUuid().toString();
         return new AnfSlot.Grounded(conceptNid, ComponentText.publicIdKey(publicId), identifier, label);
     }
@@ -1087,44 +1077,13 @@ public final class GraphTools {
      * for is marked as unidentified; the text never holds a nid.
      */
     private static String idString(ViewCalculator v, long nid) {
-        String sctid = sctidOf(v, nid);
+        String sctid = ComponentText.sctid(v, nid).orElse(null);
         if (sctid != null) {
             return "SCTID " + sctid;
         }
         return ComponentText.identifier(nid);
     }
 
-    /**
-     * Resolves the SNOMED CT identifier of a concept from its identifier semantic
-     * ({@link KernelTerm#IDENTIFIER_PATTERN} with source {@link KernelTerm#SCTID}),
-     * or {@code null} if the concept has no SCTID in this knowledge base.
-     */
-    private static String sctidOf(ViewCalculator v, long nid) {
-        try {
-            List<SemanticEntity<SemanticEntityVersion>> idSemantics = EntityService.get()
-                    .semanticsForComponentOfPattern(nid, KernelTerm.IDENTIFIER_PATTERN.nid()).toList();
-            for (SemanticEntity<SemanticEntityVersion> semantic : idSemantics) {
-                Latest<SemanticEntityVersion> latest = v.stampCalculator().latest(semantic);
-                if (latest.isPresent()) {
-                    String value = null;
-                    EntityFacade source = null;
-                    for (Object field : latest.get().fieldValues()) {
-                        if (field instanceof String s) {
-                            value = s;
-                        } else if (field instanceof EntityFacade ef) {
-                            source = ef;
-                        }
-                    }
-                    if (value != null && source != null && source.nid() == KernelTerm.SCTID.nid()) {
-                        return value;
-                    }
-                }
-            }
-        } catch (RuntimeException ignored) {
-            // No resolvable SCTID; caller falls back to UUID.
-        }
-        return null;
-    }
 
     private static String renderIds(ViewCalculator v, long[] nids, int limit) {
         if (nids.length == 0) {

@@ -132,6 +132,16 @@ class AssistantTextIT {
         assertTrue(text.contains(ComponentText.name(view, KernelTerm.DEFINITION_ROOT.nid())),
                 "the tree's root vertex is named: " + text);
         assertFalse(text.contains("DiTreeEntity"), "the tree is not the store's toString(): " + text);
+
+        // Every concept the definition refers to carries its identifier, so the assistant can
+        // badge it or pass it on without a search (IKE-Network/ike-issues#1291).
+        String reference = ComponentText.name(view, KernelTerm.CONCEPT_REFERENCE.nid()) + ": ";
+        List<String> references = text.lines().filter(line -> line.contains(reference)).toList();
+        assertFalse(references.isEmpty(), "the definition refers to a concept: " + text);
+        for (String line : references) {
+            assertTrue(line.matches(".*: .+ \\[(SCTID|UUID) [^\\]]+\\]$"),
+                    "a concept reference is written with its typed identifier: " + line);
+        }
     }
 
     @Test
