@@ -101,6 +101,13 @@ class GitDocumentMaterializerIT {
         assertEquals(first.anchor(), second.anchor());
         assertEquals(0, second.commits(), "every commit was already recorded");
         assertEquals(stored.manifestVersions(), again.manifestVersions(), "re-materializing adds no versions");
+
+        GitDocumentMaterializer.Result third = GitDocumentMaterializer.materialize(root, file, false);
+        GitDocumentMaterializer.StoredDocument rewritten = GitDocumentMaterializer.load(third.anchor()).orElseThrow();
+
+        assertEquals(3, third.commits(), "with the gate off every commit is written again");
+        assertEquals(stored.manifestVersions(), rewritten.manifestVersions(),
+                "and the store still converges: a complete STAMP tuple is one stamp, identical versions merge to one");
         assertEquals(stored.lines().stream().map(GitDocumentMaterializer.StoredLine::nid).toList(),
                 again.lines().stream().map(GitDocumentMaterializer.StoredLine::nid).toList(), "identities are deterministic");
     }

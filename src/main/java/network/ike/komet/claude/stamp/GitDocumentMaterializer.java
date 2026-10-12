@@ -60,10 +60,11 @@ import java.util.regex.Pattern;
  * identity adapter. Replaying the manifest versions in STAMP time is the file's history.
  *
  * <p>Identities are deterministic (document, line, manifest, source and affirmation ids are all
- * UUID5s of frozen keys), and a run writes only the commits the store does not yet record — the
- * git-source versions name every materialized commit, and each affirmation semantic exists or
- * not — so materializing twice converges and a later run is incremental. Whether the store is
- * ephemeral or persisted is the datastore's choice, not this class's.
+ * UUID5s of frozen keys) and every STAMP is a complete tuple, so the store itself converges: a
+ * tuple is one stamp entity and identical versions under it merge to one. On top of that a run
+ * skips the commits the store already records — the git-source versions name every materialized
+ * commit, and each affirmation semantic exists or not — so a later run is incremental. Whether
+ * the store is ephemeral or persisted is the datastore's choice, not this class's.
  */
 public final class GitDocumentMaterializer {
 
@@ -93,6 +94,22 @@ public final class GitDocumentMaterializer {
      * @throws IOException if the repository or the file cannot be read
      */
     public static Result materialize(Path repoRoot, Path file) throws IOException {
+        return materialize(repoRoot, file, true);
+    }
+
+    /**
+     * {@link #materialize(Path, Path)} with the incremental gate optional. Without it every
+     * event is written again; the store still converges, because a stamp whose time is given is
+     * one entity per tuple and identical versions under it merge to one. The gate only saves the
+     * work.
+     *
+     * @param repoRoot working-tree root
+     * @param file     path within it
+     * @param onlyNew  skip commits the store already records
+     * @return what was written
+     * @throws IOException if the repository or the file cannot be read
+     */
+    public static Result materialize(Path repoRoot, Path file, boolean onlyNew) throws IOException {
         JournalStore.bootstrapIfAbsent();
         StampedDocumentTerms.bootstrapIfAbsent();
         GitIdentityAdapter adapter = GitIdentityAdapter.fromMailmap(repoRoot);
@@ -111,7 +128,7 @@ public final class GitDocumentMaterializer {
             int lines = 0;
             int affirmations = 0;
             boolean anchorWritten = !StampedDocumentTerms.entityAbsent(anchor);
-            java.util.Set<String> recorded = anchorWritten ? recordedCommits(anchor) : java.util.Set.of();
+            java.util.Set<String> recorded = anchorWritten && onlyNew ? recordedCommits(anchor) : java.util.Set.of();
             int skipped = 0;
             for (CommitEvent event : history.events()) {
                 boolean contentRecorded = !event.touchesFile() || recorded.contains(event.commit().sha());
@@ -120,7 +137,7 @@ public final class GitDocumentMaterializer {
                 for (CommitEvent.AffirmationEvent ignoredEvent : event.affirmations()) {
                     Semantic proxy = Semantic.make(PublicIds.of(design.knowledge.stamp.adoc.identity.Uuid5.of(GitIdentityAdapter.NAMESPACE,
                             "affirmation:" + event.commit().sha() + ":" + index++)));
-                    pendingAffirmations.add(StampedDocumentTerms.entityAbsent(proxy) ? proxy : null);
+                    pendingAffirmations.add(!onlyNew || StampedDocumentTerms.entityAbsent(proxy) ? proxy : null);
                 }
                 if (contentRecorded && pendingAffirmations.stream().allMatch(java.util.Objects::isNull)) {
                     for (CommitEvent.Line line : event.introduced()) {
