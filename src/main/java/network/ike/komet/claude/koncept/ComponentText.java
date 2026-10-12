@@ -94,7 +94,7 @@ public final class ComponentText {
     }
 
     /**
-     * The identifier text of a component: its {@linkplain #leastUuid(int) least UUID}.
+     * The identifier text of a component: its {@linkplain #leastUuid(long) least UUID}.
      *
      * @param nid the component's nid in the open store
      * @return the least UUID as a string, or {@link #UNIDENTIFIED} when the store has no public id
@@ -144,7 +144,7 @@ public final class ComponentText {
      *
      * @param view the view that selects the description
      * @param nid  the component's nid in the open store
-     * @return the description text; when none resolves, the {@link #identifier(int) identifier};
+     * @return the description text; when none resolves, the {@link #identifier(long) identifier};
      *         never a nid
      */
     public static String name(ViewCalculator view, long nid) {
@@ -164,14 +164,14 @@ public final class ComponentText {
      *
      * @param view the view that selects the description
      * @param nid  the component's nid in the open store
-     * @return the preferred name; when none resolves, the {@link #identifier(int) identifier};
+     * @return the preferred name; when none resolves, the {@link #identifier(long) identifier};
      *         never a nid
      */
     public static String preferredName(ViewCalculator view, long nid) {
         return preferredName(view, nid, 0);
     }
 
-    /** {@link #preferredName(ViewCalculator, int)}, counting how many semantics deep it is. */
+    /** {@link #preferredName(ViewCalculator, long)}, counting how many semantics deep it is. */
     private static String preferredName(ViewCalculator view, long nid, int depth) {
         return described(view.getRegularDescriptionText(nid))
                 .or(() -> described(view.getFullyQualifiedNameText(nid)))
@@ -212,12 +212,12 @@ public final class ComponentText {
 
     /**
      * The fully qualified name of a component under a view, falling back to its
-     * {@link #preferredName(ViewCalculator, int) preferred name}.
+     * {@link #preferredName(ViewCalculator, long) preferred name}.
      *
      * @param view the view that selects the description
      * @param nid  the component's nid in the open store
      * @return the fully qualified name, else the preferred name, else the
-     *         {@link #identifier(int) identifier}; never a nid
+     *         {@link #identifier(long) identifier}; never a nid
      */
     public static String fullyQualifiedName(ViewCalculator view, long nid) {
         return described(view.getFullyQualifiedNameText(nid)).orElseGet(() -> preferredName(view, nid));

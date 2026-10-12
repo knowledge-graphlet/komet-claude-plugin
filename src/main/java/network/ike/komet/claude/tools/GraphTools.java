@@ -731,7 +731,7 @@ public final class GraphTools {
 
     /**
      * A display label for an entity identified by UUID — the gRPC-mode counterpart of
-     * {@link #labelFor(ViewCalculator, int)}, which cannot be used there because a semantic's
+     * {@link #labelFor(ViewCalculator, long)}, which cannot be used there because a semantic's
      * UUID has no resolvable nid.
      *
      * <p>Resolution is attempted anyway, since concept lookups do work in gRPC mode and yield a

@@ -48,7 +48,7 @@ import java.util.UUID;
  *
  * <p>The concept-to-channel mapping and the rendering are the parts that will
  * climb the ladder (collapsible detail, then interactive widgets); they are kept
- * here, behind the stable {@link #notifyConcept(int, ViewCalculator)} entry
+ * here, behind the stable {@link #notifyConcept(long, ViewCalculator)} entry
  * point, so richer rungs are a change to the renderer, not the caller.
  *
  * <p>v1 carries the concept name, its identifier, a linkifier-ready
