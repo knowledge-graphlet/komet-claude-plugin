@@ -72,6 +72,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.lang.ref.WeakReference;
 
 /**
  * The STAMP Provenance card ({@code IKE-Network/ike-issues#468}): a committed AsciiDoc file
@@ -106,6 +108,59 @@ public final class StampProvenanceCard extends AbstractHostCard {
             Color.web("#FFEBEE"), Color.web("#E0F7FA"), Color.web("#FBE9E7"), Color.web("#F1F8E9"),
     };
     private static final Color QUEUE = Color.web("#FFE082");
+
+    /** Live cards, most recently realized last, so the assistant's tools can find the one in use. */
+    private static final List<WeakReference<StampProvenanceCard>> OPEN = new CopyOnWriteArrayList<>();
+
+    /** @return the most recently realized card still alive, or {@code null} */
+    public static StampProvenanceCard mostRecent() {
+        StampProvenanceCard found = null;
+        for (WeakReference<StampProvenanceCard> ref : OPEN) {
+            StampProvenanceCard card = ref.get();
+            if (card == null) {
+                OPEN.remove(ref);
+            } else {
+                found = card;
+            }
+        }
+        return found;
+    }
+
+    /** @return the repository root of the open file, or {@code null} before a file is opened */
+    public Path repoRoot() {
+        return repoRoot;
+    }
+
+    /** @return the open file relative to its repository root */
+    public Optional<Path> currentFile() {
+        return Optional.ofNullable(relative);
+    }
+
+    /** @return whether this card shows exactly that file of that repository */
+    public boolean showsFile(Path root, Path file) {
+        return repoRoot != null && relative != null && repoRoot.equals(root) && relative.equals(file);
+    }
+
+    /**
+     * The assistant's hand-off ({@link StampTools}): tick the lines of the given ranges and open
+     * the same confirmation the Affirm button opens, with the note in its header. The person's
+     * click is the affirmation; nothing is written here.
+     *
+     * @param ranges 1-based inclusive line ranges
+     * @param note   the reason the person gave, or {@code null}
+     */
+    public void proposeAffirmation(List<int[]> ranges, String note) {
+        Platform.runLater(() -> {
+            for (LineRow row : lineRows) {
+                boolean in = false;
+                for (int[] r : ranges) {
+                    in |= row.line >= r[0] && row.line <= r[1];
+                }
+                row.tick.setSelected(in);
+            }
+            affirmSelected(note == null || note.isBlank() ? "The assistant prepared this affirmation at your request." : "The assistant prepared this affirmation at your request: " + note);
+        });
+    }
 
     private final BorderPane host = new BorderPane();
     private final VBox rows = new VBox(1);
@@ -148,7 +203,7 @@ public final class StampProvenanceCard extends AbstractHostCard {
         Button affirm = new Button("Affirm Selected…");
         affirm.setTooltip(new Tooltip("Record your review of the ticked lines as an empty signed commit with Affirms: trailers"));
         affirm.getStyleClass().add("claude-card-toolbar-button");
-        affirm.setOnAction(e -> affirmSelected());
+        affirm.setOnAction(e -> affirmSelected(null));
         queueToggle.setTooltip(new Tooltip("Tint the lines no one has affirmed yet"));
         queueToggle.setSelected(preferences().getBoolean(PREF_QUEUE, false));
         queueToggle.selectedProperty().addListener((obs, was, is) -> {
@@ -164,6 +219,7 @@ public final class StampProvenanceCard extends AbstractHostCard {
             return;
         }
         built = true;
+        OPEN.add(new WeakReference<>(this));
         banner.setWrapText(true);
         banner.setPadding(new Insets(4, 8, 4, 8));
         banner.setVisible(false);
@@ -379,7 +435,7 @@ public final class StampProvenanceCard extends AbstractHostCard {
 
     // ── affirming ─────────────────────────────────────────────────────────────
 
-    private void affirmSelected() {
+    private void affirmSelected(String headerNote) {
         if (bridge == null) {
             return;
         }
@@ -405,7 +461,8 @@ public final class StampProvenanceCard extends AbstractHostCard {
         String trailers = String.join("\n", affirmations.stream().map(Affirmation::trailer).toList());
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
         confirm.setTitle("Affirm Lines");
-        confirm.setHeaderText("Record your review of " + selected.size() + " line" + (selected.size() == 1 ? "" : "s") + " as an empty commit?");
+        confirm.setHeaderText((headerNote == null ? "" : headerNote + "\n")
+                + "Record your review of " + selected.size() + " line" + (selected.size() == 1 ? "" : "s") + " as an empty commit?");
         confirm.setContentText(AffirmationCommit.subject(affirmations) + "\n\n" + trailers + "\n\nSigning (-S) gives the affirmation non-repudiation.");
         ButtonType signed = new ButtonType("Signed Commit");
         ButtonType unsigned = new ButtonType("Unsigned Commit");

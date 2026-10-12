@@ -365,7 +365,12 @@ public final class ClaudeCard extends AbstractHostCard {
         refreshSystemPrompt();
         // Tools read the live card view each call via the method reference, so they always reflect the
         // journal's current coordinate (after bind).
-        this.tools = new GraphTools(this::viewCalculator).tools();
+        java.util.List<AnthropicTool> all = new java.util.ArrayList<>(new GraphTools(this::viewCalculator).tools());
+        // Provenance tools (ike-issues#468): who introduced or affirmed a committed file's lines, and a
+        // concurrence prepared for the person to sign in the STAMP Provenance card — never signed here.
+        all.addAll(network.ike.komet.claude.stamp.StampTools.tools(
+                network.ike.komet.claude.stamp.StampProvenanceCard::mostRecent));
+        this.tools = java.util.List.copyOf(all);
         this.journalStore = new JournalStore(this::safeViewCalculator);
         fxObject().getStyleClass().add("claude-card");
         URL css = ClaudeCard.class.getResource("claude-card.css");
