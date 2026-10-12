@@ -24,30 +24,42 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+/**
+ * The identity-agreement gate the #844 reconciliation asked for, for the git-provenance terms:
+ * every identity is the IKE starter set's own derivation, {@code T5(set UUID, birth FQN)},
+ * so this plugin's seeding and the set's ledger ({@code AsciiDocModelSet}) write one component.
+ */
 class StampedDocumentTermsTest {
 
+    /** The IkeFoundation knowledge set's UUID, as {@code network.ike.foundation.ike.terms.Ike.SET} declares it. */
+    private static final UUID IKE_SET = UUID.fromString("d890e06f-ec35-429a-b541-d0ead19695e2");
+
     @Test
-    void namespaceAndKeysAreFrozen() {
-        assertEquals(UUID.fromString(NAMESPACE_LITERAL), StampedDocumentTerms.NAMESPACE);
+    void namespaceIsTheStarterSets() {
+        assertEquals(IKE_SET, StampedDocumentTerms.NAMESPACE,
+                "identities are adopted from the IkeFoundation set, never minted under a plugin namespace");
+    }
+
+    @Test
+    void identitiesAreTheSetsBirthNameDerivations() {
         for (var pair : List.of(
-                pair(StampedDocumentTerms.STAMPED_DOCUMENT, "stamped-document"),
-                pair(StampedDocumentTerms.GIT_SOURCE, "git-source"),
-                pair(StampedDocumentTerms.SOURCE_PATH, "source-path"),
-                pair(StampedDocumentTerms.SOURCE_COMMIT, "source-commit"),
-                pair(StampedDocumentTerms.AFFIRMATION, "affirmation"),
-                pair(StampedDocumentTerms.AFFIRMED_LINES, "affirmed-lines"),
-                pair(StampedDocumentTerms.AFFIRMS_TRAILER, "affirms-trailer"),
-                pair(StampedDocumentTerms.GIT_SOURCE_PATTERN, "git-source-pattern"),
-                pair(StampedDocumentTerms.AFFIRMATION_PATTERN, "affirmation-pattern"))) {
-            assertEquals(UuidT5Generator.get(StampedDocumentTerms.NAMESPACE, pair.key()), pair.proxy().publicId().asUuidArray()[0], pair.key());
+                pair(StampedDocumentTerms.STAMPED_DOCUMENT, "AsciiDoc document (IkeFoundation)"),
+                pair(StampedDocumentTerms.GIT_PROVENANCE, "Git provenance (IkeFoundation)"),
+                pair(StampedDocumentTerms.GIT_SOURCE, "Git source (IkeFoundation)"),
+                pair(StampedDocumentTerms.SOURCE_PATH, "Source path (IkeFoundation)"),
+                pair(StampedDocumentTerms.SOURCE_COMMIT, "Source commit (IkeFoundation)"),
+                pair(StampedDocumentTerms.AFFIRMATION, "Affirmation (IkeFoundation)"),
+                pair(StampedDocumentTerms.AFFIRMED_LINES, "Affirmed lines (IkeFoundation)"),
+                pair(StampedDocumentTerms.AFFIRMS_TRAILER, "Affirms trailer (IkeFoundation)"),
+                pair(StampedDocumentTerms.GIT_SOURCE_PATTERN, "Git source pattern (IkeFoundation)"),
+                pair(StampedDocumentTerms.AFFIRMATION_PATTERN, "Affirmation pattern (IkeFoundation)"))) {
+            assertEquals(UuidT5Generator.get(IKE_SET, pair.birthFqn()), pair.proxy().publicId().asUuidArray()[0], pair.birthFqn());
         }
     }
 
-    private static final String NAMESPACE_LITERAL = "6800a8e3-2ff4-40e5-8e26-48dadc0ed573";
+    private record Pair(EntityProxy proxy, String birthFqn) { }
 
-    private record Pair(EntityProxy proxy, String key) { }
-
-    private static Pair pair(EntityProxy proxy, String key) {
-        return new Pair(proxy, key);
+    private static Pair pair(EntityProxy proxy, String birthFqn) {
+        return new Pair(proxy, birthFqn);
     }
 }

@@ -32,78 +32,96 @@ import org.slf4j.LoggerFactory;
 import java.util.UUID;
 
 /**
- * The vocabulary a git-materialized document adds to the conversation journal's
- * ({@code IKE-Network/ike-issues#468}). A document reuses the journal's own shape — the
- * {@link network.ike.komet.claude.doc.RichSurfaceTerms#JOURNAL_MANIFEST_PATTERN manifest}
- * holding the ordered element id-list, one version per commit, and the
- * {@link network.ike.komet.claude.doc.RichSurfaceTerms#PROSE_ELEMENT_PATTERN prose element}
- * per line — and adds two patterns of its own: the git source (path and commit SHA, one
- * version per commit, the bridge back to git) and the affirmation (the affirmed line ids and
- * the {@code Affirms:} trailer, STAMPed with the affirmer's commit).
+ * The git-provenance terms a materialized document is written with ({@code
+ * IKE-Network/ike-issues#468}), as the IKE starter set declares them: the document anchor
+ * kind, the git source pattern (path and commit, one version per commit) and the affirmation
+ * pattern (affirmed lines and trailer), with their field and purpose concepts.
  *
- * <p><b>Identity discipline.</b> Every identity is a deterministic UUID5 of {@link #NAMESPACE}
- * and a frozen name key, as in {@code RichSurfaceTerms}; both are frozen, since changing either
- * forks every identity already written to a store. {@code StampedDocumentTermsTest} asserts the
- * literals.
+ * <p><b>Identities are adopted, not minted.</b> Every identity here is the starter set's own
+ * derivation, {@code T5(IkeFoundation set UUID, birth FQN)}, the same computation the ledger
+ * ({@code AsciiDocModelSet} in ike-terms) performs and the generated {@code IkeTerms} bindings
+ * carry, so a store that loads the starter set and a store this plugin seeded converge on the
+ * same components. That is the discipline the conversation journal's hand-authored terms broke
+ * (#844): a second namespace for the same names forks every identity already written. The
+ * {@link #NAMESPACE} and the birth names are therefore the set's, and frozen with it.
+ *
+ * <p>{@link #bootstrapIfAbsent()} seeds the terms into a store that has not loaded the starter
+ * set; once every store carries the set this seeding, and this class, give way to the bindings.
  */
 public final class StampedDocumentTerms {
 
     private static final Logger LOG = LoggerFactory.getLogger(StampedDocumentTerms.class);
 
-    /** Frozen 2026-10-12. */
-    public static final UUID NAMESPACE = UUID.fromString("6800a8e3-2ff4-40e5-8e26-48dadc0ed573");
+    /** The IkeFoundation knowledge set's UUID: the T5 namespace every identity in the set derives from. */
+    public static final UUID NAMESPACE = UUID.fromString("d890e06f-ec35-429a-b541-d0ead19695e2");
 
-    /** Kind marker: the anchor concept of a git-materialized document. */
-    public static final Concept STAMPED_DOCUMENT = concept("Stamped document", "stamped-document");
+    private static final String TAG = " (IkeFoundation)";
+
+    /** The anchor kind of a materialized document, {@code AsciiDoc document (IkeFoundation)}. */
+    public static final Concept STAMPED_DOCUMENT = concept("AsciiDoc document");
+    /** Purpose of the git-provenance patterns and their fields. */
+    public static final Concept GIT_PROVENANCE = concept("Git provenance");
 
     /** Meaning of the git source semantic. */
-    public static final Concept GIT_SOURCE = concept("Git source", "git-source");
+    public static final Concept GIT_SOURCE = concept("Git source");
     /** Field: the file's repository-relative path at the commit. */
-    public static final Concept SOURCE_PATH = concept("Source path", "source-path");
+    public static final Concept SOURCE_PATH = concept("Source path");
     /** Field: the full commit SHA the manifest version came from. */
-    public static final Concept SOURCE_COMMIT = concept("Source commit", "source-commit");
+    public static final Concept SOURCE_COMMIT = concept("Source commit");
 
     /** Meaning of the affirmation semantic. */
-    public static final Concept AFFIRMATION = concept("Affirmation", "affirmation");
+    public static final Concept AFFIRMATION = concept("Affirmation");
     /** Field: the affirmed line elements, in order. */
-    public static final Concept AFFIRMED_LINES = concept("Affirmed lines", "affirmed-lines");
+    public static final Concept AFFIRMED_LINES = concept("Affirmed lines");
     /** Field: the Affirms: trailer as written. */
-    public static final Concept AFFIRMS_TRAILER = concept("Affirms trailer", "affirms-trailer");
+    public static final Concept AFFIRMS_TRAILER = concept("Affirms trailer");
 
     /** Pattern: path (string), commit (string). */
-    public static final Pattern GIT_SOURCE_PATTERN = pattern("Git source pattern", "git-source-pattern");
+    public static final Pattern GIT_SOURCE_PATTERN = pattern("Git source pattern");
     /** Pattern: affirmed lines (component id list), trailer (string). */
-    public static final Pattern AFFIRMATION_PATTERN = pattern("Affirmation pattern", "affirmation-pattern");
+    public static final Pattern AFFIRMATION_PATTERN = pattern("Affirmation pattern");
 
     private StampedDocumentTerms() { }
 
-    private static Concept concept(String name, String nameKey) {
-        return Concept.make(name, UuidT5Generator.get(NAMESPACE, nameKey));
+    /**
+     * @param name a birth name without the set's tag
+     * @return the set's derived identity for {@code name (IkeFoundation)}
+     */
+    public static UUID identity(String name) {
+        return UuidT5Generator.get(NAMESPACE, name + TAG);
     }
 
-    private static Pattern pattern(String name, String nameKey) {
-        return Pattern.make(name, UuidT5Generator.get(NAMESPACE, nameKey));
+    private static Concept concept(String name) {
+        return Concept.make(name, identity(name));
     }
 
-    /** Writes the vocabulary into the open datastore if absent. Idempotent and thread-safe. */
+    private static Pattern pattern(String name) {
+        return Pattern.make(name, identity(name));
+    }
+
+    /**
+     * Writes the terms into the open datastore if absent, under the same identities the
+     * starter set declares; a store that already carries the set finds them present. Idempotent
+     * and thread-safe.
+     */
     public static synchronized void bootstrapIfAbsent() {
-        for (Concept c : new Concept[] {STAMPED_DOCUMENT, GIT_SOURCE, SOURCE_PATH, SOURCE_COMMIT, AFFIRMATION, AFFIRMED_LINES, AFFIRMS_TRAILER}) {
+        for (Concept c : new Concept[] {STAMPED_DOCUMENT, GIT_PROVENANCE, GIT_SOURCE, SOURCE_PATH, SOURCE_COMMIT, AFFIRMATION, AFFIRMED_LINES, AFFIRMS_TRAILER}) {
             seedConceptIfAbsent(c);
         }
         if (entityAbsent(GIT_SOURCE_PATTERN)) {
             try (StampedWriter writer = vocabularyWriter()) {
-                writer.pattern(GIT_SOURCE_PATTERN, GIT_SOURCE, STAMPED_DOCUMENT,
-                        StampedWriter.field(SOURCE_PATH, SOURCE_PATH, KernelTerm.STRING),
-                        StampedWriter.field(SOURCE_COMMIT, SOURCE_COMMIT, KernelTerm.STRING));
+                writer.pattern(GIT_SOURCE_PATTERN, GIT_SOURCE, GIT_PROVENANCE,
+                        StampedWriter.field(SOURCE_PATH, GIT_PROVENANCE, KernelTerm.STRING),
+                        StampedWriter.field(SOURCE_COMMIT, GIT_PROVENANCE, KernelTerm.STRING));
                 writer.commit();
             }
             LOG.info("Seeded git source pattern");
         }
         if (entityAbsent(AFFIRMATION_PATTERN)) {
             try (StampedWriter writer = vocabularyWriter()) {
-                writer.pattern(AFFIRMATION_PATTERN, AFFIRMATION, STAMPED_DOCUMENT,
-                        StampedWriter.field(AFFIRMED_LINES, AFFIRMED_LINES, KernelTerm.COMPONENT_ID_LIST_FIELD),
-                        StampedWriter.field(AFFIRMS_TRAILER, AFFIRMS_TRAILER, KernelTerm.STRING));
+                writer.pattern(AFFIRMATION_PATTERN, AFFIRMATION, GIT_PROVENANCE,
+                        StampedWriter.field(AFFIRMED_LINES, GIT_PROVENANCE, KernelTerm.COMPONENT_ID_LIST_FIELD),
+                        StampedWriter.field(AFFIRMS_TRAILER, GIT_PROVENANCE, KernelTerm.STRING));
                 writer.commit();
             }
             LOG.info("Seeded affirmation pattern");
@@ -116,14 +134,14 @@ public final class StampedDocumentTerms {
         }
         try (StampedWriter writer = vocabularyWriter()) {
             writer.concept(concept);
-            writer.fullyQualifiedName(concept, concept.description());
+            writer.fullyQualifiedName(concept, concept.description() + TAG);
             writer.commit();
         }
-        LOG.info("Seeded stamped-document concept '{}'", concept.description());
+        LOG.info("Seeded git-provenance concept '{}'", concept.description());
     }
 
     private static StampedWriter vocabularyWriter() {
-        return StampedWriter.open("stamped-document-vocabulary-seed", State.ACTIVE, System.currentTimeMillis(),
+        return StampedWriter.open("git-provenance-vocabulary-seed", State.ACTIVE, System.currentTimeMillis(),
                 KernelTerm.USER, KometTerm.DEVELOPMENT_MODULE, KernelTerm.DEVELOPMENT_PATH);
     }
 
