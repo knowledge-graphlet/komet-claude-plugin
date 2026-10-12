@@ -69,6 +69,8 @@
     </repositories>
 
     <properties>
+        <!-- stamp-adoc-core (ike-issues#468); komet-desktop stages the same version into plugins/. -->
+        <stamp-adoc-core.version>1.0.0-SNAPSHOT</stamp-adoc-core.version>
         <test.excludedGroups>external</test.excludedGroups>
         <!-- Main-line Komet BOM; manages komet module + tinkar versions.
              Matches ike-komet-wsr on main. -->
@@ -163,6 +165,18 @@
         <dependency>
             <groupId>dev.ikm.tinkar</groupId>
             <artifactId>search-provider</artifactId>
+        </dependency>
+        <!-- STAMP-in-git engine (knowledge-graphlet/stamp-adoc-explorer, module
+             stamp.adoc.core; ike-issues#468): the first-parent history walk, Affirms
+             trailers, and the identity adapter that derives author/module/path
+             identities as UUID5s under a frozen namespace. Its JGit is the JPMS-wrapped
+             dev.ikm.jpms:jgit at the line the Komet boot image ships as
+             org.eclipse.jgit, and roaringbitmap is in the image too, so komet-desktop
+             stages only this jar into plugins/. Snapshot served from ike-snapshots. -->
+        <dependency>
+            <groupId>design.knowledge.stamp</groupId>
+            <artifactId>stamp-adoc-core</artifactId>
+            <version>${stamp-adoc-core.version}</version>
         </dependency>
         <dependency>
             <groupId>network.ike.komet</groupId>

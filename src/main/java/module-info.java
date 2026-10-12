@@ -73,6 +73,9 @@ module komet.claude {
     requires dev.ikm.komet.rules;
     requires org.evrete.dsl.java;
 
+    // STAMP-in-git engine: history walk, affirmations, identity adapter (ike-issues#468).
+    // Its org.eclipse.jgit and roaringbitmap requirements resolve from the Komet boot image.
+    requires stamp.adoc.core;
     // LifeHash identicon (toucan) → PNG bytes for the Zulip Koncept badge upload.
     // Already in the komet runtime (framework requires it), so no extra staging.
     requires com.sparrowwallet.toucan;
@@ -92,6 +95,8 @@ module komet.claude {
     // The Semantic Lift area lives here; exported for the same reflective Factory instantiation
     // the layout engine's SupplementalAreaRenderer uses (as for network.ike.komet.claude.anf).
     exports network.ike.komet.claude.semantic;
+    // Git-derived STAMPs as Tinkar terms, for the Document surface and the assistant's tools.
+    exports network.ike.komet.claude.stamp;
 
     // The vendored json4j (Json) discovers optional Serializer/Deserializer providers via
     // ServiceLoader in its static initializer; in a named module that REQUIRES a matching
