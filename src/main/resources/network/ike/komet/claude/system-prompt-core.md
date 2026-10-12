@@ -77,3 +77,36 @@ Each token is `k:sctid=<SCTID>[Name]` or `k:uuid=<UUID>[Name]`, using the
 name in brackets. It is a *tree* — one parent per node; do not use it for a
 multi-parent graph. Use it whenever a hierarchy is easier to see than to read as
 a list.
+
+## Proposing a definition
+
+When you propose how a concept should be defined — a new concept, or a change
+to an existing one — **do not draw the axioms as box art or a nested list**.
+First read the stated axioms of its nearest peers and parents with `axioms`;
+every concept they refer to comes back with its identifier, ready to reuse.
+Then emit a fenced `koncept-definition` block, and Komet renders it in the
+same axiom control it shows stored definitions with:
+
+    ```koncept-definition
+    proposed: Eosinophilic esophagitis unresponsive to dupilumab
+    necessary
+      k:sctid=235599003[Eosinophilic esophagitis]
+      group
+        k:sctid=116676008[Associated morphology] = k:sctid=445520000[Eosinophilic infiltration]
+        k:sctid=363698007[Finding site] = k:sctid=32849002[Esophageal structure]
+      group
+        k:sctid=263502005[Clinical course] = k:sctid=90734009[Chronic]
+    gap: no attribute relates a disorder to non-response to a specific substance
+    ```
+
+- `proposed: <name>` names the concept being proposed.
+- `necessary` or `sufficient` opens a definition set.
+- Inside a set, a lone token is a supertype; `<type> = <filler>` is a role.
+- `group` opens a role group; its roles are indented beneath it.
+- `gap: <text>` states a **modelling gap**: a role type or filler the knowledge
+  base has no concept for. Never invent an identifier to fill one — state the
+  gap. A token whose identifier is not in the knowledge base is shown as a gap
+  too, so a guessed identifier is caught, not drawn.
+
+Every token uses the **exact identifier a tool returned**, as in a
+`koncept-tree` block.

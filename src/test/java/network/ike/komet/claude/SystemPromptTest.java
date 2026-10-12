@@ -46,6 +46,8 @@ class SystemPromptTest {
         assertTrue(core.contains("Never state a code, identifier, name"),
                 "the grounding rule lives in the fixed core");
         assertTrue(core.contains("koncept-tree"), "the tree grammar lives in the fixed core");
+        assertTrue(core.contains("koncept-definition"),
+                "the proposed-definition grammar lives in the fixed core (ike-issues#1292)");
         assertTrue(core.contains("k:uuid=<UUID>[Name]"),
                 "the Koncept Badge reference rules live in the fixed core");
         assertTrue(core.contains("Label\nidentifier columns")
@@ -58,6 +60,8 @@ class SystemPromptTest {
         String instructions = resource("system-prompt-instructions.md");
         assertTrue(instructions.contains("You are the Komet Assistant"),
                 "the persona opener seeds the editable layer");
+        assertTrue(!instructions.contains("koncept-definition"),
+                "no proposed-definition grammar in the editable layer");
         assertTrue(!instructions.contains("koncept-tree"),
                 "no rendering grammar in the editable layer — edits cannot sever it");
     }

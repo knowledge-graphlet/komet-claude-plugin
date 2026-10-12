@@ -152,6 +152,14 @@
             <artifactId>framework</artifactId>
         </dependency>
 
+        <!-- Komet kview: the KL axiom control (KLReadOnlyDiTreeControl) a proposed
+             koncept-definition renders in (ike-issues#1292). Already in the Komet runtime;
+             komet-desktop stages only this plugin's jar. Version managed by komet-bom. -->
+        <dependency>
+            <groupId>dev.ikm.komet</groupId>
+            <artifactId>kview</artifactId>
+        </dependency>
+
         <!-- Tinkar: calculators (bundled in entity), ids/UUID utils (common),
              and the local Lucene search provider. Versions managed by komet-bom. -->
         <dependency>

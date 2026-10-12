@@ -16,6 +16,8 @@
 package network.ike.komet.claude.ui;
 
 import dev.ikm.komet.framework.controls.KonceptLabelTypography;
+import dev.ikm.komet.markdown.richtext.BlockPiece;
+import dev.ikm.komet.markdown.richtext.BlockRenderer;
 import dev.ikm.komet.markdown.richtext.DocumentSegment;
 import dev.ikm.komet.markdown.richtext.MarkdownRichTextRenderer;
 import dev.ikm.komet.markdown.richtext.MarkdownStyledModel;
@@ -138,7 +140,8 @@ public final class MarkdownRichText {
     public MarkdownRichText(ViewProperties viewProperties, double base, String fontFamily) {
         this(base, fontFamily,
                 new ConceptChipInlineDecorator(viewProperties, base),
-                new KonceptTreeBlockRenderer(viewProperties, base));
+                new KonceptTreeBlockRenderer(viewProperties, base),
+                new KonceptDefinitionBlockRenderer(viewProperties == null ? null : viewProperties.calculator(), base));
     }
 
     /**
@@ -151,15 +154,22 @@ public final class MarkdownRichText {
     public MarkdownRichText(ViewCalculator viewCalc, double base, String fontFamily) {
         this(base, fontFamily,
                 new ConceptChipInlineDecorator(viewCalc, base),
-                new KonceptTreeBlockRenderer(viewCalc, base));
+                new KonceptTreeBlockRenderer(viewCalc, base),
+                new KonceptDefinitionBlockRenderer(viewCalc, base));
     }
 
-    private MarkdownRichText(double base, String fontFamily,
-                             ConceptChipInlineDecorator decorator, KonceptTreeBlockRenderer trees) {
+    private MarkdownRichText(double base, String fontFamily, ConceptChipInlineDecorator decorator,
+                             KonceptTreeBlockRenderer trees, KonceptDefinitionBlockRenderer definitions) {
         this.base = base;
         this.decorator = decorator;
         this.trees = trees;
-        this.renderer = new MarkdownRichTextRenderer(base, fontFamily, decorator, trees);
+        // Each renderer answers only to its own tag and declines the rest, so the first that
+        // renders a block wins (ike-issues#1292).
+        BlockRenderer blocks = (info, literal, style) -> {
+            List<BlockPiece> pieces = trees.render(info, literal, style);
+            return pieces.isEmpty() ? definitions.render(info, literal, style) : pieces;
+        };
+        this.renderer = new MarkdownRichTextRenderer(base, fontFamily, decorator, blocks);
     }
 
     /**

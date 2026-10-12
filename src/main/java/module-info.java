@@ -32,6 +32,9 @@ module komet.claude {
     requires dev.ikm.komet.layout;
     // ViewProperties (the journal view the host injects into the tool area).
     requires dev.ikm.komet.framework;
+    // The KL axiom control (KLReadOnlyDiTreeControl) a proposed definition renders in
+    // (ike-issues#1292); kview ships in the Komet runtime.
+    requires dev.ikm.komet.kview;
     // KometPreferences + PreferencesService (per-OS-user API-key storage).
     requires dev.ikm.komet.preferences;
 

@@ -61,7 +61,17 @@ public record ConceptDefinition(boolean defined,
         if (!latest.isPresent()) {
             return Optional.empty();
         }
-        DiTreeEntity tree = latest.get();
+        return of(latest.get());
+    }
+
+    /**
+     * Flattens a definition tree that need not be stored — a proposed definition, for one
+     * ({@code IKE-Network/ike-issues#1292}).
+     *
+     * @param tree the definition tree
+     * @return the flattened definition, or empty if the tree has no content
+     */
+    public static Optional<ConceptDefinition> of(DiTreeEntity tree) {
         boolean defined = tree.containsVertexWithMeaning(KernelTerm.SUFFICIENT_SET);
 
         Set<Long> supertypes = new LinkedHashSet<>();
