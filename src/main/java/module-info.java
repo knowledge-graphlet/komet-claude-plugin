@@ -74,7 +74,7 @@ module komet.claude {
     requires org.evrete.dsl.java;
 
     // STAMP-in-git engine: history walk, affirmations, identity adapter (ike-issues#468).
-    // Its org.eclipse.jgit and roaringbitmap requirements resolve from the Komet boot image.
+    // Its dev.ikm.jpms.jgit and roaringbitmap requirements resolve from the Komet boot image.
     requires stamp.adoc.core;
     // LifeHash identicon (toucan) → PNG bytes for the Zulip Koncept badge upload.
     // Already in the komet runtime (framework requires it), so no extra staging.
