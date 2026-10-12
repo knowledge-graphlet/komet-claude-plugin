@@ -111,7 +111,8 @@ module komet.claude {
     // ServiceLoader instantiates the provider via its public no-arg constructor.
     provides dev.ikm.komet.layout_engine.host.KlCardProvider
             with network.ike.komet.claude.ClaudeCard.Factory,
-                 network.ike.komet.claude.instructions.InstructionEditorCard.Factory;
+                 network.ike.komet.claude.instructions.InstructionEditorCard.Factory,
+                 network.ike.komet.claude.stamp.StampProvenanceCard.Factory;
     // KlArea.Factory makes the embeddable areas available in the knowledge-layout editor palette.
     provides dev.ikm.komet.layout.KlArea.Factory
             with network.ike.komet.claude.ClaudeCheckArea.Factory,
