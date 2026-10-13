@@ -200,6 +200,46 @@ class GitDocumentMaterializerIT {
         assertEquals(stored.blocks().keySet(), again.blocks().keySet());
     }
 
+    @Test
+    void exportGivesTheCommittedTextBackUnchanged() throws Exception {
+        Path dir = Files.createDirectories(root.resolve("exported"));
+        gitIn(dir, "init", "-q", "-b", "main");
+        Path file = dir.resolve("docs/round-trip.adoc");
+        Files.createDirectories(file.getParent());
+        String text = """
+                :topic-id: anf-round-trip
+                [[anf-round-trip]]
+                = Round Trip
+
+                A claim with trailing spaces\s\s
+                	a tab-indented line
+
+                ----
+                  code keeps its indentation
+                ----
+                * one
+                * two
+                """;
+        Files.writeString(file, text);
+        gitIn(dir, "add", "docs/round-trip.adoc");
+        gitIn(dir, "-c", "user.name=alice", "-c", "user.email=alice@example.test", "commit", "-q", "--no-gpg-sign", "--date=2026-03-01T00:00:00Z", "-m", "round trip");
+        GitDocumentMaterializer.Result result = GitDocumentMaterializer.materialize(dir, file);
+        GitDocumentExporter.Exported exported = GitDocumentExporter.export(result.anchor()).orElseThrow();
+        assertEquals("docs/round-trip.adoc", exported.path());
+        assertEquals(text, exported.text(), "the store gives the committed text back byte for byte");
+        assertEquals(GitDocumentExporter.Relation.IDENTICAL_TO_HEAD, GitDocumentExporter.compare(exported, dir).relation());
+        Path elsewhere = Files.createDirectories(root.resolve("elsewhere"));
+        Path written = GitDocumentExporter.writeTo(exported, elsewhere);
+        assertEquals(elsewhere.resolve("docs/round-trip.adoc"), written);
+        assertEquals(text, Files.readString(written));
+        Files.writeString(file, text.replace("A claim", "An edited claim"));
+        gitIn(dir, "add", "docs/round-trip.adoc");
+        gitIn(dir, "-c", "user.name=bob", "-c", "user.email=bob@example.test", "commit", "-q", "--no-gpg-sign", "--date=2026-03-02T00:00:00Z", "-m", "edit");
+        GitDocumentExporter.Comparison stale = GitDocumentExporter.compare(exported, dir);
+        assertEquals(GitDocumentExporter.Relation.DIFFERS_FROM_HEAD, stale.relation(), "HEAD moved on after the materialization");
+        assertEquals(5, stale.firstDifference());
+    }
+
     private static int blockVersions(long anchorNid) {
         int count = 0;
         for (SemanticEntity<SemanticEntityVersion> s : EntityService.get()

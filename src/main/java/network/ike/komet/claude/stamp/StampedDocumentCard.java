@@ -55,6 +55,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
 import java.lang.ref.WeakReference;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -162,7 +163,11 @@ public final class StampedDocumentCard extends AbstractHostCard {
         refresh.setTooltip(new Tooltip("Re-read the documents the store holds, and the one shown"));
         refresh.getStyleClass().add("claude-card-toolbar-button");
         refresh.setOnAction(e -> refresh());
-        toolBar.getChildren().addAll(documents, refresh);
+        Button export = new Button("Export…");
+        export.setTooltip(new Tooltip("Write the document from the store back into a repository's working tree at its recorded path, and compare it with HEAD"));
+        export.getStyleClass().add("claude-card-toolbar-button");
+        export.setOnAction(e -> chooseExportTarget());
+        toolBar.getChildren().addAll(documents, refresh, export);
     }
 
     @Override
@@ -230,6 +235,61 @@ public final class StampedDocumentCard extends AbstractHostCard {
             }
             show(loaded.get());
         }));
+    }
+
+    // ── export ────────────────────────────────────────────────────────────────
+
+    private void chooseExportTarget() {
+        if (shown == null) {
+            statusLine.setText("Choose a document first.");
+            return;
+        }
+        javafx.stage.DirectoryChooser chooser = new javafx.stage.DirectoryChooser();
+        chooser.setTitle("Working tree to export " + documents.getValue() + " into");
+        java.io.File chosen = chooser.showDialog(host.getScene() == null ? null : host.getScene().getWindow());
+        if (chosen != null) {
+            exportTo(chosen.toPath());
+        }
+    }
+
+    /**
+     * Writes the shown document from the store into a working tree at its recorded path and
+     * reports how it relates to the file at HEAD there; off the FX thread.
+     *
+     * @param repoRoot the working tree root
+     */
+    public void exportTo(Path repoRoot) {
+        if (shown == null) {
+            statusLine.setText("Choose a document first.");
+            return;
+        }
+        PublicId anchor = shown.anchor();
+        statusLine.setText("Exporting to " + repoRoot + " …");
+        CompletableFuture.supplyAsync(() -> {
+            try {
+                GitDocumentExporter.Exported exported = GitDocumentExporter.export(anchor).orElseThrow();
+                Path file = GitDocumentExporter.writeTo(exported, repoRoot);
+                return file + " — " + describe(GitDocumentExporter.compare(exported, repoRoot));
+            } catch (java.io.IOException e) {
+                throw new java.io.UncheckedIOException(e);
+            }
+        }).whenComplete((report, failure) -> Platform.runLater(() -> {
+            if (failure != null) {
+                statusLine.setText("Export failed: " + failure.getMessage());
+                LOG.warn("Exporting {} failed", anchor, failure);
+                return;
+            }
+            statusLine.setText("Exported " + report);
+        }));
+    }
+
+    private static String describe(GitDocumentExporter.Comparison comparison) {
+        return switch (comparison.relation()) {
+            case IDENTICAL_TO_HEAD -> "identical to HEAD, " + comparison.exportedLines() + " lines";
+            case DIFFERS_FROM_HEAD -> "differs from HEAD at line " + comparison.firstDifference() + " (" + comparison.exportedLines()
+                    + " exported lines, " + comparison.headLines() + " at HEAD)";
+            case NOT_IN_HEAD -> "not in HEAD there, " + comparison.exportedLines() + " lines written";
+        };
     }
 
     // ── rendering ─────────────────────────────────────────────────────────────
