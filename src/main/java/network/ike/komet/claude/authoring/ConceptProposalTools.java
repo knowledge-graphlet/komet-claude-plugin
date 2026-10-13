@@ -171,7 +171,7 @@ public final class ConceptProposalTools {
                 // The event's title names the window LAYOUT to open, not a caption: the standard
                 // concept window, which lays out the names and the stated definition.
                 EvtBusFactory.getDefaultEvtBus().publish(topic, new MakeKLWindowEvent(this,
-                        MakeKLWindowEvent.OPEN_STANDARD_WINDOW, w.concept(), StandardEditorWindows.CONCEPT_WINDOW_2));
+                        MakeKLWindowEvent.OPEN_STANDARD_WINDOW, w.concept(), StandardEditorWindows.CONCEPT_WINDOW));
             } catch (RuntimeException windowFailed) {
                 // No window to review it in means no proposal: withdraw what was written.
                 ConceptProposalWriter.discard(w);
