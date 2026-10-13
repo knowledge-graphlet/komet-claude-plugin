@@ -15,9 +15,14 @@
  */
 package network.ike.komet.claude.stamp;
 
+import design.knowledge.stamp.adoc.dialect.Block;
+import design.knowledge.stamp.adoc.dialect.Document;
+import design.knowledge.stamp.adoc.dialect.IkeDialectParser;
+import design.knowledge.stamp.adoc.dialect.Reference;
 import design.knowledge.stamp.adoc.git.GitRepo;
 import design.knowledge.stamp.adoc.identity.GitIdentityAdapter;
 import design.knowledge.stamp.adoc.identity.Identity;
+import design.knowledge.stamp.adoc.identity.Uuid5;
 import design.knowledge.stamp.adoc.model.CommitEvent;
 import design.knowledge.stamp.adoc.model.LineId;
 import design.knowledge.stamp.adoc.model.StampHistory;
@@ -33,6 +38,7 @@ import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.StampEntity;
 import dev.ikm.tinkar.entity.transaction.StampedWriter;
+import dev.ikm.tinkar.terms.EntityProxy;
 import dev.ikm.tinkar.terms.EntityProxy.Concept;
 import dev.ikm.tinkar.terms.EntityProxy.Semantic;
 import dev.ikm.tinkar.terms.State;
@@ -44,10 +50,14 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -59,12 +69,22 @@ import java.util.regex.Pattern;
  * {@code Affirms:} trailer — every write STAMPed with the commit's own coordinates through the
  * identity adapter. Replaying the manifest versions in STAMP time is the file's history.
  *
- * <p>Identities are deterministic (document, line, manifest, source and affirmation ids are all
- * UUID5s of frozen keys) and every STAMP is a complete tuple, so the store itself converges: a
- * tuple is one stamp entity and identical versions under it merge to one. On top of that a run
- * skips the commits the store already records — the git-source versions name every materialized
- * commit, and each affirmation semantic exists or not — so a later run is incremental. Whether
- * the store is ephemeral or persisted is the datastore's choice, not this class's.
+ * <p>Over the lines it writes the AsciiDoc document model ({@link AsciiDocModelTerms}): each
+ * commit's text is parsed with the {@link IkeDialectParser}, and the document's attributes, its
+ * blocks (kind, level, title, parameters, ordered members) and the inline references on its
+ * lines become semantics under the same STAMP. A block's identity is the line that identifies
+ * it — a section's heading, any other block's first line — so a block survives the commits that
+ * leave that line in place; a version is written only when a block's fields changed, a block or
+ * reference that disappears gets an inactive version under the commit that removed it, and a
+ * reference is a semantic on the line it occurs in, regenerated whenever the line changes.
+ *
+ * <p>Identities are deterministic (document, line, manifest, source, block, reference and
+ * affirmation ids are all UUID5s of frozen keys) and every STAMP is a complete tuple, so the
+ * store itself converges: a tuple is one stamp entity and identical versions under it merge to
+ * one. On top of that a run skips the commits the store already records — the git-source
+ * versions name every materialized commit, and each affirmation semantic exists or not — so a
+ * later run is incremental. Whether the store is ephemeral or persisted is the datastore's
+ * choice, not this class's.
  */
 public final class GitDocumentMaterializer {
 
@@ -81,9 +101,11 @@ public final class GitDocumentMaterializer {
      * @param commits      events written by this run (events already in the store are skipped)
      * @param lines        line elements introduced across the history
      * @param affirmations affirmation semantics written
+     * @param blocks       block versions written (new blocks and changed ones)
+     * @param references   reference versions written
      * @param headSha      the HEAD the history was read from
      */
-    public record Result(PublicId anchor, String name, int commits, int lines, int affirmations, String headSha) { }
+    public record Result(PublicId anchor, String name, int commits, int lines, int affirmations, int blocks, int references, String headSha) { }
 
     /**
      * Materialize a file's whole first-parent history into the open store.
@@ -111,7 +133,7 @@ public final class GitDocumentMaterializer {
      */
     public static Result materialize(Path repoRoot, Path file, boolean onlyNew) throws IOException {
         JournalStore.bootstrapIfAbsent();
-        StampedDocumentTerms.bootstrapIfAbsent();
+        AsciiDocModelTerms.bootstrapIfAbsent();
         GitIdentityAdapter adapter = GitIdentityAdapter.fromMailmap(repoRoot);
         String component = repoRoot.toAbsolutePath().normalize().getFileName().toString();
         try (GitRepo repo = GitRepo.open(repoRoot)) {
@@ -122,35 +144,42 @@ public final class GitDocumentMaterializer {
             Identity documentId = adapter.document(component, path);
             String name = topicId(repo, relative).orElse(path);
             Concept anchor = Concept.make(name, documentId.uuid());
-            Semantic manifest = Semantic.make(PublicIds.of(design.knowledge.stamp.adoc.identity.Uuid5.of(GitIdentityAdapter.NAMESPACE, "manifest:" + documentId.key())));
-            Semantic source = Semantic.make(PublicIds.of(design.knowledge.stamp.adoc.identity.Uuid5.of(GitIdentityAdapter.NAMESPACE, "source:" + documentId.key())));
+            Semantic manifest = Semantic.make(PublicIds.of(Uuid5.of(GitIdentityAdapter.NAMESPACE, "manifest:" + documentId.key())));
+            Semantic source = Semantic.make(PublicIds.of(Uuid5.of(GitIdentityAdapter.NAMESPACE, "source:" + documentId.key())));
+            Semantic attributes = Semantic.make(PublicIds.of(Uuid5.of(GitIdentityAdapter.NAMESPACE, "attributes:" + documentId.key())));
             Map<LineId, String> lastText = new HashMap<>();
+            Structure structure = new Structure();
             int lines = 0;
             int affirmations = 0;
+            int blocks = 0;
+            int references = 0;
             boolean anchorWritten = !StampedDocumentTerms.entityAbsent(anchor);
-            java.util.Set<String> recorded = anchorWritten && onlyNew ? recordedCommits(anchor) : java.util.Set.of();
+            Set<String> recorded = anchorWritten && onlyNew ? recordedCommits(anchor) : Set.of();
             int skipped = 0;
             for (CommitEvent event : history.events()) {
                 boolean contentRecorded = !event.touchesFile() || recorded.contains(event.commit().sha());
                 List<Semantic> pendingAffirmations = new ArrayList<>();
                 int index = 0;
                 for (CommitEvent.AffirmationEvent ignoredEvent : event.affirmations()) {
-                    Semantic proxy = Semantic.make(PublicIds.of(design.knowledge.stamp.adoc.identity.Uuid5.of(GitIdentityAdapter.NAMESPACE,
+                    Semantic proxy = Semantic.make(PublicIds.of(Uuid5.of(GitIdentityAdapter.NAMESPACE,
                             "affirmation:" + event.commit().sha() + ":" + index++)));
                     pendingAffirmations.add(!onlyNew || StampedDocumentTerms.entityAbsent(proxy) ? proxy : null);
                 }
+                for (CommitEvent.Line line : event.introduced()) {
+                    lastText.put(line.id(), line.text());
+                }
+                for (CommitEvent.Line line : event.retexted()) {
+                    lastText.put(line.id(), line.text());
+                }
+                Snapshot now = event.touchesFile() ? snapshot(adapter, documentId, event.manifest(), lastText) : null;
                 if (contentRecorded && pendingAffirmations.stream().allMatch(java.util.Objects::isNull)) {
-                    for (CommitEvent.Line line : event.introduced()) {
-                        lastText.put(line.id(), line.text());    // keep the retire texts right for later events
-                    }
-                    for (CommitEvent.Line line : event.retexted()) {
-                        lastText.put(line.id(), line.text());
-                    }
+                    structure.adopt(now);
                     skipped++;
                     continue;                                    // already in the store
                 }
                 GitStampTerms.GitStamp stamp = GitStampTerms.GitStamp.of(adapter.coordinatesOf(event, component, branch));
                 GitStampVocabulary.seedIfAbsent(stamp);
+                List<Retirement> retirements = new ArrayList<>();
                 try (StampedWriter writer = stamp.openWriter("git-materialize " + event.commit().sha().substring(0, 7))) {
                     if (!anchorWritten) {
                         writer.concept(anchor);
@@ -159,20 +188,36 @@ public final class GitDocumentMaterializer {
                     }
                     for (CommitEvent.Line line : contentRecorded ? List.<CommitEvent.Line>of() : event.introduced()) {
                         writer.semantic(lineProxy(adapter, line.id()), RichSurfaceTerms.PROSE_ELEMENT_PATTERN, anchor, line.text());
-                        lastText.put(line.id(), line.text());
                         lines++;
                     }
                     for (CommitEvent.Line line : contentRecorded ? List.<CommitEvent.Line>of() : event.retexted()) {
                         writer.semantic(lineProxy(adapter, line.id()), RichSurfaceTerms.PROSE_ELEMENT_PATTERN, anchor, line.text());
-                        lastText.put(line.id(), line.text());
                     }
-                    if (event.touchesFile() && !contentRecorded) {
+                    if (now != null && !contentRecorded) {
                         long[] nids = new long[event.manifest().size()];
                         for (int i = 0; i < nids.length; i++) {
                             nids[i] = EntityService.get().nidForPublicId(lineProxy(adapter, event.manifest().get(i)).publicId());
                         }
                         writer.semantic(manifest, RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN, anchor, LongIds.list.of(nids));
                         writer.semantic(source, StampedDocumentTerms.GIT_SOURCE_PATTERN, anchor, event.pathAtCommit(), event.commit().sha());
+                        if (!Arrays.equals(now.attributes, structure.attributes)) {
+                            writer.semantic(attributes, AsciiDocModelTerms.DOCUMENT_ATTRIBUTES_PATTERN, anchor, (Object[]) now.attributes);
+                        }
+                        for (Map.Entry<String, Written> e : now.blocks.entrySet()) {
+                            Written last = structure.blocks.get(e.getKey());
+                            if (last == null || !last.signature.equals(e.getValue().signature)) {
+                                writer.semantic(e.getValue().proxy, AsciiDocModelTerms.BLOCK_PATTERN, anchor, e.getValue().fields);
+                                blocks++;
+                            }
+                        }
+                        for (Map.Entry<String, Written> e : now.references.entrySet()) {
+                            Written last = structure.references.get(e.getKey());
+                            if (last == null || !last.signature.equals(e.getValue().signature)) {
+                                writer.semantic(e.getValue().proxy, e.getValue().pattern, e.getValue().referenced, e.getValue().fields);
+                                references++;
+                            }
+                        }
+                        structure.retired(now, retirements);
                     }
                     for (int i = 0; i < event.affirmations().size(); i++) {
                         Semantic proxy = pendingAffirmations.get(i);
@@ -189,27 +234,140 @@ public final class GitDocumentMaterializer {
                     }
                     writer.commit();
                 }
-                if (!event.retired().isEmpty() && !contentRecorded) {
-                    // A retired line gets an inactive version under the retiring commit's STAMP, so the
-                    // graph records the withdrawal where git recorded it.
+                if (!contentRecorded && (!event.retired().isEmpty() || !retirements.isEmpty())) {
+                    // A retired line, block or reference gets an inactive version under the retiring
+                    // commit's STAMP, so the graph records the withdrawal where git recorded it.
                     try (StampedWriter writer = StampedWriter.open("git-retire " + event.commit().sha().substring(0, 7), State.INACTIVE,
                             stamp.time(), stamp.author(), stamp.module(), stamp.path())) {
                         for (LineId id : event.retired()) {
                             writer.semantic(lineProxy(adapter, id), RichSurfaceTerms.PROSE_ELEMENT_PATTERN, anchor, lastText.getOrDefault(id, ""));
                         }
+                        for (Retirement r : retirements) {
+                            writer.semantic(r.written.proxy, r.written.pattern, r.written.referenced == null ? anchor : r.written.referenced, r.written.fields);
+                        }
                         writer.commit();
                     }
                 }
+                structure.adopt(now);
             }
-            LOG.info("Materialized {} as '{}': {} commit(s) written, {} already recorded, {} line(s), {} affirmation(s)",
-                    path, name, history.events().size() - skipped, skipped, lines, affirmations);
-            return new Result(anchor.publicId(), name, history.events().size() - skipped, lines, affirmations, repo.headRevision());
+            LOG.info("Materialized {} as '{}': {} commit(s) written, {} already recorded, {} line(s), {} block version(s), {} reference version(s), {} affirmation(s)",
+                    path, name, history.events().size() - skipped, skipped, lines, blocks, references, affirmations);
+            return new Result(anchor.publicId(), name, history.events().size() - skipped, lines, affirmations, blocks, references, repo.headRevision());
         }
     }
 
+    // ── structure ─────────────────────────────────────────────────────────────
+
+    /** One semantic version ready to write: its identity, pattern, referenced component, fields and a comparable signature. */
+    private record Written(Semantic proxy, EntityProxy.Pattern pattern, PublicId referenced, Object[] fields, String signature) { }
+
+    private record Retirement(Written written) { }
+
+    /** The parse of one commit's text, as the semantics it implies, keyed for comparison with the previous commit's. */
+    private static final class Snapshot {
+        String[] attributes;
+        final Map<String, Written> blocks = new LinkedHashMap<>();
+        final Map<String, Written> references = new LinkedHashMap<>();
+    }
+
+    /** What the store holds after the events so far, for writing only what changed. */
+    private static final class Structure {
+        String[] attributes;
+        final Map<String, Written> blocks = new HashMap<>();
+        final Map<String, Written> references = new HashMap<>();
+
+        void adopt(Snapshot now) {
+            if (now == null) {
+                return;
+            }
+            attributes = now.attributes;
+            blocks.keySet().retainAll(now.blocks.keySet());
+            blocks.putAll(now.blocks);
+            references.keySet().retainAll(now.references.keySet());
+            references.putAll(now.references);
+        }
+
+        void retired(Snapshot now, List<Retirement> into) {
+            for (Map.Entry<String, Written> e : blocks.entrySet()) {
+                if (!now.blocks.containsKey(e.getKey())) {
+                    into.add(new Retirement(e.getValue()));
+                }
+            }
+            for (Map.Entry<String, Written> e : references.entrySet()) {
+                if (!now.references.containsKey(e.getKey())) {
+                    into.add(new Retirement(e.getValue()));
+                }
+            }
+        }
+    }
+
+    private static Snapshot snapshot(GitIdentityAdapter adapter, Identity documentId, List<LineId> manifest, Map<LineId, String> text) {
+        List<String> lines = new ArrayList<>(manifest.size());
+        for (LineId id : manifest) {
+            lines.add(text.getOrDefault(id, ""));
+        }
+        Document doc = IkeDialectParser.parse(lines);
+        Snapshot snapshot = new Snapshot();
+        snapshot.attributes = new String[1 + AsciiDocModelTerms.TOPIC_ATTRIBUTES.size()];
+        snapshot.attributes[0] = doc.title();
+        for (int i = 0; i < AsciiDocModelTerms.TOPIC_ATTRIBUTES.size(); i++) {
+            snapshot.attributes[i + 1] = doc.attribute(AsciiDocModelTerms.TOPIC_ATTRIBUTES.get(i)).orElse("");
+        }
+        long[] lineNids = new long[manifest.size()];
+        for (int i = 0; i < lineNids.length; i++) {
+            lineNids[i] = EntityService.get().nidForPublicId(lineProxy(adapter, manifest.get(i)).publicId());
+        }
+        Map<Block, String> keys = new HashMap<>();
+        Map<Block, Long> nids = new HashMap<>();
+        Map<String, Long> anchors = new HashMap<>();
+        for (Block block : doc.blocks()) {
+            String key = block.kind() == Block.Kind.DOCUMENT
+                    ? "block:" + documentId.key() + ":document"
+                    : "block:" + documentId.key() + ":" + block.kind().name().toLowerCase() + ":"
+                            + manifest.get((block.headingLine() > 0 ? block.headingLine() : block.firstLine()) - 1).key();
+            keys.put(block, key);
+            Semantic proxy = Semantic.make(PublicIds.of(Uuid5.of(GitIdentityAdapter.NAMESPACE, key)));
+            long nid = EntityService.get().nidForSemantic(AsciiDocModelTerms.BLOCK_PATTERN.publicId(), proxy.publicId());
+            nids.put(block, nid);
+            if (!block.anchor().isEmpty()) {
+                anchors.put(block.anchor(), nid);
+            }
+        }
+        for (Block block : doc.blocks()) {
+            // members in document order: own lines and child blocks sorted by their position
+            List<long[]> members = new ArrayList<>();
+            for (int line : block.lines()) {
+                members.add(new long[] {line, lineNids[line - 1]});
+            }
+            for (Block child : block.children()) {
+                members.add(new long[] {child.firstLine(), nids.get(child)});
+            }
+            members.sort((a, b) -> Long.compare(a[0], b[0]));
+            long[] memberNids = new long[members.size()];
+            for (int i = 0; i < memberNids.length; i++) {
+                memberNids[i] = members.get(i)[1];
+            }
+            Object[] fields = {AsciiDocModelTerms.kind(block.kind()), block.level(), block.title(), block.parameters(), LongIds.list.of(memberNids)};
+            String signature = block.kind() + "|" + block.level() + "|" + block.title() + "|" + block.parameters() + "|" + Arrays.toString(memberNids);
+            String key = keys.get(block);
+            snapshot.blocks.put(key, new Written(Semantic.make(PublicIds.of(Uuid5.of(GitIdentityAdapter.NAMESPACE, key))),
+                    AsciiDocModelTerms.BLOCK_PATTERN, null, fields, signature));
+        }
+        for (Reference reference : doc.references()) {
+            LineId lineId = manifest.get(reference.line() - 1);
+            String key = "ref:" + lineId.key() + ":" + reference.index();
+            Long resolved = reference.kind() == Reference.Kind.CITATION ? anchors.get(reference.target()) : null;
+            Object[] fields = AsciiDocModelTerms.referenceFields(reference, resolved == null ? null : Semantic.make(resolved));
+            String signature = reference.kind() + "|" + reference.target() + "|" + reference.text() + "|" + resolved;
+            snapshot.references.put(key, new Written(Semantic.make(PublicIds.of(Uuid5.of(GitIdentityAdapter.NAMESPACE, key))),
+                    AsciiDocModelTerms.referencePattern(reference.kind()), lineProxy(adapter, lineId).publicId(), fields, signature));
+        }
+        return snapshot;
+    }
+
     /** The commit SHAs the document's git-source versions already record. */
-    private static java.util.Set<String> recordedCommits(Concept anchor) {
-        java.util.Set<String> shas = new java.util.HashSet<>();
+    private static Set<String> recordedCommits(Concept anchor) {
+        Set<String> shas = new HashSet<>();
         long anchorNid = EntityService.get().nidForPublicId(anchor.publicId());
         for (SemanticEntity<SemanticEntityVersion> source : EntityService.get()
                 .semanticsForComponentOfPattern(anchorNid, StampedDocumentTerms.GIT_SOURCE_PATTERN.nid()).toList()) {
@@ -251,18 +409,55 @@ public final class GitDocumentMaterializer {
     public record StoredLine(long nid, String text, StampEntity<?> introduced, StampEntity<?> latest, List<StampEntity<?>> affirmers) { }
 
     /**
+     * One structural element as read from the store.
+     *
+     * @param nid        the block semantic's nid
+     * @param kind       the element kind
+     * @param level      a section's heading level or a list's depth
+     * @param title      the heading, block title or description term
+     * @param parameters the block attribute line as written
+     * @param members    the nids of the lines and blocks it contains, in document order
+     * @param stamp      the STAMP of the block's latest version
+     */
+    public record StoredBlock(long nid, Block.Kind kind, int level, String title, String parameters, List<Long> members, StampEntity<?> stamp) { }
+
+    /**
+     * One inline reference as read from the store.
+     *
+     * @param nid     the reference semantic's nid
+     * @param kind    the reference kind
+     * @param target  the anchor, key, path, URL, term or note
+     * @param text    the display text, parameters, or empty
+     * @param lineNid the line element the reference occurs on
+     */
+    public record StoredReference(long nid, Reference.Kind kind, String target, String text, long lineNid) { }
+
+    /**
      * The document as the store holds it at the latest manifest version.
      *
-     * @param anchor  the anchor id
-     * @param commit  the commit SHA of the latest git-source version
-     * @param lines   the lines in manifest order
+     * @param anchor           the anchor id
+     * @param commit           the commit SHA of the latest git-source version
+     * @param lines            the lines in manifest order
      * @param manifestVersions how many manifest versions the store holds (one per materialized commit that changed the file)
+     * @param attributes       the document attributes: title, then the topic attributes in {@link AsciiDocModelTerms#TOPIC_ATTRIBUTES} order
+     * @param root             the document block, or {@code null} when the store holds no structure for it
+     * @param blocks           every active block by nid
+     * @param references       the active references by the nid of the line they occur on
      */
-    public record StoredDocument(PublicId anchor, String commit, List<StoredLine> lines, int manifestVersions) { }
+    public record StoredDocument(PublicId anchor, String commit, List<StoredLine> lines, int manifestVersions,
+                                 List<String> attributes, StoredBlock root, Map<Long, StoredBlock> blocks,
+                                 Map<Long, List<StoredReference>> references) {
+
+        /** @return the line with that nid, if the manifest holds it */
+        public Optional<StoredLine> line(long nid) {
+            return lines.stream().filter(l -> l.nid() == nid).findFirst();
+        }
+    }
 
     /**
      * Rebuild a document from the store: the latest manifest version's order, each line's first
-     * and latest version STAMPs, and the affirmations referencing it.
+     * and latest version STAMPs, the affirmations referencing it, and the structure and
+     * references over the lines.
      *
      * @param anchor the document anchor id
      * @return the document, or empty when the anchor has no manifest
@@ -333,7 +528,78 @@ public final class GitDocumentMaterializer {
                 versions++;
             }
         }
-        return Optional.of(new StoredDocument(anchor, commit, lines, versions));
+        List<String> attributes = new ArrayList<>();
+        for (SemanticEntity<SemanticEntityVersion> s : EntityService.get()
+                .semanticsForComponentOfPattern(anchorNid, AsciiDocModelTerms.DOCUMENT_ATTRIBUTES_PATTERN.nid()).toList()) {
+            SemanticEntityVersion v = latest(s);
+            if (v != null) {
+                attributes.clear();
+                for (Object value : v.fieldValues()) {
+                    attributes.add(String.valueOf(value));
+                }
+            }
+        }
+        Map<Long, Block.Kind> kinds = new HashMap<>();
+        for (Block.Kind kind : Block.Kind.values()) {
+            kinds.put(AsciiDocModelTerms.kind(kind).nid(), kind);
+        }
+        Map<Long, StoredBlock> blocks = new LinkedHashMap<>();
+        StoredBlock root = null;
+        for (SemanticEntity<SemanticEntityVersion> s : EntityService.get()
+                .semanticsForComponentOfPattern(anchorNid, AsciiDocModelTerms.BLOCK_PATTERN.nid()).toList()) {
+            SemanticEntityVersion v = latest(s);
+            if (v == null || v.state() != State.ACTIVE) {
+                continue;
+            }
+            Block.Kind kind = kinds.get(((EntityProxy) v.fieldValues().get(0)).nid());
+            if (kind == null) {
+                continue;
+            }
+            List<Long> members = new ArrayList<>();
+            for (long nid : ((LongIdList) v.fieldValues().get(4)).toArray()) {
+                members.add(nid);
+            }
+            StoredBlock block = new StoredBlock(s.nid(), kind, (Integer) v.fieldValues().get(1), String.valueOf(v.fieldValues().get(2)),
+                    String.valueOf(v.fieldValues().get(3)), members, v.stamp());
+            blocks.put(s.nid(), block);
+            if (kind == Block.Kind.DOCUMENT) {
+                root = block;
+            }
+        }
+        Set<Long> lineNids = new HashSet<>();
+        for (StoredLine line : lines) {
+            lineNids.add(line.nid());
+        }
+        Map<Long, List<StoredReference>> references = new HashMap<>();
+        for (Reference.Kind kind : Reference.Kind.values()) {
+            EntityService.get().semanticsOfPattern(AsciiDocModelTerms.referencePattern(kind).nid())
+                    .filter(s -> lineNids.contains(s.referencedComponentNid()))
+                    .forEach(s -> {
+                        SemanticEntityVersion v = latest(s);
+                        if (v == null || v.state() != State.ACTIVE) {
+                            return;
+                        }
+                        String text = v.fieldValues().size() > 1 && v.fieldValues().get(1) instanceof String t ? t : "";
+                        references.computeIfAbsent(s.referencedComponentNid(), k -> new ArrayList<>())
+                                .add(new StoredReference(s.nid(), kind, String.valueOf(v.fieldValues().get(0)), text, s.referencedComponentNid()));
+                    });
+        }
+        return Optional.of(new StoredDocument(anchor, commit, lines, versions, attributes, root, blocks, references));
+    }
+
+    /** The anchors of every document the store holds, by name. */
+    public static Map<String, PublicId> storedDocuments() {
+        Map<String, PublicId> found = new java.util.TreeMap<>();
+        if (StampedDocumentTerms.entityAbsent(StampedDocumentTerms.GIT_SOURCE_PATTERN)) {
+            return found;
+        }
+        dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator view = dev.ikm.tinkar.coordinate.Calculators.View.Default();
+        EntityService.get().semanticsOfPattern(StampedDocumentTerms.GIT_SOURCE_PATTERN.nid()).forEach(s -> {
+            long anchorNid = s.referencedComponentNid();
+            EntityHandle.get(anchorNid).entity().ifPresent(anchor ->
+                    found.put(StampNames.name(view, anchorNid), anchor.publicId()));
+        });
+        return found;
     }
 
     private static SemanticEntityVersion latest(SemanticEntity<SemanticEntityVersion> entity) {

@@ -16,6 +16,13 @@
 package network.ike.komet.claude.stamp;
 
 import design.knowledge.stamp.adoc.git.GitRepo;
+import design.knowledge.stamp.adoc.dialect.Block;
+import design.knowledge.stamp.adoc.dialect.Reference;
+import dev.ikm.tinkar.entity.EntityService;
+import dev.ikm.tinkar.entity.SemanticEntity;
+import dev.ikm.tinkar.entity.SemanticEntityVersion;
+import dev.ikm.tinkar.terms.State;
+import java.time.Instant;
 import design.knowledge.stamp.adoc.model.Affirmation;
 import design.knowledge.stamp.adoc.model.StampFile;
 import dev.ikm.tinkar.common.service.PrimitiveData;
@@ -33,6 +40,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -113,6 +121,108 @@ class GitDocumentMaterializerIT {
     }
 
     /** alice creates three lines; bob inserts a topic-id line and edits the middle; Rita affirms lines 2–3 of bob's version. */
+    @Test
+    void structureReferencesAndRetirementsAreMaterialized() throws Exception {
+        Path dir = Files.createDirectories(root.resolve("structured"));
+        gitIn(dir, "init", "-q", "-b", "main");
+        Path file = dir.resolve("topic.adoc");
+        String listing = "[source,yaml]\n----\nkey: value\n----\n";
+        String v1 = """
+                // anf-demo-structure
+                :topic-id: anf-demo-structure
+                :topic-type: concept
+
+                [[anf-demo-structure]]
+                = Demo Title
+
+                First claim, see xref:other-topic[] and ((a term)).
+                Second claim.
+
+                == Details
+
+                """ + listing;
+        Files.writeString(file, v1);
+        gitIn(dir, "add", "topic.adoc");
+        gitIn(dir, "-c", "user.name=alice", "-c", "user.email=alice@example.test", "commit", "-q", "--no-gpg-sign", "--date=2026-02-01T00:00:00Z", "-m", "topic");
+        String v2 = v1.replace("Second claim.", "Second claim, revised.") + "\n== More\n\n* one\n* two\n";
+        Files.writeString(file, v2);
+        gitIn(dir, "add", "topic.adoc");
+        gitIn(dir, "-c", "user.name=bob", "-c", "user.email=bob@example.test", "commit", "-q", "--no-gpg-sign", "--date=2026-02-02T00:00:00Z", "-m", "revise and extend");
+        Files.writeString(file, v2.replace(listing, ""));
+        gitIn(dir, "add", "topic.adoc");
+        gitIn(dir, "-c", "user.name=carol", "-c", "user.email=carol@example.test", "commit", "-q", "--no-gpg-sign", "--date=2026-02-03T00:00:00Z", "-m", "drop the listing");
+
+        GitDocumentMaterializer.Result result = GitDocumentMaterializer.materialize(dir, file);
+        assertEquals(3, result.commits());
+        assertTrue(result.blocks() > 0 && result.references() > 0, "structure and references were written");
+        GitDocumentMaterializer.StoredDocument stored = GitDocumentMaterializer.load(result.anchor()).orElseThrow();
+        assertEquals(List.of("Demo Title", "anf-demo-structure", "concept", "", "", "", "", "", ""), stored.attributes(),
+                "the attributes pattern: title, then the topic attributes, empty when absent");
+        assertNotNull(stored.root());
+        assertEquals(Block.Kind.DOCUMENT, stored.root().kind());
+        List<GitDocumentMaterializer.StoredBlock> sections = stored.blocks().values().stream()
+                .filter(b -> b.kind() == Block.Kind.SECTION).sorted(java.util.Comparator.comparing(GitDocumentMaterializer.StoredBlock::title)).toList();
+        assertEquals(List.of("Details", "More"), sections.stream().map(GitDocumentMaterializer.StoredBlock::title).toList());
+        assertTrue(stored.blocks().values().stream().noneMatch(b -> b.kind() == Block.Kind.LISTING), "the listing dropped in the third commit is inactive");
+        GitDocumentMaterializer.StoredBlock paragraph = stored.blocks().values().stream().filter(b -> b.kind() == Block.Kind.PARAGRAPH).findFirst().orElseThrow();
+        assertEquals(2, paragraph.members().size(), "the paragraph's members are its two lines");
+        assertEquals("First claim, see xref:other-topic[] and ((a term)).", stored.line(paragraph.members().get(0)).orElseThrow().text());
+        assertEquals("Second claim, revised.", stored.line(paragraph.members().get(1)).orElseThrow().text(), "the revised line's latest text");
+        List<GitDocumentMaterializer.StoredReference> refs = stored.references().get(paragraph.members().get(0));
+        assertEquals(List.of(Reference.Kind.CROSS_REFERENCE, Reference.Kind.INDEX_TERM),
+                refs.stream().sorted(java.util.Comparator.comparing(r -> r.kind().name())).map(GitDocumentMaterializer.StoredReference::kind).toList());
+        assertEquals("other-topic", refs.stream().filter(r -> r.kind() == Reference.Kind.CROSS_REFERENCE).findFirst().orElseThrow().target());
+        assertEquals("a term", refs.stream().filter(r -> r.kind() == Reference.Kind.INDEX_TERM).findFirst().orElseThrow().target());
+        GitDocumentMaterializer.StoredBlock list = stored.blocks().values().stream().filter(b -> b.kind() == Block.Kind.LIST).findFirst().orElseThrow();
+        assertEquals(2, list.members().size());
+        assertTrue(list.members().stream().allMatch(nid -> stored.blocks().get(nid) != null && stored.blocks().get(nid).kind() == Block.Kind.LIST_ITEM));
+        GitDocumentMaterializer.StoredBlock more = sections.get(1);
+        assertEquals(Instant.parse("2026-02-02T00:00:00Z").toEpochMilli(), more.stamp().time(), "a block is STAMPed by the commit that introduced it");
+        assertEquals(Instant.parse("2026-02-03T00:00:00Z").toEpochMilli(), sections.get(0).stamp().time(),
+                "a section whose members changed (the listing left it) is re-STAMPed by that commit");
+        assertEquals(Instant.parse("2026-02-02T00:00:00Z").toEpochMilli(), paragraph.stamp().time(),
+                "a revised line is a new line under git blame, so the paragraph's membership changed under the revising commit");
+        assertEquals(Instant.parse("2026-02-01T00:00:00Z").toEpochMilli(), stored.line(paragraph.members().get(0)).orElseThrow().introduced().time(),
+                "the untouched first line keeps the introducing commit's STAMP");
+
+        long anchorNid = EntityService.get().nidForPublicId(result.anchor());
+        SemanticEntity<SemanticEntityVersion> listingBlock = EntityService.get()
+                .semanticsForComponentOfPattern(anchorNid, AsciiDocModelTerms.BLOCK_PATTERN.nid()).toList().stream()
+                .filter(s -> s.versions().stream().anyMatch(v -> v.state() == State.INACTIVE)).findFirst().orElseThrow();
+        SemanticEntityVersion retired = listingBlock.versions().stream().filter(v -> v.state() == State.INACTIVE).findFirst().orElseThrow();
+        assertEquals(Instant.parse("2026-02-03T00:00:00Z").toEpochMilli(), retired.time(), "the listing's withdrawal is STAMPed by the commit that dropped it");
+        assertEquals(AsciiDocModelTerms.LISTING.nid(), ((dev.ikm.tinkar.terms.EntityProxy) retired.fieldValues().get(0)).nid());
+
+        int before = blockVersions(anchorNid);
+        GitDocumentMaterializer.materialize(dir, file, false);
+        assertEquals(before, blockVersions(anchorNid), "a full rewrite converges: no new block versions");
+        GitDocumentMaterializer.StoredDocument again = GitDocumentMaterializer.load(result.anchor()).orElseThrow();
+        assertEquals(stored.blocks().keySet(), again.blocks().keySet());
+    }
+
+    private static int blockVersions(long anchorNid) {
+        int count = 0;
+        for (SemanticEntity<SemanticEntityVersion> s : EntityService.get()
+                .semanticsForComponentOfPattern(anchorNid, AsciiDocModelTerms.BLOCK_PATTERN.nid()).toList()) {
+            for (SemanticEntityVersion v : s.versions()) {
+                if (v.time() != Long.MAX_VALUE) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
+    private void gitIn(Path dir, String... args) throws Exception {
+        List<String> command = new java.util.ArrayList<>(List.of("git"));
+        command.addAll(List.of(args));
+        Process p = new ProcessBuilder(command).directory(dir.toFile()).redirectErrorStream(true).start();
+        String out = new String(p.getInputStream().readAllBytes());
+        if (p.waitFor() != 0) {
+            throw new IllegalStateException("git " + String.join(" ", args) + " failed: " + out);
+        }
+    }
+
     private Path seedRepository() throws Exception {
         git("init", "-q", "-b", "main");
         Path file = root.resolve("doc.adoc");

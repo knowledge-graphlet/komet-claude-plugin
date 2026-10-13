@@ -204,6 +204,10 @@ public final class StampProvenanceCard extends AbstractHostCard {
         affirm.setTooltip(new Tooltip("Record your review of the ticked lines as an empty signed commit with Affirms: trailers"));
         affirm.getStyleClass().add("claude-card-toolbar-button");
         affirm.setOnAction(e -> affirmSelected(null));
+        Button materialize = new Button("Materialize");
+        materialize.setTooltip(new Tooltip("Write this file's whole history into the knowledge base as a STAMPed document"));
+        materialize.getStyleClass().add("claude-card-toolbar-button");
+        materialize.setOnAction(e -> materialize());
         queueToggle.setTooltip(new Tooltip("Tint the lines no one has affirmed yet"));
         queueToggle.setSelected(preferences().getBoolean(PREF_QUEUE, false));
         queueToggle.selectedProperty().addListener((obs, was, is) -> {
@@ -211,7 +215,7 @@ public final class StampProvenanceCard extends AbstractHostCard {
             syncPreferences("review queue toggle");
             retint();
         });
-        toolBar.getChildren().addAll(open, refresh, affirm, queueToggle);
+        toolBar.getChildren().addAll(open, refresh, affirm, materialize, queueToggle);
     }
 
     @Override
@@ -265,6 +269,41 @@ public final class StampProvenanceCard extends AbstractHostCard {
         } catch (Exception e) {
             LOG.warn("Could not sync the STAMP Provenance card preferences after the {}", what, e);
         }
+    }
+
+    /**
+     * Writes the open file's history into the open knowledge base through the
+     * {@link GitDocumentMaterializer}, off the FX thread, and tells any STAMPed Document card to
+     * refresh its list. Incremental: a second run writes only the commits the store lacks.
+     */
+    public void materialize() {
+        if (repoRoot == null || relative == null) {
+            statusLine.setText("Open a committed .adoc file first.");
+            return;
+        }
+        Path root = repoRoot;
+        Path file = relative;
+        statusLine.setText("Materializing " + file + " into the knowledge base …");
+        CompletableFuture.supplyAsync(() -> {
+            try {
+                return GitDocumentMaterializer.materialize(root, root.resolve(file));
+            } catch (IOException e) {
+                throw new java.io.UncheckedIOException(e);
+            }
+        }).whenComplete((result, failure) -> Platform.runLater(() -> {
+            if (failure != null) {
+                statusLine.setText("Materialization failed: " + failure.getMessage());
+                LOG.warn("Materializing {} failed", file, failure);
+                return;
+            }
+            statusLine.setText("Materialized '" + result.name() + "': " + result.commits() + " commit(s) written, " + result.lines()
+                    + " line(s), " + result.blocks() + " block version(s), " + result.references() + " reference(s), "
+                    + result.affirmations() + " affirmation(s). Open it in the STAMPed Document card.");
+            StampedDocumentCard card = StampedDocumentCard.mostRecent();
+            if (card != null) {
+                card.refresh();
+            }
+        }));
     }
 
     private void reload() {
