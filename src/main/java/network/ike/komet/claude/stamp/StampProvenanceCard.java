@@ -208,6 +208,7 @@ public final class StampProvenanceCard extends AbstractHostCard {
         queueToggle.setSelected(preferences().getBoolean(PREF_QUEUE, false));
         queueToggle.selectedProperty().addListener((obs, was, is) -> {
             preferences().putBoolean(PREF_QUEUE, is);
+            syncPreferences("review queue toggle");
             retint();
         });
         toolBar.getChildren().addAll(open, refresh, affirm, queueToggle);
@@ -257,13 +258,29 @@ public final class StampProvenanceCard extends AbstractHostCard {
         }
     }
 
+    /** Flushes the card's preferences now, so a crash before the journal closes does not lose them. */
+    private void syncPreferences(String what) {
+        try {
+            preferences().sync();
+        } catch (Exception e) {
+            LOG.warn("Could not sync the STAMP Provenance card preferences after the {}", what, e);
+        }
+    }
+
     private void reload() {
         if (repoRoot != null && relative != null) {
             open(repoRoot.resolve(relative));
         }
     }
 
-    private void open(Path file) {
+    /**
+     * Shows a committed AsciiDoc file: resolves its repository, reads its STAMPs at HEAD and
+     * renders the lines. Public so the assistant's tools and UI automation can open a file
+     * without the file chooser; must be called on the JavaFX application thread.
+     *
+     * @param file the file to show, inside a git working tree
+     */
+    public void open(Path file) {
         Optional<Path> root = GitRepo.findRoot(file);
         if (root.isEmpty()) {
             statusLine.setText(file + " is not inside a git working tree.");
@@ -292,6 +309,7 @@ public final class StampProvenanceCard extends AbstractHostCard {
             headRevision = loaded.headRevision();
             headLines = loaded.headLines();
             preferences().put(PREF_FILE, file.toAbsolutePath().normalize().toString());
+            syncPreferences("open file");
             show(loaded.workingTreeDiffers());
         }));
     }
