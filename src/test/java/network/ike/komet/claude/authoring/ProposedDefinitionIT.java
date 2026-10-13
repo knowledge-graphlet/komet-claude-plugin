@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package network.ike.komet.claude.ui;
+package network.ike.komet.claude.authoring;
 
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
@@ -25,7 +25,7 @@ import network.ike.komet.claude.koncept.ComponentText;
 import network.ike.komet.claude.koncept.ConceptDefinition;
 import network.ike.komet.claude.koncept.ConceptDefinition.Role;
 import network.ike.komet.claude.koncept.DefinitionText;
-import network.ike.komet.claude.ui.KonceptDefinitionBlockRenderer.Built;
+import network.ike.komet.claude.authoring.ProposedDefinition.Built;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -45,11 +45,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * The definition tree a {@code koncept-definition} block builds, against the starter data
  * ({@code IKE-Network/ike-issues#1292}). The tree must have the shape a stored definition has, so
  * it is read back with {@link ConceptDefinition} — the reader of stored definitions — and must
- * yield the supertypes and role groups the block stated. The control itself needs a JavaFX
- * toolkit and is exercised by running Komet.
+ * yield the supertypes and role groups the block stated. The block renderer previews this tree
+ * and {@code propose_concept} stores it.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-class KonceptDefinitionBlockIT {
+class ProposedDefinitionIT {
 
     private static final File PB_STARTER_DATA =
             new File("target/data/ike-starter-set-reasoned-pb.zip");
@@ -87,7 +87,7 @@ class KonceptDefinitionBlockIT {
                 + "    " + token(KernelTerm.LANGUAGE_CONCEPT_NID_FOR_DESCRIPTION) + " = " + token(KernelTerm.ENGLISH_LANGUAGE) + "\n"
                 + "gap: nothing names this yet\n";
 
-        Built built = KonceptDefinitionBlockRenderer.build(KonceptDefinitionBlockRenderer.parse(block));
+        Built built = ProposedDefinition.build(ProposedDefinition.parse(block));
 
         assertNotNull(built.tree());
         assertEquals(List.of("nothing names this yet"), built.gaps());
@@ -108,7 +108,7 @@ class KonceptDefinitionBlockIT {
 
     @Test
     void aSufficientSetIsADefinedDefinition() {
-        Built built = KonceptDefinitionBlockRenderer.build(KonceptDefinitionBlockRenderer.parse(
+        Built built = ProposedDefinition.build(ProposedDefinition.parse(
                 "sufficient\n  " + token(KernelTerm.LANGUAGE) + "\n"));
 
         assertTrue(ConceptDefinition.of(built.tree()).orElseThrow().defined());
@@ -122,7 +122,7 @@ class KonceptDefinitionBlockIT {
                 + "  group\n"
                 + "    " + token(KernelTerm.DESCRIPTION_TYPE) + " = " + ABSENT + "\n";
 
-        Built built = KonceptDefinitionBlockRenderer.build(KonceptDefinitionBlockRenderer.parse(block));
+        Built built = ProposedDefinition.build(ProposedDefinition.parse(block));
 
         ConceptDefinition definition = ConceptDefinition.of(built.tree()).orElseThrow();
         assertArrayEquals(new long[]{KernelTerm.LANGUAGE.nid()}, definition.supertypes(),
@@ -136,8 +136,8 @@ class KonceptDefinitionBlockIT {
 
     @Test
     void aBlockInWhichNothingResolvesHasNoTreeOnlyGaps() {
-        Built built = KonceptDefinitionBlockRenderer.build(
-                KonceptDefinitionBlockRenderer.parse("necessary\n  " + ABSENT + "\n"));
+        Built built = ProposedDefinition.build(
+                ProposedDefinition.parse("necessary\n  " + ABSENT + "\n"));
 
         assertNull(built.tree());
         assertEquals(1, built.gaps().size());

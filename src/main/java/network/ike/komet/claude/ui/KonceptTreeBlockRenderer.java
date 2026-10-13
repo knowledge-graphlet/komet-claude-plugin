@@ -20,9 +20,6 @@ import dev.ikm.komet.framework.controls.KonceptLabelTypography;
 import dev.ikm.komet.markdown.richtext.BlockPiece;
 import dev.ikm.komet.markdown.richtext.BlockRenderer;
 import dev.ikm.tinkar.common.id.PublicId;
-import dev.ikm.tinkar.common.id.PublicIds;
-import dev.ikm.tinkar.common.service.PrimitiveData;
-import dev.ikm.tinkar.common.util.uuid.UuidUtil;
 import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import javafx.event.Event;
@@ -36,12 +33,12 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Font;
 import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
+import network.ike.komet.claude.authoring.ProposedDefinition;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
-import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -216,29 +213,7 @@ final class KonceptTreeBlockRenderer implements BlockRenderer {
      * @return the public id of a component the open store holds, or null
      */
     static PublicId resolvePid(String kind, String value) {
-        try {
-            PublicId pid = switch (kind) {
-                case "sctid" -> PublicIds.of(UuidUtil.fromSNOMED(value));
-                case "nid" -> null;
-                default -> uuidPublicId(value); // uuid | id
-            };
-            if (pid != null && PrimitiveData.get().hasPublicId(pid)) {
-                return pid;
-            }
-        } catch (RuntimeException ignored) {
-            // Unresolvable / non-existent id — the node falls back to its authoring label.
-        }
-        return null;
-    }
-
-    /** Builds a {@link PublicId} from a single UUID or a comma-joined UUID array. */
-    private static PublicId uuidPublicId(String value) {
-        String[] parts = value.split(",");
-        UUID[] uuids = new UUID[parts.length];
-        for (int i = 0; i < parts.length; i++) {
-            uuids[i] = UUID.fromString(parts[i].trim());
-        }
-        return PublicIds.of(uuids);
+        return ProposedDefinition.resolve(kind, value);
     }
 
     // ── View building (JavaFX application thread) ───────────────────────

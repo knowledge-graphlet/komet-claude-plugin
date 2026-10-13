@@ -370,6 +370,10 @@ public final class ClaudeCard extends AbstractHostCard {
         // concurrence prepared for the person to sign in the STAMP Provenance card — never signed here.
         all.addAll(network.ike.komet.claude.stamp.StampTools.tools(
                 network.ike.komet.claude.stamp.StampProvenanceCard::mostRecent));
+        // Authoring hand-off (ike-issues#1292): a proposed concept written uncommitted and opened in a KL
+        // window of this journal for the person to publish — never committed here.
+        all.addAll(new network.ike.komet.claude.authoring.ConceptProposalTools(
+                this::safeViewProperties, this::getJournalTopic).tools());
         this.tools = java.util.List.copyOf(all);
         this.journalStore = new JournalStore(this::safeViewCalculator);
         fxObject().getStyleClass().add("claude-card");
