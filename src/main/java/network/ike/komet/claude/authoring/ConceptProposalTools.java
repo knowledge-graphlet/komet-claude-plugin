@@ -17,6 +17,7 @@ package network.ike.komet.claude.authoring;
 
 import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.komet.kview.events.MakeKLWindowEvent;
+import dev.ikm.komet.layout.editor.StandardEditorWindows;
 import dev.ikm.tinkar.events.EvtBusFactory;
 import javafx.application.Platform;
 import network.ike.komet.claude.anthropic.AnthropicTool;
@@ -166,8 +167,17 @@ public final class ConceptProposalTools {
             var edit = viewProperties.nodeView().editCoordinate();
             Written w = ConceptProposalWriter.write(viewProperties.calculator(), edit.getAuthorForChanges(),
                     edit.getDefaultModule(), edit.getDefaultPath(), fsn, built.tree(), synonyms, note);
-            EvtBusFactory.getDefaultEvtBus().publish(topic, new MakeKLWindowEvent(this,
-                    MakeKLWindowEvent.OPEN_ENTITY_COMPONENT, w.concept(), fsn));
+            try {
+                // The event's title names the window LAYOUT to open, not a caption: the standard
+                // concept window, which lays out the names and the stated definition.
+                EvtBusFactory.getDefaultEvtBus().publish(topic, new MakeKLWindowEvent(this,
+                        MakeKLWindowEvent.OPEN_STANDARD_WINDOW, w.concept(), StandardEditorWindows.CONCEPT_WINDOW_2));
+            } catch (RuntimeException windowFailed) {
+                // No window to review it in means no proposal: withdraw what was written.
+                ConceptProposalWriter.discard(w);
+                throw new IllegalStateException("the proposal was withdrawn because its window could not open: "
+                        + windowFailed.getMessage(), windowFailed);
+            }
             return w;
         });
         String id = ComponentText.identifier(written.concept().nid());
@@ -179,6 +189,12 @@ public final class ConceptProposalTools {
         result.append(note == null ? "" : ", and an editorial note").append(". NOTHING IS COMMITTED: it becomes "
                 + "a concept only when the person presses Publish in that window. Tell them it is waiting there "
                 + "for their review.");
+        if (!built.gaps().isEmpty() && proposal.sets().stream().anyMatch(ProposedDefinition.SetSpec::sufficient)) {
+            result.append("\nWARNING: a SUFFICIENT set is proposed while gaps remain. Until the gaps are "
+                    + "resolved, the definition lacks what distinguishes the concept, so as a sufficient set it "
+                    + "would classify as equivalent to every concept meeting the rest. Tell the person; a "
+                    + "necessary (primitive) set is the safe choice until the gaps are filled.");
+        }
         if (!built.gaps().isEmpty()) {
             result.append("\nGaps (in the editorial note, not in the definition — the person must resolve them "
                     + "before publishing):");
