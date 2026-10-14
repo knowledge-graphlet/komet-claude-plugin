@@ -34,8 +34,10 @@ import java.util.UUID;
 /**
  * The git-provenance terms a materialized document is written with ({@code
  * IKE-Network/ike-issues#468}), as the IKE starter set declares them: the document anchor
- * kind, the git source pattern (path and commit, one version per commit) and the affirmation
- * pattern (affirmed lines and trailer), with their field and purpose concepts.
+ * kind, the git source pattern (path and commit, one version per commit) and the annotation
+ * apparatus ({@code AnnotationModelSet}, IKE-Network/ike-issues#1300): the Annotation pattern
+ * (kind, reviewed version, annotated elements, text) and the kind concepts an
+ * {@code Annotation:} trailer names, with their field and purpose concepts.
  *
  * <p><b>Identities are adopted, not minted.</b> Every identity here is the starter set's own
  * derivation, {@code T5(IkeFoundation set UUID, birth FQN)}, the same computation the ledger
@@ -69,17 +71,32 @@ public final class StampedDocumentTerms {
     /** Field: the full commit SHA the manifest version came from. */
     public static final Concept SOURCE_COMMIT = concept("Source commit");
 
-    /** Meaning of the affirmation semantic. */
+    /** Meaning of the annotation semantic. */
+    public static final Concept ANNOTATION = concept("Annotation");
+    /** Purpose of the Annotation pattern and its fields. */
+    public static final Concept REVIEWED_PROVENANCE = concept("Reviewed provenance");
+    /** Field 0: the annotation kind, and the root of the kinds. */
+    public static final Concept ANNOTATION_KIND = concept("Annotation kind");
+    /** Field 1: the STAMP of the version the annotator saw. */
+    public static final Concept REVIEWED_VERSION = concept("Reviewed version");
+    /** Field 2: the elements within the referenced component the annotation covers, in order. */
+    public static final Concept ANNOTATED_ELEMENTS = concept("Annotated elements");
+    /** Field 3: the annotation text, the SOLOR comment concept the Comment pattern's field also means. */
+    public static final Concept COMMENT_TEXT = Concept.make("Comment (SOLOR)", UUID.fromString("147832d4-b9b8-5062-8891-19f9c4e4760a"));
+
+    /** Kind: free commentary with no stance. */
+    public static final Concept UNCATEGORIZED_COMMENT = concept("Uncategorized comment");
+    /** Kind: a stance on the content; parent of affirmation and refutation. */
+    public static final Concept JUDGMENT = concept("Judgment");
+    /** Kind: the annotator stands behind the version. */
     public static final Concept AFFIRMATION = concept("Affirmation");
-    /** Field: the affirmed line elements, in order. */
-    public static final Concept AFFIRMED_LINES = concept("Affirmed lines");
-    /** Field: the Affirms: trailer as written. */
-    public static final Concept AFFIRMS_TRAILER = concept("Affirms trailer");
+    /** Kind: the annotator disputes the version. */
+    public static final Concept REFUTATION = concept("Refutation");
 
     /** Pattern: path (string), commit (string). */
     public static final Pattern GIT_SOURCE_PATTERN = pattern("Git source pattern");
-    /** Pattern: affirmed lines (component id list), trailer (string). */
-    public static final Pattern AFFIRMATION_PATTERN = pattern("Affirmation pattern");
+    /** Pattern: kind (concept), reviewed version (component), annotated elements (component id list), text (string). */
+    public static final Pattern ANNOTATION_PATTERN = pattern("Annotation pattern");
 
     private StampedDocumentTerms() { }
 
@@ -89,6 +106,18 @@ public final class StampedDocumentTerms {
      */
     public static UUID identity(String name) {
         return UuidT5Generator.get(NAMESPACE, name + TAG);
+    }
+
+    /**
+     * @param kind an engine annotation kind
+     * @return the concept the starter set declares for it; core derives the same identity
+     */
+    public static Concept kind(design.knowledge.stamp.adoc.model.AnnotationKind kind) {
+        return switch (kind) {
+            case AFFIRMATION -> AFFIRMATION;
+            case REFUTATION -> REFUTATION;
+            case COMMENT -> UNCATEGORIZED_COMMENT;
+        };
     }
 
     private static Concept concept(String name) {
@@ -105,8 +134,17 @@ public final class StampedDocumentTerms {
      * and thread-safe.
      */
     public static synchronized void bootstrapIfAbsent() {
-        for (Concept c : new Concept[] {STAMPED_DOCUMENT, GIT_PROVENANCE, GIT_SOURCE, SOURCE_PATH, SOURCE_COMMIT, AFFIRMATION, AFFIRMED_LINES, AFFIRMS_TRAILER}) {
+        for (Concept c : new Concept[] {STAMPED_DOCUMENT, GIT_PROVENANCE, GIT_SOURCE, SOURCE_PATH, SOURCE_COMMIT,
+                ANNOTATION, REVIEWED_PROVENANCE, ANNOTATION_KIND, REVIEWED_VERSION, ANNOTATED_ELEMENTS,
+                UNCATEGORIZED_COMMENT, JUDGMENT, AFFIRMATION, REFUTATION}) {
             seedConceptIfAbsent(c);
+        }
+        if (entityAbsent(COMMENT_TEXT)) {                          // a SOLOR concept, not the set's: its own name
+            try (StampedWriter writer = vocabularyWriter()) {
+                writer.concept(COMMENT_TEXT);
+                writer.fullyQualifiedName(COMMENT_TEXT, COMMENT_TEXT.description());
+                writer.commit();
+            }
         }
         if (entityAbsent(GIT_SOURCE_PATTERN)) {
             try (StampedWriter writer = vocabularyWriter()) {
@@ -117,14 +155,16 @@ public final class StampedDocumentTerms {
             }
             LOG.info("Seeded git source pattern");
         }
-        if (entityAbsent(AFFIRMATION_PATTERN)) {
+        if (entityAbsent(ANNOTATION_PATTERN)) {
             try (StampedWriter writer = vocabularyWriter()) {
-                writer.pattern(AFFIRMATION_PATTERN, AFFIRMATION, GIT_PROVENANCE,
-                        StampedWriter.field(AFFIRMED_LINES, GIT_PROVENANCE, KernelTerm.COMPONENT_ID_LIST_FIELD),
-                        StampedWriter.field(AFFIRMS_TRAILER, GIT_PROVENANCE, KernelTerm.STRING));
+                writer.pattern(ANNOTATION_PATTERN, ANNOTATION, REVIEWED_PROVENANCE,
+                        StampedWriter.field(ANNOTATION_KIND, REVIEWED_PROVENANCE, KernelTerm.CONCEPT_FIELD),
+                        StampedWriter.field(REVIEWED_VERSION, REVIEWED_PROVENANCE, KernelTerm.COMPONENT_FIELD),
+                        StampedWriter.field(ANNOTATED_ELEMENTS, REVIEWED_PROVENANCE, KernelTerm.COMPONENT_ID_LIST_FIELD),
+                        StampedWriter.field(COMMENT_TEXT, REVIEWED_PROVENANCE, KernelTerm.STRING));
                 writer.commit();
             }
-            LOG.info("Seeded affirmation pattern");
+            LOG.info("Seeded annotation pattern");
         }
     }
 

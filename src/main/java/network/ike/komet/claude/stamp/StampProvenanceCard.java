@@ -15,9 +15,11 @@
  */
 package network.ike.komet.claude.stamp;
 
-import design.knowledge.stamp.adoc.git.AffirmationCommit;
+import design.knowledge.stamp.adoc.git.AnnotationCommit;
 import design.knowledge.stamp.adoc.git.GitRepo;
-import design.knowledge.stamp.adoc.model.Affirmation;
+import design.knowledge.stamp.adoc.model.Annotation;
+import design.knowledge.stamp.adoc.model.AnnotationKind;
+import design.knowledge.stamp.adoc.model.LineRange;
 import design.knowledge.stamp.adoc.model.StampId;
 import design.knowledge.stamp.adoc.model.StampRecord;
 import dev.ikm.komet.layout.KlArea;
@@ -38,6 +40,7 @@ import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.TextArea;
 import javafx.scene.control.Tooltip;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
@@ -78,17 +81,19 @@ import java.lang.ref.WeakReference;
 /**
  * The STAMP Provenance card ({@code IKE-Network/ike-issues#468}): a committed AsciiDoc file
  * as a stack of lines — under semantic line breaks, one claim each — every line led by the
- * STAMP badge of the commit that introduced it, with a check mark where someone has affirmed
- * it. The badge is the same gray pentagon, identicon and compact provenance a STAMP shows
- * anywhere in Komet; its identicon is seeded by the STAMP identity the adapter derives, so it
- * is the identicon that STAMP's concept carries once written to a store.
+ * STAMP badge of the commit that introduced it, with a mark where someone has annotated it:
+ * ✗ refuted, ✓ affirmed, … commented on. The badge is the same gray pentagon, identicon and
+ * compact provenance a STAMP shows anywhere in Komet; its identicon is seeded by the STAMP
+ * identity the adapter derives, so it is the identicon that STAMP's concept carries once
+ * written to a store.
  *
- * <p>The card reads the file as committed at HEAD, never the working tree, so an affirmation
+ * <p>The card reads the file as committed at HEAD, never the working tree, so an annotation
  * made here is anchored exactly; a banner says when the working tree has uncommitted edits.
- * <em>Affirm Selected</em> folds the ticked lines into ranges, hashes them over the committed
- * text, and writes the empty commit — signed by default — through the user's own
- * {@code git}, so whatever signing they have configured applies. The review queue toggle
- * tints the lines no one has affirmed yet.
+ * <em>Affirm</em>, <em>Refute</em> and <em>Comment</em> fold the ticked lines into ranges, hash
+ * them over the committed text, ask for the annotation text (a refutation needs its reason),
+ * and write the empty commit — signed by default — through the user's own {@code git}, so
+ * whatever signing they have configured applies (IKE-Network/ike-issues#1300). The review queue
+ * toggle tints the lines no one has affirmed yet; a refuted line stays in it.
  */
 public final class StampProvenanceCard extends AbstractHostCard {
 
@@ -143,13 +148,14 @@ public final class StampProvenanceCard extends AbstractHostCard {
 
     /**
      * The assistant's hand-off ({@link StampTools}): tick the lines of the given ranges and open
-     * the same confirmation the Affirm button opens, with the note in its header. The person's
-     * click is the affirmation; nothing is written here.
+     * the same confirmation the kind's button opens, with the text prefilled for the person to
+     * edit. The person's click is the annotation; nothing is written here.
      *
+     * @param kind   the annotation kind
      * @param ranges 1-based inclusive line ranges
-     * @param note   the reason the person gave, or {@code null}
+     * @param text   the annotation text the person gave, or {@code null}
      */
-    public void proposeAffirmation(List<int[]> ranges, String note) {
+    public void proposeAnnotation(AnnotationKind kind, List<int[]> ranges, String text) {
         Platform.runLater(() -> {
             for (LineRow row : lineRows) {
                 boolean in = false;
@@ -158,7 +164,7 @@ public final class StampProvenanceCard extends AbstractHostCard {
                 }
                 row.tick.setSelected(in);
             }
-            affirmSelected(note == null || note.isBlank() ? "The assistant prepared this affirmation at your request." : "The assistant prepared this affirmation at your request: " + note);
+            annotateSelected(kind, "The assistant prepared this " + kind.label().toLowerCase() + " at your request.", text);
         });
     }
 
@@ -200,10 +206,18 @@ public final class StampProvenanceCard extends AbstractHostCard {
         refresh.setTooltip(new Tooltip("Re-read the file's STAMPs from the repository"));
         refresh.getStyleClass().add("claude-card-toolbar-button");
         refresh.setOnAction(e -> reload());
-        Button affirm = new Button("Affirm Selected…");
-        affirm.setTooltip(new Tooltip("Record your review of the ticked lines as an empty signed commit with Affirms: trailers"));
-        affirm.getStyleClass().add("claude-card-toolbar-button");
-        affirm.setOnAction(e -> affirmSelected(null));
+        List<Button> annotate = new ArrayList<>();
+        for (AnnotationKind kind : AnnotationKind.values()) {
+            Button button = new Button(kind == AnnotationKind.COMMENT ? "Comment…" : kind.verb() + "…");
+            button.setTooltip(new Tooltip(switch (kind) {
+                case AFFIRMATION -> "Record that you have reviewed the ticked lines and stand behind them";
+                case REFUTATION -> "Record that you have reviewed the ticked lines and dispute them, with your reason";
+                case COMMENT -> "Record a comment on the ticked lines, with no stance";
+            } + ", as an empty commit with Annotation: trailers"));
+            button.getStyleClass().add("claude-card-toolbar-button");
+            button.setOnAction(e -> annotateSelected(kind, null, null));
+            annotate.add(button);
+        }
         Button materialize = new Button("Materialize");
         materialize.setTooltip(new Tooltip("Write this file's whole history into the knowledge base as a STAMPed document"));
         materialize.getStyleClass().add("claude-card-toolbar-button");
@@ -215,7 +229,9 @@ public final class StampProvenanceCard extends AbstractHostCard {
             syncPreferences("review queue toggle");
             retint();
         });
-        toolBar.getChildren().addAll(open, refresh, affirm, materialize, queueToggle);
+        toolBar.getChildren().addAll(open, refresh);
+        toolBar.getChildren().addAll(annotate);
+        toolBar.getChildren().addAll(materialize, queueToggle);
     }
 
     @Override
@@ -298,7 +314,7 @@ public final class StampProvenanceCard extends AbstractHostCard {
             }
             statusLine.setText("Materialized '" + result.name() + "': " + result.commits() + " commit(s) written, " + result.lines()
                     + " line(s), " + result.blocks() + " block version(s), " + result.references() + " reference(s), "
-                    + result.affirmations() + " affirmation(s). Open it in the STAMPed Document card.");
+                    + result.annotations() + " annotation(s). Open it in the STAMPed Document card.");
             StampedDocumentCard card = StampedDocumentCard.mostRecent();
             if (card != null) {
                 card.refresh();
@@ -376,25 +392,29 @@ public final class StampProvenanceCard extends AbstractHostCard {
             order.put(byTime.get(i).id(), i);
         }
         StampRecord[] introducer = new StampRecord[headLines.size() + 1];
-        Map<Integer, List<StampRecord>> affirmers = new HashMap<>();
+        Map<Integer, List<Note>> notes = new HashMap<>();
         for (StampRecord r : byTime) {
             r.introduced().forEach((int line) -> { if (line < introducer.length) introducer[line] = r; });
-            r.affirmed().forEach((int line) -> affirmers.computeIfAbsent(line, k -> new ArrayList<>()).add(r));
+            r.affirmed().forEach((int line) -> notes.computeIfAbsent(line, k -> new ArrayList<>()).add(new Note(r, AnnotationKind.AFFIRMATION)));
+            r.refuted().forEach((int line) -> notes.computeIfAbsent(line, k -> new ArrayList<>()).add(new Note(r, AnnotationKind.REFUTATION)));
+            r.commented().forEach((int line) -> notes.computeIfAbsent(line, k -> new ArrayList<>()).add(new Note(r, AnnotationKind.COMMENT)));
         }
         for (int line = 1; line <= headLines.size(); line++) {
-            LineRow row = new LineRow(line, headLines.get(line - 1), introducer[line], affirmers.get(line),
+            LineRow row = new LineRow(line, headLines.get(line - 1), introducer[line], notes.get(line),
                     introducer[line] == null ? null : PALETTE[order.get(introducer[line].id()) % PALETTE.length]);
             lineRows.add(row);
             rows.getChildren().add(row.node);
         }
         retint();
-        int affirmed = (int) lineRows.stream().filter(r -> r.affirmers != null).count();
+        int affirmed = (int) lineRows.stream().filter(r -> r.has(AnnotationKind.AFFIRMATION)).count();
+        int refuted = (int) lineRows.stream().filter(r -> r.has(AnnotationKind.REFUTATION)).count();
         int problems = bridge.stamps().problems().size();
         statusLine.setText(relative + " @ " + headRevision.substring(0, Math.min(7, headRevision.length())) + " on " + branchName()
                 + " — " + headLines.size() + " lines, " + byTime.size() + " STAMPs, " + affirmed + " affirmed"
-                + (problems == 0 ? "" : ", " + problems + " affirmation(s) not applied"));
+                + (refuted == 0 ? "" : ", " + refuted + " refuted")
+                + (problems == 0 ? "" : ", " + problems + " annotation(s) not applied"));
         banner.setText(workingTreeDiffers
-                ? "The working tree has uncommitted edits to this file. Showing the file as committed at HEAD; commit before affirming the edits."
+                ? "The working tree has uncommitted edits to this file. Showing the file as committed at HEAD; commit before annotating the edits."
                 : problems > 0 ? String.join("\n", bridge.stamps().problems()) : "");
         banner.setVisible(!banner.getText().isEmpty());
         banner.setManaged(banner.isVisible());
@@ -411,24 +431,27 @@ public final class StampProvenanceCard extends AbstractHostCard {
     private void retint() {
         boolean queue = queueToggle.isSelected();
         for (LineRow row : lineRows) {
-            Color tint = queue && row.introducer != null && row.affirmers == null ? QUEUE : row.tint;
+            Color tint = queue && row.introducer != null && !row.has(AnnotationKind.AFFIRMATION) ? QUEUE : row.tint;
             row.node.setBackground(tint == null ? Background.EMPTY : new Background(new BackgroundFill(tint, new CornerRadii(3), Insets.EMPTY)));
         }
     }
 
-    /** One line of the file: tick box, STAMP badge, affirmation mark, text. */
+    /** One annotation of one line: the annotating commit's record and the kind. */
+    private record Note(StampRecord stamp, AnnotationKind kind) { }
+
+    /** One line of the file: tick box, STAMP badge, annotation mark, text. */
     private final class LineRow {
         final int line;
         final StampRecord introducer;
-        final List<StampRecord> affirmers;
+        final List<Note> notes;
         final Color tint;
         final CheckBox tick = new CheckBox();
         final HBox node = new HBox(8);
 
-        LineRow(int line, String text, StampRecord introducer, List<StampRecord> affirmers, Color tint) {
+        LineRow(int line, String text, StampRecord introducer, List<Note> notes, Color tint) {
             this.line = line;
             this.introducer = introducer;
-            this.affirmers = affirmers;
+            this.notes = notes;
             this.tint = tint;
             node.setAlignment(Pos.CENTER_LEFT);
             node.setPadding(new Insets(1, 6, 1, 4));
@@ -437,11 +460,16 @@ public final class StampProvenanceCard extends AbstractHostCard {
             number.setAlignment(Pos.CENTER_RIGHT);
             number.setStyle("-fx-text-fill: #8a8782;");
             Node badge = introducer == null ? new Label() : badge(introducer);
-            Label mark = new Label(affirmers == null ? " " : "✓");
+            // A refutation outranks an affirmation, and either outranks a comment.
+            Label mark = has(AnnotationKind.REFUTATION) ? new Label("✗")
+                    : has(AnnotationKind.AFFIRMATION) ? new Label("✓")
+                    : has(AnnotationKind.COMMENT) ? new Label("…") : new Label(" ");
             mark.setMinWidth(16);
-            mark.setStyle("-fx-text-fill: #2e7d32; -fx-font-weight: bold;");
-            if (affirmers != null) {
-                mark.setTooltip(new Tooltip(affirmationText(affirmers)));
+            mark.setStyle(has(AnnotationKind.REFUTATION) ? "-fx-text-fill: #c62828; -fx-font-weight: bold;"
+                    : has(AnnotationKind.AFFIRMATION) ? "-fx-text-fill: #2e7d32; -fx-font-weight: bold;"
+                    : "-fx-text-fill: #8a8782; -fx-font-weight: bold;");
+            if (notes != null) {
+                mark.setTooltip(new Tooltip(annotationText(notes)));
             }
             Label body = new Label(text.isEmpty() ? " " : text);
             body.setWrapText(true);
@@ -456,8 +484,14 @@ public final class StampProvenanceCard extends AbstractHostCard {
             ImageView view = new ImageView(image);
             view.setPreserveRatio(true);
             view.setFitHeight(image.getHeight() / KonceptBadge.SCALE);
-            Tooltip.install(view, new Tooltip(stampText(r, terms) + (affirmers == null ? "\nNot yet affirmed." : "\n" + affirmationText(affirmers))));
+            Tooltip.install(view, new Tooltip(stampText(r, terms)
+                    + (has(AnnotationKind.AFFIRMATION) ? "" : "\nNot yet affirmed.")
+                    + (notes == null ? "" : "\n" + annotationText(notes))));
             return view;
+        }
+
+        boolean has(AnnotationKind kind) {
+            return notes != null && notes.stream().anyMatch(n -> n.kind() == kind);
         }
     }
 
@@ -478,35 +512,49 @@ public final class StampProvenanceCard extends AbstractHostCard {
                 + "\nIntroduced " + r.introduced().getCardinality() + " line(s)";
     }
 
-    private static String affirmationText(List<StampRecord> affirmers) {
+    private static String annotationText(List<Note> notes) {
         StringBuilder text = new StringBuilder();
-        for (StampRecord a : affirmers) {
+        for (Note n : notes) {
             if (!text.isEmpty()) {
                 text.append('\n');
             }
-            text.append("✓ Affirmed by ").append(a.author().name()).append(" on ").append(MOMENT.format(a.time()))
-                    .append(a.signed() ? ", signed commit " : ", unsigned commit ").append(a.commitSha(), 0, 7);
+            StampRecord a = n.stamp();
+            text.append(switch (n.kind()) {
+                case AFFIRMATION -> "✓ Affirmed";
+                case REFUTATION -> "✗ Refuted";
+                case COMMENT -> "… Commented on";
+            }).append(" by ").append(a.author().name()).append(" on ").append(MOMENT.format(a.time()))
+                    .append(a.signed() ? ", signed commit " : ", unsigned commit ").append(a.commitSha(), 0, 7)
+                    .append(": ").append(a.summary());
         }
         return text.toString();
     }
 
-    // ── affirming ─────────────────────────────────────────────────────────────
+    // ── annotating ────────────────────────────────────────────────────────────
 
-    private void affirmSelected(String headerNote) {
+    /**
+     * Annotates the ticked lines with {@code kind}: folds them into ranges, hashes them over the
+     * committed text, asks for the annotation text and the signing choice, and writes the commit.
+     *
+     * @param kind        the annotation kind
+     * @param headerNote  a line for the dialog header, or {@code null}
+     * @param initialText text to prefill, or {@code null}
+     */
+    private void annotateSelected(AnnotationKind kind, String headerNote, String initialText) {
         if (bridge == null) {
             return;
         }
         List<Integer> selected = lineRows.stream().filter(r -> r.tick.isSelected()).map(r -> r.line).toList();
         if (selected.isEmpty()) {
-            statusLine.setText("Tick the lines you have reviewed, then Affirm Selected.");
+            statusLine.setText("Tick the lines you have reviewed, then choose Affirm, Refute or Comment.");
             return;
         }
-        List<Affirmation> affirmations = new ArrayList<>();
+        List<Annotation> annotations = new ArrayList<>();
         int from = selected.get(0);
         int previous = from;
         for (int i = 1; i <= selected.size(); i++) {
             if (i == selected.size() || selected.get(i) != previous + 1) {
-                affirmations.add(Affirmation.of(relative, from, previous, headRevision, headLines));
+                annotations.add(Annotation.of(kind, LineRange.of(relative, from, previous, headRevision, headLines)));
                 if (i < selected.size()) {
                     from = selected.get(i);
                 }
@@ -515,36 +563,50 @@ public final class StampProvenanceCard extends AbstractHostCard {
                 previous = selected.get(i);
             }
         }
-        String trailers = String.join("\n", affirmations.stream().map(Affirmation::trailer).toList());
+        String trailers = String.join("\n", annotations.stream().map(Annotation::trailer).toList());
+        String noun = selected.size() + " line" + (selected.size() == 1 ? "" : "s");
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
-        confirm.setTitle("Affirm Lines");
+        confirm.setTitle(kind.verb() + " Lines");
         confirm.setHeaderText((headerNote == null ? "" : headerNote + "\n")
-                + "Record your review of " + selected.size() + " line" + (selected.size() == 1 ? "" : "s") + " as an empty commit?");
-        confirm.setContentText(AffirmationCommit.subject(affirmations) + "\n\n" + trailers + "\n\nSigning (-S) gives the affirmation non-repudiation.");
+                + "Record your " + kind.label().toLowerCase() + " of " + noun + " as an empty commit?");
+        TextArea text = new TextArea(initialText == null ? "" : initialText);
+        text.setPromptText(kind == AnnotationKind.REFUTATION ? "Why do you dispute these lines? (required)" : "Annotation text (optional)");
+        text.setWrapText(true);
+        text.setPrefRowCount(4);
+        Label details = new Label(AnnotationCommit.subject(annotations) + "\n\n" + trailers
+                + "\n\nThe text becomes the commit body. Signing (-S) gives the annotation non-repudiation.");
+        details.setWrapText(true);
+        confirm.getDialogPane().setContent(new VBox(8, text, details));
         ButtonType signed = new ButtonType("Signed Commit");
         ButtonType unsigned = new ButtonType("Unsigned Commit");
         confirm.getButtonTypes().setAll(signed, unsigned, ButtonType.CANCEL);
+        if (kind == AnnotationKind.REFUTATION) {                 // a refutation without a reason is weak
+            for (ButtonType type : List.of(signed, unsigned)) {
+                confirm.getDialogPane().lookupButton(type).disableProperty().bind(text.textProperty().isEmpty());
+            }
+        }
         confirm.initOwner(host.getScene() == null ? null : host.getScene().getWindow());
         Optional<ButtonType> choice = confirm.showAndWait();
         if (choice.isEmpty() || choice.get() == ButtonType.CANCEL) {
             return;
         }
         boolean sign = choice.get() == signed;
+        String body = text.getText();
         Path root = repoRoot;
-        statusLine.setText("Writing affirmation commit …");
+        statusLine.setText("Writing annotation commit …");
         CompletableFuture.supplyAsync(() -> {
             try {
-                return AffirmationCommit.write(root, affirmations, sign);
+                return AnnotationCommit.write(root, annotations, body, sign);
             } catch (IOException e) {
-                return new AffirmationCommit.Result(false, "", e.getMessage());
+                return new AnnotationCommit.Result(false, "", e.getMessage());
             }
         }).thenAccept(result -> Platform.runLater(() -> {
             if (result.ok()) {
-                statusLine.setText("Affirmed as commit " + result.sha().substring(0, 7) + "; re-reading.");
+                statusLine.setText(kind.label() + " recorded as commit " + result.sha().substring(0, 7) + "; re-reading.");
                 reload();
             } else {
-                statusLine.setText("Affirmation not written: " + result.output());
-                LOG.warn("Affirmation commit failed in {}: {}", root, result.output());
+                statusLine.setText(kind.label() + " not written: " + result.output());
+                LOG.warn("Annotation commit failed in {}: {}", root, result.output());
             }
         }));
     }

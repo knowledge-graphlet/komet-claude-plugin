@@ -23,6 +23,7 @@ import design.knowledge.stamp.adoc.git.GitRepo;
 import design.knowledge.stamp.adoc.identity.GitIdentityAdapter;
 import design.knowledge.stamp.adoc.identity.Identity;
 import design.knowledge.stamp.adoc.identity.Uuid5;
+import design.knowledge.stamp.adoc.model.AnnotationKind;
 import design.knowledge.stamp.adoc.model.CommitEvent;
 import design.knowledge.stamp.adoc.model.LineId;
 import design.knowledge.stamp.adoc.model.StampHistory;
@@ -64,8 +65,9 @@ import java.util.regex.Pattern;
  * Git to graph ({@code IKE-Network/ike-issues#468}): writes one file's history into the open
  * datastore as the journal-shaped document described in {@link StampedDocumentTerms} — one
  * anchor concept, one prose element per line, one manifest version per commit that changed the
- * file, a git-source version beside it carrying the commit SHA, and an affirmation semantic per
- * {@code Affirms:} trailer — every write STAMPed with the commit's own coordinates through the
+ * file, a git-source version beside it carrying the commit SHA, and an Annotation pattern semantic
+ * per {@code Annotation:} trailer (IKE-Network/ike-issues#1300): its kind, the STAMP of the version
+ * the annotator saw, the annotated lines and the commit body as its text — every write STAMPed with the commit's own coordinates through the
  * identity adapter. Replaying the manifest versions in STAMP time is the file's history.
  *
  * <p>Over the lines it writes the AsciiDoc document model ({@link AsciiDocModelTerms}): each
@@ -78,10 +80,10 @@ import java.util.regex.Pattern;
  * reference is a semantic on the line it occurs in, regenerated whenever the line changes.
  *
  * <p>Identities are deterministic (document, line, manifest, source, block, reference and
- * affirmation ids are all UUID5s of frozen keys) and every STAMP is a complete tuple, so the
+ * annotation ids are all UUID5s of frozen keys, or the trailer's own id when it carries one) and every STAMP is a complete tuple, so the
  * store itself converges: a tuple is one stamp entity and identical versions under it merge to
  * one. On top of that a run skips the commits the store already records — the git-source
- * versions name every materialized commit, and each affirmation semantic exists or not — so a
+ * versions name every materialized commit, and each annotation semantic exists or not — so a
  * later run is incremental. Whether the store is ephemeral or persisted is the datastore's
  * choice, not this class's.
  */
@@ -99,12 +101,12 @@ public final class GitDocumentMaterializer {
      * @param name         the anchor's fully qualified name (topic id when the file declares one, else the path)
      * @param commits      events written by this run (events already in the store are skipped)
      * @param lines        line elements introduced across the history
-     * @param affirmations affirmation semantics written
+     * @param annotations  annotation semantics written
      * @param blocks       block versions written (new blocks and changed ones)
      * @param references   reference versions written
      * @param headSha      the HEAD the history was read from
      */
-    public record Result(PublicId anchor, String name, int commits, int lines, int affirmations, int blocks, int references, String headSha) { }
+    public record Result(PublicId anchor, String name, int commits, int lines, int annotations, int blocks, int references, String headSha) { }
 
     /**
      * Materialize a file's whole first-parent history into the open store.
@@ -148,7 +150,7 @@ public final class GitDocumentMaterializer {
             Map<LineId, String> lastText = new HashMap<>();
             Structure structure = new Structure();
             int lines = 0;
-            int affirmations = 0;
+            int annotations = 0;
             int blocks = 0;
             int references = 0;
             boolean anchorWritten = !StampedDocumentTerms.entityAbsent(anchor);
@@ -156,12 +158,11 @@ public final class GitDocumentMaterializer {
             int skipped = 0;
             for (CommitEvent event : history.events()) {
                 boolean contentRecorded = !event.touchesFile() || recorded.contains(event.commit().sha());
-                List<Semantic> pendingAffirmations = new ArrayList<>();
-                int index = 0;
-                for (CommitEvent.AffirmationEvent ignoredEvent : event.affirmations()) {
-                    Semantic proxy = Semantic.make(PublicIds.of(Uuid5.of(GitIdentityAdapter.NAMESPACE,
-                            "affirmation:" + event.commit().sha() + ":" + index++)));
-                    pendingAffirmations.add(!onlyNew || StampedDocumentTerms.entityAbsent(proxy) ? proxy : null);
+                List<Semantic> pendingAnnotations = new ArrayList<>();
+                for (CommitEvent.AnnotationEvent a : event.annotations()) {
+                    Semantic proxy = Semantic.make(PublicIds.of(a.annotation().id() != null ? a.annotation().id()
+                            : Uuid5.of(GitIdentityAdapter.NAMESPACE, "annotation:" + documentId.key() + ":" + event.commit().sha() + ":" + a.index())));
+                    pendingAnnotations.add(!onlyNew || StampedDocumentTerms.entityAbsent(proxy) ? proxy : null);
                 }
                 for (CommitEvent.Line line : event.introduced()) {
                     lastText.put(line.id(), line.text());
@@ -170,7 +171,7 @@ public final class GitDocumentMaterializer {
                     lastText.put(line.id(), line.text());
                 }
                 Snapshot now = event.touchesFile() ? snapshot(adapter, documentId, event.manifest(), lastText) : null;
-                if (contentRecorded && pendingAffirmations.stream().allMatch(java.util.Objects::isNull)) {
+                if (contentRecorded && pendingAnnotations.stream().allMatch(java.util.Objects::isNull)) {
                     structure.adopt(now);
                     skipped++;
                     continue;                                    // already in the store
@@ -217,18 +218,20 @@ public final class GitDocumentMaterializer {
                         }
                         structure.retired(now, retirements);
                     }
-                    for (int i = 0; i < event.affirmations().size(); i++) {
-                        Semantic proxy = pendingAffirmations.get(i);
+                    for (int i = 0; i < event.annotations().size(); i++) {
+                        Semantic proxy = pendingAnnotations.get(i);
                         if (proxy == null) {
                             continue;                            // already in the store
                         }
-                        CommitEvent.AffirmationEvent a = event.affirmations().get(i);
+                        CommitEvent.AnnotationEvent a = event.annotations().get(i);
                         long[] nids = new long[a.lines().size()];
                         for (int j = 0; j < nids.length; j++) {
                             nids[j] = EntityService.get().nidForPublicId(lineProxy(adapter, a.lines().get(j)).publicId());
                         }
-                        writer.semantic(proxy, StampedDocumentTerms.AFFIRMATION_PATTERN, anchor, LongIds.list.of(nids), a.affirmation().trailer());
-                        affirmations++;
+                        writer.semantic(proxy, StampedDocumentTerms.ANNOTATION_PATTERN, anchor,
+                                StampedDocumentTerms.kind(a.kind()), EntityProxy.make(reviewedStampNid(source, a.reviewedSha())),
+                                LongIds.list.of(nids), a.text());
+                        annotations++;
                     }
                     writer.commit();
                 }
@@ -248,10 +251,38 @@ public final class GitDocumentMaterializer {
                 }
                 structure.adopt(now);
             }
-            LOG.info("Materialized {} as '{}': {} commit(s) written, {} already recorded, {} line(s), {} block version(s), {} reference version(s), {} affirmation(s)",
-                    path, name, history.events().size() - skipped, skipped, lines, blocks, references, affirmations);
-            return new Result(anchor.publicId(), name, history.events().size() - skipped, lines, affirmations, blocks, references, repo.headRevision());
+            LOG.info("Materialized {} as '{}': {} commit(s) written, {} already recorded, {} line(s), {} block version(s), {} reference version(s), {} annotation(s)",
+                    path, name, history.events().size() - skipped, skipped, lines, blocks, references, annotations);
+            return new Result(anchor.publicId(), name, history.events().size() - skipped, lines, annotations, blocks, references, repo.headRevision());
         }
+    }
+
+    /**
+     * The nid of the STAMP the git source was versioned under at {@code sha}: the version the
+     * annotator saw. The walker names the last commit that changed the file at or before the
+     * annotation's anchoring revision, and every such commit wrote a git-source version earlier
+     * in the history; when none matches — an anchor the walk could not place — the latest
+     * source version stands in.
+     */
+    private static long reviewedStampNid(Semantic source, String sha) {
+        Entity<? extends EntityVersion> entity = EntityHandle.get(source.nid()).expectEntity();
+        SemanticEntityVersion latest = null;
+        for (EntityVersion version : entity.versions()) {
+            SemanticEntityVersion v = (SemanticEntityVersion) version;
+            if (v.time() == Long.MAX_VALUE) {
+                continue;
+            }
+            if (sha.equals(String.valueOf(v.fieldValues().get(1)))) {
+                return v.stampNid();
+            }
+            if (latest == null || v.time() > latest.time()) {
+                latest = v;
+            }
+        }
+        if (latest == null) {
+            throw new IllegalStateException("no git-source version to anchor an annotation to");
+        }
+        return latest.stampNid();
     }
 
     // ── structure ─────────────────────────────────────────────────────────────
@@ -402,9 +433,35 @@ public final class GitDocumentMaterializer {
      * @param text       the latest text
      * @param introduced the STAMP of the element's first version
      * @param latest     the STAMP of its latest version (differs after an ignored reflow)
-     * @param affirmers  the STAMPs of the affirmation semantics referencing it
+     * @param annotations the annotations covering it in force: for each annotator, their latest
+     *                    judgment (an affirmation or a refutation), and every comment
      */
-    public record StoredLine(long nid, String text, StampEntity<?> introduced, StampEntity<?> latest, List<StampEntity<?>> affirmers) { }
+    public record StoredLine(long nid, String text, StampEntity<?> introduced, StampEntity<?> latest, List<StoredAnnotation> annotations) {
+
+        /** @return the STAMPs of the affirmations in force */
+        public List<StampEntity<?>> affirmers() {
+            return of(AnnotationKind.AFFIRMATION);
+        }
+
+        /** @return the STAMPs of the refutations in force */
+        public List<StampEntity<?>> refuters() {
+            return of(AnnotationKind.REFUTATION);
+        }
+
+        private List<StampEntity<?>> of(AnnotationKind kind) {
+            return annotations.stream().filter(a -> a.kind() == kind).<StampEntity<?>>map(StoredAnnotation::stamp).toList();
+        }
+    }
+
+    /**
+     * One annotation as read from the store.
+     *
+     * @param kind          the kind
+     * @param stamp         the annotation's own STAMP: who and when
+     * @param reviewedStamp the nid of the STAMP of the version the annotator saw
+     * @param text          the annotation text, possibly empty
+     */
+    public record StoredAnnotation(AnnotationKind kind, StampEntity<?> stamp, long reviewedStamp, String text) { }
 
     /**
      * One structural element as read from the store.
@@ -454,7 +511,7 @@ public final class GitDocumentMaterializer {
 
     /**
      * Rebuild a document from the store: the latest manifest version's order, each line's first
-     * and latest version STAMPs, the affirmations referencing it, and the structure and
+     * and latest version STAMPs, the annotations covering it, and the structure and
      * references over the lines.
      *
      * @param anchor the document anchor id
@@ -472,18 +529,7 @@ public final class GitDocumentMaterializer {
         if (head == null) {
             return Optional.empty();
         }
-        Map<Long, List<StampEntity<?>>> affirmers = new HashMap<>();
-        for (SemanticEntity<SemanticEntityVersion> a : EntityService.get()
-                .semanticsForComponentOfPattern(anchorNid, StampedDocumentTerms.AFFIRMATION_PATTERN.nid()).toList()) {
-            SemanticEntityVersion v = latest(a);
-            if (v == null) {
-                continue;
-            }
-            LongIdList ids = (LongIdList) v.fieldValues().get(0);
-            for (long nid : ids.toArray()) {
-                affirmers.computeIfAbsent(nid, k -> new ArrayList<>()).add(v.stamp());
-            }
-        }
+        Map<Long, List<StoredAnnotation>> annotated = annotationsByElement(anchorNid);
         String commit = "";
         for (SemanticEntity<SemanticEntityVersion> s : EntityService.get()
                 .semanticsForComponentOfPattern(anchorNid, StampedDocumentTerms.GIT_SOURCE_PATTERN.nid()).toList()) {
@@ -518,7 +564,7 @@ public final class GitDocumentMaterializer {
                 continue;
             }
             lines.add(new StoredLine(nid, String.valueOf(last.fieldValues().get(0)), first.stamp(), last.stamp(),
-                    affirmers.getOrDefault(nid, List.of())));
+                    annotated.getOrDefault(nid, List.of())));
         }
         int versions = 0;
         for (SemanticEntityVersion v : manifest.versions()) {
@@ -598,6 +644,46 @@ public final class GitDocumentMaterializer {
                     found.put(StampNames.name(view, anchorNid), anchor.publicId()));
         });
         return found;
+    }
+
+    /**
+     * The annotations on {@code anchorNid} by the element they cover, each list holding, per
+     * annotator (the STAMP author), only their latest judgment, plus every comment, oldest
+     * first. A kind the engine does not know is skipped.
+     */
+    private static Map<Long, List<StoredAnnotation>> annotationsByElement(long anchorNid) {
+        record Seen(StoredAnnotation annotation, long element) { }
+        List<Seen> seen = new ArrayList<>();
+        for (SemanticEntity<SemanticEntityVersion> a : EntityService.get()
+                .semanticsForComponentOfPattern(anchorNid, StampedDocumentTerms.ANNOTATION_PATTERN.nid()).toList()) {
+            SemanticEntityVersion v = latest(a);
+            if (v == null || !v.active()) {
+                continue;
+            }
+            Object kindValue = v.fieldValues().get(0);
+            Optional<AnnotationKind> kind = kindValue instanceof dev.ikm.tinkar.component.Component c
+                    ? AnnotationKind.of(c.publicId().asUuidArray()[0]) : Optional.empty();
+            if (kind.isEmpty()) {
+                continue;
+            }
+            long reviewed = v.fieldValues().get(1) instanceof dev.ikm.tinkar.component.Component c
+                    ? EntityService.get().nidForPublicId(c.publicId()) : 0;
+            StoredAnnotation stored = new StoredAnnotation(kind.get(), v.stamp(), reviewed, String.valueOf(v.fieldValues().get(3)));
+            for (long nid : ((LongIdList) v.fieldValues().get(2)).toArray()) {
+                seen.add(new Seen(stored, nid));
+            }
+        }
+        seen.sort(java.util.Comparator.comparingLong(s -> s.annotation().stamp().time()));
+        Map<Long, List<StoredAnnotation>> byElement = new HashMap<>();
+        for (Seen s : seen) {
+            List<StoredAnnotation> on = byElement.computeIfAbsent(s.element(), k -> new ArrayList<>());
+            StoredAnnotation a = s.annotation();
+            if (a.kind() != AnnotationKind.COMMENT) {            // a later stance by the same annotator replaces the earlier one
+                on.removeIf(o -> o.kind() != AnnotationKind.COMMENT && o.stamp().authorNid() == a.stamp().authorNid());
+            }
+            on.add(a);
+        }
+        return byElement;
     }
 
     private static SemanticEntityVersion latest(SemanticEntity<SemanticEntityVersion> entity) {

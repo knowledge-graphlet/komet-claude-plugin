@@ -46,15 +46,15 @@ public final class GitStampTerms {
     }
 
     /**
-     * Both git-side statuses are active versions in Tinkar terms: an affirmation is a role on
-     * lines, recorded by its own STAMP, not a state of the version it affirms.
+     * Every git-side status is an active version in Tinkar terms: an annotation is a role on
+     * lines, recorded by its own STAMP, never a state of the version it annotates.
      *
      * @param status the git-side status
      * @return the Tinkar state
      */
     public static State state(Status status) {
         return switch (status) {
-            case ACTIVE, AFFIRMED -> State.ACTIVE;
+            case ACTIVE -> State.ACTIVE;
         };
     }
 

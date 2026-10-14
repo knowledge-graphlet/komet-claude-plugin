@@ -16,7 +16,9 @@
 package network.ike.komet.claude.stamp;
 
 import design.knowledge.stamp.adoc.git.GitRepo;
-import design.knowledge.stamp.adoc.model.Affirmation;
+import design.knowledge.stamp.adoc.model.Annotation;
+import design.knowledge.stamp.adoc.model.AnnotationKind;
+import design.knowledge.stamp.adoc.model.LineRange;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -41,9 +43,9 @@ class StampToolsTest {
     void toolsAreNamedAndSchemaed() {
         List<AnthropicTool> tools = StampTools.tools(noCard);
 
-        assertEquals(List.of("stamp_lines", "propose_affirmation"), tools.stream().map(AnthropicTool::name).toList());
+        assertEquals(List.of("stamp_lines", "propose_annotation"), tools.stream().map(AnthropicTool::name).toList());
         assertEquals("object", tools.get(0).inputSchema().get("type"));
-        assertEquals(List.of("ranges"), tools.get(1).inputSchema().get("required"));
+        assertEquals(List.of("kind", "ranges"), tools.get(1).inputSchema().get("required"));
     }
 
     @Test
@@ -53,10 +55,10 @@ class StampToolsTest {
         String out = StampTools.stampLines(noCard).execute(Map.of("file", file.toString()));
 
         assertTrue(out.contains("doc.adoc @ "), out);
-        assertTrue(out.contains("3 lines, 2 STAMPs, 2 lines affirmed, 1 in the review queue"), out);
+        assertTrue(out.contains("3 lines, 2 STAMPs, 2 lines affirmed, 0 refuted, 1 in the review queue"), out);
         assertTrue(out.contains("Rita Reviewer"), out);
         assertTrue(out.contains("affirmed 2-3 (unsigned)"), out);
-        assertTrue(out.contains("Review queue (introduced, affirmed by no one): 1"), out);
+        assertTrue(out.contains("Review queue (introduced, affirmed by no one; refuted lines included): 1"), out);
         assertTrue(out.contains("    2  "), out);
         assertTrue(out.lines().anyMatch(l -> l.startsWith("    2  ") && l.contains("✓") && l.endsWith("two")), out);
         assertTrue(out.lines().anyMatch(l -> l.startsWith("    1  ") && !l.contains("✓") && l.endsWith("one")), out);
@@ -73,18 +75,18 @@ class StampToolsTest {
     }
 
     @Test
-    void proposeAffirmationPreparesTrailersButWritesNothingWithoutACard() throws Exception {
+    void proposeAnnotationPreparesTrailersButWritesNothingWithoutACard() throws Exception {
         Path file = seedRepository();
         String headBefore;
         try (GitRepo repo = GitRepo.open(root)) {
             headBefore = repo.headRevision();
         }
 
-        String out = StampTools.proposeAffirmation(noCard).execute(Map.of("file", file.toString(),
-                "ranges", List.of(Map.of("from", 1, "to", 1)), "note", "read it twice"));
+        String out = StampTools.proposeAnnotation(noCard).execute(Map.of("file", file.toString(), "kind", "affirm",
+                "ranges", List.of(Map.of("from", 1, "to", 1)), "text", "read it twice"));
 
         assertTrue(out.startsWith("Prepared 1 trailer(s) for Affirm doc.adoc 1-1:"), out);
-        assertTrue(out.contains("Affirms: doc.adoc:1-1@" + headBefore.substring(0, 7) + "#"), out);
+        assertTrue(out.contains("Annotation: " + AnnotationKind.AFFIRMATION.ref() + " doc.adoc:1-1@" + headBefore.substring(0, 7) + "#"), out);
         assertTrue(out.contains("No STAMP Provenance card shows this file"), out);
         try (GitRepo repo = GitRepo.open(root)) {
             assertEquals(headBefore, repo.headRevision(), "the tool never commits");
@@ -97,8 +99,12 @@ class StampToolsTest {
 
         assertTrue(StampTools.stampLines(noCard).execute(Map.of()).startsWith("Error: no file given"));
         assertTrue(StampTools.stampLines(noCard).execute(Map.of("file", root.resolve("missing.adoc").toString())).startsWith("Error:"));
-        assertTrue(StampTools.proposeAffirmation(noCard).execute(Map.of("file", file.toString(), "ranges", List.of(Map.of("from", 2, "to", 9))))
-                .startsWith("Error:"));
+        assertTrue(StampTools.proposeAnnotation(noCard).execute(Map.of("file", file.toString(), "kind", "affirm",
+                        "ranges", List.of(Map.of("from", 2, "to", 9)))).startsWith("Error:"));
+        assertTrue(StampTools.proposeAnnotation(noCard).execute(Map.of("file", file.toString(), "kind", "refute",
+                "ranges", List.of(Map.of("from", 1, "to", 1)))).startsWith("Error: a refutation needs text"));
+        assertTrue(StampTools.proposeAnnotation(noCard).execute(Map.of("file", file.toString(), "kind", "doubt",
+                "ranges", List.of(Map.of("from", 1, "to", 1)))).startsWith("Error: kind must be"));
     }
 
     /**
@@ -115,7 +121,7 @@ class StampToolsTest {
         try (GitRepo repo = GitRepo.open(root)) {
             head = repo.headRevision();
         }
-        Affirmation affirmation = Affirmation.of(Path.of("doc.adoc"), 2, 3, head, List.of("one", "two", "three"));
+        Annotation affirmation = Annotation.of(AnnotationKind.AFFIRMATION, LineRange.of(Path.of("doc.adoc"), 2, 3, head, List.of("one", "two", "three")));
         git("-c", "user.name=Rita Reviewer", "-c", "user.email=rita@example.test", "commit", "-q", "--no-gpg-sign", "--allow-empty",
                 "-m", "Affirm doc.adoc 2-3", "--trailer", affirmation.trailer());
         return file;

@@ -59,9 +59,8 @@ class GitStampTermsTest {
     }
 
     @Test
-    void bothGitStatusesAreActiveVersions() {
+    void gitStatusIsAnActiveVersion() {
         assertEquals(State.ACTIVE, GitStampTerms.state(Status.ACTIVE));
-        assertEquals(State.ACTIVE, GitStampTerms.state(Status.AFFIRMED));
     }
 
     @Test

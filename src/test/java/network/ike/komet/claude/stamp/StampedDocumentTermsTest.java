@@ -48,12 +48,26 @@ class StampedDocumentTermsTest {
                 pair(StampedDocumentTerms.GIT_SOURCE, "Git source (IkeFoundation)"),
                 pair(StampedDocumentTerms.SOURCE_PATH, "Source path (IkeFoundation)"),
                 pair(StampedDocumentTerms.SOURCE_COMMIT, "Source commit (IkeFoundation)"),
+                pair(StampedDocumentTerms.ANNOTATION, "Annotation (IkeFoundation)"),
+                pair(StampedDocumentTerms.REVIEWED_PROVENANCE, "Reviewed provenance (IkeFoundation)"),
+                pair(StampedDocumentTerms.ANNOTATION_KIND, "Annotation kind (IkeFoundation)"),
+                pair(StampedDocumentTerms.REVIEWED_VERSION, "Reviewed version (IkeFoundation)"),
+                pair(StampedDocumentTerms.ANNOTATED_ELEMENTS, "Annotated elements (IkeFoundation)"),
+                pair(StampedDocumentTerms.UNCATEGORIZED_COMMENT, "Uncategorized comment (IkeFoundation)"),
+                pair(StampedDocumentTerms.JUDGMENT, "Judgment (IkeFoundation)"),
                 pair(StampedDocumentTerms.AFFIRMATION, "Affirmation (IkeFoundation)"),
-                pair(StampedDocumentTerms.AFFIRMED_LINES, "Affirmed lines (IkeFoundation)"),
-                pair(StampedDocumentTerms.AFFIRMS_TRAILER, "Affirms trailer (IkeFoundation)"),
+                pair(StampedDocumentTerms.REFUTATION, "Refutation (IkeFoundation)"),
                 pair(StampedDocumentTerms.GIT_SOURCE_PATTERN, "Git source pattern (IkeFoundation)"),
-                pair(StampedDocumentTerms.AFFIRMATION_PATTERN, "Affirmation pattern (IkeFoundation)"))) {
+                pair(StampedDocumentTerms.ANNOTATION_PATTERN, "Annotation pattern (IkeFoundation)"))) {
             assertEquals(UuidT5Generator.get(IKE_SET, pair.birthFqn()), pair.proxy().publicId().asUuidArray()[0], pair.birthFqn());
+        }
+    }
+
+    /** The engine names a trailer's kind by the same identity the set declares, so git and graph agree. */
+    @Test
+    void engineKindsAreTheSetsConcepts() {
+        for (design.knowledge.stamp.adoc.model.AnnotationKind kind : design.knowledge.stamp.adoc.model.AnnotationKind.values()) {
+            assertEquals(kind.uuid(), StampedDocumentTerms.kind(kind).publicId().asUuidArray()[0], kind.name());
         }
     }
 

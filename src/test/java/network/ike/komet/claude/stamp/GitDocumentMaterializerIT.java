@@ -23,7 +23,9 @@ import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.terms.State;
 import java.time.Instant;
-import design.knowledge.stamp.adoc.model.Affirmation;
+import design.knowledge.stamp.adoc.model.Annotation;
+import design.knowledge.stamp.adoc.model.AnnotationKind;
+import design.knowledge.stamp.adoc.model.LineRange;
 import design.knowledge.stamp.adoc.model.StampFile;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
@@ -85,7 +87,7 @@ class GitDocumentMaterializerIT {
         assertEquals("anf-demo-topic", first.name(), "the anchor is named by the file's :topic-id:");
         assertEquals(3, first.commits());
         assertEquals(5, first.lines(), "three lines at creation, then a title and an edited middle line");
-        assertEquals(1, first.affirmations());
+        assertEquals(1, first.annotations());
         assertEquals(List.of(":topic-id: anf-demo-topic", "one", "two-b", "three"), stored.lines().stream().map(GitDocumentMaterializer.StoredLine::text).toList());
         assertEquals(2, stored.manifestVersions(), "one manifest version per commit that changed the file");
         try (GitRepo repo = GitRepo.open(root)) {
@@ -103,6 +105,10 @@ class GitDocumentMaterializerIT {
         assertEquals(1, affirmed.affirmers().size(), "the edited middle line was affirmed after the edit");
         assertEquals("Rita Reviewer", affirmed.affirmers().get(0).author().description());
         assertTrue(stored.lines().get(0).affirmers().isEmpty());
+        GitDocumentMaterializer.StoredAnnotation annotation = affirmed.annotations().get(0);
+        assertEquals(AnnotationKind.AFFIRMATION, annotation.kind());
+        assertEquals(affirmed.introduced().nid(), annotation.reviewedStamp(), "the reviewed version is bob's, the one Rita saw");
+        assertEquals("", annotation.text());
 
         GitDocumentMaterializer.Result second = GitDocumentMaterializer.materialize(root, file);
         GitDocumentMaterializer.StoredDocument again = GitDocumentMaterializer.load(second.anchor()).orElseThrow();
@@ -119,6 +125,32 @@ class GitDocumentMaterializerIT {
                 "and the store still converges: a complete STAMP tuple is one stamp, identical versions merge to one");
         assertEquals(stored.lines().stream().map(GitDocumentMaterializer.StoredLine::nid).toList(),
                 again.lines().stream().map(GitDocumentMaterializer.StoredLine::nid).toList(), "identities are deterministic");
+    }
+
+    @Test
+    void aLaterRefutationSupersedesAndCommentsCarryTheirText() throws Exception {
+        // Its own repository: the class shares one store, and seedRepository's commits would
+        // otherwise be recorded there before the first test reads them as new.
+        Path repoRoot = java.nio.file.Files.createDirectories(root.resolve("refutation"));
+        Path file = seedRepository(repoRoot);
+        List<String> content = List.of(":topic-id: anf-demo-topic", "one", "two-b", "three");
+        Annotation refutation = Annotation.of(AnnotationKind.REFUTATION, LineRange.of(Path.of("doc.adoc"), 3, 3, lastContentCommit, content));
+        gitIn(repoRoot, "-c", "user.name=Rita Reviewer", "-c", "user.email=rita@example.test", "commit", "-q", "--no-gpg-sign", "--allow-empty",
+                "--date=2026-01-04T00:00:00Z", "-m", "Refute doc.adoc 3-3", "-m", "Two-b overstates the finding.", "--trailer", refutation.trailer());
+        Annotation comment = Annotation.of(AnnotationKind.COMMENT, LineRange.of(Path.of("doc.adoc"), 3, 4, lastContentCommit, content));
+        gitIn(repoRoot, "-c", "user.name=sam", "-c", "user.email=sam@example.test", "commit", "-q", "--no-gpg-sign", "--allow-empty",
+                "--date=2026-01-05T00:00:00Z", "-m", "Comment on doc.adoc 3-4", "-m", "See the 2025 review.", "--trailer", comment.trailer());
+
+        GitDocumentMaterializer.Result result = GitDocumentMaterializer.materialize(repoRoot, file);
+        GitDocumentMaterializer.StoredDocument stored = GitDocumentMaterializer.load(result.anchor()).orElseThrow();
+
+        assertEquals(3, result.annotations());
+        GitDocumentMaterializer.StoredLine middle = stored.lines().get(2);
+        assertTrue(middle.affirmers().isEmpty(), "Rita's refutation replaces her affirmation");
+        assertEquals(1, middle.refuters().size());
+        assertEquals(List.of(AnnotationKind.REFUTATION, AnnotationKind.COMMENT), middle.annotations().stream().map(GitDocumentMaterializer.StoredAnnotation::kind).toList());
+        assertEquals("Two-b overstates the finding.", middle.annotations().get(0).text());
+        assertEquals("See the 2025 review.", stored.lines().get(3).annotations().get(0).text());
     }
 
     /** alice creates three lines; bob inserts a topic-id line and edits the middle; Rita affirms lines 2–3 of bob's version. */
@@ -265,32 +297,31 @@ class GitDocumentMaterializerIT {
     }
 
     private Path seedRepository() throws Exception {
-        git("init", "-q", "-b", "main");
-        Path file = root.resolve("doc.adoc");
+        return seedRepository(root);
+    }
+
+    private Path seedRepository(Path dir) throws Exception {
+        gitIn(dir, "init", "-q", "-b", "main");
+        Path file = dir.resolve("doc.adoc");
         Files.writeString(file, "one\ntwo\nthree\n");
-        git("add", "doc.adoc");
-        git("-c", "user.name=alice", "-c", "user.email=alice@example.test", "commit", "-q", "--no-gpg-sign", "--date=2026-01-01T00:00:00Z", "-m", "add doc");
+        gitIn(dir, "add", "doc.adoc");
+        gitIn(dir, "-c", "user.name=alice", "-c", "user.email=alice@example.test", "commit", "-q", "--no-gpg-sign", "--date=2026-01-01T00:00:00Z", "-m", "add doc");
         Files.writeString(file, ":topic-id: anf-demo-topic\none\ntwo-b\nthree\n");
-        git("add", "doc.adoc");
-        git("-c", "user.name=bob", "-c", "user.email=bob@example.test", "commit", "-q", "--no-gpg-sign", "--date=2026-01-02T00:00:00Z", "-m", "title and edit");
+        gitIn(dir, "add", "doc.adoc");
+        gitIn(dir, "-c", "user.name=bob", "-c", "user.email=bob@example.test", "commit", "-q", "--no-gpg-sign", "--date=2026-01-02T00:00:00Z", "-m", "title and edit");
         String head;
-        try (GitRepo repo = GitRepo.open(root)) {
+        try (GitRepo repo = GitRepo.open(dir)) {
             head = repo.headRevision();
         }
         lastContentCommit = head;
-        Affirmation affirmation = Affirmation.of(Path.of("doc.adoc"), 3, 3, head, List.of(":topic-id: anf-demo-topic", "one", "two-b", "three"));
-        git("-c", "user.name=Rita Reviewer", "-c", "user.email=rita@example.test", "commit", "-q", "--no-gpg-sign", "--allow-empty",
+        Annotation affirmation = Annotation.of(AnnotationKind.AFFIRMATION,
+                LineRange.of(Path.of("doc.adoc"), 3, 3, head, List.of(":topic-id: anf-demo-topic", "one", "two-b", "three")));
+        gitIn(dir, "-c", "user.name=Rita Reviewer", "-c", "user.email=rita@example.test", "commit", "-q", "--no-gpg-sign", "--allow-empty",
                 "--date=2026-01-03T00:00:00Z", "-m", "Affirm doc.adoc 3-3", "--trailer", affirmation.trailer());
         return file;
     }
 
     private void git(String... args) throws Exception {
-        List<String> command = new java.util.ArrayList<>(List.of("git"));
-        command.addAll(List.of(args));
-        Process p = new ProcessBuilder(command).directory(root.toFile()).redirectErrorStream(true).start();
-        String out = new String(p.getInputStream().readAllBytes());
-        if (p.waitFor() != 0) {
-            throw new IllegalStateException("git " + String.join(" ", args) + " failed: " + out);
-        }
+        gitIn(root, args);
     }
 }

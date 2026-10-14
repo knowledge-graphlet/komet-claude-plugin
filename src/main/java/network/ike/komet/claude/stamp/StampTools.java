@@ -15,9 +15,11 @@
  */
 package network.ike.komet.claude.stamp;
 
-import design.knowledge.stamp.adoc.git.AffirmationCommit;
+import design.knowledge.stamp.adoc.git.AnnotationCommit;
 import design.knowledge.stamp.adoc.git.GitRepo;
-import design.knowledge.stamp.adoc.model.Affirmation;
+import design.knowledge.stamp.adoc.model.Annotation;
+import design.knowledge.stamp.adoc.model.AnnotationKind;
+import design.knowledge.stamp.adoc.model.LineRange;
 import design.knowledge.stamp.adoc.model.StampRecord;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 
@@ -37,12 +39,13 @@ import java.util.function.Supplier;
 
 /**
  * The assistant's provenance tools ({@code IKE-Network/ike-issues#468}), registered beside the
- * graph tools. {@code stamp_lines} answers who introduced and who affirmed the lines of a
- * committed file; {@code propose_affirmation} prepares a concurrence — the hashed
- * {@code Affirms:} trailers — and hands it to the STAMP Provenance card for the person to
- * confirm with a signed commit. The assistant never writes the commit itself: an affirmation
- * is a person's non-repudiable "I concur", signed with their key, and a tool signing it on
- * their behalf would record an act they did not perform.
+ * graph tools. {@code stamp_lines} answers who introduced the lines of a committed file and
+ * who has affirmed, refuted or commented on them; {@code propose_annotation} prepares an
+ * annotation — the hashed {@code Annotation:} trailers and the text — and hands it to the
+ * STAMP Provenance card for the person to confirm with a signed commit
+ * (IKE-Network/ike-issues#1300). The assistant never writes the commit itself: an affirmation
+ * or refutation is a person's non-repudiable statement, signed with their key, and a tool
+ * signing it on their behalf would record an act they did not perform.
  *
  * <p>Both tools default to the file open in the most recent STAMP Provenance card and accept
  * an explicit {@code file}, absolute or relative to that card's repository root.
@@ -62,7 +65,7 @@ public final class StampTools {
      * @return the two provenance tools
      */
     public static List<AnthropicTool> tools(CardLocator card) {
-        return List.of(stampLines(card), proposeAffirmation(card));
+        return List.of(stampLines(card), proposeAnnotation(card));
     }
 
     // ── stamp_lines ───────────────────────────────────────────────────────────
@@ -77,10 +80,11 @@ public final class StampTools {
             @Override
             public String description() {
                 return "Read the STAMP provenance of a committed file in a git repository: for each line, the commit "
-                        + "(STAMP) that introduced it — short SHA, date, author — and who has affirmed it, plus the "
-                        + "file's STAMP list, the lines still in the review queue (introduced but affirmed by no one), "
-                        + "and any affirmation that no longer matches its lines. Call this before answering who "
-                        + "wrote, changed, reviewed or concurred with a passage, or what remains to review. Defaults "
+                        + "(STAMP) that introduced it — short SHA, date, author — and whether anyone has affirmed, "
+                        + "refuted or commented on it, plus the file's STAMP list, the lines still in the review queue "
+                        + "(introduced but affirmed by no one; refuted lines stay in it), and any annotation that no "
+                        + "longer matches its lines. Call this before answering who wrote, changed, reviewed, disputed "
+                        + "or concurred with a passage, or what remains to review. Defaults "
                         + "to the file open in the STAMP Provenance card; pass file to read another. Pass from/to "
                         + "to see a range; without them the first " + DEFAULT_LINE_LIMIT + " lines are listed.";
             }
@@ -112,24 +116,26 @@ public final class StampTools {
         };
     }
 
-    // ── propose_affirmation ───────────────────────────────────────────────────
+    // ── propose_annotation ────────────────────────────────────────────────────
 
-    static AnthropicTool proposeAffirmation(CardLocator card) {
+    static AnthropicTool proposeAnnotation(CardLocator card) {
         return new AnthropicTool() {
             @Override
             public String name() {
-                return "propose_affirmation";
+                return "propose_annotation";
             }
 
             @Override
             public String description() {
-                return "Prepare a concurrence with specific lines of a committed file: compute the Affirms: trailers "
-                        + "(path, line range, anchoring revision, content hash) and hand them to the STAMP Provenance "
+                return "Prepare an annotation of specific lines of a committed file — an affirmation (the person has "
+                        + "reviewed the lines and stands behind them), a refutation (they dispute them, with the reason "
+                        + "as text), or a comment (no stance) — compute the Annotation: trailers (kind, path, line "
+                        + "range, anchoring revision, content hash) and hand them with the text to the STAMP Provenance "
                         + "card, which asks the person to confirm with a signed commit. Nothing is recorded until they "
-                        + "confirm; you cannot and must not affirm on their behalf, because an affirmation is their "
-                        + "signed statement. Use it only when the person asks to affirm, concur with, or sign off "
-                        + "lines they have reviewed, after showing them what the lines say. Ranges are 1-based and "
-                        + "inclusive; lines must be committed (the card shows HEAD).";
+                        + "confirm; you cannot and must not annotate on their behalf, because an annotation is their "
+                        + "signed statement. Use it only when the person asks to affirm, concur with, sign off, "
+                        + "dispute, refute or comment on lines they have reviewed, after showing them what the lines "
+                        + "say. Ranges are 1-based and inclusive; lines must be committed (the card shows HEAD).";
             }
 
             @Override
@@ -137,49 +143,66 @@ public final class StampTools {
                 return obj("type", "object",
                         "properties", obj(
                                 "file", strProp("Path of the committed file, absolute or relative to the open card's repository root. Omit for the card's file."),
+                                "kind", obj("type", "string", "enum", List.of("affirm", "refute", "comment"),
+                                        "description", "affirm: the person stands behind the lines; refute: they dispute them; comment: no stance."),
                                 "ranges", obj("type", "array",
-                                        "description", "The line ranges the person reviewed and concurs with.",
+                                        "description", "The line ranges the person reviewed.",
                                         "items", obj("type", "object",
                                                 "properties", obj("from", intProp("First line, 1-based."), "to", intProp("Last line, inclusive.")),
                                                 "required", List.of("from", "to"))),
-                                "note", strProp("Optional one-line reason the person gave, shown in the confirmation.")),
-                        "required", List.of("ranges"));
+                                "text", strProp("The annotation text in the person's words, which becomes the commit body; required to refute. They can edit it in the confirmation.")),
+                        "required", List.of("kind", "ranges"));
             }
 
             @Override
             public String execute(Map<String, Object> input) {
                 try {
+                    AnnotationKind kind = kind(str(input, "kind"));
+                    String text = str(input, "text");
+                    if (kind == AnnotationKind.REFUTATION && (text == null || text.isBlank())) {
+                        throw new IllegalArgumentException("a refutation needs text: the person's reason for disputing the lines");
+                    }
                     StampProvenanceCard open = card.get();
                     Target target = Target.resolve(open, str(input, "file"));
                     List<int[]> ranges = ranges(input);
-                    List<Affirmation> affirmations = new ArrayList<>();
+                    List<Annotation> annotations = new ArrayList<>();
                     try (GitRepo repo = GitRepo.open(target.root())) {
                         String head = repo.headRevision();
                         List<String> content = repo.headLines(target.relative());
                         for (int[] r : ranges) {
-                            affirmations.add(Affirmation.of(target.relative(), r[0], r[1], head, content));
+                            annotations.add(Annotation.of(kind, LineRange.of(target.relative(), r[0], r[1], head, content)));
                         }
                     }
-                    String trailers = String.join("\n", affirmations.stream().map(Affirmation::trailer).toList());
-                    String note = str(input, "note");
+                    String trailers = String.join("\n", annotations.stream().map(Annotation::trailer).toList());
                     boolean handedOff = open != null && open.showsFile(target.root(), target.relative());
                     if (handedOff) {
-                        open.proposeAffirmation(ranges, note);
+                        open.proposeAnnotation(kind, ranges, text);
                     }
-                    return "Prepared " + affirmations.size() + " trailer(s) for " + AffirmationCommit.subject(affirmations) + ":\n" + trailers
+                    return "Prepared " + annotations.size() + " trailer(s) for " + AnnotationCommit.subject(annotations) + ":\n" + trailers
                             + (handedOff
-                                ? "\n\nThe STAMP Provenance card has ticked these lines and is asking the person to confirm with a "
-                                  + "signed commit. Nothing is recorded until they do; tell them the confirmation is waiting in the card."
+                                ? "\n\nThe STAMP Provenance card has ticked these lines and is asking the person to confirm the "
+                                  + kind.label().toLowerCase() + " with a signed commit. Nothing is recorded until they do; tell "
+                                  + "them the confirmation is waiting in the card."
                                 : "\n\nNo STAMP Provenance card shows this file, so nothing was handed off. Ask the person to open "
                                   + target.relative() + " in a STAMP Provenance card, tick lines "
                                   + ranges.stream().map(r -> r[0] + "-" + r[1]).reduce((a, b) -> a + ", " + b).orElse("")
-                                  + ", and choose Affirm Selected.");
+                                  + ", and choose " + (kind == AnnotationKind.COMMENT ? "Comment" : kind.verb()) + ".");
                 } catch (IllegalArgumentException | IOException e) {
                     return "Error: " + e.getMessage();
                 } catch (RuntimeException e) {
                     return "Error: " + (e.getMessage() == null ? e.toString() : e.getMessage());
                 }
             }
+        };
+    }
+
+    /** The tool's kind word as an annotation kind. */
+    static AnnotationKind kind(String word) {
+        return switch (word == null ? "" : word.strip().toLowerCase(Locale.ROOT)) {
+            case "affirm", "affirmation" -> AnnotationKind.AFFIRMATION;
+            case "refute", "refutation" -> AnnotationKind.REFUTATION;
+            case "comment" -> AnnotationKind.COMMENT;
+            default -> throw new IllegalArgumentException("kind must be affirm, refute or comment, not " + word);
         };
     }
 
@@ -218,7 +241,8 @@ public final class StampTools {
 
     /** One file's provenance, read once and rendered compactly. */
     record Report(Target target, GitStampBridge bridge, String head, String branch, List<String> lines,
-                  StampRecord[] introducer, Map<Integer, List<StampRecord>> affirmers) {
+                  StampRecord[] introducer, Map<Integer, List<StampRecord>> affirmers, Map<Integer, List<StampRecord>> refuters,
+                  Map<Integer, List<StampRecord>> commenters) {
 
         static Report read(Target target) throws IOException {
             GitStampBridge bridge = GitStampBridge.read(target.root(), target.relative());
@@ -226,11 +250,15 @@ public final class StampTools {
                 List<String> lines = repo.headLines(target.relative());
                 StampRecord[] introducer = new StampRecord[lines.size() + 1];
                 Map<Integer, List<StampRecord>> affirmers = new LinkedHashMap<>();
+                Map<Integer, List<StampRecord>> refuters = new LinkedHashMap<>();
+                Map<Integer, List<StampRecord>> commenters = new LinkedHashMap<>();
                 for (StampRecord r : bridge.stamps().stamps().values()) {
                     r.introduced().forEach((int line) -> { if (line < introducer.length) introducer[line] = r; });
                     r.affirmed().forEach((int line) -> affirmers.computeIfAbsent(line, k -> new ArrayList<>()).add(r));
+                    r.refuted().forEach((int line) -> refuters.computeIfAbsent(line, k -> new ArrayList<>()).add(r));
+                    r.commented().forEach((int line) -> commenters.computeIfAbsent(line, k -> new ArrayList<>()).add(r));
                 }
-                return new Report(target, bridge, repo.headRevision(), repo.branch(), lines, introducer, affirmers);
+                return new Report(target, bridge, repo.headRevision(), repo.branch(), lines, introducer, affirmers, refuters, commenters);
             }
         }
 
@@ -242,7 +270,8 @@ public final class StampTools {
             int queued = queue.stream().mapToInt(r -> r[1] - r[0] + 1).sum();
             out.append(target.relative()).append(" @ ").append(head, 0, Math.min(7, head.length())).append(" on ").append(branch)
                     .append(" — ").append(lines.size()).append(" lines, ").append(byTime.size()).append(" STAMPs, ")
-                    .append(affirmers.size()).append(" lines affirmed, ").append(queued).append(" in the review queue\n");
+                    .append(affirmers.size()).append(" lines affirmed, ").append(refuters.size()).append(" refuted, ")
+                    .append(queued).append(" in the review queue\n");
             out.append("STAMPs (newest first):\n");
             for (StampRecord r : byTime) {
                 GitStampTerms.GitStamp terms = bridge.terms().get(r.id());
@@ -250,10 +279,12 @@ public final class StampTools {
                 out.append("  ").append(r.commitSha(), 0, 7).append(' ').append(DAY.format(r.time())).append(' ').append(author)
                         .append(r.introduced().isEmpty() ? "" : "  introduced " + r.introduced().getCardinality() + " line(s) " + ranges(r.introduced()))
                         .append(r.affirmed().isEmpty() ? "" : "  affirmed " + ranges(r.affirmed()) + (r.signed() ? " (signed)" : " (unsigned)"))
+                        .append(r.refuted().isEmpty() ? "" : "  refuted " + ranges(r.refuted()) + (r.signed() ? " (signed)" : " (unsigned)"))
+                        .append(r.commented().isEmpty() ? "" : "  commented on " + ranges(r.commented()))
                         .append("  ").append(r.summary()).append('\n');
             }
             if (!queue.isEmpty()) {
-                out.append("Review queue (introduced, affirmed by no one): ")
+                out.append("Review queue (introduced, affirmed by no one; refuted lines included): ")
                         .append(queue.stream().map(r -> r[0] == r[1] ? Integer.toString(r[0]) : r[0] + "-" + r[1]).reduce((a, b) -> a + ", " + b).orElse(""))
                         .append('\n');
             }
@@ -266,12 +297,12 @@ public final class StampTools {
                 out.append("Line ").append(first).append(" is beyond the file's ").append(lines.size()).append(" lines.\n");
                 return out.toString();
             }
-            out.append("Lines ").append(first).append('-').append(last).append(" (line  stamp  ✓=affirmed  text):\n");
+            out.append("Lines ").append(first).append('-').append(last).append(" (line  stamp  ✗=refuted ✓=affirmed …=commented  text):\n");
             for (int line = first; line <= last; line++) {
                 StampRecord r = introducer[line];
-                List<StampRecord> who = affirmers.get(line);
+                String mark = refuters.containsKey(line) ? "✗" : affirmers.containsKey(line) ? "✓" : commenters.containsKey(line) ? "…" : " ";
                 out.append(String.format(Locale.ROOT, "%5d  %s %s  %s%n", line, r == null ? "       " : r.commitSha().substring(0, 7),
-                        who == null ? " " : "✓", lines.get(line - 1)));
+                        mark, lines.get(line - 1)));
             }
             if (to == null && from == null && last < lines.size()) {
                 out.append("… ").append(lines.size() - last).append(" more line(s); pass from/to to see them.\n");
