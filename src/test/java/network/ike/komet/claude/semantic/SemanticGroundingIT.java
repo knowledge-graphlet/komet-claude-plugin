@@ -15,7 +15,8 @@
  */
 package network.ike.komet.claude.semantic;
 
-import dev.ikm.tinkar.terms.KernelTerm;
+import dev.ikm.tinkar.terms.KernelConcept;
+import dev.ikm.tinkar.terms.KernelPattern;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
@@ -81,18 +82,18 @@ class SemanticGroundingIT {
 
     @Test
     void groundsAConceptAsConcept() {
-        Optional<ComponentSlot.Grounded> grounded = grounder.ground(uuidOf(KernelTerm.ENGLISH_LANGUAGE), null);
+        Optional<ComponentSlot.Grounded> grounded = grounder.ground(uuidOf(KernelConcept.ENGLISH_LANGUAGE), null);
         assertTrue(grounded.isPresent(), "English Language should ground");
         assertEquals(ComponentSlot.Kind.CONCEPT, grounded.get().kind());
-        assertEquals(KernelTerm.ENGLISH_LANGUAGE.nid(), grounded.get().nid());
+        assertEquals(KernelConcept.ENGLISH_LANGUAGE.nid(), grounded.get().nid());
     }
 
     @Test
     void groundsAPatternAsPattern() {
-        Optional<ComponentSlot.Grounded> grounded = grounder.ground(uuidOf(KernelTerm.DESCRIPTION_PATTERN), null);
+        Optional<ComponentSlot.Grounded> grounded = grounder.ground(uuidOf(KernelPattern.DESCRIPTION_PATTERN), null);
         assertTrue(grounded.isPresent(), "Description Pattern should ground");
         assertEquals(ComponentSlot.Kind.PATTERN, grounded.get().kind());
-        assertEquals(KernelTerm.DESCRIPTION_PATTERN.nid(), grounded.get().nid());
+        assertEquals(KernelPattern.DESCRIPTION_PATTERN.nid(), grounded.get().nid());
     }
 
     @Test
@@ -114,8 +115,8 @@ class SemanticGroundingIT {
 
     @Test
     void aConceptOnlyFieldAcceptsAConceptButNotUnderASemanticConstraint() {
-        assertTrue(grounder.ground(uuidOf(KernelTerm.ENGLISH_LANGUAGE), ComponentSlot.Kind.CONCEPT).isPresent());
-        assertTrue(grounder.ground(uuidOf(KernelTerm.ENGLISH_LANGUAGE), ComponentSlot.Kind.SEMANTIC).isEmpty(),
+        assertTrue(grounder.ground(uuidOf(KernelConcept.ENGLISH_LANGUAGE), ComponentSlot.Kind.CONCEPT).isPresent());
+        assertTrue(grounder.ground(uuidOf(KernelConcept.ENGLISH_LANGUAGE), ComponentSlot.Kind.SEMANTIC).isEmpty(),
                 "a concept must not satisfy a semantic-only field");
     }
 
@@ -129,7 +130,7 @@ class SemanticGroundingIT {
     /** The nid of a description semantic on English Language — a stable non-concept component to ground. */
     private static long aDescriptionSemanticNid() {
         Optional<SemanticEntity<SemanticEntityVersion>> description = EntityService.get()
-                .semanticsForComponentOfPattern(KernelTerm.ENGLISH_LANGUAGE.nid(), KernelTerm.DESCRIPTION_PATTERN.nid())
+                .semanticsForComponentOfPattern(KernelConcept.ENGLISH_LANGUAGE.nid(), KernelPattern.DESCRIPTION_PATTERN.nid())
                 .findFirst();
         assertTrue(description.isPresent(), "English Language must carry description semantics");
         return description.get().nid();

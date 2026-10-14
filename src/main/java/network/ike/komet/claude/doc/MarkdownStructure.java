@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.doc;
 
+import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityProxy.Concept;
 import org.commonmark.ext.gfm.tables.TableBlock;
 import org.commonmark.ext.gfm.tables.TableRow;
@@ -64,7 +65,7 @@ public final class MarkdownStructure {
      * @param lastLine   the last line it covers, zero-based, inclusive
      * @param members    its lines and child elements in order
      */
-    public record Element(Concept kind, int level, String title, String parameters,
+    public record Element(ConceptFacade kind, int level, String title, String parameters,
                           int firstLine, int lastLine, List<Member> members) {
     }
 
@@ -240,7 +241,7 @@ public final class MarkdownStructure {
 
     /** A mutable element while its section bounds are still being settled. */
     private static final class Draft {
-        private final Concept kind;
+        private final ConceptFacade kind;
         private final int level;
         private final String title;
         private final String parameters;
@@ -248,7 +249,7 @@ public final class MarkdownStructure {
         private int lastLine;
         private final List<Draft> children = new ArrayList<>();
 
-        private Draft(Concept kind, int level, String title, String parameters, int firstLine, int lastLine) {
+        private Draft(ConceptFacade kind, int level, String title, String parameters, int firstLine, int lastLine) {
             this.kind = kind;
             this.level = level;
             this.title = title;

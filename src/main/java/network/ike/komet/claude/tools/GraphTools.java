@@ -37,7 +37,7 @@ import dev.ikm.tinkar.entity.graph.EntityVertex;
 import dev.ikm.tinkar.provider.grpc.GrpcSearchService;
 import dev.ikm.tinkar.provider.search.Searcher;
 import dev.ikm.tinkar.terms.EntityFacade;
-import dev.ikm.tinkar.terms.KernelTerm;
+import dev.ikm.tinkar.terms.KernelPattern;
 import network.ike.komet.claude.anf.AnfSlot;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.koncept.ComponentText;
@@ -267,13 +267,13 @@ public final class GraphTools {
                     StringBuilder sb = new StringBuilder(nameAndId(v, nid)).append("\n\n");
 
                     List<SemanticEntity<SemanticEntityVersion>> rawInfNav = es.semanticsForComponentOfPattern(
-                            nid, KernelTerm.INFERRED_NAVIGATION_PATTERN.nid()).toList();
+                            nid, KernelPattern.INFERRED_NAVIGATION_PATTERN.nid()).toList();
                     long rawStaNav = es.semanticsForComponentOfPattern(
-                            nid, KernelTerm.STATED_NAVIGATION_PATTERN.nid()).count();
+                            nid, KernelPattern.STATED_NAVIGATION_PATTERN.nid()).count();
                     long rawInfAx = es.semanticsForComponentOfPattern(
-                            nid, KernelTerm.EL_PLUS_PLUS_INFERRED_AXIOMS_PATTERN.nid()).count();
+                            nid, KernelPattern.EL_PLUS_PLUS_INFERRED_AXIOMS_PATTERN.nid()).count();
                     long rawStaAx = es.semanticsForComponentOfPattern(
-                            nid, KernelTerm.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN.nid()).count();
+                            nid, KernelPattern.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN.nid()).count();
                     sb.append("RAW store semantics (no view filter):\n")
                             .append("  inferred-nav: ").append(rawInfNav.size()).append('\n')
                             .append("  stated-nav: ").append(rawStaNav).append('\n')

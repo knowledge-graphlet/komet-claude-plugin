@@ -15,7 +15,7 @@
  */
 package network.ike.komet.claude.authoring;
 
-import dev.ikm.komet.terms.KometTerm;
+import dev.ikm.komet.terms.KometConcept;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
@@ -29,7 +29,8 @@ import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.entity.transaction.Transaction;
 import dev.ikm.tinkar.terms.EntityFacade;
-import dev.ikm.tinkar.terms.KernelTerm;
+import dev.ikm.tinkar.terms.KernelConcept;
+import dev.ikm.tinkar.terms.KernelPattern;
 import javafx.application.Platform;
 import dev.ikm.komet.framework.observable.ObservableComposer;
 import dev.ikm.komet.framework.observable.ObservableSemantic;
@@ -108,8 +109,8 @@ class ConceptProposalWriterIT {
     @Test
     void theWholeProposalIsUncommittedAndOnePublishCommitsAllOfIt() {
         Built built = definition();
-        Draft written = onFx(() -> ConceptProposalWriter.write(view, KernelTerm.USER, KernelTerm.PRIMORDIAL_MODULE,
-                KernelTerm.DEVELOPMENT_PATH, "Proposed language (qualifier value)", built.tree(),
+        Draft written = onFx(() -> ConceptProposalWriter.write(view, KernelConcept.USER, KernelConcept.PRIMORDIAL_MODULE,
+                KernelConcept.DEVELOPMENT_PATH, "Proposed language (qualifier value)", built.tree(),
                 List.of(new Synonym("Proposed tongue", false, false)), "Modelled on English language.", null));
         long concept = written.concept().nid();
 
@@ -118,12 +119,12 @@ class ConceptProposalWriterIT {
         // the stated definition and the note: 2.
         assertEquals(8, written.written());
 
-        List<SemanticEntity<SemanticEntityVersion>> descriptions = semantics(concept, KernelTerm.DESCRIPTION_PATTERN.nid());
+        List<SemanticEntity<SemanticEntityVersion>> descriptions = semantics(concept, KernelPattern.DESCRIPTION_PATTERN.nid());
         Set<String> texts = new HashSet<>();
         for (SemanticEntity<SemanticEntityVersion> description : descriptions) {
             texts.add(String.valueOf(last(description).fieldValues().get(1)));
             List<SemanticEntity<SemanticEntityVersion>> dialects =
-                    semantics(description.nid(), KernelTerm.US_DIALECT_PATTERN.nid());
+                    semantics(description.nid(), KernelPattern.US_DIALECT_PATTERN.nid());
             assertEquals(1, dialects.size(), "each description has its US English acceptability");
         }
         assertEquals(Set.of("Proposed language (qualifier value)", "Proposed language", "Proposed tongue"), texts,
@@ -132,12 +133,12 @@ class ConceptProposalWriterIT {
                 "with no preferred synonym given, the name without its tag is preferred");
         assertFalse(preferredTexts(descriptions).contains("Proposed tongue"));
 
-        DiTreeEntity stored = (DiTreeEntity) last(semantics(concept, KernelTerm.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN.nid())
+        DiTreeEntity stored = (DiTreeEntity) last(semantics(concept, KernelPattern.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN.nid())
                 .getFirst()).fieldValues().getFirst();
-        assertArrayEquals(new long[]{KernelTerm.LANGUAGE.nid()},
+        assertArrayEquals(new long[]{KernelConcept.LANGUAGE.nid()},
                 ConceptDefinition.of(stored).orElseThrow().supertypes(), "the stated definition is the block's");
 
-        String note = String.valueOf(last(semantics(concept, KernelTerm.COMMENT_PATTERN.nid()).getFirst()).fieldValues()
+        String note = String.valueOf(last(semantics(concept, KernelPattern.COMMENT_PATTERN.nid()).getFirst()).fieldValues()
                 .stream().filter(String.class::isInstance).findFirst().orElseThrow());
         assertTrue(note.startsWith("Modelled on English language."), note);
 
@@ -156,18 +157,18 @@ class ConceptProposalWriterIT {
         assertFalse(entity(concept).uncommitted(), "the concept is committed");
         for (SemanticEntity<SemanticEntityVersion> description : descriptions) {
             assertFalse(entity(description.nid()).uncommitted());
-            assertFalse(entity(semantics(description.nid(), KernelTerm.US_DIALECT_PATTERN.nid()).getFirst().nid()).uncommitted(),
+            assertFalse(entity(semantics(description.nid(), KernelPattern.US_DIALECT_PATTERN.nid()).getFirst().nid()).uncommitted(),
                     "a dialect the window does not show is committed with the rest");
         }
     }
 
     @Test
     void aDiscardedProposalIsRolledBackAndAPublishedOneIsLeftAlone() {
-        Draft written = onFx(() -> ConceptProposalWriter.write(view, KernelTerm.USER, KernelTerm.PRIMORDIAL_MODULE,
-                KernelTerm.DEVELOPMENT_PATH, "Discarded language (qualifier value)", definition().tree(), List.of(),
+        Draft written = onFx(() -> ConceptProposalWriter.write(view, KernelConcept.USER, KernelConcept.PRIMORDIAL_MODULE,
+                KernelConcept.DEVELOPMENT_PATH, "Discarded language (qualifier value)", definition().tree(), List.of(),
                 null, null));
         long concept = written.concept().nid();
-        List<SemanticEntity<SemanticEntityVersion>> descriptions = semantics(concept, KernelTerm.DESCRIPTION_PATTERN.nid());
+        List<SemanticEntity<SemanticEntityVersion>> descriptions = semantics(concept, KernelPattern.DESCRIPTION_PATTERN.nid());
 
         assertTrue(onFx(() -> ConceptProposalWriter.discard(written)));
         assertFalse(entity(concept).uncommitted(), "nothing of the proposal is left uncommitted");
@@ -181,8 +182,8 @@ class ConceptProposalWriterIT {
 
     @Test
     void aTextualDefinitionIsWrittenUncommittedAndPublishedWithTheRest() {
-        Draft written = onFx(() -> ConceptProposalWriter.write(view, KernelTerm.USER, KernelTerm.PRIMORDIAL_MODULE,
-                KernelTerm.DEVELOPMENT_PATH, "Defined language (qualifier value)", definition().tree(), List.of(),
+        Draft written = onFx(() -> ConceptProposalWriter.write(view, KernelConcept.USER, KernelConcept.PRIMORDIAL_MODULE,
+                KernelConcept.DEVELOPMENT_PATH, "Defined language (qualifier value)", definition().tree(), List.of(),
                 null, "  A language defined for this test.  "));
         long concept = written.concept().nid();
 
@@ -208,8 +209,8 @@ class ConceptProposalWriterIT {
 
     @Test
     void anEditReplacesTheWrittenVersionsInPlaceAndAnUnchangedOneIsANoOp() {
-        Draft written = onFx(() -> ConceptProposalWriter.write(view, KernelTerm.USER, KernelTerm.PRIMORDIAL_MODULE,
-                KernelTerm.DEVELOPMENT_PATH, "Edited language (qualifier value)", definition().tree(),
+        Draft written = onFx(() -> ConceptProposalWriter.write(view, KernelConcept.USER, KernelConcept.PRIMORDIAL_MODULE,
+                KernelConcept.DEVELOPMENT_PATH, "Edited language (qualifier value)", definition().tree(),
                 List.of(new Synonym("Edited tongue", false, false)), "First rationale.", null));
         long concept = written.concept().nid();
 
@@ -242,8 +243,8 @@ class ConceptProposalWriterIT {
 
     @Test
     void synonymsAreAddedRemovedAndUpdatedKeepingOnePreferred() {
-        Draft written = onFx(() -> ConceptProposalWriter.write(view, KernelTerm.USER, KernelTerm.PRIMORDIAL_MODULE,
-                KernelTerm.DEVELOPMENT_PATH, "Synonymous language (qualifier value)", definition().tree(),
+        Draft written = onFx(() -> ConceptProposalWriter.write(view, KernelConcept.USER, KernelConcept.PRIMORDIAL_MODULE,
+                KernelConcept.DEVELOPMENT_PATH, "Synonymous language (qualifier value)", definition().tree(),
                 List.of(new Synonym("Synonymous tongue", true, false), new Synonym("Old speech", false, false)),
                 null, null));
         long concept = written.concept().nid();
@@ -257,9 +258,9 @@ class ConceptProposalWriterIT {
         assertRefused(IllegalArgumentException.class, () -> onFx(() -> written.edit(synonyms(
                 List.of(new Synonym("Old speech", false, false)), List.of(), List.of()))), "a duplicate is refused");
         assertEquals(before, activeTexts(concept), "a refused edit writes nothing");
-        SemanticEntity<SemanticEntityVersion> withdrawn = semantics(concept, KernelTerm.DESCRIPTION_PATTERN.nid()).stream()
+        SemanticEntity<SemanticEntityVersion> withdrawn = semantics(concept, KernelPattern.DESCRIPTION_PATTERN.nid()).stream()
                 .filter(description -> "Old speech".equals(text(description))).findFirst().orElseThrow();
-        long withdrawnDialect = semantics(withdrawn.nid(), KernelTerm.US_DIALECT_PATTERN.nid()).getFirst().nid();
+        long withdrawnDialect = semantics(withdrawn.nid(), KernelPattern.US_DIALECT_PATTERN.nid()).getFirst().nid();
 
         Edited edited = onFx(() -> written.edit(synonyms(
                 List.of(new Synonym("New speech", true, true)),
@@ -267,7 +268,7 @@ class ConceptProposalWriterIT {
                 List.of(new SynonymChange("Synonymous tongue", false, null)))));
         assertEquals(List.of("synonyms_remove", "synonyms_update", "synonyms_add"), edited.fields());
         assertEquals(Set.of("Synonymous language (qualifier value)", "Synonymous tongue", "New speech"), activeTexts(concept));
-        List<SemanticEntity<SemanticEntityVersion>> active = semantics(concept, KernelTerm.DESCRIPTION_PATTERN.nid()).stream()
+        List<SemanticEntity<SemanticEntityVersion>> active = semantics(concept, KernelPattern.DESCRIPTION_PATTERN.nid()).stream()
                 .filter(description -> !entity(description.nid()).canceled()).toList();
         assertTrue(preferredTexts(active).containsAll(Set.of("New speech", "Synonymous language (qualifier value)")));
         assertFalse(preferredTexts(active).contains("Synonymous tongue"), "the old preferred synonym was demoted");
@@ -292,16 +293,16 @@ class ConceptProposalWriterIT {
 
     @Test
     void aFieldThePersonEditedInTheWindowIsLeftAsTheyLeftIt() {
-        Draft written = onFx(() -> ConceptProposalWriter.write(view, KernelTerm.USER, KernelTerm.PRIMORDIAL_MODULE,
-                KernelTerm.DEVELOPMENT_PATH, "Contested language (qualifier value)", definition().tree(), List.of(),
+        Draft written = onFx(() -> ConceptProposalWriter.write(view, KernelConcept.USER, KernelConcept.PRIMORDIAL_MODULE,
+                KernelConcept.DEVELOPMENT_PATH, "Contested language (qualifier value)", definition().tree(), List.of(),
                 null, "The assistant's definition."));
         long concept = written.concept().nid();
         SemanticEntity<SemanticEntityVersion> definition = definitionDescription(concept);
 
         // The window edits through a composer, and transaction, of its own.
         onFx(() -> {
-            ObservableComposer window = ObservableComposer.create(view, State.ACTIVE, KernelTerm.USER,
-                    KernelTerm.PRIMORDIAL_MODULE, KernelTerm.DEVELOPMENT_PATH, "The window");
+            ObservableComposer window = ObservableComposer.create(view, State.ACTIVE, KernelConcept.USER,
+                    KernelConcept.PRIMORDIAL_MODULE, KernelConcept.DEVELOPMENT_PATH, "The window");
             ObservableComposer.EntityComposer<ObservableSemanticVersion.Editable, ObservableSemantic> editor =
                     window.composeSemantic(definition.publicId(), EntityProxy.make(concept),
                             EntityProxy.Pattern.make(definition.patternNid()));
@@ -337,7 +338,7 @@ class ConceptProposalWriterIT {
     private static Set<Transaction> publishTransactions(long concept) {
         Set<Transaction> transactions = new HashSet<>();
         List<Long> shown = new java.util.ArrayList<>(List.of(concept));
-        semantics(concept, KernelTerm.DESCRIPTION_PATTERN.nid()).forEach(description -> shown.add(description.nid()));
+        semantics(concept, KernelPattern.DESCRIPTION_PATTERN.nid()).forEach(description -> shown.add(description.nid()));
         for (long nid : shown) {
             for (EntityVersion version : entity(nid).versions()) {
                 if (version.uncommitted()) {
@@ -350,9 +351,9 @@ class ConceptProposalWriterIT {
 
     /** The concept's textual definition description, or null. */
     private static SemanticEntity<SemanticEntityVersion> definitionDescription(long concept) {
-        return semantics(concept, KernelTerm.DESCRIPTION_PATTERN.nid()).stream()
+        return semantics(concept, KernelPattern.DESCRIPTION_PATTERN.nid()).stream()
                 .filter(description -> last(description).fieldValues().stream().anyMatch(value ->
-                        value instanceof EntityFacade facade && facade.nid() == KernelTerm.DEFINITION_DESCRIPTION_TYPE.nid()))
+                        value instanceof EntityFacade facade && facade.nid() == KernelConcept.DEFINITION_DESCRIPTION_TYPE.nid()))
                 .findFirst().orElse(null);
     }
 
@@ -368,32 +369,32 @@ class ConceptProposalWriterIT {
     /** The texts of the concept's descriptions not withdrawn. */
     private static Set<String> activeTexts(long concept) {
         Set<String> texts = new HashSet<>();
-        semantics(concept, KernelTerm.DESCRIPTION_PATTERN.nid()).stream()
+        semantics(concept, KernelPattern.DESCRIPTION_PATTERN.nid()).stream()
                 .filter(description -> !entity(description.nid()).canceled())
                 .forEach(description -> texts.add(text(description)));
         return texts;
     }
 
     private static String noteText(long concept) {
-        return String.valueOf(last(semantics(concept, KernelTerm.COMMENT_PATTERN.nid()).getFirst()).fieldValues()
+        return String.valueOf(last(semantics(concept, KernelPattern.COMMENT_PATTERN.nid()).getFirst()).fieldValues()
                 .stream().filter(String.class::isInstance).findFirst().orElseThrow());
     }
 
     private Built definition() {
         return ProposedDefinition.build(ProposedDefinition.parse(
-                "proposed: x\nnecessary\n  " + ComponentText.badge(view, KernelTerm.LANGUAGE.nid()).orElseThrow() + "\n"));
+                "proposed: x\nnecessary\n  " + ComponentText.badge(view, KernelConcept.LANGUAGE.nid()).orElseThrow() + "\n"));
     }
 
     private Set<String> preferredTexts(List<SemanticEntity<SemanticEntityVersion>> descriptions) {
         Set<String> preferred = new HashSet<>();
         for (SemanticEntity<SemanticEntityVersion> description : descriptions) {
-            Object acceptability = last(semantics(description.nid(), KernelTerm.US_DIALECT_PATTERN.nid()).getFirst())
+            Object acceptability = last(semantics(description.nid(), KernelPattern.US_DIALECT_PATTERN.nid()).getFirst())
                     .fieldValues().getFirst();
-            if (acceptability instanceof EntityFacade facade && facade.nid() == KernelTerm.PREFERRED.nid()) {
+            if (acceptability instanceof EntityFacade facade && facade.nid() == KernelConcept.PREFERRED.nid()) {
                 preferred.add(String.valueOf(last(description).fieldValues().get(1)));
             }
             assertTrue(acceptability instanceof EntityFacade facade
-                    && (facade.nid() == KernelTerm.PREFERRED.nid() || facade.nid() == KometTerm.ACCEPTABLE.nid()));
+                    && (facade.nid() == KernelConcept.PREFERRED.nid() || facade.nid() == KometConcept.ACCEPTABLE.nid()));
         }
         return preferred;
     }

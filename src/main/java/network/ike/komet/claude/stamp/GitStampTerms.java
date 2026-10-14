@@ -20,6 +20,7 @@ import design.knowledge.stamp.adoc.identity.Identity;
 import design.knowledge.stamp.adoc.identity.StampCoordinates;
 import design.knowledge.stamp.adoc.model.Status;
 import dev.ikm.tinkar.entity.transaction.StampedWriter;
+import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityProxy.Concept;
 import dev.ikm.tinkar.terms.State;
 
@@ -68,7 +69,7 @@ public final class GitStampTerms {
      * @param module the module concept (repository or Kompendium component)
      * @param path   the path concept (branch)
      */
-    public record GitStamp(Concept stamp, State state, long time, Concept author, Concept module, Concept path) {
+    public record GitStamp(ConceptFacade stamp, State state, long time, ConceptFacade author, ConceptFacade module, ConceptFacade path) {
 
         /**
          * @param coordinates the adapter's coordinates for a STAMP record

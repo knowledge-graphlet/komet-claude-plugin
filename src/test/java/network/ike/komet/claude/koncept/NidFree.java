@@ -15,7 +15,8 @@
  */
 package network.ike.komet.claude.koncept;
 
-import dev.ikm.tinkar.terms.KernelTerm;
+import dev.ikm.tinkar.terms.KernelConcept;
+import dev.ikm.tinkar.terms.KernelPattern;
 import dev.ikm.tinkar.common.id.LongIds;
 import dev.ikm.tinkar.coordinate.Coordinates;
 import dev.ikm.tinkar.coordinate.language.LanguageCoordinateRecord;
@@ -95,10 +96,10 @@ public final class NidFree {
      */
     public static ViewCalculator viewWithNoDescriptions() {
         LanguageCoordinateRecord noDescriptions = LanguageCoordinateRecord.make(
-                KernelTerm.ENGLISH_LANGUAGE.nid(),
-                LongIds.list.of(KernelTerm.COMMENT_PATTERN.nid()),
-                LongIds.list.of(KernelTerm.REGULAR_NAME_DESCRIPTION_TYPE.nid(),
-                        KernelTerm.FULLY_QUALIFIED_NAME_DESCRIPTION_TYPE.nid()),
+                KernelConcept.ENGLISH_LANGUAGE.nid(),
+                LongIds.list.of(KernelPattern.COMMENT_PATTERN.nid()),
+                LongIds.list.of(KernelConcept.REGULAR_NAME_DESCRIPTION_TYPE.nid(),
+                        KernelConcept.FULLY_QUALIFIED_NAME_DESCRIPTION_TYPE.nid()),
                 LongIds.list.empty(),
                 LongIds.list.empty());
         ViewCoordinateRecord coordinate = ViewCoordinateRecord.make(

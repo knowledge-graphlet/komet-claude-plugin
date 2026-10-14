@@ -21,7 +21,7 @@ import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.entity.graph.EntityVertex;
 import dev.ikm.tinkar.terms.ConceptFacade;
-import dev.ikm.tinkar.terms.KernelTerm;
+import dev.ikm.tinkar.terms.KernelConcept;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -72,7 +72,7 @@ public record ConceptDefinition(boolean defined,
      * @return the flattened definition, or empty if the tree has no content
      */
     public static Optional<ConceptDefinition> of(DiTreeEntity tree) {
-        boolean defined = tree.containsVertexWithMeaning(KernelTerm.SUFFICIENT_SET);
+        boolean defined = tree.containsVertexWithMeaning(KernelConcept.SUFFICIENT_SET);
 
         Set<Long> supertypes = new LinkedHashSet<>();
         List<Role> ungrouped = new ArrayList<>();
@@ -80,19 +80,19 @@ public record ConceptDefinition(boolean defined,
 
         for (EntityVertex set : conjuncts(tree, tree.root())) {
             long meaning = set.getMeaningNid();
-            if (meaning != KernelTerm.NECESSARY_SET.nid() && meaning != KernelTerm.SUFFICIENT_SET.nid()) {
+            if (meaning != KernelConcept.NECESSARY_SET.nid() && meaning != KernelConcept.SUFFICIENT_SET.nid()) {
                 continue;
             }
             for (EntityVertex conjunct : conjuncts(tree, set)) {
                 long cm = conjunct.getMeaningNid();
-                if (cm == KernelTerm.CONCEPT_REFERENCE.nid()) {
+                if (cm == KernelConcept.CONCEPT_REFERENCE.nid()) {
                     supertypes.add(conceptNidOf(conjunct));
-                } else if (cm == KernelTerm.ROLE.nid()) {
-                    ConceptFacade roleType = conjunct.propertyFast(KernelTerm.ROLE_TYPE);
-                    if (roleType.nid() == KernelTerm.ROLE_GROUP.nid()) {
+                } else if (cm == KernelConcept.ROLE.nid()) {
+                    ConceptFacade roleType = conjunct.propertyFast(KernelConcept.ROLE_TYPE);
+                    if (roleType.nid() == KernelConcept.ROLE_GROUP.nid()) {
                         List<Role> group = new ArrayList<>();
                         for (EntityVertex member : conjuncts(tree, conjunct)) {
-                            if (member.getMeaningNid() == KernelTerm.ROLE.nid()) {
+                            if (member.getMeaningNid() == KernelConcept.ROLE.nid()) {
                                 role(tree, member).ifPresent(group::add);
                             }
                         }
@@ -117,7 +117,7 @@ public record ConceptDefinition(boolean defined,
     private static List<EntityVertex> conjuncts(DiTreeEntity tree, EntityVertex vertex) {
         List<EntityVertex> out = new ArrayList<>();
         for (EntityVertex child : tree.successors(vertex)) {
-            if (child.getMeaningNid() == KernelTerm.AND.nid()) {
+            if (child.getMeaningNid() == KernelConcept.AND.nid()) {
                 for (EntityVertex grandchild : tree.successors(child)) {
                     out.add(grandchild);
                 }
@@ -130,9 +130,9 @@ public record ConceptDefinition(boolean defined,
 
     /** A role vertex as {@code attribute → value} (the value is its first concept filler). */
     private static Optional<Role> role(DiTreeEntity tree, EntityVertex roleVertex) {
-        ConceptFacade attribute = roleVertex.propertyFast(KernelTerm.ROLE_TYPE);
+        ConceptFacade attribute = roleVertex.propertyFast(KernelConcept.ROLE_TYPE);
         for (EntityVertex filler : conjuncts(tree, roleVertex)) {
-            if (filler.getMeaningNid() == KernelTerm.CONCEPT_REFERENCE.nid()) {
+            if (filler.getMeaningNid() == KernelConcept.CONCEPT_REFERENCE.nid()) {
                 return Optional.of(new Role(attribute.nid(), conceptNidOf(filler)));
             }
         }
@@ -140,7 +140,7 @@ public record ConceptDefinition(boolean defined,
     }
 
     private static long conceptNidOf(EntityVertex conceptVertex) {
-        ConceptFacade concept = conceptVertex.propertyFast(KernelTerm.CONCEPT_REFERENCE);
+        ConceptFacade concept = conceptVertex.propertyFast(KernelConcept.CONCEPT_REFERENCE);
         return concept.nid();
     }
 }

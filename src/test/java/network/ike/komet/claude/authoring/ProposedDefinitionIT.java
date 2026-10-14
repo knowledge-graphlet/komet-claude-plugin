@@ -20,7 +20,7 @@ import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.terms.EntityFacade;
-import dev.ikm.tinkar.terms.KernelTerm;
+import dev.ikm.tinkar.terms.KernelConcept;
 import network.ike.komet.claude.koncept.ComponentText;
 import network.ike.komet.claude.koncept.ConceptDefinition;
 import network.ike.komet.claude.koncept.ConceptDefinition.Role;
@@ -80,11 +80,11 @@ class ProposedDefinitionIT {
     void aProposalBuildsTheTreeAStoredDefinitionWouldHave() {
         String block = "proposed: A proposed language\n"
                 + "necessary\n"
-                + "  " + token(KernelTerm.LANGUAGE) + "\n"
-                + "  " + token(KernelTerm.ROLE_TYPE) + " = " + token(KernelTerm.ENGLISH_LANGUAGE) + "\n"
+                + "  " + token(KernelConcept.LANGUAGE) + "\n"
+                + "  " + token(KernelConcept.ROLE_TYPE) + " = " + token(KernelConcept.ENGLISH_LANGUAGE) + "\n"
                 + "  group\n"
-                + "    " + token(KernelTerm.DESCRIPTION_TYPE) + " = " + token(KernelTerm.REGULAR_NAME_DESCRIPTION_TYPE) + "\n"
-                + "    " + token(KernelTerm.LANGUAGE_CONCEPT_NID_FOR_DESCRIPTION) + " = " + token(KernelTerm.ENGLISH_LANGUAGE) + "\n"
+                + "    " + token(KernelConcept.DESCRIPTION_TYPE) + " = " + token(KernelConcept.REGULAR_NAME_DESCRIPTION_TYPE) + "\n"
+                + "    " + token(KernelConcept.LANGUAGE_CONCEPT_NID_FOR_DESCRIPTION) + " = " + token(KernelConcept.ENGLISH_LANGUAGE) + "\n"
                 + "gap: nothing names this yet\n";
 
         Built built = ProposedDefinition.build(ProposedDefinition.parse(block));
@@ -93,23 +93,23 @@ class ProposedDefinitionIT {
         assertEquals(List.of("nothing names this yet"), built.gaps());
         ConceptDefinition definition = ConceptDefinition.of(built.tree()).orElseThrow();
         assertFalse(definition.defined(), "a necessary set is primitive");
-        assertArrayEquals(new long[]{KernelTerm.LANGUAGE.nid()}, definition.supertypes());
-        assertEquals(List.of(new Role(KernelTerm.ROLE_TYPE.nid(), KernelTerm.ENGLISH_LANGUAGE.nid())),
+        assertArrayEquals(new long[]{KernelConcept.LANGUAGE.nid()}, definition.supertypes());
+        assertEquals(List.of(new Role(KernelConcept.ROLE_TYPE.nid(), KernelConcept.ENGLISH_LANGUAGE.nid())),
                 definition.ungroupedRoles());
         assertEquals(List.of(List.of(
-                new Role(KernelTerm.DESCRIPTION_TYPE.nid(), KernelTerm.REGULAR_NAME_DESCRIPTION_TYPE.nid()),
-                new Role(KernelTerm.LANGUAGE_CONCEPT_NID_FOR_DESCRIPTION.nid(), KernelTerm.ENGLISH_LANGUAGE.nid()))),
+                new Role(KernelConcept.DESCRIPTION_TYPE.nid(), KernelConcept.REGULAR_NAME_DESCRIPTION_TYPE.nid()),
+                new Role(KernelConcept.LANGUAGE_CONCEPT_NID_FOR_DESCRIPTION.nid(), KernelConcept.ENGLISH_LANGUAGE.nid()))),
                 definition.roleGroups());
 
         String text = DefinitionText.tree(built.tree(), view);
-        assertTrue(text.contains(ComponentText.identified(view, KernelTerm.LANGUAGE.nid())),
+        assertTrue(text.contains(ComponentText.identified(view, KernelConcept.LANGUAGE.nid())),
                 "the proposal reads as a stored definition does:\n" + text);
     }
 
     @Test
     void aSufficientSetIsADefinedDefinition() {
         Built built = ProposedDefinition.build(ProposedDefinition.parse(
-                "sufficient\n  " + token(KernelTerm.LANGUAGE) + "\n"));
+                "sufficient\n  " + token(KernelConcept.LANGUAGE) + "\n"));
 
         assertTrue(ConceptDefinition.of(built.tree()).orElseThrow().defined());
     }
@@ -117,15 +117,15 @@ class ProposedDefinitionIT {
     @Test
     void anIdentifierTheStoreDoesNotHoldIsAGapAndNotANode() {
         String block = "necessary\n"
-                + "  " + token(KernelTerm.LANGUAGE) + "\n"
+                + "  " + token(KernelConcept.LANGUAGE) + "\n"
                 + "  " + ABSENT.replace("filler", "parent") + "\n"
                 + "  group\n"
-                + "    " + token(KernelTerm.DESCRIPTION_TYPE) + " = " + ABSENT + "\n";
+                + "    " + token(KernelConcept.DESCRIPTION_TYPE) + " = " + ABSENT + "\n";
 
         Built built = ProposedDefinition.build(ProposedDefinition.parse(block));
 
         ConceptDefinition definition = ConceptDefinition.of(built.tree()).orElseThrow();
-        assertArrayEquals(new long[]{KernelTerm.LANGUAGE.nid()}, definition.supertypes(),
+        assertArrayEquals(new long[]{KernelConcept.LANGUAGE.nid()}, definition.supertypes(),
                 "the unresolved supertype is left out");
         assertTrue(definition.roleGroups().isEmpty(), "a group whose every role is a gap is left out");
         assertEquals(2, built.gaps().size(), "one gap per part left out: " + built.gaps());

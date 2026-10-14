@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.doc;
 
+import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityProxy.Concept;
 import network.ike.komet.claude.doc.MarkdownStructure.Child;
 import network.ike.komet.claude.doc.MarkdownStructure.Element;
@@ -90,7 +91,7 @@ class MarkdownStructureTest {
                 "header row, the delimiter line the table owns, a body row");
     }
 
-    private static Concept kind(Member member) {
+    private static ConceptFacade kind(Member member) {
         return member instanceof Child child ? child.element().kind() : null;
     }
 

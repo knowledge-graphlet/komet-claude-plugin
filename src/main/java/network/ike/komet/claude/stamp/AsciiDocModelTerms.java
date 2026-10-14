@@ -17,11 +17,14 @@ package network.ike.komet.claude.stamp;
 
 import design.knowledge.stamp.adoc.dialect.Block;
 import design.knowledge.stamp.adoc.dialect.Reference;
-import dev.ikm.komet.terms.KometTerm;
+import dev.ikm.komet.terms.KometConcept;
 import dev.ikm.tinkar.entity.transaction.StampedWriter;
+import dev.ikm.tinkar.terms.EntityFacade;
+import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityProxy.Concept;
 import dev.ikm.tinkar.terms.EntityProxy.Pattern;
-import dev.ikm.tinkar.terms.KernelTerm;
+import dev.ikm.tinkar.terms.KernelConcept;
+import dev.ikm.tinkar.terms.PatternFacade;
 import dev.ikm.tinkar.terms.State;
 import network.ike.komet.claude.doc.DocumentModelTerms;
 import org.slf4j.Logger;
@@ -119,7 +122,7 @@ public final class AsciiDocModelTerms {
     public static final List<String> TOPIC_ATTRIBUTES = List.of("topic-id", "topic-type", "topic-status", "topic-keywords",
             "topic-scope-note", "topic-license", "topic-citation", "topic-provenance");
 
-    private static final Map<Block.Kind, Concept> KINDS = Map.ofEntries(
+    private static final Map<Block.Kind, ConceptFacade> KINDS = Map.ofEntries(
             Map.entry(Block.Kind.DOCUMENT, DOCUMENT), Map.entry(Block.Kind.SECTION, DocumentModelTerms.SECTION),
             Map.entry(Block.Kind.PARAGRAPH, DocumentModelTerms.PARAGRAPH), Map.entry(Block.Kind.LISTING, DocumentModelTerms.LISTING),
             Map.entry(Block.Kind.LITERAL, LITERAL), Map.entry(Block.Kind.EXAMPLE, EXAMPLE),
@@ -131,7 +134,7 @@ public final class AsciiDocModelTerms {
             Map.entry(Block.Kind.IMAGE, DocumentModelTerms.IMAGE), Map.entry(Block.Kind.BIBLIOGRAPHY_ENTRY, BIBLIOGRAPHY_ENTRY),
             Map.entry(Block.Kind.OPAQUE, DocumentModelTerms.OPAQUE));
 
-    private static final Map<Reference.Kind, Pattern> REFERENCE_PATTERNS = Map.of(
+    private static final Map<Reference.Kind, PatternFacade> REFERENCE_PATTERNS = Map.of(
             Reference.Kind.INDEX_TERM, INDEX_TERM_REFERENCE_PATTERN,
             Reference.Kind.CROSS_REFERENCE, CROSS_REFERENCE_PATTERN,
             Reference.Kind.CITATION, CITATION_PATTERN,
@@ -144,13 +147,13 @@ public final class AsciiDocModelTerms {
     private AsciiDocModelTerms() { }
 
     /** @return the concept standing for a parsed block kind */
-    public static Concept kind(Block.Kind kind) {
+    public static ConceptFacade kind(Block.Kind kind) {
         return KINDS.get(kind);
     }
 
     /** @return the parsed block kind a kind concept stands for, or empty when the concept is none of them */
     public static java.util.Optional<Block.Kind> kindOf(dev.ikm.tinkar.common.id.PublicId concept) {
-        for (Map.Entry<Block.Kind, Concept> e : KINDS.entrySet()) {
+        for (Map.Entry<Block.Kind, ConceptFacade> e : KINDS.entrySet()) {
             if (e.getValue().publicId().equals(concept)) {
                 return java.util.Optional.of(e.getKey());
             }
@@ -159,7 +162,7 @@ public final class AsciiDocModelTerms {
     }
 
     /** @return the pattern a reference of that kind instantiates */
-    public static Pattern referencePattern(Reference.Kind kind) {
+    public static PatternFacade referencePattern(Reference.Kind kind) {
         return REFERENCE_PATTERNS.get(kind);
     }
 
@@ -190,7 +193,7 @@ public final class AsciiDocModelTerms {
     public static synchronized void bootstrapIfAbsent() {
         DocumentModelTerms.bootstrapIfAbsent();
         StampedDocumentTerms.bootstrapIfAbsent();
-        for (Concept c : new Concept[] {ELEMENT, LITERAL, EXAMPLE, SIDEBAR, OPEN,
+        for (ConceptFacade c : new Concept[] {ELEMENT, LITERAL, EXAMPLE, SIDEBAR, OPEN,
                 ADMONITION, DIAGRAM, BIBLIOGRAPHY_ENTRY,
                 INLINE_REFERENCE, INDEX_TERM_REFERENCE, CROSS_REFERENCE, CITATION, FOOTNOTE, LINK, ESTIMATE_MARK,
                 COMPOSITION, INCLUDE, CONDITIONAL,
@@ -201,58 +204,58 @@ public final class AsciiDocModelTerms {
             seedConceptIfAbsent(c);
         }
         seedPattern(DOCUMENT_ATTRIBUTES_PATTERN, DOCUMENT, DocumentModelTerms.STRUCTURE,
-                StampedWriter.field(DOCUMENT_TITLE, DocumentModelTerms.STRUCTURE, KernelTerm.STRING),
-                StampedWriter.field(TOPIC_ID, DocumentModelTerms.STRUCTURE, KernelTerm.STRING),
-                StampedWriter.field(TOPIC_TYPE, DocumentModelTerms.STRUCTURE, KernelTerm.STRING),
-                StampedWriter.field(TOPIC_STATUS, DocumentModelTerms.STRUCTURE, KernelTerm.STRING),
-                StampedWriter.field(TOPIC_KEYWORDS, DocumentModelTerms.STRUCTURE, KernelTerm.STRING),
-                StampedWriter.field(TOPIC_SCOPE_NOTE, DocumentModelTerms.STRUCTURE, KernelTerm.STRING),
-                StampedWriter.field(TOPIC_LICENSE, DocumentModelTerms.STRUCTURE, KernelTerm.STRING),
-                StampedWriter.field(TOPIC_CITATION, DocumentModelTerms.STRUCTURE, KernelTerm.STRING),
-                StampedWriter.field(TOPIC_PROVENANCE, DocumentModelTerms.STRUCTURE, KernelTerm.STRING));
+                StampedWriter.field(DOCUMENT_TITLE, DocumentModelTerms.STRUCTURE, KernelConcept.STRING),
+                StampedWriter.field(TOPIC_ID, DocumentModelTerms.STRUCTURE, KernelConcept.STRING),
+                StampedWriter.field(TOPIC_TYPE, DocumentModelTerms.STRUCTURE, KernelConcept.STRING),
+                StampedWriter.field(TOPIC_STATUS, DocumentModelTerms.STRUCTURE, KernelConcept.STRING),
+                StampedWriter.field(TOPIC_KEYWORDS, DocumentModelTerms.STRUCTURE, KernelConcept.STRING),
+                StampedWriter.field(TOPIC_SCOPE_NOTE, DocumentModelTerms.STRUCTURE, KernelConcept.STRING),
+                StampedWriter.field(TOPIC_LICENSE, DocumentModelTerms.STRUCTURE, KernelConcept.STRING),
+                StampedWriter.field(TOPIC_CITATION, DocumentModelTerms.STRUCTURE, KernelConcept.STRING),
+                StampedWriter.field(TOPIC_PROVENANCE, DocumentModelTerms.STRUCTURE, KernelConcept.STRING));
         seedPattern(INDEX_TERM_REFERENCE_PATTERN, INDEX_TERM_REFERENCE, REFERENCE,
-                StampedWriter.field(TERM_TEXT, REFERENCE, KernelTerm.STRING),
-                StampedWriter.field(REFERENCED_CONCEPT, REFERENCE, KernelTerm.COMPONENT_FIELD));
+                StampedWriter.field(TERM_TEXT, REFERENCE, KernelConcept.STRING),
+                StampedWriter.field(REFERENCED_CONCEPT, REFERENCE, KernelConcept.COMPONENT_FIELD));
         seedPattern(CROSS_REFERENCE_PATTERN, CROSS_REFERENCE, REFERENCE,
-                StampedWriter.field(REFERENCE_TARGET, REFERENCE, KernelTerm.STRING),
-                StampedWriter.field(REFERENCE_TEXT, REFERENCE, KernelTerm.STRING));
+                StampedWriter.field(REFERENCE_TARGET, REFERENCE, KernelConcept.STRING),
+                StampedWriter.field(REFERENCE_TEXT, REFERENCE, KernelConcept.STRING));
         seedPattern(CITATION_PATTERN, CITATION, REFERENCE,
-                StampedWriter.field(CITATION_KEY, REFERENCE, KernelTerm.STRING),
-                StampedWriter.field(REFERENCED_ENTRY, REFERENCE, KernelTerm.COMPONENT_FIELD));
+                StampedWriter.field(CITATION_KEY, REFERENCE, KernelConcept.STRING),
+                StampedWriter.field(REFERENCED_ENTRY, REFERENCE, KernelConcept.COMPONENT_FIELD));
         seedPattern(FOOTNOTE_PATTERN, FOOTNOTE, REFERENCE,
-                StampedWriter.field(FOOTNOTE_TEXT, REFERENCE, KernelTerm.STRING));
+                StampedWriter.field(FOOTNOTE_TEXT, REFERENCE, KernelConcept.STRING));
         seedPattern(LINK_PATTERN, LINK, REFERENCE,
-                StampedWriter.field(REFERENCE_TARGET, REFERENCE, KernelTerm.STRING),
-                StampedWriter.field(REFERENCE_TEXT, REFERENCE, KernelTerm.STRING));
+                StampedWriter.field(REFERENCE_TARGET, REFERENCE, KernelConcept.STRING),
+                StampedWriter.field(REFERENCE_TEXT, REFERENCE, KernelConcept.STRING));
         seedPattern(ESTIMATE_MARK_PATTERN, ESTIMATE_MARK, REFERENCE,
-                StampedWriter.field(FOOTNOTE_TEXT, REFERENCE, KernelTerm.STRING));
+                StampedWriter.field(FOOTNOTE_TEXT, REFERENCE, KernelConcept.STRING));
         seedPattern(INCLUDE_PATTERN, INCLUDE, REFERENCE,
-                StampedWriter.field(REFERENCE_TARGET, REFERENCE, KernelTerm.STRING),
-                StampedWriter.field(DocumentModelTerms.PARAMETERS, REFERENCE, KernelTerm.STRING));
+                StampedWriter.field(REFERENCE_TARGET, REFERENCE, KernelConcept.STRING),
+                StampedWriter.field(DocumentModelTerms.PARAMETERS, REFERENCE, KernelConcept.STRING));
         seedPattern(CONDITIONAL_PATTERN, CONDITIONAL, REFERENCE,
-                StampedWriter.field(ATTRIBUTE_NAME, REFERENCE, KernelTerm.STRING),
-                StampedWriter.field(NEGATED, REFERENCE, KernelTerm.BOOLEAN_FIELD));
+                StampedWriter.field(ATTRIBUTE_NAME, REFERENCE, KernelConcept.STRING),
+                StampedWriter.field(NEGATED, REFERENCE, KernelConcept.BOOLEAN_FIELD));
     }
 
-    private static void seedPattern(Pattern pattern, Concept meaning, Concept purpose, StampedWriter.Field... fields) {
+    private static void seedPattern(PatternFacade pattern, ConceptFacade meaning, ConceptFacade purpose, StampedWriter.Field... fields) {
         if (!StampedDocumentTerms.entityAbsent(pattern)) {
             return;
         }
         try (StampedWriter writer = vocabularyWriter()) {
-            writer.pattern(pattern, meaning, purpose, fields);
-            writer.fullyQualifiedName(pattern, pattern.description() + " (IkeFoundation)");
+            writer.pattern(pattern.publicId(), meaning, purpose, fields);
+            writer.fullyQualifiedName(pattern.publicId(), pattern.description() + " (IkeFoundation)");
             writer.commit();
         }
         LOG.info("Seeded '{}'", pattern.description());
     }
 
-    private static void seedConceptIfAbsent(Concept concept) {
+    private static void seedConceptIfAbsent(ConceptFacade concept) {
         if (!StampedDocumentTerms.entityAbsent(concept)) {
             return;
         }
         try (StampedWriter writer = vocabularyWriter()) {
-            writer.concept(concept);
-            writer.fullyQualifiedName(concept, concept.description() + " (IkeFoundation)");
+            writer.concept(concept.publicId());
+            writer.fullyQualifiedName(concept.publicId(), concept.description() + " (IkeFoundation)");
             writer.commit();
         }
         LOG.info("Seeded AsciiDoc model concept '{}'", concept.description());
@@ -260,6 +263,6 @@ public final class AsciiDocModelTerms {
 
     private static StampedWriter vocabularyWriter() {
         return StampedWriter.open("asciidoc-model-vocabulary-seed", State.ACTIVE, System.currentTimeMillis(),
-                KernelTerm.USER, KometTerm.DEVELOPMENT_MODULE, KernelTerm.DEVELOPMENT_PATH);
+                KernelConcept.USER, KometConcept.DEVELOPMENT_MODULE, KernelConcept.DEVELOPMENT_PATH);
     }
 }

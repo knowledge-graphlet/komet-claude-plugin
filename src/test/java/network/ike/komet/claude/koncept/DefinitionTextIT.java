@@ -15,8 +15,8 @@
  */
 package network.ike.komet.claude.koncept;
 
-import dev.ikm.komet.terms.KometTerm;
-import dev.ikm.tinkar.terms.KernelTerm;
+import dev.ikm.tinkar.terms.KernelConcept;
+import dev.ikm.komet.terms.KometConcept;
 import dev.ikm.tinkar.common.id.LongIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
@@ -55,8 +55,8 @@ class DefinitionTextIT {
 
     /** Concepts of the starter data whose stated and inferred definitions are rendered. */
     private static final List<EntityFacade> DEFINED = List.of(
-            KernelTerm.ENGLISH_LANGUAGE, KernelTerm.LANGUAGE, KometTerm.PART_OF,
-            KernelTerm.ROLE_TYPE, KernelTerm.NECESSARY_SET, KernelTerm.DESCRIPTION_TYPE);
+            KernelConcept.ENGLISH_LANGUAGE, KernelConcept.LANGUAGE, KometConcept.PART_OF,
+            KernelConcept.ROLE_TYPE, KernelConcept.NECESSARY_SET, KernelConcept.DESCRIPTION_TYPE);
 
     private ViewCalculator view;
     private ViewCalculator undescribed;
@@ -86,20 +86,20 @@ class DefinitionTextIT {
         // Role's two properties are written in the order of their names, whatever order the
         // vertex holds them in. The structure is named; each component it holds is identified.
         List<String> roleProperties = new ArrayList<>(List.of(
-                name(KernelTerm.ROLE_TYPE) + ": " + identified(KometTerm.PART_OF),
-                name(KernelTerm.ROLE_OPERATOR) + ": " + identified(KernelTerm.EXISTENTIAL_RESTRICTION)));
+                name(KernelConcept.ROLE_TYPE) + ": " + identified(KometConcept.PART_OF),
+                name(KernelConcept.ROLE_OPERATOR) + ": " + identified(KernelConcept.EXISTENTIAL_RESTRICTION)));
         roleProperties.sort(null);
 
-        String expected = "   [0]➞[1] " + name(KernelTerm.DEFINITION_ROOT) + "\n"
-                + "     [1]➞[2] " + name(KernelTerm.NECESSARY_SET) + "\n"
-                + "       [2]➞[3,4,5] " + name(KernelTerm.AND) + "\n"
-                + "         [3] " + name(KernelTerm.CONCEPT_REFERENCE) + ": " + identified(KernelTerm.LANGUAGE) + "\n"
-                + "         [4] " + name(KernelTerm.ROLE) + "\n"
+        String expected = "   [0]➞[1] " + name(KernelConcept.DEFINITION_ROOT) + "\n"
+                + "     [1]➞[2] " + name(KernelConcept.NECESSARY_SET) + "\n"
+                + "       [2]➞[3,4,5] " + name(KernelConcept.AND) + "\n"
+                + "         [3] " + name(KernelConcept.CONCEPT_REFERENCE) + ": " + identified(KernelConcept.LANGUAGE) + "\n"
+                + "         [4] " + name(KernelConcept.ROLE) + "\n"
                 + "            •" + roleProperties.get(0) + "\n"
                 + "            •" + roleProperties.get(1) + "\n"
-                + "         [5] " + name(KernelTerm.PROPERTY_SET) + "\n"
-                + "            •" + name(KernelTerm.PROPERTY_SEQUENCE) + ": ["
-                + identified(KometTerm.PART_OF) + ", " + identified(KernelTerm.ROLE_TYPE) + "]\n";
+                + "         [5] " + name(KernelConcept.PROPERTY_SET) + "\n"
+                + "            •" + name(KernelConcept.PROPERTY_SEQUENCE) + ": ["
+                + identified(KometConcept.PART_OF) + ", " + identified(KernelConcept.ROLE_TYPE) + "]\n";
 
         String text = DefinitionText.tree(tree, view);
         assertEquals(expected, text);
@@ -113,7 +113,7 @@ class DefinitionTextIT {
         // every element of an id list whatever the view — the assertion on it fails when
         // tinkar-core stops, which is the moment to reconsider this class.
         DiTreeEntity tree = aTreeWithEveryKindOfPropertyValue();
-        long partOf = KometTerm.PART_OF.nid();
+        long partOf = KometConcept.PART_OF.nid();
 
         assertTrue(tree.toString().contains("<" + partOf + ">"),
                 "tinkar-core writes the nid of each element of an id list");
@@ -121,9 +121,9 @@ class DefinitionTextIT {
         String text = DefinitionText.tree(tree, undescribed);
         NidFree.assertNoNid("the tree under a view with no descriptions", text, partOf);
         assertTrue(text.contains("[" + ComponentText.identified(undescribed, partOf) + ", "
-                        + ComponentText.identified(undescribed, KernelTerm.ROLE_TYPE.nid()) + "]"),
+                        + ComponentText.identified(undescribed, KernelConcept.ROLE_TYPE.nid()) + "]"),
                 "an id list is the list of its components, identified; with no description, named by UUID");
-        assertTrue(text.startsWith("   [0]➞[1] " + ComponentText.identifier(KernelTerm.DEFINITION_ROOT.nid()) + "\n"),
+        assertTrue(text.startsWith("   [0]➞[1] " + ComponentText.identifier(KernelConcept.DEFINITION_ROOT.nid()) + "\n"),
                 "a vertex whose meaning has no description is named by the meaning's UUID");
     }
 
@@ -158,14 +158,14 @@ class DefinitionTextIT {
     @Test
     void everyComponentADefinitionRefersToCarriesItsIdentifierAndTheStructureDoesNot() {
         String text = DefinitionText.tree(aTreeWithEveryKindOfPropertyValue(), view);
-        for (EntityFacade referred : List.of(KernelTerm.LANGUAGE, KometTerm.PART_OF,
-                KernelTerm.EXISTENTIAL_RESTRICTION, KernelTerm.ROLE_TYPE)) {
+        for (EntityFacade referred : List.of(KernelConcept.LANGUAGE, KometConcept.PART_OF,
+                KernelConcept.EXISTENTIAL_RESTRICTION, KernelConcept.ROLE_TYPE)) {
             assertTrue(text.contains(ComponentText.typedIdentifier(view, referred.nid())),
                     referred.description() + " is identified in\n" + text);
         }
-        for (EntityFacade structure : List.of(KernelTerm.DEFINITION_ROOT, KernelTerm.NECESSARY_SET,
-                KernelTerm.AND, KernelTerm.CONCEPT_REFERENCE, KernelTerm.ROLE, KernelTerm.PROPERTY_SET,
-                KernelTerm.ROLE_OPERATOR, KernelTerm.PROPERTY_SEQUENCE)) {
+        for (EntityFacade structure : List.of(KernelConcept.DEFINITION_ROOT, KernelConcept.NECESSARY_SET,
+                KernelConcept.AND, KernelConcept.CONCEPT_REFERENCE, KernelConcept.ROLE, KernelConcept.PROPERTY_SET,
+                KernelConcept.ROLE_OPERATOR, KernelConcept.PROPERTY_SEQUENCE)) {
             assertFalse(text.contains(ComponentText.typedIdentifier(view, structure.nid())),
                     structure.description() + " is a word of the structure and stays bare in\n" + text);
         }
@@ -173,20 +173,20 @@ class DefinitionTextIT {
 
     @Test
     void aVertexOnItsOwnIsOneLineOfNames() {
-        EntityVertex reference = EntityVertex.make(KernelTerm.CONCEPT_REFERENCE);
-        setProperties(reference, KernelTerm.CONCEPT_REFERENCE, KernelTerm.LANGUAGE);
-        assertEquals(name(KernelTerm.CONCEPT_REFERENCE) + ": " + identified(KernelTerm.LANGUAGE),
+        EntityVertex reference = EntityVertex.make(KernelConcept.CONCEPT_REFERENCE);
+        setProperties(reference, KernelConcept.CONCEPT_REFERENCE, KernelConcept.LANGUAGE);
+        assertEquals(name(KernelConcept.CONCEPT_REFERENCE) + ": " + identified(KernelConcept.LANGUAGE),
                 DefinitionText.vertex(reference, view));
 
-        EntityVertex bare = EntityVertex.make(KernelTerm.AND);
-        assertEquals(name(KernelTerm.AND), DefinitionText.vertex(bare, view));
+        EntityVertex bare = EntityVertex.make(KernelConcept.AND);
+        assertEquals(name(KernelConcept.AND), DefinitionText.vertex(bare, view));
 
-        EntityVertex role = EntityVertex.make(KernelTerm.ROLE);
-        setProperties(role, KernelTerm.ROLE_TYPE, KometTerm.PART_OF);
+        EntityVertex role = EntityVertex.make(KernelConcept.ROLE);
+        setProperties(role, KernelConcept.ROLE_TYPE, KometConcept.PART_OF);
         String text = DefinitionText.vertex(role, view);
-        assertEquals(name(KernelTerm.ROLE) + " {" + name(KernelTerm.ROLE_TYPE) + "=" + identified(KometTerm.PART_OF) + "}",
+        assertEquals(name(KernelConcept.ROLE) + " {" + name(KernelConcept.ROLE_TYPE) + "=" + identified(KometConcept.PART_OF) + "}",
                 text);
-        NidFree.assertNoNid("the vertex", text, KometTerm.PART_OF.nid());
+        NidFree.assertNoNid("the vertex", text, KometConcept.PART_OF.nid());
     }
 
     /**
@@ -195,22 +195,22 @@ class DefinitionTextIT {
      * vertex that holds an id list.
      */
     private static DiTreeEntity aTreeWithEveryKindOfPropertyValue() {
-        EntityVertex root = EntityVertex.make(KernelTerm.DEFINITION_ROOT);
-        EntityVertex necessarySet = EntityVertex.make(KernelTerm.NECESSARY_SET);
-        EntityVertex and = EntityVertex.make(KernelTerm.AND);
+        EntityVertex root = EntityVertex.make(KernelConcept.DEFINITION_ROOT);
+        EntityVertex necessarySet = EntityVertex.make(KernelConcept.NECESSARY_SET);
+        EntityVertex and = EntityVertex.make(KernelConcept.AND);
 
-        EntityVertex reference = EntityVertex.make(KernelTerm.CONCEPT_REFERENCE);
-        setProperties(reference, KernelTerm.CONCEPT_REFERENCE, KernelTerm.LANGUAGE);
+        EntityVertex reference = EntityVertex.make(KernelConcept.CONCEPT_REFERENCE);
+        setProperties(reference, KernelConcept.CONCEPT_REFERENCE, KernelConcept.LANGUAGE);
 
-        EntityVertex role = EntityVertex.make(KernelTerm.ROLE);
+        EntityVertex role = EntityVertex.make(KernelConcept.ROLE);
         MutableLongObjectMap<Object> roleProperties = LongObjectMaps.mutable.empty();
-        roleProperties.put(KernelTerm.ROLE_TYPE.nid(), KometTerm.PART_OF);
-        roleProperties.put(KernelTerm.ROLE_OPERATOR.nid(), KernelTerm.EXISTENTIAL_RESTRICTION);
+        roleProperties.put(KernelConcept.ROLE_TYPE.nid(), KometConcept.PART_OF);
+        roleProperties.put(KernelConcept.ROLE_OPERATOR.nid(), KernelConcept.EXISTENTIAL_RESTRICTION);
         role.setProperties(roleProperties);
 
-        EntityVertex propertySet = EntityVertex.make(KernelTerm.PROPERTY_SET);
-        setProperties(propertySet, KernelTerm.PROPERTY_SEQUENCE,
-                LongIds.list.of(KometTerm.PART_OF.nid(), KernelTerm.ROLE_TYPE.nid()));
+        EntityVertex propertySet = EntityVertex.make(KernelConcept.PROPERTY_SET);
+        setProperties(propertySet, KernelConcept.PROPERTY_SEQUENCE,
+                LongIds.list.of(KometConcept.PART_OF.nid(), KernelConcept.ROLE_TYPE.nid()));
 
         DiTreeEntity.Builder builder = DiTreeEntity.builder();
         builder.setRoot(root);

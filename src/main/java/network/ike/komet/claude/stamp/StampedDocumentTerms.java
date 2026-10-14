@@ -15,16 +15,19 @@
  */
 package network.ike.komet.claude.stamp;
 
-import dev.ikm.komet.terms.KometTerm;
+import dev.ikm.komet.terms.KometConcept;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.util.uuid.UuidT5Generator;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.entity.transaction.StampedWriter;
+import dev.ikm.tinkar.terms.EntityFacade;
+import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityProxy;
 import dev.ikm.tinkar.terms.EntityProxy.Concept;
 import dev.ikm.tinkar.terms.EntityProxy.Pattern;
-import dev.ikm.tinkar.terms.KernelTerm;
+import dev.ikm.tinkar.terms.KernelConcept;
+import dev.ikm.tinkar.terms.PatternFacade;
 import dev.ikm.tinkar.terms.State;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -134,7 +137,7 @@ public final class StampedDocumentTerms {
      * and thread-safe.
      */
     public static synchronized void bootstrapIfAbsent() {
-        for (Concept c : new Concept[] {STAMPED_DOCUMENT, GIT_PROVENANCE, GIT_SOURCE, SOURCE_PATH, SOURCE_COMMIT,
+        for (ConceptFacade c : new Concept[] {STAMPED_DOCUMENT, GIT_PROVENANCE, GIT_SOURCE, SOURCE_PATH, SOURCE_COMMIT,
                 ANNOTATION, REVIEWED_PROVENANCE, ANNOTATION_KIND, REVIEWED_VERSION, ANNOTATED_ELEMENTS,
                 UNCATEGORIZED_COMMENT, JUDGMENT, AFFIRMATION, REFUTATION}) {
             seedConceptIfAbsent(c);
@@ -149,8 +152,8 @@ public final class StampedDocumentTerms {
         if (entityAbsent(GIT_SOURCE_PATTERN)) {
             try (StampedWriter writer = vocabularyWriter()) {
                 writer.pattern(GIT_SOURCE_PATTERN, GIT_SOURCE, GIT_PROVENANCE,
-                        StampedWriter.field(SOURCE_PATH, GIT_PROVENANCE, KernelTerm.STRING),
-                        StampedWriter.field(SOURCE_COMMIT, GIT_PROVENANCE, KernelTerm.STRING));
+                        StampedWriter.field(SOURCE_PATH, GIT_PROVENANCE, KernelConcept.STRING),
+                        StampedWriter.field(SOURCE_COMMIT, GIT_PROVENANCE, KernelConcept.STRING));
                 writer.commit();
             }
             LOG.info("Seeded git source pattern");
@@ -158,23 +161,23 @@ public final class StampedDocumentTerms {
         if (entityAbsent(ANNOTATION_PATTERN)) {
             try (StampedWriter writer = vocabularyWriter()) {
                 writer.pattern(ANNOTATION_PATTERN, ANNOTATION, REVIEWED_PROVENANCE,
-                        StampedWriter.field(ANNOTATION_KIND, REVIEWED_PROVENANCE, KernelTerm.CONCEPT_FIELD),
-                        StampedWriter.field(REVIEWED_VERSION, REVIEWED_PROVENANCE, KernelTerm.COMPONENT_FIELD),
-                        StampedWriter.field(ANNOTATED_ELEMENTS, REVIEWED_PROVENANCE, KernelTerm.COMPONENT_ID_LIST_FIELD),
-                        StampedWriter.field(COMMENT_TEXT, REVIEWED_PROVENANCE, KernelTerm.STRING));
+                        StampedWriter.field(ANNOTATION_KIND, REVIEWED_PROVENANCE, KernelConcept.CONCEPT_FIELD),
+                        StampedWriter.field(REVIEWED_VERSION, REVIEWED_PROVENANCE, KernelConcept.COMPONENT_FIELD),
+                        StampedWriter.field(ANNOTATED_ELEMENTS, REVIEWED_PROVENANCE, KernelConcept.COMPONENT_ID_LIST_FIELD),
+                        StampedWriter.field(COMMENT_TEXT, REVIEWED_PROVENANCE, KernelConcept.STRING));
                 writer.commit();
             }
             LOG.info("Seeded annotation pattern");
         }
     }
 
-    private static void seedConceptIfAbsent(Concept concept) {
+    private static void seedConceptIfAbsent(ConceptFacade concept) {
         if (!entityAbsent(concept)) {
             return;
         }
         try (StampedWriter writer = vocabularyWriter()) {
-            writer.concept(concept);
-            writer.fullyQualifiedName(concept, concept.description() + TAG);
+            writer.concept(concept.publicId());
+            writer.fullyQualifiedName(concept.publicId(), concept.description() + TAG);
             writer.commit();
         }
         LOG.info("Seeded git-provenance concept '{}'", concept.description());
@@ -182,10 +185,10 @@ public final class StampedDocumentTerms {
 
     private static StampedWriter vocabularyWriter() {
         return StampedWriter.open("git-provenance-vocabulary-seed", State.ACTIVE, System.currentTimeMillis(),
-                KernelTerm.USER, KometTerm.DEVELOPMENT_MODULE, KernelTerm.DEVELOPMENT_PATH);
+                KernelConcept.USER, KometConcept.DEVELOPMENT_MODULE, KernelConcept.DEVELOPMENT_PATH);
     }
 
-    static boolean entityAbsent(EntityProxy proxy) {
+    static boolean entityAbsent(EntityFacade proxy) {
         if (!PrimitiveData.get().hasPublicId(proxy.publicId())) {
             return true;
         }

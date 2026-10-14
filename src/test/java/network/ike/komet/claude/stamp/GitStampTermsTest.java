@@ -22,6 +22,7 @@ import design.knowledge.stamp.adoc.identity.Uuid5;
 import design.knowledge.stamp.adoc.model.Person;
 import design.knowledge.stamp.adoc.model.Status;
 import dev.ikm.tinkar.common.util.uuid.UuidT5Generator;
+import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityProxy.Concept;
 import dev.ikm.tinkar.terms.State;
 import org.junit.jupiter.api.Test;
@@ -52,7 +53,7 @@ class GitStampTermsTest {
     void conceptCarriesTheIdentityAndItsName() {
         Identity kerry = GitIdentityAdapter.raw().author(new Person("Kerry Goetz", "kerry@example.test"));
 
-        Concept concept = GitStampTerms.concept(kerry);
+        ConceptFacade concept = GitStampTerms.concept(kerry);
 
         assertEquals(kerry.uuid(), concept.publicId().asUuidArray()[0]);
         assertEquals("Kerry Goetz", concept.description());

@@ -18,13 +18,13 @@ package network.ike.komet.claude.narrator;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.entity.transaction.StampedWriter;
 import dev.ikm.tinkar.terms.EntityProxy;
-import dev.ikm.tinkar.terms.KernelTerm;
+import dev.ikm.tinkar.terms.KernelPattern;
 import dev.ikm.tinkar.terms.State;
 
 /**
  * Writes a commit comment into the graph.
  * <p>
- * A commit comment is a {@link dev.ikm.tinkar.terms.KernelTerm#COMMENT_PATTERN} semantic whose
+ * A commit comment is a {@link dev.ikm.tinkar.terms.KernelPattern#COMMENT_PATTERN} semantic whose
  * referenced component is the commit's STAMP nid, with the comment text in field 0. The comment
  * semantic carries its own stamp, authored by the {@link NarratorIdentity narrator identity}, so
  * the comment's authorship and time are intrinsic and auditable against the graph.
@@ -50,7 +50,7 @@ public final class CommentWriter {
                 NarratorIdentity.NARRATOR_AUTHOR,
                 NarratorIdentity.NARRATION_MODULE,
                 NarratorIdentity.NARRATION_PATH)) {
-            writer.semantic(PublicIds.newRandom(), KernelTerm.COMMENT_PATTERN,
+            writer.semantic(PublicIds.newRandom(), KernelPattern.COMMENT_PATTERN.publicId(),
                     EntityProxy.make(targetStampNid), narrative);
             writer.commit();
         }

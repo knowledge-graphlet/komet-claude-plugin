@@ -39,9 +39,11 @@ import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.StampEntity;
 import dev.ikm.tinkar.entity.transaction.StampedWriter;
+import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityProxy;
 import dev.ikm.tinkar.terms.EntityProxy.Concept;
 import dev.ikm.tinkar.terms.EntityProxy.Semantic;
+import dev.ikm.tinkar.terms.PatternFacade;
 import dev.ikm.tinkar.terms.State;
 import network.ike.komet.claude.doc.DocumentModelTerms;
 import org.slf4j.Logger;
@@ -143,7 +145,7 @@ public final class GitDocumentMaterializer {
             String path = relative.toString().replace('\\', '/');
             Identity documentId = adapter.document(component, path);
             String name = topicId(repo, relative).orElse(path);
-            Concept anchor = Concept.make(name, documentId.uuid());
+            ConceptFacade anchor = Concept.make(name, documentId.uuid());
             Semantic manifest = Semantic.make(PublicIds.of(Uuid5.of(GitIdentityAdapter.NAMESPACE, "manifest:" + documentId.key())));
             Semantic source = Semantic.make(PublicIds.of(Uuid5.of(GitIdentityAdapter.NAMESPACE, "source:" + documentId.key())));
             Semantic attributes = Semantic.make(PublicIds.of(Uuid5.of(GitIdentityAdapter.NAMESPACE, "attributes:" + documentId.key())));
@@ -181,38 +183,38 @@ public final class GitDocumentMaterializer {
                 List<Retirement> retirements = new ArrayList<>();
                 try (StampedWriter writer = stamp.openWriter("git-materialize " + event.commit().sha().substring(0, 7))) {
                     if (!anchorWritten) {
-                        writer.concept(anchor);
-                        writer.fullyQualifiedName(anchor, name);
+                        writer.concept(anchor.publicId());
+                        writer.fullyQualifiedName(anchor.publicId(), name);
                         anchorWritten = true;
                     }
                     for (CommitEvent.Line line : contentRecorded ? List.<CommitEvent.Line>of() : event.introduced()) {
-                        writer.semantic(lineProxy(adapter, line.id()), DocumentModelTerms.PROSE_ELEMENT_PATTERN, anchor, line.text());
+                        writer.semantic(lineProxy(adapter, line.id()), DocumentModelTerms.PROSE_ELEMENT_PATTERN, anchor.publicId(), line.text());
                         lines++;
                     }
                     for (CommitEvent.Line line : contentRecorded ? List.<CommitEvent.Line>of() : event.retexted()) {
-                        writer.semantic(lineProxy(adapter, line.id()), DocumentModelTerms.PROSE_ELEMENT_PATTERN, anchor, line.text());
+                        writer.semantic(lineProxy(adapter, line.id()), DocumentModelTerms.PROSE_ELEMENT_PATTERN, anchor.publicId(), line.text());
                     }
                     if (now != null && !contentRecorded) {
                         long[] nids = new long[event.manifest().size()];
                         for (int i = 0; i < nids.length; i++) {
                             nids[i] = EntityService.get().nidForPublicId(lineProxy(adapter, event.manifest().get(i)).publicId());
                         }
-                        writer.semantic(manifest, DocumentModelTerms.JOURNAL_MANIFEST_PATTERN, anchor, LongIds.list.of(nids));
-                        writer.semantic(source, StampedDocumentTerms.GIT_SOURCE_PATTERN, anchor, event.pathAtCommit(), event.commit().sha());
+                        writer.semantic(manifest, DocumentModelTerms.JOURNAL_MANIFEST_PATTERN, anchor.publicId(), LongIds.list.of(nids));
+                        writer.semantic(source, StampedDocumentTerms.GIT_SOURCE_PATTERN, anchor.publicId(), event.pathAtCommit(), event.commit().sha());
                         if (!Arrays.equals(now.attributes, structure.attributes)) {
-                            writer.semantic(attributes, AsciiDocModelTerms.DOCUMENT_ATTRIBUTES_PATTERN, anchor, (Object[]) now.attributes);
+                            writer.semantic(attributes, AsciiDocModelTerms.DOCUMENT_ATTRIBUTES_PATTERN, anchor.publicId(), (Object[]) now.attributes);
                         }
                         for (Map.Entry<String, Written> e : now.blocks.entrySet()) {
                             Written last = structure.blocks.get(e.getKey());
                             if (last == null || !last.signature.equals(e.getValue().signature)) {
-                                writer.semantic(e.getValue().proxy, DocumentModelTerms.BLOCK_PATTERN, anchor, e.getValue().fields);
+                                writer.semantic(e.getValue().proxy, DocumentModelTerms.BLOCK_PATTERN, anchor.publicId(), e.getValue().fields);
                                 blocks++;
                             }
                         }
                         for (Map.Entry<String, Written> e : now.references.entrySet()) {
                             Written last = structure.references.get(e.getKey());
                             if (last == null || !last.signature.equals(e.getValue().signature)) {
-                                writer.semantic(e.getValue().proxy, e.getValue().pattern, e.getValue().referenced, e.getValue().fields);
+                                writer.semantic(e.getValue().proxy, e.getValue().pattern.publicId(), e.getValue().referenced, e.getValue().fields);
                                 references++;
                             }
                         }
@@ -228,7 +230,7 @@ public final class GitDocumentMaterializer {
                         for (int j = 0; j < nids.length; j++) {
                             nids[j] = EntityService.get().nidForPublicId(lineProxy(adapter, a.lines().get(j)).publicId());
                         }
-                        writer.semantic(proxy, StampedDocumentTerms.ANNOTATION_PATTERN, anchor,
+                        writer.semantic(proxy, StampedDocumentTerms.ANNOTATION_PATTERN, anchor.publicId(),
                                 StampedDocumentTerms.kind(a.kind()), EntityProxy.make(reviewedStampNid(source, a.reviewedSha())),
                                 LongIds.list.of(nids), a.text());
                         annotations++;
@@ -241,10 +243,10 @@ public final class GitDocumentMaterializer {
                     try (StampedWriter writer = StampedWriter.open("git-retire " + event.commit().sha().substring(0, 7), State.INACTIVE,
                             stamp.time(), stamp.author(), stamp.module(), stamp.path())) {
                         for (LineId id : event.retired()) {
-                            writer.semantic(lineProxy(adapter, id), DocumentModelTerms.PROSE_ELEMENT_PATTERN, anchor, lastText.getOrDefault(id, ""));
+                            writer.semantic(lineProxy(adapter, id), DocumentModelTerms.PROSE_ELEMENT_PATTERN, anchor.publicId(), lastText.getOrDefault(id, ""));
                         }
                         for (Retirement r : retirements) {
-                            writer.semantic(r.written.proxy, r.written.pattern, r.written.referenced == null ? anchor : r.written.referenced, r.written.fields);
+                            writer.semantic(r.written.proxy, r.written.pattern.publicId(), r.written.referenced == null ? anchor.publicId() : r.written.referenced, r.written.fields);
                         }
                         writer.commit();
                     }
@@ -288,7 +290,7 @@ public final class GitDocumentMaterializer {
     // ── structure ─────────────────────────────────────────────────────────────
 
     /** One semantic version ready to write: its identity, pattern, referenced component, fields and a comparable signature. */
-    private record Written(Semantic proxy, EntityProxy.Pattern pattern, PublicId referenced, Object[] fields, String signature) { }
+    private record Written(Semantic proxy, PatternFacade pattern, PublicId referenced, Object[] fields, String signature) { }
 
     private record Retirement(Written written) { }
 
@@ -395,7 +397,7 @@ public final class GitDocumentMaterializer {
     }
 
     /** The commit SHAs the document's git-source versions already record. */
-    private static Set<String> recordedCommits(Concept anchor) {
+    private static Set<String> recordedCommits(ConceptFacade anchor) {
         Set<String> shas = new HashSet<>();
         long anchorNid = EntityService.get().nidForPublicId(anchor.publicId());
         for (SemanticEntity<SemanticEntityVersion> source : EntityService.get()

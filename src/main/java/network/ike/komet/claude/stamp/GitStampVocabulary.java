@@ -19,10 +19,12 @@ import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.entity.transaction.StampedWriter;
+import dev.ikm.tinkar.terms.EntityFacade;
+import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityProxy;
 import dev.ikm.tinkar.terms.EntityProxy.Concept;
-import dev.ikm.tinkar.terms.KernelTerm;
-import dev.ikm.komet.terms.KometTerm;
+import dev.ikm.tinkar.terms.KernelConcept;
+import dev.ikm.komet.terms.KometConcept;
 import dev.ikm.tinkar.terms.State;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,7 +33,7 @@ import org.slf4j.LoggerFactory;
  * Seeds the concepts a git STAMP refers to — its author, module and path — into the open
  * datastore when they are not there yet, so a {@link GitStampTerms.GitStamp#openWriter writer}
  * stamped with them resolves. Follows the conversation journal's vocabulary bootstrap: the
- * seed itself stamps as {@link KernelTerm#USER} under {@link KometTerm#DEVELOPMENT_MODULE} on
+ * seed itself stamps as {@link KernelConcept#USER} under {@link KometConcept#DEVELOPMENT_MODULE} on
  * the development path, because an author concept is shared infrastructure, not content.
  * Idempotent and thread-safe.
  */
@@ -50,14 +52,14 @@ public final class GitStampVocabulary {
         seedConceptIfAbsent(stamp.path());
     }
 
-    private static void seedConceptIfAbsent(Concept concept) {
+    private static void seedConceptIfAbsent(ConceptFacade concept) {
         if (!entityAbsent(concept)) {
             return;
         }
         try (StampedWriter writer = StampedWriter.open("git-stamp-vocabulary-seed", State.ACTIVE, System.currentTimeMillis(),
-                KernelTerm.USER, KometTerm.DEVELOPMENT_MODULE, KernelTerm.DEVELOPMENT_PATH)) {
-            writer.concept(concept);
-            writer.fullyQualifiedName(concept, concept.description());
+                KernelConcept.USER, KometConcept.DEVELOPMENT_MODULE, KernelConcept.DEVELOPMENT_PATH)) {
+            writer.concept(concept.publicId());
+            writer.fullyQualifiedName(concept.publicId(), concept.description());
             writer.commit();
         }
         LOG.info("Seeded git STAMP concept '{}' ({})", concept.description(), concept.publicId().asUuidArray()[0]);
@@ -67,7 +69,7 @@ public final class GitStampVocabulary {
      * Whether the proxy has no chronology in the open store — stricter than a public-id check,
      * since a failed earlier write can leave a minted nid with no entity behind it.
      */
-    static boolean entityAbsent(EntityProxy proxy) {
+    static boolean entityAbsent(EntityFacade proxy) {
         if (!PrimitiveData.get().hasPublicId(proxy.publicId())) {
             return true;
         }

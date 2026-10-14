@@ -15,8 +15,8 @@
  */
 package network.ike.komet.claude;
 
-import dev.ikm.komet.terms.KometTerm;
-import dev.ikm.tinkar.terms.KernelTerm;
+import dev.ikm.tinkar.terms.KernelConcept;
+import dev.ikm.komet.terms.KometConcept;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
@@ -68,8 +68,8 @@ class AssistantTextIT {
 
     /** Concepts of the starter data the tools are run on. */
     private static final List<EntityFacade> SUBJECTS = List.of(
-            KernelTerm.ENGLISH_LANGUAGE, KernelTerm.LANGUAGE, KometTerm.PART_OF,
-            KernelTerm.ROLE_TYPE, KernelTerm.DESCRIPTION_TYPE);
+            KernelConcept.ENGLISH_LANGUAGE, KernelConcept.LANGUAGE, KometConcept.PART_OF,
+            KernelConcept.ROLE_TYPE, KernelConcept.DESCRIPTION_TYPE);
 
     private ViewCalculator view;
     private ViewCalculator undescribed;
@@ -108,12 +108,12 @@ class AssistantTextIT {
     @Test
     void theIsATestWritesNoNid() {
         String text = run(view, "is_a", Map.of(
-                "child", uuidOf(KernelTerm.ENGLISH_LANGUAGE), "parent", uuidOf(KernelTerm.LANGUAGE)));
+                "child", uuidOf(KernelConcept.ENGLISH_LANGUAGE), "parent", uuidOf(KernelConcept.LANGUAGE)));
         assertTrue(text.startsWith("YES — "), "English Language is a Language: " + text);
         NidFree.assertNoNid("is_a", text);
 
         text = run(view, "is_a", Map.of(
-                "child", uuidOf(KernelTerm.LANGUAGE), "parent", uuidOf(KernelTerm.ENGLISH_LANGUAGE)));
+                "child", uuidOf(KernelConcept.LANGUAGE), "parent", uuidOf(KernelConcept.ENGLISH_LANGUAGE)));
         assertTrue(text.startsWith("NO — "), "Language is not an English Language: " + text);
         NidFree.assertNoNid("is_a", text);
     }
@@ -127,15 +127,15 @@ class AssistantTextIT {
 
     @Test
     void theAxiomsToolWritesTheDefinitionTree() {
-        String text = run(view, "axioms", Map.of("id", uuidOf(KernelTerm.ENGLISH_LANGUAGE)));
+        String text = run(view, "axioms", Map.of("id", uuidOf(KernelConcept.ENGLISH_LANGUAGE)));
         assertTrue(text.contains("Stated:\n   [0]"), "the stated definition is written as a tree: " + text);
-        assertTrue(text.contains(ComponentText.name(view, KernelTerm.DEFINITION_ROOT.nid())),
+        assertTrue(text.contains(ComponentText.name(view, KernelConcept.DEFINITION_ROOT.nid())),
                 "the tree's root vertex is named: " + text);
         assertFalse(text.contains("DiTreeEntity"), "the tree is not the store's toString(): " + text);
 
         // Every concept the definition refers to carries its identifier, so the assistant can
         // badge it or pass it on without a search (IKE-Network/ike-issues#1291).
-        String reference = ComponentText.name(view, KernelTerm.CONCEPT_REFERENCE.nid()) + ": ";
+        String reference = ComponentText.name(view, KernelConcept.CONCEPT_REFERENCE.nid()) + ": ";
         List<String> references = text.lines().filter(line -> line.contains(reference)).toList();
         assertFalse(references.isEmpty(), "the definition refers to a concept: " + text);
         for (String line : references) {
@@ -182,8 +182,8 @@ class AssistantTextIT {
 
     @Test
     void aCheckRequestNamesTheConceptByItsUuid() {
-        long nid = KernelTerm.ENGLISH_LANGUAGE.nid();
-        String uuid = uuidOf(KernelTerm.ENGLISH_LANGUAGE);
+        long nid = KernelConcept.ENGLISH_LANGUAGE.nid();
+        String uuid = uuidOf(KernelConcept.ENGLISH_LANGUAGE);
 
         String request = ClaudeCheckArea.checkRequest(view, nid, "Has a parent.");
         assertEquals("Concept under review: " + ComponentText.preferredName(view, nid) + "  [" + uuid + "].\n"

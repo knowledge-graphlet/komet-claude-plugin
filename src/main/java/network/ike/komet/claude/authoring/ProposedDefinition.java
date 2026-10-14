@@ -24,7 +24,7 @@ import dev.ikm.tinkar.entity.graph.adaptor.axiom.LogicalAxiom;
 import dev.ikm.tinkar.entity.graph.adaptor.axiom.LogicalExpressionBuilder;
 import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityProxy;
-import dev.ikm.tinkar.terms.KernelTerm;
+import dev.ikm.tinkar.terms.KernelConcept;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -208,7 +208,7 @@ public final class ProposedDefinition {
      * Komet's own windows define concepts with, so the tree has the shape of a stored definition:
      * a definition root over one vertex per set, each over an {@code And} of concept references
      * (supertypes) and existential roles, a role group being a role whose type is
-     * {@link KernelTerm#ROLE_GROUP} over an {@code And} of its roles.
+     * {@link KernelConcept#ROLE_GROUP} over an {@code And} of its roles.
      *
      * @param proposal the parsed block
      * @return the tree and the gaps
@@ -243,7 +243,7 @@ public final class ProposedDefinition {
                     }
                 }
                 if (!members.isEmpty()) {
-                    conjuncts.add(builder.SomeRole(KernelTerm.ROLE_GROUP,
+                    conjuncts.add(builder.SomeRole(KernelConcept.ROLE_GROUP,
                             builder.And(members.toArray(LogicalAxiom.Atom[]::new))));
                 }
             }

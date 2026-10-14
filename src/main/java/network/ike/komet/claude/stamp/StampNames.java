@@ -19,7 +19,7 @@ import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
-import dev.ikm.tinkar.terms.KernelTerm;
+import dev.ikm.tinkar.terms.KernelPattern;
 import network.ike.komet.claude.koncept.ComponentText;
 
 /**
@@ -55,7 +55,7 @@ final class StampNames {
         String best = null;
         long bestTime = Long.MIN_VALUE;
         for (SemanticEntity<SemanticEntityVersion> description : EntityService.get()
-                .semanticsForComponentOfPattern(nid, KernelTerm.DESCRIPTION_PATTERN.nid()).toList()) {
+                .semanticsForComponentOfPattern(nid, KernelPattern.DESCRIPTION_PATTERN.nid()).toList()) {
             for (SemanticEntityVersion version : description.versions()) {
                 if (version.time() == Long.MAX_VALUE || version.time() <= bestTime) {
                     continue;

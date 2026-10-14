@@ -15,16 +15,19 @@
  */
 package network.ike.komet.claude.doc;
 
-import dev.ikm.komet.terms.KometTerm;
+import dev.ikm.komet.terms.KometConcept;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.util.uuid.UuidT5Generator;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.entity.transaction.StampedWriter;
+import dev.ikm.tinkar.terms.EntityFacade;
+import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityProxy;
 import dev.ikm.tinkar.terms.EntityProxy.Concept;
 import dev.ikm.tinkar.terms.EntityProxy.Pattern;
-import dev.ikm.tinkar.terms.KernelTerm;
+import dev.ikm.tinkar.terms.KernelConcept;
+import dev.ikm.tinkar.terms.PatternFacade;
 import dev.ikm.tinkar.terms.State;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -152,56 +155,56 @@ public final class DocumentModelTerms {
      * its terms from the set's generated bindings.
      */
     public static synchronized void bootstrapIfAbsent() {
-        for (Concept c : new Concept[] {PROSE_ELEMENT, PROSE_CONTENT, ELEMENT_CONTENT, JOURNAL_MANIFEST,
+        for (ConceptFacade c : new Concept[] {PROSE_ELEMENT, PROSE_CONTENT, ELEMENT_CONTENT, JOURNAL_MANIFEST,
                 JOURNAL_ELEMENTS, ELEMENT_ORDER}) {
             seedConceptIfAbsent(c, RICH_SURFACE_TAG);
         }
-        for (Concept c : new Concept[] {DOCUMENT_STRUCTURE_MODEL, STRUCTURED_DOCUMENT, DOCUMENT_ELEMENT,
+        for (ConceptFacade c : new Concept[] {DOCUMENT_STRUCTURE_MODEL, STRUCTURED_DOCUMENT, DOCUMENT_ELEMENT,
                 SECTION, BLOCK, PARAGRAPH, LISTING, QUOTATION, TABLE, TABLE_ROW, TABLE_CELL, LIST, LIST_ITEM, IMAGE,
                 OPAQUE, FIELD, ELEMENT_KIND, LEVEL, TITLE, PARAMETERS, MEMBERS, STRUCTURE, CONVERSATION_JOURNAL,
                 CONVERSATION_TURN, KOMET_ASSISTANT, CONVERSATION_JOURNAL_MODULE}) {
             seedConceptIfAbsent(c, IKE_TAG);
         }
         seedPatternIfAbsent(PROSE_ELEMENT_PATTERN, RICH_SURFACE_TAG, PROSE_ELEMENT, ELEMENT_CONTENT,
-                StampedWriter.field(PROSE_CONTENT, ELEMENT_CONTENT, KernelTerm.STRING));
+                StampedWriter.field(PROSE_CONTENT, ELEMENT_CONTENT, KernelConcept.STRING));
         seedPatternIfAbsent(JOURNAL_MANIFEST_PATTERN, RICH_SURFACE_TAG, JOURNAL_MANIFEST, ELEMENT_ORDER,
-                StampedWriter.field(JOURNAL_ELEMENTS, ELEMENT_ORDER, KernelTerm.COMPONENT_ID_LIST_FIELD));
+                StampedWriter.field(JOURNAL_ELEMENTS, ELEMENT_ORDER, KernelConcept.COMPONENT_ID_LIST_FIELD));
         seedPatternIfAbsent(BLOCK_PATTERN, IKE_TAG, DOCUMENT_ELEMENT, STRUCTURE,
-                StampedWriter.field(ELEMENT_KIND, STRUCTURE, KernelTerm.COMPONENT_FIELD),
-                StampedWriter.field(LEVEL, STRUCTURE, KernelTerm.INTEGER_FIELD),
-                StampedWriter.field(TITLE, STRUCTURE, KernelTerm.STRING),
-                StampedWriter.field(PARAMETERS, STRUCTURE, KernelTerm.STRING),
-                StampedWriter.field(MEMBERS, STRUCTURE, KernelTerm.COMPONENT_ID_LIST_FIELD));
+                StampedWriter.field(ELEMENT_KIND, STRUCTURE, KernelConcept.COMPONENT_FIELD),
+                StampedWriter.field(LEVEL, STRUCTURE, KernelConcept.INTEGER_FIELD),
+                StampedWriter.field(TITLE, STRUCTURE, KernelConcept.STRING),
+                StampedWriter.field(PARAMETERS, STRUCTURE, KernelConcept.STRING),
+                StampedWriter.field(MEMBERS, STRUCTURE, KernelConcept.COMPONENT_ID_LIST_FIELD));
     }
 
-    private static void seedConceptIfAbsent(Concept concept, String tag) {
+    private static void seedConceptIfAbsent(ConceptFacade concept, String tag) {
         if (!entityAbsent(concept)) {
             return;
         }
         try (StampedWriter writer = vocabularyWriter()) {
-            writer.concept(concept);
-            writer.fullyQualifiedName(concept, concept.description() + tag);
+            writer.concept(concept.publicId());
+            writer.fullyQualifiedName(concept.publicId(), concept.description() + tag);
             writer.commit();
         }
         LOG.info("Seeded document model concept '{}'", concept.description());
     }
 
-    private static void seedPatternIfAbsent(Pattern pattern, String tag, Concept meaning, Concept purpose, StampedWriter.Field... fields) {
+    private static void seedPatternIfAbsent(PatternFacade pattern, String tag, ConceptFacade meaning, ConceptFacade purpose, StampedWriter.Field... fields) {
         if (!entityAbsent(pattern)) {
             return;
         }
         try (StampedWriter writer = vocabularyWriter()) {
-            writer.pattern(pattern, meaning, purpose, fields);
-            writer.fullyQualifiedName(pattern, pattern.description() + tag);
+            writer.pattern(pattern.publicId(), meaning, purpose, fields);
+            writer.fullyQualifiedName(pattern.publicId(), pattern.description() + tag);
             writer.commit();
         }
         LOG.info("Seeded '{}'", pattern.description());
     }
 
-    /** A writer for the shared vocabulary: {@link KernelTerm#USER} on the development module. */
+    /** A writer for the shared vocabulary: {@link KernelConcept#USER} on the development module. */
     private static StampedWriter vocabularyWriter() {
         return StampedWriter.open("document-model-vocabulary-seed", State.ACTIVE, System.currentTimeMillis(),
-                KernelTerm.USER, KometTerm.DEVELOPMENT_MODULE, KernelTerm.DEVELOPMENT_PATH);
+                KernelConcept.USER, KometConcept.DEVELOPMENT_MODULE, KernelConcept.DEVELOPMENT_PATH);
     }
 
     /**
@@ -212,7 +215,7 @@ public final class DocumentModelTerms {
      * @param proxy the term to check
      * @return {@code true} when no entity exists for the proxy
      */
-    public static boolean entityAbsent(EntityProxy proxy) {
+    public static boolean entityAbsent(EntityFacade proxy) {
         if (!PrimitiveData.get().hasPublicId(proxy.publicId())) {
             return true;
         }

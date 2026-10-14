@@ -32,7 +32,7 @@ import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityProxy.Concept;
 import dev.ikm.tinkar.terms.EntityProxy.Semantic;
-import dev.ikm.tinkar.terms.KernelTerm;
+import dev.ikm.tinkar.terms.KernelConcept;
 import dev.ikm.tinkar.terms.State;
 import network.ike.komet.claude.doc.MarkdownStructure.Child;
 import network.ike.komet.claude.doc.MarkdownStructure.Element;
@@ -104,7 +104,7 @@ public final class JournalStore {
      * Creates a store that derives STAMP authorship and version resolution from the supplied view.
      *
      * @param viewCalculator supplier of the hosting card's view calculator; may supply {@code null}
-     *                       (user turns then stamp as {@link KernelTerm#USER} and {@link #load}
+     *                       (user turns then stamp as {@link KernelConcept#USER} and {@link #load}
      *                       resolves nothing)
      */
     public JournalStore(Supplier<ViewCalculator> viewCalculator) {
@@ -154,7 +154,7 @@ public final class JournalStore {
         // The anchor is "new" only when no chronology exists — a nid mapping alone (minted by an
         // earlier failed append) must not skip the anchor concept's creation. An unknown anchor id
         // is never resolved to a nid here: a strict store (Rocks) throws on unknown UUIDs.
-        Concept anchorConcept = Concept.make(anchorId);
+        ConceptFacade anchorConcept = Concept.make(anchorId);
         boolean anchorNew = DocumentModelTerms.entityAbsent(anchorConcept);
         String name = (conversationName == null || conversationName.isBlank())
                 ? "Conversation journal" : conversationName;
@@ -207,10 +207,10 @@ public final class JournalStore {
         // even across same-millisecond exchanges. Closing the writer unfinished cancels both stamps,
         // so a partial append leaves no durable orphans.
         try (StampedWriter writer = StampedWriter.open("conversation-journal-append", State.ACTIVE, userTime,
-                userAuthor(), DocumentModelTerms.CONVERSATION_JOURNAL_MODULE, KernelTerm.DEVELOPMENT_PATH)) {
+                userAuthor(), DocumentModelTerms.CONVERSATION_JOURNAL_MODULE, KernelConcept.DEVELOPMENT_PATH)) {
             if (anchorNew) {
-                writer.concept(anchorConcept);
-                writer.fullyQualifiedName(anchorConcept, name);
+                writer.concept(anchorConcept.publicId());
+                writer.fullyQualifiedName(anchorConcept.publicId(), name);
             }
             List<Long> lines = new ArrayList<>(priorLines.size() + 16);
             for (long nid : priorLines.toArray()) {
@@ -219,18 +219,18 @@ public final class JournalStore {
             long userTurn = writeTurn(writer, anchorConcept, userMarkdown, lines);
 
             writer.restamp(State.ACTIVE, assistantTime, DocumentModelTerms.KOMET_ASSISTANT,
-                    DocumentModelTerms.CONVERSATION_JOURNAL_MODULE, KernelTerm.DEVELOPMENT_PATH);
+                    DocumentModelTerms.CONVERSATION_JOURNAL_MODULE, KernelConcept.DEVELOPMENT_PATH);
             long assistantTurn = writeTurn(writer, anchorConcept, assistantMarkdown, lines);
 
             // Manifest and root: a new version of each, at the assistant's stamp, in the same
             // writer, so a crash cannot leave a second manifest or a turn outside the root.
             LongIdList newLines = LongIds.list.of(lines.stream().mapToLong(Long::longValue).toArray());
-            writer.semantic(manifest, DocumentModelTerms.JOURNAL_MANIFEST_PATTERN, anchorConcept, newLines);
+            writer.semantic(manifest, DocumentModelTerms.JOURNAL_MANIFEST_PATTERN, anchorConcept.publicId(), newLines);
             long[] turns = new long[priorTurns.size() + 2];
             System.arraycopy(priorTurns.toArray(), 0, turns, 0, priorTurns.size());
             turns[turns.length - 2] = userTurn;
             turns[turns.length - 1] = assistantTurn;
-            writer.semantic(root, DocumentModelTerms.BLOCK_PATTERN, anchorConcept,
+            writer.semantic(root, DocumentModelTerms.BLOCK_PATTERN, anchorConcept.publicId(),
                     DocumentModelTerms.CONVERSATION_JOURNAL, 0, name, "", LongIds.list.of(turns));
 
             writer.commit();
@@ -250,18 +250,18 @@ public final class JournalStore {
      * @param manifest the manifest's lines so far; this turn's lines are appended in order
      * @return the turn block's nid
      */
-    private static long writeTurn(StampedWriter writer, Concept anchor, String markdown, List<Long> manifest) {
+    private static long writeTurn(StampedWriter writer, ConceptFacade anchor, String markdown, List<Long> manifest) {
         MarkdownStructure.Turn turn = MarkdownStructure.parse(markdown);
         long[] lineNids = new long[turn.lines().size()];
         for (int i = 0; i < lineNids.length; i++) {
             lineNids[i] = writer.semantic(Semantic.make(PublicIds.newRandom()),
-                    DocumentModelTerms.PROSE_ELEMENT_PATTERN, anchor, turn.lines().get(i));
+                    DocumentModelTerms.PROSE_ELEMENT_PATTERN, anchor.publicId(), turn.lines().get(i));
             manifest.add(lineNids[i]);
         }
         return writeElement(writer, anchor, turn.turn(), lineNids);
     }
 
-    private static long writeElement(StampedWriter writer, Concept anchor, Element element, long[] lineNids) {
+    private static long writeElement(StampedWriter writer, ConceptFacade anchor, Element element, long[] lineNids) {
         long[] members = new long[element.members().size()];
         for (int i = 0; i < members.length; i++) {
             Member member = element.members().get(i);
@@ -270,7 +270,7 @@ public final class JournalStore {
                 case Child child -> writeElement(writer, anchor, child.element(), lineNids);
             };
         }
-        return writer.semantic(Semantic.make(PublicIds.newRandom()), DocumentModelTerms.BLOCK_PATTERN, anchor,
+        return writer.semantic(Semantic.make(PublicIds.newRandom()), DocumentModelTerms.BLOCK_PATTERN, anchor.publicId(),
                 element.kind(), element.level(), element.title(), element.parameters(), LongIds.list.of(members));
     }
 
@@ -379,13 +379,13 @@ public final class JournalStore {
         }
     }
 
-    /** The user-turn author: the view's edit-coordinate author, else {@link KernelTerm#USER}. */
-    private Concept userAuthor() {
+    /** The user-turn author: the view's edit-coordinate author, else {@link KernelConcept#USER}. */
+    private ConceptFacade userAuthor() {
         ViewCalculator calculator = viewCalculator.get();
         if (calculator == null) {
-            return KernelTerm.USER;
+            return KernelConcept.USER;
         }
         ConceptFacade author = calculator.viewCoordinateRecord().editCoordinate().getAuthorForChanges();
-        return author == null ? KernelTerm.USER : Concept.make(author);
+        return author == null ? KernelConcept.USER : Concept.make(author);
     }
 }

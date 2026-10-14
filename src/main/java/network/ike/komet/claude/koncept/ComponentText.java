@@ -29,7 +29,8 @@ import dev.ikm.tinkar.entity.PatternEntityVersion;
 import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.terms.EntityFacade;
-import dev.ikm.tinkar.terms.KernelTerm;
+import dev.ikm.tinkar.terms.KernelConcept;
+import dev.ikm.tinkar.terms.KernelPattern;
 import network.ike.komet.claude.ui.KonceptTokens;
 
 import java.util.Optional;
@@ -109,7 +110,7 @@ public final class ComponentText {
 
     /**
      * The SNOMED CT identifier of a component: the value of its identifier semantic
-     * ({@link KernelTerm#IDENTIFIER_PATTERN}) whose source is {@link KernelTerm#SCTID}, latest on
+     * ({@link KernelPattern#IDENTIFIER_PATTERN}) whose source is {@link KernelConcept#SCTID}, latest on
      * the view.
      *
      * @param view the view whose stamp coordinate selects the identifier semantic's version
@@ -119,7 +120,7 @@ public final class ComponentText {
     public static Optional<String> sctid(ViewCalculator view, long nid) {
         try {
             for (SemanticEntity<SemanticEntityVersion> semantic : EntityService.get()
-                    .semanticsForComponentOfPattern(nid, KernelTerm.IDENTIFIER_PATTERN.nid()).toList()) {
+                    .semanticsForComponentOfPattern(nid, KernelPattern.IDENTIFIER_PATTERN.nid()).toList()) {
                 Latest<SemanticEntityVersion> latest = view.stampCalculator().latest(semantic);
                 if (latest.isPresent()) {
                     String value = null;
@@ -131,7 +132,7 @@ public final class ComponentText {
                             source = ef;
                         }
                     }
-                    if (value != null && source != null && source.nid() == KernelTerm.SCTID.nid()) {
+                    if (value != null && source != null && source.nid() == KernelConcept.SCTID.nid()) {
                         return Optional.of(value);
                     }
                 }
@@ -255,7 +256,7 @@ public final class ComponentText {
     private static Optional<String> semanticText(ViewCalculator view, long nid, int depth) {
         StampCalculator stamps = view.stampCalculator();
         Latest<Field<String>> description = stamps.getFieldForSemantic(
-                nid, KernelTerm.TEXT_FOR_DESCRIPTION.nid(), StampCalculator.FieldCriterion.MEANING);
+                nid, KernelConcept.TEXT_FOR_DESCRIPTION.nid(), StampCalculator.FieldCriterion.MEANING);
         if (description.isPresent()) {
             Optional<String> text = described(Optional.ofNullable(description.get().value()));
             if (text.isPresent()) {

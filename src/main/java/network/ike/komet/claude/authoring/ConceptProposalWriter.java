@@ -20,7 +20,7 @@ import dev.ikm.komet.framework.observable.ObservableComposer.EntityComposer;
 import dev.ikm.komet.framework.observable.ObservableField;
 import dev.ikm.komet.framework.observable.ObservableSemantic;
 import dev.ikm.komet.framework.observable.ObservableSemanticVersion;
-import dev.ikm.komet.terms.KometTerm;
+import dev.ikm.komet.terms.KometConcept;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.Entity;
@@ -31,12 +31,7 @@ import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.entity.transaction.Transaction;
-import dev.ikm.tinkar.terms.ConceptFacade;
-import dev.ikm.tinkar.terms.EntityFacade;
-import dev.ikm.tinkar.terms.EntityProxy;
-import dev.ikm.tinkar.terms.KernelTerm;
-import dev.ikm.tinkar.terms.PatternFacade;
-import dev.ikm.tinkar.terms.State;
+import dev.ikm.tinkar.terms.*;
 import network.ike.komet.claude.koncept.ComponentText;
 
 import java.util.ArrayList;
@@ -316,7 +311,7 @@ public final class ConceptProposalWriter {
                 String text = edit.textualDefinition().strip();
                 if (textualDefinition == null) {
                     textualDefinition = description(composer, calc, concept, text, false,
-                            KernelTerm.DEFINITION_DESCRIPTION_TYPE, true);
+                            KernelConcept.DEFINITION_DESCRIPTION_TYPE, true);
                     fields.add("textual_definition");
                 } else if (editedElsewhere(textualDefinition)) {
                     warnings.add("textual_definition: the person has edited the textual definition in the window, "
@@ -328,11 +323,11 @@ public final class ConceptProposalWriter {
 
             if (edit.editorialNote() != null && !edit.editorialNote().isBlank()) {
                 String text = edit.editorialNote().strip();
-                int noteField = firstStringField(calc, KernelTerm.COMMENT_PATTERN);
+                int noteField = firstStringField(calc, KernelPattern.COMMENT_PATTERN);
                 if (noteField < 0) {
                     warnings.add("editorial_note: this knowledge base's comment pattern has no text field");
                 } else if (note == null) {
-                    note = semantic(composer, concept, KernelTerm.COMMENT_PATTERN,
+                    note = semantic(composer, concept, KernelPattern.COMMENT_PATTERN,
                             f -> f.get(noteField).setObjectValue(text)).nid();
                     fields.add("editorial_note");
                 } else if (editedInWindow(composer, note)) {
@@ -367,7 +362,7 @@ public final class ConceptProposalWriter {
         /** A synonym, in the proposal's transaction. */
         private WrittenSynonym writeSynonym(Synonym synonym) {
             Described written = description(composer, calc, concept, synonym.term(), synonym.caseSensitive(),
-                    KernelTerm.REGULAR_NAME_DESCRIPTION_TYPE, synonym.preferred());
+                    KernelConcept.REGULAR_NAME_DESCRIPTION_TYPE, synonym.preferred());
             return new WrittenSynonym(synonym, written);
         }
 
@@ -385,19 +380,19 @@ public final class ConceptProposalWriter {
          * returns whether anything changed.
          */
         private boolean setDescription(Described described, String text, Boolean caseSensitive, Boolean preferred) {
-            PatternEntityVersion pattern = latest(calc, KernelTerm.DESCRIPTION_PATTERN);
+            PatternEntityVersion pattern = latest(calc, KernelPattern.DESCRIPTION_PATTERN);
             boolean changed = false;
             if (text != null) {
-                changed |= set(composer, described.description(), index(pattern, KernelTerm.TEXT_FOR_DESCRIPTION), text);
+                changed |= set(composer, described.description(), index(pattern, KernelConcept.TEXT_FOR_DESCRIPTION), text);
             }
             if (caseSensitive != null) {
-                changed |= set(composer, described.description(), index(pattern, KernelTerm.DESCRIPTION_CASE_SIGNIFICANCE),
-                        caseSensitive ? KernelTerm.DESCRIPTION_CASE_SENSITIVE : KernelTerm.DESCRIPTION_NOT_CASE_SENSITIVE);
+                changed |= set(composer, described.description(), index(pattern, KernelConcept.DESCRIPTION_CASE_SIGNIFICANCE),
+                        caseSensitive ? KernelConcept.DESCRIPTION_CASE_SENSITIVE : KernelConcept.DESCRIPTION_NOT_CASE_SENSITIVE);
             }
             if (preferred != null) {
                 changed |= set(composer, described.dialect(),
-                        index(latest(calc, KernelTerm.US_DIALECT_PATTERN), KometTerm.US_ENGLISH_DIALECT),
-                        preferred ? KernelTerm.PREFERRED : KometTerm.ACCEPTABLE);
+                        index(latest(calc, KernelPattern.US_DIALECT_PATTERN), KometConcept.US_ENGLISH_DIALECT),
+                        preferred ? KernelConcept.PREFERRED : KometConcept.ACCEPTABLE);
             }
             return changed;
         }
@@ -437,7 +432,7 @@ public final class ConceptProposalWriter {
         EntityFacade concept = draft.concept;
 
         draft.name = description(composer, calc, concept, fsn, false,
-                KernelTerm.FULLY_QUALIFIED_NAME_DESCRIPTION_TYPE, true);
+                KernelConcept.FULLY_QUALIFIED_NAME_DESCRIPTION_TYPE, true);
         draft.written += 2;
         boolean anyPreferred = synonyms.stream().anyMatch(Synonym::preferred);
         if (!anyPreferred) {
@@ -450,20 +445,20 @@ public final class ConceptProposalWriter {
             draft.written += 2;
         }
 
-        draft.definition = semantic(composer, concept, KernelTerm.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN,
+        draft.definition = semantic(composer, concept, KernelPattern.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN,
                 fields -> fields.getFirst().setObjectValue(definition)).nid();
         draft.written++;
 
         if (textualDefinition != null && !textualDefinition.isBlank()) {
             draft.textualDefinition = description(composer, calc, concept, textualDefinition.strip(), false,
-                    KernelTerm.DEFINITION_DESCRIPTION_TYPE, true);
+                    KernelConcept.DEFINITION_DESCRIPTION_TYPE, true);
             draft.written += 2;
         }
 
         if (editorialNote != null && !editorialNote.isBlank()) {
-            int noteField = firstStringField(calc, KernelTerm.COMMENT_PATTERN);
+            int noteField = firstStringField(calc, KernelPattern.COMMENT_PATTERN);
             if (noteField >= 0) {
-                draft.note = semantic(composer, concept, KernelTerm.COMMENT_PATTERN,
+                draft.note = semantic(composer, concept, KernelPattern.COMMENT_PATTERN,
                         fields -> fields.get(noteField).setObjectValue(editorialNote)).nid();
                 draft.written++;
             }
@@ -489,22 +484,22 @@ public final class ConceptProposalWriter {
     /** A description and its US-English acceptability. */
     private static Described description(ObservableComposer composer, ViewCalculator calc, EntityFacade concept,
                                          String text, boolean caseSensitive, ConceptFacade type, boolean preferred) {
-        PatternEntityVersion pattern = latest(calc, KernelTerm.DESCRIPTION_PATTERN);
+        PatternEntityVersion pattern = latest(calc, KernelPattern.DESCRIPTION_PATTERN);
         Map<ConceptFacade, Object> byMeaning = Map.of(
-                KernelTerm.LANGUAGE_CONCEPT_NID_FOR_DESCRIPTION, KernelTerm.ENGLISH_LANGUAGE,
-                KernelTerm.TEXT_FOR_DESCRIPTION, text,
-                KernelTerm.DESCRIPTION_CASE_SIGNIFICANCE, caseSensitive
-                        ? KernelTerm.DESCRIPTION_CASE_SENSITIVE : KernelTerm.DESCRIPTION_NOT_CASE_SENSITIVE,
-                KernelTerm.DESCRIPTION_TYPE, type);
-        ObservableSemantic description = semantic(composer, concept, KernelTerm.DESCRIPTION_PATTERN,
+                KernelConcept.LANGUAGE_CONCEPT_NID_FOR_DESCRIPTION, KernelConcept.ENGLISH_LANGUAGE,
+                KernelConcept.TEXT_FOR_DESCRIPTION, text,
+                KernelConcept.DESCRIPTION_CASE_SIGNIFICANCE, caseSensitive
+                        ? KernelConcept.DESCRIPTION_CASE_SENSITIVE : KernelConcept.DESCRIPTION_NOT_CASE_SENSITIVE,
+                KernelConcept.DESCRIPTION_TYPE, type);
+        ObservableSemantic description = semantic(composer, concept, KernelPattern.DESCRIPTION_PATTERN,
                 fields -> byMeaning.forEach((meaning, value) ->
                         fields.get(index(pattern, meaning)).setObjectValue(value)));
 
-        PatternEntityVersion dialect = latest(calc, KernelTerm.US_DIALECT_PATTERN);
+        PatternEntityVersion dialect = latest(calc, KernelPattern.US_DIALECT_PATTERN);
         // The dialect pattern's one field is named for the dialect itself; it holds the acceptability.
-        int acceptability = index(dialect, KometTerm.US_ENGLISH_DIALECT);
-        ObservableSemantic dialectSemantic = semantic(composer, description, KernelTerm.US_DIALECT_PATTERN,
-                fields -> fields.get(acceptability).setObjectValue(preferred ? KernelTerm.PREFERRED : KometTerm.ACCEPTABLE));
+        int acceptability = index(dialect, KometConcept.US_ENGLISH_DIALECT);
+        ObservableSemantic dialectSemantic = semantic(composer, description, KernelPattern.US_DIALECT_PATTERN,
+                fields -> fields.get(acceptability).setObjectValue(preferred ? KernelConcept.PREFERRED : KometConcept.ACCEPTABLE));
         return new Described(description.nid(), dialectSemantic.nid());
     }
 
@@ -594,7 +589,7 @@ public final class ConceptProposalWriter {
     private static int firstStringField(ViewCalculator calc, PatternFacade pattern) {
         PatternEntityVersion version = latest(calc, pattern);
         for (int i = 0; i < version.fieldDefinitions().size(); i++) {
-            if (version.fieldDefinitions().get(i).dataTypeNid() == KernelTerm.STRING.nid()) {
+            if (version.fieldDefinitions().get(i).dataTypeNid() == KernelConcept.STRING.nid()) {
                 return i;
             }
         }
