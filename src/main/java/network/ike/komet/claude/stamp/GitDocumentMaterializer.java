@@ -42,8 +42,7 @@ import dev.ikm.tinkar.terms.EntityProxy;
 import dev.ikm.tinkar.terms.EntityProxy.Concept;
 import dev.ikm.tinkar.terms.EntityProxy.Semantic;
 import dev.ikm.tinkar.terms.State;
-import network.ike.komet.claude.doc.JournalStore;
-import network.ike.komet.claude.doc.RichSurfaceTerms;
+import network.ike.komet.claude.doc.DocumentModelTerms;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -132,7 +131,6 @@ public final class GitDocumentMaterializer {
      * @throws IOException if the repository or the file cannot be read
      */
     public static Result materialize(Path repoRoot, Path file, boolean onlyNew) throws IOException {
-        JournalStore.bootstrapIfAbsent();
         AsciiDocModelTerms.bootstrapIfAbsent();
         GitIdentityAdapter adapter = GitIdentityAdapter.fromMailmap(repoRoot);
         String component = repoRoot.toAbsolutePath().normalize().getFileName().toString();
@@ -187,18 +185,18 @@ public final class GitDocumentMaterializer {
                         anchorWritten = true;
                     }
                     for (CommitEvent.Line line : contentRecorded ? List.<CommitEvent.Line>of() : event.introduced()) {
-                        writer.semantic(lineProxy(adapter, line.id()), RichSurfaceTerms.PROSE_ELEMENT_PATTERN, anchor, line.text());
+                        writer.semantic(lineProxy(adapter, line.id()), DocumentModelTerms.PROSE_ELEMENT_PATTERN, anchor, line.text());
                         lines++;
                     }
                     for (CommitEvent.Line line : contentRecorded ? List.<CommitEvent.Line>of() : event.retexted()) {
-                        writer.semantic(lineProxy(adapter, line.id()), RichSurfaceTerms.PROSE_ELEMENT_PATTERN, anchor, line.text());
+                        writer.semantic(lineProxy(adapter, line.id()), DocumentModelTerms.PROSE_ELEMENT_PATTERN, anchor, line.text());
                     }
                     if (now != null && !contentRecorded) {
                         long[] nids = new long[event.manifest().size()];
                         for (int i = 0; i < nids.length; i++) {
                             nids[i] = EntityService.get().nidForPublicId(lineProxy(adapter, event.manifest().get(i)).publicId());
                         }
-                        writer.semantic(manifest, RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN, anchor, LongIds.list.of(nids));
+                        writer.semantic(manifest, DocumentModelTerms.JOURNAL_MANIFEST_PATTERN, anchor, LongIds.list.of(nids));
                         writer.semantic(source, StampedDocumentTerms.GIT_SOURCE_PATTERN, anchor, event.pathAtCommit(), event.commit().sha());
                         if (!Arrays.equals(now.attributes, structure.attributes)) {
                             writer.semantic(attributes, AsciiDocModelTerms.DOCUMENT_ATTRIBUTES_PATTERN, anchor, (Object[]) now.attributes);
@@ -206,7 +204,7 @@ public final class GitDocumentMaterializer {
                         for (Map.Entry<String, Written> e : now.blocks.entrySet()) {
                             Written last = structure.blocks.get(e.getKey());
                             if (last == null || !last.signature.equals(e.getValue().signature)) {
-                                writer.semantic(e.getValue().proxy, AsciiDocModelTerms.BLOCK_PATTERN, anchor, e.getValue().fields);
+                                writer.semantic(e.getValue().proxy, DocumentModelTerms.BLOCK_PATTERN, anchor, e.getValue().fields);
                                 blocks++;
                             }
                         }
@@ -240,7 +238,7 @@ public final class GitDocumentMaterializer {
                     try (StampedWriter writer = StampedWriter.open("git-retire " + event.commit().sha().substring(0, 7), State.INACTIVE,
                             stamp.time(), stamp.author(), stamp.module(), stamp.path())) {
                         for (LineId id : event.retired()) {
-                            writer.semantic(lineProxy(adapter, id), RichSurfaceTerms.PROSE_ELEMENT_PATTERN, anchor, lastText.getOrDefault(id, ""));
+                            writer.semantic(lineProxy(adapter, id), DocumentModelTerms.PROSE_ELEMENT_PATTERN, anchor, lastText.getOrDefault(id, ""));
                         }
                         for (Retirement r : retirements) {
                             writer.semantic(r.written.proxy, r.written.pattern, r.written.referenced == null ? anchor : r.written.referenced, r.written.fields);
@@ -327,7 +325,7 @@ public final class GitDocumentMaterializer {
                             + manifest.get((block.headingLine() > 0 ? block.headingLine() : block.firstLine()) - 1).key();
             keys.put(block, key);
             Semantic proxy = Semantic.make(PublicIds.of(Uuid5.of(GitIdentityAdapter.NAMESPACE, key)));
-            long nid = EntityService.get().nidForSemantic(AsciiDocModelTerms.BLOCK_PATTERN.publicId(), proxy.publicId());
+            long nid = EntityService.get().nidForSemantic(DocumentModelTerms.BLOCK_PATTERN.publicId(), proxy.publicId());
             nids.put(block, nid);
             if (!block.anchor().isEmpty()) {
                 anchors.put(block.anchor(), nid);
@@ -351,7 +349,7 @@ public final class GitDocumentMaterializer {
             String signature = block.kind() + "|" + block.level() + "|" + block.title() + "|" + block.parameters() + "|" + Arrays.toString(memberNids);
             String key = keys.get(block);
             snapshot.blocks.put(key, new Written(Semantic.make(PublicIds.of(Uuid5.of(GitIdentityAdapter.NAMESPACE, key))),
-                    AsciiDocModelTerms.BLOCK_PATTERN, null, fields, signature));
+                    DocumentModelTerms.BLOCK_PATTERN, null, fields, signature));
         }
         for (Reference reference : doc.references()) {
             LineId lineId = manifest.get(reference.line() - 1);
@@ -465,7 +463,7 @@ public final class GitDocumentMaterializer {
     public static Optional<StoredDocument> load(PublicId anchor) {
         long anchorNid = EntityService.get().nidForPublicId(anchor);
         List<SemanticEntity<SemanticEntityVersion>> manifests = EntityService.get()
-                .semanticsForComponentOfPattern(anchorNid, RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN.nid()).toList();
+                .semanticsForComponentOfPattern(anchorNid, DocumentModelTerms.JOURNAL_MANIFEST_PATTERN.nid()).toList();
         if (manifests.isEmpty()) {
             return Optional.empty();
         }
@@ -546,7 +544,7 @@ public final class GitDocumentMaterializer {
         Map<Long, StoredBlock> blocks = new LinkedHashMap<>();
         StoredBlock root = null;
         for (SemanticEntity<SemanticEntityVersion> s : EntityService.get()
-                .semanticsForComponentOfPattern(anchorNid, AsciiDocModelTerms.BLOCK_PATTERN.nid()).toList()) {
+                .semanticsForComponentOfPattern(anchorNid, DocumentModelTerms.BLOCK_PATTERN.nid()).toList()) {
             SemanticEntityVersion v = latest(s);
             if (v == null || v.state() != State.ACTIVE) {
                 continue;

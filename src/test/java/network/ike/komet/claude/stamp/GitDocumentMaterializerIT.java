@@ -28,6 +28,7 @@ import design.knowledge.stamp.adoc.model.StampFile;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.terms.State;
+import network.ike.komet.claude.doc.DocumentModelTerms;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -187,11 +188,11 @@ class GitDocumentMaterializerIT {
 
         long anchorNid = EntityService.get().nidForPublicId(result.anchor());
         SemanticEntity<SemanticEntityVersion> listingBlock = EntityService.get()
-                .semanticsForComponentOfPattern(anchorNid, AsciiDocModelTerms.BLOCK_PATTERN.nid()).toList().stream()
+                .semanticsForComponentOfPattern(anchorNid, DocumentModelTerms.BLOCK_PATTERN.nid()).toList().stream()
                 .filter(s -> s.versions().stream().anyMatch(v -> v.state() == State.INACTIVE)).findFirst().orElseThrow();
         SemanticEntityVersion retired = listingBlock.versions().stream().filter(v -> v.state() == State.INACTIVE).findFirst().orElseThrow();
         assertEquals(Instant.parse("2026-02-03T00:00:00Z").toEpochMilli(), retired.time(), "the listing's withdrawal is STAMPed by the commit that dropped it");
-        assertEquals(AsciiDocModelTerms.LISTING.nid(), ((dev.ikm.tinkar.terms.EntityProxy) retired.fieldValues().get(0)).nid());
+        assertEquals(DocumentModelTerms.LISTING.nid(), ((dev.ikm.tinkar.terms.EntityProxy) retired.fieldValues().get(0)).nid());
 
         int before = blockVersions(anchorNid);
         GitDocumentMaterializer.materialize(dir, file, false);
@@ -243,7 +244,7 @@ class GitDocumentMaterializerIT {
     private static int blockVersions(long anchorNid) {
         int count = 0;
         for (SemanticEntity<SemanticEntityVersion> s : EntityService.get()
-                .semanticsForComponentOfPattern(anchorNid, AsciiDocModelTerms.BLOCK_PATTERN.nid()).toList()) {
+                .semanticsForComponentOfPattern(anchorNid, DocumentModelTerms.BLOCK_PATTERN.nid()).toList()) {
             for (SemanticEntityVersion v : s.versions()) {
                 if (v.time() != Long.MAX_VALUE) {
                     count++;

@@ -70,6 +70,10 @@ module komet.claude {
     // InlineDecorator + MarkdownStyledModel. Brings the incubator richtext model
     // transitively; the plugin supplies a ConceptChipInlineDecorator for grounding.
     requires dev.ikm.komet.markdown.richtext;
+    // The journal splits each turn into the shared block model with commonmark's source spans
+    // (IKE-Network/ike-issues#844); both modules are already in the runtime through the renderer.
+    requires org.commonmark;
+    requires org.commonmark.ext.gfm.tables;
 
     // Rule engine: author Evrete rules (RulesBase) and actions (AbstractAction*)
     // contributed via the RuleProvider SPI; org.evrete.dsl for the rule annotations.

@@ -17,6 +17,7 @@ package network.ike.komet.claude.stamp;
 
 import design.knowledge.stamp.adoc.dialect.Block;
 import design.knowledge.stamp.adoc.dialect.Reference;
+import network.ike.komet.claude.doc.DocumentModelTerms;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
@@ -28,17 +29,23 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 /**
  * The AsciiDoc model terms are the IKE starter set's own: the identities here must equal the
  * ones the set's generated bindings carry ({@code IkeTerms}, built from {@code AsciiDocModelSet}
- * on 2026-10-13), so a store carrying the set and a store this plugin seeds hold one component.
+ * on 2026-10-14), so a store carrying the set and a store this plugin seeds hold one component.
  */
 class AsciiDocModelTermsTest {
 
     @Test
     void identitiesMatchTheGeneratedStarterSetBindings() {
-        assertEquals(UUID.fromString("afbaa86b-f595-5ee6-8db3-c8c343c37306"), uuid(AsciiDocModelTerms.BLOCK_PATTERN), "ASCIIDOC_BLOCK_PATTERN");
         assertEquals(UUID.fromString("42f72861-a1d4-5735-aaa1-8b82b8fdeedf"), uuid(AsciiDocModelTerms.DOCUMENT_ATTRIBUTES_PATTERN), "ASCIIDOC_DOCUMENT_ATTRIBUTES_PATTERN");
-        assertEquals(UUID.fromString("355fd531-c971-5718-bb21-e17b09f67c0d"), uuid(AsciiDocModelTerms.PARAGRAPH), "ASCIIDOC_PARAGRAPH");
+        assertEquals(UUID.fromString("7b6d88f3-a1b6-53c7-93fd-5d986e0b526e"), uuid(AsciiDocModelTerms.LITERAL), "ASCIIDOC_LITERAL_BLOCK");
         assertEquals(UUID.fromString("bc226198-6325-5ca0-8ce6-1fa99370c49a"), uuid(AsciiDocModelTerms.CROSS_REFERENCE_PATTERN), "ASCIIDOC_CROSS_REFERENCE_PATTERN");
-        assertEquals(UUID.fromString("f9a99223-83ec-5650-8e5a-3eefacec1297"), uuid(AsciiDocModelTerms.MEMBERS), "ASCIIDOC_MEMBERS");
+        assertEquals(UUID.fromString("ef541de8-c2bd-5140-a185-62d96653fc8b"), uuid(AsciiDocModelTerms.REFERENCED_ENTRY), "ASCIIDOC_REFERENCED_ENTRY");
+    }
+
+    @Test
+    void sharedKindsComeFromTheBlockModelDocumentsAndJournalsShare() {
+        assertSame(DocumentModelTerms.PARAGRAPH, AsciiDocModelTerms.kind(Block.Kind.PARAGRAPH));
+        assertSame(DocumentModelTerms.QUOTATION, AsciiDocModelTerms.kind(Block.Kind.QUOTE));
+        assertSame(AsciiDocModelTerms.SIDEBAR, AsciiDocModelTerms.kind(Block.Kind.SIDEBAR));
     }
 
     @Test

@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.doc;
 
+import dev.ikm.tinkar.common.id.LongIdList;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
@@ -78,15 +79,15 @@ class JournalStoreIT {
     @Test
     void bootstrapIsIdempotent() {
         JournalStore.bootstrapIfAbsent();
-        int authorVersions = versionCount(RichSurfaceTerms.KOMET_ASSISTANT_AUTHOR.publicId());
-        int patternVersions = versionCount(RichSurfaceTerms.PROSE_ELEMENT_PATTERN.publicId());
+        int authorVersions = versionCount(DocumentModelTerms.KOMET_ASSISTANT.publicId());
+        int patternVersions = versionCount(DocumentModelTerms.PROSE_ELEMENT_PATTERN.publicId());
         assertTrue(authorVersions > 0, "assistant author seeded");
         assertTrue(patternVersions > 0, "prose pattern seeded");
 
         JournalStore.bootstrapIfAbsent();
-        assertEquals(authorVersions, versionCount(RichSurfaceTerms.KOMET_ASSISTANT_AUTHOR.publicId()),
+        assertEquals(authorVersions, versionCount(DocumentModelTerms.KOMET_ASSISTANT.publicId()),
                 "second bootstrap must not add author versions");
-        assertEquals(patternVersions, versionCount(RichSurfaceTerms.PROSE_ELEMENT_PATTERN.publicId()),
+        assertEquals(patternVersions, versionCount(DocumentModelTerms.PROSE_ELEMENT_PATTERN.publicId()),
                 "second bootstrap must not add pattern versions");
     }
 
@@ -153,10 +154,64 @@ class JournalStoreIT {
     }
 
     @Test
+    void structuredTurnsRoundTripExactly() {
+        String user = "## Question\n\nCompare these:\n\n| a | b |\n|---|---|\n| 1 | 2 |\n";
+        String assistant = "# Answer\n\nFirst paragraph,\nwith two lines.\n\n```koncept-tree\nAortic stenosis\n```\n\n"
+                + "1. one\n2. two\n   - nested\n\n> quoted\n\n---\n\n## Detail\n\ntext";
+        PublicId anchor = store.appendExchange(null, "Structured conversation", user, assistant);
+        List<JournalStore.TurnRecord> turns = store.load(anchor).orElseThrow();
+        assertEquals(user, turns.get(0).markdown(), "user turn exact, trailing newline included");
+        assertEquals(assistant, turns.get(1).markdown(), "assistant turn exact");
+    }
+
+    @Test
+    void eachTurnIsABlockOfTheSharedModelUnderTheRoot() {
+        PublicId anchor = store.appendExchange(null, "Block conversation",
+                "Plain question", "Intro\n\n```java\nint x;\n```");
+        SemanticEntityVersion root = rawLatest(EntityService.get().nidForPublicId(JournalStore.rootBlockId(anchor)));
+        assertEquals(DocumentModelTerms.CONVERSATION_JOURNAL.nid(), kindNid(root), "the root block's kind");
+        assertEquals("Block conversation", root.fieldValues().get(2), "the root carries the conversation name");
+        long[] turnNids = ((LongIdList) root.fieldValues().get(4)).toArray();
+        assertEquals(2, turnNids.length, "one exchange = two turn blocks");
+
+        SemanticEntityVersion assistantTurn = rawLatest(turnNids[1]);
+        assertEquals(DocumentModelTerms.CONVERSATION_TURN.nid(), kindNid(assistantTurn), "a turn's kind");
+        assertEquals(DocumentModelTerms.KOMET_ASSISTANT.nid(), assistantTurn.authorNid(), "the turn block's author");
+        long[] members = ((LongIdList) assistantTurn.fieldValues().get(4)).toArray();
+        assertEquals(3, members.length, "paragraph, blank line, listing");
+        assertEquals(DocumentModelTerms.PARAGRAPH.nid(), kindNid(rawLatest(members[0])));
+        assertEquals(DocumentModelTerms.PROSE_ELEMENT_PATTERN.nid(), rawLatest(members[1]).patternNid(),
+                "a blank line is the turn's own line");
+        SemanticEntityVersion listing = rawLatest(members[2]);
+        assertEquals(DocumentModelTerms.LISTING.nid(), kindNid(listing));
+        assertEquals("java", listing.fieldValues().get(3), "the fence's info string is the listing's parameters");
+        assertEquals(3, ((LongIdList) listing.fieldValues().get(4)).size(), "fences and the code line");
+
+        long manifestNid = soleManifestNid(anchor);
+        assertEquals(1 + 5, ((LongIdList) rawLatest(manifestNid).fieldValues().get(0)).size(),
+                "the manifest orders every line of both turns");
+    }
+
+    @Test
     void loadOfUnknownOrNullAnchorIsEmpty() {
         assertTrue(store.load(null).isEmpty(), "null anchor loads nothing");
         assertTrue(store.load(dev.ikm.tinkar.common.id.PublicIds.newRandom()).isEmpty(),
                 "unknown anchor loads nothing");
+    }
+
+    private static SemanticEntityVersion rawLatest(long nid) {
+        SemanticEntity<SemanticEntityVersion> entity = EntityHandle.get(nid).expectSemantic();
+        SemanticEntityVersion head = null;
+        for (SemanticEntityVersion v : entity.versions()) {
+            if (v.time() != Long.MAX_VALUE && (head == null || v.time() > head.time())) {
+                head = v;
+            }
+        }
+        return head;
+    }
+
+    private static long kindNid(SemanticEntityVersion block) {
+        return ((dev.ikm.tinkar.terms.EntityFacade) block.fieldValues().get(0)).nid();
     }
 
     private static int versionCount(PublicId publicId) {
@@ -168,7 +223,7 @@ class JournalStoreIT {
     private static long soleManifestNid(PublicId anchor) {
         List<SemanticEntity<SemanticEntityVersion>> manifests = EntityService.get().semanticsForComponentOfPattern(
                 EntityService.get().nidForPublicId(anchor),
-                RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN.nid()).toList();
+                DocumentModelTerms.JOURNAL_MANIFEST_PATTERN.nid()).toList();
         assertEquals(1, manifests.size(), "exactly one manifest per journal");
         return manifests.getFirst().nid();
     }

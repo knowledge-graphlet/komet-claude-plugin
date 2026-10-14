@@ -213,6 +213,16 @@
             <groupId>dev.ikm.komet</groupId>
             <artifactId>komet-markdown-richtext</artifactId>
         </dependency>
+        <!-- The journal parses each turn with commonmark's source spans to split it into the
+             shared block model (IKE-Network/ike-issues#844). Versions managed by komet-bom. -->
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark-ext-gfm-tables</artifactId>
+        </dependency>
 
         <!-- Rule engine: RulesBase + AbstractAction* for plugin-contributed Evrete
              rules via the RuleProvider SPI. Brings evrete + controlsfx transitively.

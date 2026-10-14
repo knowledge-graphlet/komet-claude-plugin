@@ -15,25 +15,29 @@
  */
 package network.ike.komet.claude.doc;
 
-import dev.ikm.komet.terms.KometTerm;
 import dev.ikm.tinkar.common.id.LongIdList;
 import dev.ikm.tinkar.common.id.LongIds;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
+import dev.ikm.tinkar.common.util.uuid.UuidT5Generator;
 import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
+import dev.ikm.tinkar.coordinate.stamp.calculator.StampCalculator;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.EntityHandle;
-import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.transaction.StampedWriter;
+import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.terms.ConceptFacade;
-import dev.ikm.tinkar.terms.EntityProxy;
 import dev.ikm.tinkar.terms.EntityProxy.Concept;
 import dev.ikm.tinkar.terms.EntityProxy.Semantic;
-import dev.ikm.tinkar.terms.State;
 import dev.ikm.tinkar.terms.KernelTerm;
+import dev.ikm.tinkar.terms.State;
+import network.ike.komet.claude.doc.MarkdownStructure.Child;
+import network.ike.komet.claude.doc.MarkdownStructure.Element;
+import network.ike.komet.claude.doc.MarkdownStructure.Line;
+import network.ike.komet.claude.doc.MarkdownStructure.Member;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -48,30 +52,38 @@ import java.util.function.Supplier;
  * completed conversation exchange into the open datastore as STAMP-versioned chronologies, and
  * rebuilds a conversation from them.
  *
- * <p><b>Model.</b> One <em>journal-anchor</em> concept per conversation; one
- * <em>journal-manifest</em> semantic on the anchor whose single field is the ordered element
- * id-list — every append is a new manifest version, so replay walks manifest versions in time;
- * one <em>prose-element</em> semantic per turn (the turn's raw Markdown, fenced blocks included —
- * the surface splits blocks at render time). Turn attribution is the STAMP author dimension:
- * user turns stamp with the view's edit-coordinate author, assistant turns with
- * {@link RichSurfaceTerms#KOMET_ASSISTANT_AUTHOR}. All instance data stamps under
- * {@link RichSurfaceTerms#CONVERSATION_JOURNAL_MODULE}, so journals are filterable by the module
- * dimension.
+ * <p><b>Model.</b> A journal is a structured document in the block model it shares with documents
+ * materialized from git ({@link DocumentModelTerms}, {@code IKE-Network/ike-issues#844}). One anchor
+ * concept per conversation. Each line of each turn is a prose element; the journal manifest on the
+ * anchor orders every line, a new version per append. Each turn is a {@code Conversation turn}
+ * block whose members are its blocks and its blank lines, split by {@link MarkdownStructure}; the
+ * journal's root block, of kind {@code Conversation journal}, lists the turns in order. Every
+ * element is a semantic of the document block pattern on the anchor, so an action can take any
+ * block of a conversation as its subject, the same way it takes a block of a document.
+ *
+ * <p>Turn attribution is the STAMP author dimension: a user turn's lines and blocks stamp with the
+ * view's edit-coordinate author, an assistant turn's with {@link DocumentModelTerms#KOMET_ASSISTANT}.
+ * All instance data stamps under {@link DocumentModelTerms#CONVERSATION_JOURNAL_MODULE}, so journals
+ * are filterable by the module dimension. A journal block's identity is given when its turn is
+ * written: random for lines and blocks, and derived from the anchor for the root block.
  *
  * <p><b>Write-after-success.</b> {@link #appendExchange} is called only after an exchange
  * completes, off the FX thread; a failed send never touches the journal. Store failures throw —
  * the caller degrades to its JSON-only persistence.
  *
  * <p><b>Writes.</b> An append is one {@link StampedWriter}: the user turn at one stamp, the
- * assistant turn and the manifest at a second, committed or cancelled together. Each stamp takes an
- * explicit time from the monotonic clock, so manifest versions are strictly ordered. A semantic
- * re-written at the same public id merges a new version through
- * {@code EntityProvider.putEntity → PrimitiveData.merge} — the manifest-append mechanic
+ * assistant turn, the manifest and the root block at a second, committed or cancelled together.
+ * Each stamp takes an explicit time from the monotonic clock, so manifest and root versions are
+ * strictly ordered. A semantic re-written at the same public id merges a new version through
+ * {@code EntityProvider.putEntity → PrimitiveData.merge} — the append mechanic
  * {@code JournalStoreIT} locks as this store's regression gate.
  */
 public final class JournalStore {
 
     private static final Logger LOG = LoggerFactory.getLogger(JournalStore.class);
+
+    /** Name key of the root block's identity, derived from the anchor's UUID. */
+    private static final String ROOT_KEY = "conversation-journal-root";
 
     /**
      * Monotonic STAMP clock: strictly increasing per tick, seeded from wall time. Two exchanges in
@@ -83,27 +95,6 @@ public final class JournalStore {
     /** The next STAMP time: wall time, bumped past any time already handed out. */
     private static long nextStampTime() {
         return LAST_STAMP_TIME.updateAndGet(last -> Math.max(last + 1, System.currentTimeMillis()));
-    }
-
-    /**
-     * Whether the proxy has no chronology in the open store. Deliberately stricter than
-     * {@code hasPublicId}: a failed earlier write can leave a minted nid <em>mapping</em> with no
-     * entity behind it, and such a residue must not gate out the (re-)seed.
-     *
-     * @param proxy the term to check
-     * @return {@code true} when no entity exists for the proxy
-     */
-    private static boolean entityAbsent(EntityProxy proxy) {
-        if (!PrimitiveData.get().hasPublicId(proxy.publicId())) {
-            return true;
-        }
-        try {
-            return EntityHandle.get(EntityService.get().nidForPublicId(proxy.publicId()))
-                    .entity().filter(e -> !e.canceled())
-                    .isEmpty();
-        } catch (RuntimeException e) {
-            return true;
-        }
     }
 
     /** Supplies the calculator whose coordinate stamps user turns and resolves latest versions. */
@@ -120,86 +111,34 @@ public final class JournalStore {
         this.viewCalculator = viewCalculator;
     }
 
-    // ── Vocabulary bootstrap ─────────────────────────────────────────────
+    /**
+     * Writes the shared block model's vocabulary into the open datastore if absent. Idempotent and
+     * thread-safe; safe to call before every write.
+     */
+    public static void bootstrapIfAbsent() {
+        DocumentModelTerms.bootstrapIfAbsent();
+    }
 
     /**
-     * Writes the wave-1 {@link RichSurfaceTerms} vocabulary into the open datastore if absent —
-     * concepts (existence-gated one by one) and the two patterns. Idempotent and thread-safe; safe
-     * to call before every write. The vocabulary is shared infrastructure, so it stamps under
-     * {@link KometTerm#DEVELOPMENT_MODULE} (the {@code NarratorIdentity} precedent), not the
-     * conversation module.
+     * The root block's identity: derived from the anchor, so a journal has exactly one.
+     *
+     * @param anchor the journal anchor
+     * @return the root block's public id
      */
-    public static synchronized void bootstrapIfAbsent() {
-        seedConceptIfAbsent(RichSurfaceTerms.CONVERSATION_JOURNAL);
-        seedConceptIfAbsent(RichSurfaceTerms.JOURNAL_ELEMENT);
-        seedConceptIfAbsent(RichSurfaceTerms.PROSE_ELEMENT);
-        seedConceptIfAbsent(RichSurfaceTerms.COMPONENT_LIST_ELEMENT);
-        seedConceptIfAbsent(RichSurfaceTerms.REFERENCE_ELEMENT);
-        seedConceptIfAbsent(RichSurfaceTerms.TOMBSTONE_ELEMENT);
-        seedConceptIfAbsent(RichSurfaceTerms.JOURNAL_ELEMENTS);
-        seedConceptIfAbsent(RichSurfaceTerms.PROSE_CONTENT);
-        seedConceptIfAbsent(RichSurfaceTerms.KOMET_ASSISTANT_AUTHOR);
-        seedConceptIfAbsent(RichSurfaceTerms.CONVERSATION_JOURNAL_MODULE);
-        seedManifestPatternIfAbsent();
-        seedProsePatternIfAbsent();
-    }
-
-    private static void seedConceptIfAbsent(Concept concept) {
-        if (!entityAbsent(concept)) {
-            return;
-        }
-        try (StampedWriter writer = openVocabularyWriter()) {
-            writer.concept(concept);
-            writer.fullyQualifiedName(concept, concept.description());
-            writer.commit();
-        }
-        LOG.info("Seeded rich-surface concept '{}'", concept.description());
-    }
-
-    private static void seedManifestPatternIfAbsent() {
-        if (!entityAbsent(RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN)) {
-            return;
-        }
-        try (StampedWriter writer = openVocabularyWriter()) {
-            writer.pattern(RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN,
-                    RichSurfaceTerms.CONVERSATION_JOURNAL, RichSurfaceTerms.JOURNAL_ELEMENTS,
-                    StampedWriter.field(RichSurfaceTerms.JOURNAL_ELEMENTS,
-                            RichSurfaceTerms.JOURNAL_ELEMENTS, KernelTerm.COMPONENT_ID_LIST_FIELD));
-            writer.commit();
-        }
-        LOG.info("Seeded journal manifest pattern");
-    }
-
-    private static void seedProsePatternIfAbsent() {
-        if (!entityAbsent(RichSurfaceTerms.PROSE_ELEMENT_PATTERN)) {
-            return;
-        }
-        try (StampedWriter writer = openVocabularyWriter()) {
-            writer.pattern(RichSurfaceTerms.PROSE_ELEMENT_PATTERN,
-                    RichSurfaceTerms.PROSE_ELEMENT, RichSurfaceTerms.PROSE_CONTENT,
-                    StampedWriter.field(RichSurfaceTerms.PROSE_CONTENT,
-                            RichSurfaceTerms.PROSE_CONTENT, KernelTerm.STRING));
-            writer.commit();
-        }
-        LOG.info("Seeded prose element pattern");
-    }
-
-    /** A writer for the shared vocabulary: {@link KernelTerm#USER} on the development module. */
-    private static StampedWriter openVocabularyWriter() {
-        return StampedWriter.open("rich-surface-vocabulary-seed", State.ACTIVE, System.currentTimeMillis(),
-                KernelTerm.USER, KometTerm.DEVELOPMENT_MODULE, KernelTerm.DEVELOPMENT_PATH);
+    static PublicId rootBlockId(PublicId anchor) {
+        return PublicIds.of(UuidT5Generator.get(anchor.asUuidArray()[0], ROOT_KEY));
     }
 
     // ── Append ───────────────────────────────────────────────────────────
 
     /**
      * Persists one completed exchange: mints the journal anchor if needed (idempotently, at
-     * {@code anchor} when non-null, else at a new random id), writes the user prose element
-     * (author = the edit coordinate's author) and the assistant prose element (author =
-     * {@link RichSurfaceTerms#KOMET_ASSISTANT_AUTHOR}), and appends both — in order — to a new
-     * version of the journal manifest. All instance data stamps under
-     * {@link RichSurfaceTerms#CONVERSATION_JOURNAL_MODULE}. Call off the FX thread, only after the
-     * exchange succeeded.
+     * {@code anchor} when non-null, else at a new random id), writes the user turn (author = the
+     * edit coordinate's author) and the assistant turn (author =
+     * {@link DocumentModelTerms#KOMET_ASSISTANT}) as lines and blocks, appends their lines to a new
+     * version of the journal manifest and their turn blocks to a new version of the root block. All
+     * instance data stamps under {@link DocumentModelTerms#CONVERSATION_JOURNAL_MODULE}. Call off the
+     * FX thread, only after the exchange succeeded.
      *
      * @param anchor            the conversation's journal anchor, or {@code null} on first append
      * @param conversationName  the conversation's display name (the anchor's fully qualified name)
@@ -216,21 +155,21 @@ public final class JournalStore {
         // earlier failed append) must not skip the anchor concept's creation. An unknown anchor id
         // is never resolved to a nid here: a strict store (Rocks) throws on unknown UUIDs.
         Concept anchorConcept = Concept.make(anchorId);
-        boolean anchorNew = entityAbsent(anchorConcept);
-        Semantic userElement = Semantic.make(PublicIds.newRandom());
-        Semantic assistantElement = Semantic.make(PublicIds.newRandom());
+        boolean anchorNew = DocumentModelTerms.entityAbsent(anchorConcept);
+        String name = (conversationName == null || conversationName.isBlank())
+                ? "Conversation journal" : conversationName;
 
-        // Resolve the append base BEFORE any store write, from the manifest chronology's raw
-        // versions — never through the card's display coordinate: a view positioned in the past,
-        // filtered, or torn down mid-append must never truncate the journal. A resolvable manifest
-        // whose head cannot be read fails CLOSED (throw → the caller degrades to JSON-only), never
-        // open (an empty prior list would orphan every earlier turn).
-        LongIdList priorElements = LongIds.list.empty();
+        // Resolve the append base BEFORE any store write, from the raw versions of the manifest and
+        // the root block — never through the card's display coordinate: a view positioned in the
+        // past, filtered, or torn down mid-append must never truncate the journal. A head that
+        // cannot be read fails CLOSED (throw → the caller degrades to JSON-only), never open (an
+        // empty prior list would orphan every earlier turn).
+        LongIdList priorLines = LongIds.list.empty();
         Semantic manifest;
         List<SemanticEntity<SemanticEntityVersion>> manifests = anchorNew ? List.of()
                 : EntityService.get().semanticsForComponentOfPattern(
                         EntityService.get().nidForPublicId(anchorId),
-                        RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN.nid()).toList();
+                        DocumentModelTerms.JOURNAL_MANIFEST_PATTERN.nid()).toList();
         if (!manifests.isEmpty()) {
             if (manifests.size() > 1) {
                 LOG.warn("Journal anchor {} carries {} manifests; appending to the first",
@@ -238,17 +177,28 @@ public final class JournalStore {
             }
             SemanticEntity<SemanticEntityVersion> manifestEntity = manifests.getFirst();
             manifest = Semantic.make(manifestEntity.publicId());
-            SemanticEntityVersion head = manifestHead(manifestEntity);
+            SemanticEntityVersion head = rawHead(manifestEntity);
             if (head == null) {
                 throw new IllegalStateException("Journal manifest for " + anchorId.idString()
                         + " has no committed version; refusing an append that would orphan prior turns");
             }
-            priorElements = (LongIdList) head.fieldValues().get(0);
-            // Seed the monotonic clock past the head, so a wall-clock regression (a restart or a
-            // second process) cannot mint a version that hides behind the existing head.
-            LAST_STAMP_TIME.updateAndGet(last -> Math.max(last, head.time()));
+            priorLines = (LongIdList) head.fieldValues().get(0);
+            seedClockPast(head);
         } else {
             manifest = Semantic.make(PublicIds.newRandom());
+        }
+
+        Semantic root = Semantic.make(rootBlockId(anchorId));
+        LongIdList priorTurns = LongIds.list.empty();
+        if (!manifests.isEmpty()) {
+            SemanticEntityVersion rootHead = DocumentModelTerms.entityAbsent(root) ? null
+                    : rawHead(EntityHandle.get(EntityService.get().nidForPublicId(root)).expectSemantic());
+            if (rootHead == null) {
+                throw new IllegalStateException("Journal " + anchorId.idString()
+                        + " has a manifest but no root block; refusing an append that would orphan prior turns");
+            }
+            priorTurns = (LongIdList) rootHead.fieldValues().get(4);
+            seedClockPast(rootHead);
         }
 
         long userTime = nextStampTime();
@@ -257,47 +207,87 @@ public final class JournalStore {
         // even across same-millisecond exchanges. Closing the writer unfinished cancels both stamps,
         // so a partial append leaves no durable orphans.
         try (StampedWriter writer = StampedWriter.open("conversation-journal-append", State.ACTIVE, userTime,
-                userAuthor(), RichSurfaceTerms.CONVERSATION_JOURNAL_MODULE, KernelTerm.DEVELOPMENT_PATH)) {
+                userAuthor(), DocumentModelTerms.CONVERSATION_JOURNAL_MODULE, KernelTerm.DEVELOPMENT_PATH)) {
             if (anchorNew) {
-                String name = (conversationName == null || conversationName.isBlank())
-                        ? "Conversation journal" : conversationName;
                 writer.concept(anchorConcept);
                 writer.fullyQualifiedName(anchorConcept, name);
             }
-            long userNid = writer.semantic(userElement, RichSurfaceTerms.PROSE_ELEMENT_PATTERN, anchorConcept,
-                    userMarkdown == null ? "" : userMarkdown);
+            List<Long> lines = new ArrayList<>(priorLines.size() + 16);
+            for (long nid : priorLines.toArray()) {
+                lines.add(nid);
+            }
+            long userTurn = writeTurn(writer, anchorConcept, userMarkdown, lines);
 
-            writer.restamp(State.ACTIVE, assistantTime, RichSurfaceTerms.KOMET_ASSISTANT_AUTHOR,
-                    RichSurfaceTerms.CONVERSATION_JOURNAL_MODULE, KernelTerm.DEVELOPMENT_PATH);
-            long assistantNid = writer.semantic(assistantElement, RichSurfaceTerms.PROSE_ELEMENT_PATTERN,
-                    anchorConcept, assistantMarkdown == null ? "" : assistantMarkdown);
+            writer.restamp(State.ACTIVE, assistantTime, DocumentModelTerms.KOMET_ASSISTANT,
+                    DocumentModelTerms.CONVERSATION_JOURNAL_MODULE, KernelTerm.DEVELOPMENT_PATH);
+            long assistantTurn = writeTurn(writer, anchorConcept, assistantMarkdown, lines);
 
-            // Manifest: append both element nids (write order = document order) as a new version of
-            // the existing manifest semantic, or mint the manifest on first append. Written at the
-            // assistant's stamp, in the same writer, so a crash cannot leave a second manifest behind.
-            long[] appended = new long[priorElements.size() + 2];
-            System.arraycopy(priorElements.toArray(), 0, appended, 0, priorElements.size());
-            appended[appended.length - 2] = userNid;
-            appended[appended.length - 1] = assistantNid;
-            LongIdList newElements = LongIds.list.of(appended);
-            writer.semantic(manifest, RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN, anchorConcept, newElements);
+            // Manifest and root: a new version of each, at the assistant's stamp, in the same
+            // writer, so a crash cannot leave a second manifest or a turn outside the root.
+            LongIdList newLines = LongIds.list.of(lines.stream().mapToLong(Long::longValue).toArray());
+            writer.semantic(manifest, DocumentModelTerms.JOURNAL_MANIFEST_PATTERN, anchorConcept, newLines);
+            long[] turns = new long[priorTurns.size() + 2];
+            System.arraycopy(priorTurns.toArray(), 0, turns, 0, priorTurns.size());
+            turns[turns.length - 2] = userTurn;
+            turns[turns.length - 1] = assistantTurn;
+            writer.semantic(root, DocumentModelTerms.BLOCK_PATTERN, anchorConcept,
+                    DocumentModelTerms.CONVERSATION_JOURNAL, 0, name, "", LongIds.list.of(turns));
 
             writer.commit();
-            LOG.info("Appended exchange to journal {} ({} elements)",
-                    anchorId.idString(), newElements.size());
+            LOG.info("Appended exchange to journal {} ({} turns, {} lines)",
+                    anchorId.idString(), turns.length, newLines.size());
             return anchorId;
         }
     }
 
     /**
-     * The manifest's raw head: its committed version with the greatest STAMP time, read straight
-     * from the chronology (no coordinate filtering — the append base is the newest write, period).
+     * Writes one turn at the writer's current stamp: a prose element per line, then its blocks from
+     * the innermost out, so every member exists before the block that lists it.
+     *
+     * @param writer the open writer, stamped with the turn's author
+     * @param anchor the journal anchor every element refers to
+     * @param markdown the turn's Markdown source
+     * @param manifest the manifest's lines so far; this turn's lines are appended in order
+     * @return the turn block's nid
+     */
+    private static long writeTurn(StampedWriter writer, Concept anchor, String markdown, List<Long> manifest) {
+        MarkdownStructure.Turn turn = MarkdownStructure.parse(markdown);
+        long[] lineNids = new long[turn.lines().size()];
+        for (int i = 0; i < lineNids.length; i++) {
+            lineNids[i] = writer.semantic(Semantic.make(PublicIds.newRandom()),
+                    DocumentModelTerms.PROSE_ELEMENT_PATTERN, anchor, turn.lines().get(i));
+            manifest.add(lineNids[i]);
+        }
+        return writeElement(writer, anchor, turn.turn(), lineNids);
+    }
+
+    private static long writeElement(StampedWriter writer, Concept anchor, Element element, long[] lineNids) {
+        long[] members = new long[element.members().size()];
+        for (int i = 0; i < members.length; i++) {
+            Member member = element.members().get(i);
+            members[i] = switch (member) {
+                case Line line -> lineNids[line.index()];
+                case Child child -> writeElement(writer, anchor, child.element(), lineNids);
+            };
+        }
+        return writer.semantic(Semantic.make(PublicIds.newRandom()), DocumentModelTerms.BLOCK_PATTERN, anchor,
+                element.kind(), element.level(), element.title(), element.parameters(), LongIds.list.of(members));
+    }
+
+    /** Seeds the monotonic clock past a head, so a wall-clock regression cannot hide a new version behind it. */
+    private static void seedClockPast(SemanticEntityVersion head) {
+        LAST_STAMP_TIME.updateAndGet(last -> Math.max(last, head.time()));
+    }
+
+    /**
+     * A semantic's raw head: its committed version with the greatest STAMP time, read straight from
+     * the chronology (no coordinate filtering — the append base is the newest write, period).
      * Versions carrying the uncommitted sentinel time are ignored.
      *
-     * @param entity the manifest semantic
+     * @param entity the semantic
      * @return the head version, or {@code null} when none is committed
      */
-    private static SemanticEntityVersion manifestHead(SemanticEntity<SemanticEntityVersion> entity) {
+    private static SemanticEntityVersion rawHead(SemanticEntity<SemanticEntityVersion> entity) {
         if (entity.canceled()) {
             return null;
         }
@@ -316,27 +306,26 @@ public final class JournalStore {
     // ── Load ─────────────────────────────────────────────────────────────
 
     /**
-     * One rebuilt turn: its Markdown source and whether the assistant authored it (from the
-     * element version's STAMP author).
+     * One rebuilt turn: its Markdown source and whether the assistant authored it (from the turn
+     * block version's STAMP author).
      *
      * @param markdown          the turn's Markdown source
-     * @param assistantAuthored {@code true} when the element's author is
-     *                          {@link RichSurfaceTerms#KOMET_ASSISTANT_AUTHOR}
+     * @param assistantAuthored {@code true} when the turn's author is {@link DocumentModelTerms#KOMET_ASSISTANT}
      */
     public record TurnRecord(String markdown, boolean assistantAuthored) {
     }
 
     /**
-     * Rebuilds a conversation from its journal: the latest manifest version's ordered element
-     * id-list, each element's latest version yielding its Markdown and author-derived role.
+     * Rebuilds a conversation from its journal: the root block's latest turns, each turn's latest
+     * members flattened back to its lines in order, joined with {@code \n}.
      *
      * @param anchor the conversation's journal anchor; may be {@code null}
-     * @return the turns in document order, or empty when the anchor, manifest, or view is absent
+     * @return the turns in document order, or empty when the anchor, root block, or view is absent
      *         (the caller falls back to its JSON persistence)
      */
     public Optional<List<TurnRecord>> load(PublicId anchor) {
         if (anchor == null || !PrimitiveData.get().hasPublicId(anchor)
-                || entityAbsent(RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN)) {
+                || DocumentModelTerms.entityAbsent(DocumentModelTerms.BLOCK_PATTERN)) {
             // Unknown anchor, or a store this vocabulary was never bootstrapped into.
             return Optional.empty();
         }
@@ -344,36 +333,50 @@ public final class JournalStore {
         if (calculator == null) {
             return Optional.empty();
         }
-        List<SemanticEntity<SemanticEntityVersion>> manifests = EntityService.get().semanticsForComponentOfPattern(
-                EntityService.get().nidForPublicId(anchor),
-                RichSurfaceTerms.JOURNAL_MANIFEST_PATTERN.nid()).toList();
-        if (manifests.isEmpty()) {
+        Semantic root = Semantic.make(rootBlockId(anchor));
+        if (DocumentModelTerms.entityAbsent(root)) {
+            // A journal written before the shared block model, or none: the JSON copy is the record.
             return Optional.empty();
         }
-        if (manifests.size() > 1) {
-            LOG.warn("Journal anchor {} carries {} manifests; loading the first",
-                    anchor.idString(), manifests.size());
-        }
-        Latest<SemanticEntityVersion> manifest =
-                calculator.stampCalculator().latestSemanticVersion(manifests.getFirst());
-        if (!manifest.isPresent()) {
+        StampCalculator stamps = calculator.stampCalculator();
+        Latest<SemanticEntityVersion> rootVersion =
+                stamps.latestSemanticVersion(EntityService.get().nidForPublicId(root));
+        if (!rootVersion.isPresent()) {
             return Optional.empty();
         }
-        LongIdList elements = (LongIdList) manifest.get().fieldValues().get(0);
-        long assistantAuthorNid = RichSurfaceTerms.KOMET_ASSISTANT_AUTHOR.nid();
-        List<TurnRecord> turns = new ArrayList<>(elements.size());
-        for (long elementNid : elements.toArray()) {
-            Latest<SemanticEntityVersion> element =
-                    calculator.stampCalculator().latestSemanticVersion(elementNid);
-            if (!element.isPresent()) {
-                LOG.warn("Journal element {} has no version on the current coordinate; skipping",
-                        elementNid);
+        LongIdList turnNids = (LongIdList) rootVersion.get().fieldValues().get(4);
+        long assistantNid = DocumentModelTerms.KOMET_ASSISTANT.nid();
+        long proseNid = DocumentModelTerms.PROSE_ELEMENT_PATTERN.nid();
+        List<TurnRecord> turns = new ArrayList<>(turnNids.size());
+        for (long turnNid : turnNids.toArray()) {
+            Latest<SemanticEntityVersion> turn = stamps.latestSemanticVersion(turnNid);
+            if (!turn.isPresent()) {
+                LOG.warn("Journal turn {} has no version on the current coordinate; skipping", turnNid);
                 continue;
             }
-            String markdown = String.valueOf(element.get().fieldValues().get(0));
-            turns.add(new TurnRecord(markdown, element.get().authorNid() == assistantAuthorNid));
+            List<String> lines = new ArrayList<>();
+            appendLines(stamps, proseNid, turn.get(), lines);
+            turns.add(new TurnRecord(String.join("\n", lines), turn.get().authorNid() == assistantNid));
         }
         return Optional.of(turns);
+    }
+
+    /** Appends an element's lines in order, descending into its child elements. */
+    private static void appendLines(StampCalculator stamps, long proseNid, SemanticEntityVersion element,
+                                    List<String> lines) {
+        LongIdList members = (LongIdList) element.fieldValues().get(4);
+        for (long memberNid : members.toArray()) {
+            Latest<SemanticEntityVersion> member = stamps.latestSemanticVersion(memberNid);
+            if (!member.isPresent()) {
+                LOG.warn("Journal member {} has no version on the current coordinate; skipping", memberNid);
+                continue;
+            }
+            if (member.get().patternNid() == proseNid) {
+                lines.add(String.valueOf(member.get().fieldValues().get(0)));
+            } else {
+                appendLines(stamps, proseNid, member.get(), lines);
+            }
+        }
     }
 
     /** The user-turn author: the view's edit-coordinate author, else {@link KernelTerm#USER}. */

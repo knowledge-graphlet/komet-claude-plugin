@@ -23,6 +23,7 @@ import dev.ikm.tinkar.terms.EntityProxy.Concept;
 import dev.ikm.tinkar.terms.EntityProxy.Pattern;
 import dev.ikm.tinkar.terms.KernelTerm;
 import dev.ikm.tinkar.terms.State;
+import network.ike.komet.claude.doc.DocumentModelTerms;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,15 +32,16 @@ import java.util.Map;
 
 /**
  * The AsciiDoc document model's terms as the IKE starter set declares them
- * ({@code AsciiDocModelSet}, IKE-Network/ike-issues#468): the element kinds a parse produces,
- * the fields and purposes, and the patterns that hold a document's attributes, its structure
- * and its inline references. Every identity is the set's own derivation, so a store that
+ * ({@code AsciiDocModelSet}, IKE-Network/ike-issues#468): the element kinds only AsciiDoc has,
+ * the fields and purposes, and the patterns that hold a document's attributes and its inline
+ * references. Sections, the shared block kinds and the block pattern belong to the block model a
+ * document and a conversation journal share ({@link DocumentModelTerms},
+ * IKE-Network/ike-issues#844); {@link #kind} maps every parsed kind to its concept in either. Every identity is the set's own derivation, so a store that
  * carries the set and a store this class seeds hold one component; the seeding here is only
  * for stores that predate the set's release and is skipped where the terms already exist.
  *
  * <p>Field orders are the set's: the document attributes pattern carries title, topic id,
- * type, status, keywords, scope note, license, citation and provenance; the block pattern
- * carries kind, level, title, parameters and members; each reference pattern carries the
+ * type, status, keywords, scope note, license, citation and provenance; each reference pattern carries the
  * fields listed on its constant. An unresolved component field (an index term's concept, a
  * citation's entry) holds the field's own meaning concept, which reads as "unresolved" and
  * never needs a null.
@@ -51,25 +53,13 @@ public final class AsciiDocModelTerms {
     // ── element kinds ──────────────────────────────────────────────────────────
     public static final Concept ELEMENT = concept("AsciiDoc element");
     public static final Concept DOCUMENT = StampedDocumentTerms.STAMPED_DOCUMENT;
-    public static final Concept SECTION = concept("AsciiDoc section");
-    public static final Concept BLOCK = concept("AsciiDoc block");
-    public static final Concept PARAGRAPH = concept("AsciiDoc paragraph");
-    public static final Concept LISTING = concept("AsciiDoc listing block");
     public static final Concept LITERAL = concept("AsciiDoc literal block");
     public static final Concept EXAMPLE = concept("AsciiDoc example block");
-    public static final Concept QUOTE = concept("AsciiDoc quote block");
     public static final Concept SIDEBAR = concept("AsciiDoc sidebar block");
     public static final Concept OPEN = concept("AsciiDoc open block");
     public static final Concept ADMONITION = concept("AsciiDoc admonition block");
-    public static final Concept TABLE = concept("AsciiDoc table");
-    public static final Concept TABLE_ROW = concept("AsciiDoc table row");
-    public static final Concept TABLE_CELL = concept("AsciiDoc table cell");
-    public static final Concept LIST = concept("AsciiDoc list");
-    public static final Concept LIST_ITEM = concept("AsciiDoc list item");
     public static final Concept DIAGRAM = concept("AsciiDoc diagram block");
-    public static final Concept IMAGE = concept("AsciiDoc image");
     public static final Concept BIBLIOGRAPHY_ENTRY = concept("AsciiDoc bibliography entry");
-    public static final Concept OPAQUE = concept("AsciiDoc opaque block");
 
     // ── inline references and composition ──────────────────────────────────────
     public static final Concept INLINE_REFERENCE = concept("AsciiDoc inline reference");
@@ -85,11 +75,6 @@ public final class AsciiDocModelTerms {
 
     // ── fields and purposes ────────────────────────────────────────────────────
     public static final Concept FIELD = concept("AsciiDoc field");
-    public static final Concept ELEMENT_KIND = concept("AsciiDoc element kind");
-    public static final Concept LEVEL = concept("AsciiDoc level");
-    public static final Concept TITLE = concept("AsciiDoc title");
-    public static final Concept BLOCK_PARAMETERS = concept("AsciiDoc block parameters");
-    public static final Concept MEMBERS = concept("AsciiDoc members");
     public static final Concept TERM_TEXT = concept("AsciiDoc term text");
     public static final Concept REFERENCED_CONCEPT = concept("AsciiDoc referenced concept");
     public static final Concept REFERENCE_TARGET = concept("AsciiDoc reference target");
@@ -108,14 +93,11 @@ public final class AsciiDocModelTerms {
     public static final Concept TOPIC_LICENSE = concept("Topic license");
     public static final Concept TOPIC_CITATION = concept("Topic citation");
     public static final Concept TOPIC_PROVENANCE = concept("Topic provenance");
-    public static final Concept STRUCTURE = concept("AsciiDoc structure");
     public static final Concept REFERENCE = concept("AsciiDoc reference");
 
     // ── patterns ───────────────────────────────────────────────────────────────
     /** Fields: document title, topic id, type, status, keywords, scope note, license, citation, provenance. */
     public static final Pattern DOCUMENT_ATTRIBUTES_PATTERN = pattern("AsciiDoc document attributes pattern");
-    /** Fields: element kind (concept), level (integer), title, parameters, members (component id list). */
-    public static final Pattern BLOCK_PATTERN = pattern("AsciiDoc block pattern");
     /** Fields: term text, referenced concept. */
     public static final Pattern INDEX_TERM_REFERENCE_PATTERN = pattern("AsciiDoc index term reference pattern");
     /** Fields: reference target, reference text. */
@@ -138,16 +120,16 @@ public final class AsciiDocModelTerms {
             "topic-scope-note", "topic-license", "topic-citation", "topic-provenance");
 
     private static final Map<Block.Kind, Concept> KINDS = Map.ofEntries(
-            Map.entry(Block.Kind.DOCUMENT, DOCUMENT), Map.entry(Block.Kind.SECTION, SECTION),
-            Map.entry(Block.Kind.PARAGRAPH, PARAGRAPH), Map.entry(Block.Kind.LISTING, LISTING),
+            Map.entry(Block.Kind.DOCUMENT, DOCUMENT), Map.entry(Block.Kind.SECTION, DocumentModelTerms.SECTION),
+            Map.entry(Block.Kind.PARAGRAPH, DocumentModelTerms.PARAGRAPH), Map.entry(Block.Kind.LISTING, DocumentModelTerms.LISTING),
             Map.entry(Block.Kind.LITERAL, LITERAL), Map.entry(Block.Kind.EXAMPLE, EXAMPLE),
-            Map.entry(Block.Kind.QUOTE, QUOTE), Map.entry(Block.Kind.SIDEBAR, SIDEBAR),
+            Map.entry(Block.Kind.QUOTE, DocumentModelTerms.QUOTATION), Map.entry(Block.Kind.SIDEBAR, SIDEBAR),
             Map.entry(Block.Kind.OPEN, OPEN), Map.entry(Block.Kind.ADMONITION, ADMONITION),
-            Map.entry(Block.Kind.TABLE, TABLE), Map.entry(Block.Kind.TABLE_ROW, TABLE_ROW),
-            Map.entry(Block.Kind.TABLE_CELL, TABLE_CELL), Map.entry(Block.Kind.LIST, LIST),
-            Map.entry(Block.Kind.LIST_ITEM, LIST_ITEM), Map.entry(Block.Kind.DIAGRAM, DIAGRAM),
-            Map.entry(Block.Kind.IMAGE, IMAGE), Map.entry(Block.Kind.BIBLIOGRAPHY_ENTRY, BIBLIOGRAPHY_ENTRY),
-            Map.entry(Block.Kind.OPAQUE, OPAQUE));
+            Map.entry(Block.Kind.TABLE, DocumentModelTerms.TABLE), Map.entry(Block.Kind.TABLE_ROW, DocumentModelTerms.TABLE_ROW),
+            Map.entry(Block.Kind.TABLE_CELL, DocumentModelTerms.TABLE_CELL), Map.entry(Block.Kind.LIST, DocumentModelTerms.LIST),
+            Map.entry(Block.Kind.LIST_ITEM, DocumentModelTerms.LIST_ITEM), Map.entry(Block.Kind.DIAGRAM, DIAGRAM),
+            Map.entry(Block.Kind.IMAGE, DocumentModelTerms.IMAGE), Map.entry(Block.Kind.BIBLIOGRAPHY_ENTRY, BIBLIOGRAPHY_ENTRY),
+            Map.entry(Block.Kind.OPAQUE, DocumentModelTerms.OPAQUE));
 
     private static final Map<Reference.Kind, Pattern> REFERENCE_PATTERNS = Map.of(
             Reference.Kind.INDEX_TERM, INDEX_TERM_REFERENCE_PATTERN,
@@ -206,33 +188,28 @@ public final class AsciiDocModelTerms {
      * A store carrying the set has every one of them already and nothing is written.
      */
     public static synchronized void bootstrapIfAbsent() {
+        DocumentModelTerms.bootstrapIfAbsent();
         StampedDocumentTerms.bootstrapIfAbsent();
-        for (Concept c : new Concept[] {ELEMENT, SECTION, BLOCK, PARAGRAPH, LISTING, LITERAL, EXAMPLE, QUOTE, SIDEBAR, OPEN,
-                ADMONITION, TABLE, TABLE_ROW, TABLE_CELL, LIST, LIST_ITEM, DIAGRAM, IMAGE, BIBLIOGRAPHY_ENTRY, OPAQUE,
+        for (Concept c : new Concept[] {ELEMENT, LITERAL, EXAMPLE, SIDEBAR, OPEN,
+                ADMONITION, DIAGRAM, BIBLIOGRAPHY_ENTRY,
                 INLINE_REFERENCE, INDEX_TERM_REFERENCE, CROSS_REFERENCE, CITATION, FOOTNOTE, LINK, ESTIMATE_MARK,
                 COMPOSITION, INCLUDE, CONDITIONAL,
-                FIELD, ELEMENT_KIND, LEVEL, TITLE, BLOCK_PARAMETERS, MEMBERS, TERM_TEXT, REFERENCED_CONCEPT, REFERENCE_TARGET,
+                FIELD, TERM_TEXT, REFERENCED_CONCEPT, REFERENCE_TARGET,
                 REFERENCE_TEXT, CITATION_KEY, REFERENCED_ENTRY, FOOTNOTE_TEXT, ATTRIBUTE_NAME, NEGATED, DOCUMENT_TITLE,
                 TOPIC_ID, TOPIC_TYPE, TOPIC_STATUS, TOPIC_KEYWORDS, TOPIC_SCOPE_NOTE, TOPIC_LICENSE, TOPIC_CITATION,
-                TOPIC_PROVENANCE, STRUCTURE, REFERENCE}) {
+                TOPIC_PROVENANCE, REFERENCE}) {
             seedConceptIfAbsent(c);
         }
-        seedPattern(DOCUMENT_ATTRIBUTES_PATTERN, DOCUMENT, STRUCTURE,
-                StampedWriter.field(DOCUMENT_TITLE, STRUCTURE, KernelTerm.STRING),
-                StampedWriter.field(TOPIC_ID, STRUCTURE, KernelTerm.STRING),
-                StampedWriter.field(TOPIC_TYPE, STRUCTURE, KernelTerm.STRING),
-                StampedWriter.field(TOPIC_STATUS, STRUCTURE, KernelTerm.STRING),
-                StampedWriter.field(TOPIC_KEYWORDS, STRUCTURE, KernelTerm.STRING),
-                StampedWriter.field(TOPIC_SCOPE_NOTE, STRUCTURE, KernelTerm.STRING),
-                StampedWriter.field(TOPIC_LICENSE, STRUCTURE, KernelTerm.STRING),
-                StampedWriter.field(TOPIC_CITATION, STRUCTURE, KernelTerm.STRING),
-                StampedWriter.field(TOPIC_PROVENANCE, STRUCTURE, KernelTerm.STRING));
-        seedPattern(BLOCK_PATTERN, BLOCK, STRUCTURE,
-                StampedWriter.field(ELEMENT_KIND, STRUCTURE, KernelTerm.COMPONENT_FIELD),
-                StampedWriter.field(LEVEL, STRUCTURE, KernelTerm.INTEGER_FIELD),
-                StampedWriter.field(TITLE, STRUCTURE, KernelTerm.STRING),
-                StampedWriter.field(BLOCK_PARAMETERS, STRUCTURE, KernelTerm.STRING),
-                StampedWriter.field(MEMBERS, STRUCTURE, KernelTerm.COMPONENT_ID_LIST_FIELD));
+        seedPattern(DOCUMENT_ATTRIBUTES_PATTERN, DOCUMENT, DocumentModelTerms.STRUCTURE,
+                StampedWriter.field(DOCUMENT_TITLE, DocumentModelTerms.STRUCTURE, KernelTerm.STRING),
+                StampedWriter.field(TOPIC_ID, DocumentModelTerms.STRUCTURE, KernelTerm.STRING),
+                StampedWriter.field(TOPIC_TYPE, DocumentModelTerms.STRUCTURE, KernelTerm.STRING),
+                StampedWriter.field(TOPIC_STATUS, DocumentModelTerms.STRUCTURE, KernelTerm.STRING),
+                StampedWriter.field(TOPIC_KEYWORDS, DocumentModelTerms.STRUCTURE, KernelTerm.STRING),
+                StampedWriter.field(TOPIC_SCOPE_NOTE, DocumentModelTerms.STRUCTURE, KernelTerm.STRING),
+                StampedWriter.field(TOPIC_LICENSE, DocumentModelTerms.STRUCTURE, KernelTerm.STRING),
+                StampedWriter.field(TOPIC_CITATION, DocumentModelTerms.STRUCTURE, KernelTerm.STRING),
+                StampedWriter.field(TOPIC_PROVENANCE, DocumentModelTerms.STRUCTURE, KernelTerm.STRING));
         seedPattern(INDEX_TERM_REFERENCE_PATTERN, INDEX_TERM_REFERENCE, REFERENCE,
                 StampedWriter.field(TERM_TEXT, REFERENCE, KernelTerm.STRING),
                 StampedWriter.field(REFERENCED_CONCEPT, REFERENCE, KernelTerm.COMPONENT_FIELD));
@@ -251,7 +228,7 @@ public final class AsciiDocModelTerms {
                 StampedWriter.field(FOOTNOTE_TEXT, REFERENCE, KernelTerm.STRING));
         seedPattern(INCLUDE_PATTERN, INCLUDE, REFERENCE,
                 StampedWriter.field(REFERENCE_TARGET, REFERENCE, KernelTerm.STRING),
-                StampedWriter.field(BLOCK_PARAMETERS, REFERENCE, KernelTerm.STRING));
+                StampedWriter.field(DocumentModelTerms.PARAMETERS, REFERENCE, KernelTerm.STRING));
         seedPattern(CONDITIONAL_PATTERN, CONDITIONAL, REFERENCE,
                 StampedWriter.field(ATTRIBUTE_NAME, REFERENCE, KernelTerm.STRING),
                 StampedWriter.field(NEGATED, REFERENCE, KernelTerm.BOOLEAN_FIELD));
