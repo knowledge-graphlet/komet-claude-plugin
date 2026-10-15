@@ -40,6 +40,7 @@ import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.StampEntity;
 import dev.ikm.tinkar.entity.transaction.StampedWriter;
 import dev.ikm.tinkar.terms.ConceptFacade;
+import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.EntityProxy;
 import dev.ikm.tinkar.terms.EntityProxy.Concept;
 import dev.ikm.tinkar.terms.EntityProxy.Semantic;
@@ -598,7 +599,7 @@ public final class GitDocumentMaterializer {
             if (v == null || v.state() != State.ACTIVE) {
                 continue;
             }
-            Block.Kind kind = kinds.get(((EntityProxy) v.fieldValues().get(0)).nid());
+            Block.Kind kind = kinds.get(((EntityFacade) v.fieldValues().get(0)).nid());
             if (kind == null) {
                 continue;
             }
