@@ -186,6 +186,15 @@
             <artifactId>stamp-adoc-core</artifactId>
             <version>${stamp-adoc-core.version}</version>
         </dependency>
+        <!-- The IKE starter set's generated bindings (IkeConcept, IkePattern): the document,
+             journal and annotation vocabulary the plugin writes, by the set's own identities
+             rather than hand-authored copies of them. A named module; komet-desktop stages
+             it into plugins/ beside this jar. -->
+        <dependency>
+            <groupId>network.ike.foundation</groupId>
+            <artifactId>ike-bindings</artifactId>
+            <version>${ike-starter-set.version}</version>
+        </dependency>
         <dependency>
             <groupId>network.ike.komet</groupId>
             <artifactId>komet-grpc-plugin</artifactId>

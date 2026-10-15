@@ -83,6 +83,8 @@ module komet.claude {
     // STAMP-in-git engine: history walk, affirmations, identity adapter (ike-issues#468).
     // Its dev.ikm.jpms.jgit and roaringbitmap requirements resolve from the Komet boot image.
     requires stamp.adoc.core;
+    // The IKE starter set's generated bindings: the document, journal and annotation vocabulary.
+    requires network.ike.foundation.ike.bindings;
     // LifeHash identicon (toucan) → PNG bytes for the Zulip Koncept badge upload.
     // Already in the komet runtime (framework requires it), so no extra staging.
     requires com.sparrowwallet.toucan;

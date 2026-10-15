@@ -25,6 +25,9 @@ import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
+import dev.ikm.tinkar.terms.EntityProxy;
+import network.ike.foundation.ike.bindings.IkeConcept;
+import network.ike.foundation.ike.bindings.IkePattern;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -33,10 +36,12 @@ import org.junit.jupiter.api.AfterAll;
 import java.io.File;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -77,18 +82,19 @@ class JournalStoreIT {
     }
 
     @Test
-    void bootstrapIsIdempotent() {
-        JournalStore.bootstrapIfAbsent();
-        int authorVersions = versionCount(DocumentModelTerms.KOMET_ASSISTANT.publicId());
-        int patternVersions = versionCount(DocumentModelTerms.PROSE_ELEMENT_PATTERN.publicId());
-        assertTrue(authorVersions > 0, "assistant author seeded");
-        assertTrue(patternVersions > 0, "prose pattern seeded");
+    void starterSetCarriesTheDocumentVocabulary() {
+        DocumentVocabulary.requirePresent();                       // the starter set declares every term a journal writes
+    }
 
-        JournalStore.bootstrapIfAbsent();
-        assertEquals(authorVersions, versionCount(DocumentModelTerms.KOMET_ASSISTANT.publicId()),
-                "second bootstrap must not add author versions");
-        assertEquals(patternVersions, versionCount(DocumentModelTerms.PROSE_ELEMENT_PATTERN.publicId()),
-                "second bootstrap must not add pattern versions");
+    /** A store lacking a term is refused by name, with the starter set that carries it; nothing is minted. */
+    @Test
+    void storeLackingTheVocabularyIsRefused() {
+        EntityProxy.Concept missing = EntityProxy.Concept.make("Term this store lacks", UUID.randomUUID());
+        IllegalStateException refusal = assertThrows(IllegalStateException.class,
+                () -> DocumentVocabulary.requirePresent(List.of(IkeConcept.KOMET_ASSISTANT, missing)));
+        assertTrue(refusal.getMessage().contains("Term this store lacks"), refusal.getMessage());
+        assertTrue(refusal.getMessage().contains(DocumentVocabulary.MINIMUM_CHECKPOINT), refusal.getMessage());
+        assertTrue(DocumentVocabulary.entityAbsent(missing), "the refusal writes nothing");
     }
 
     @Test
@@ -169,21 +175,21 @@ class JournalStoreIT {
         PublicId anchor = store.appendExchange(null, "Block conversation",
                 "Plain question", "Intro\n\n```java\nint x;\n```");
         SemanticEntityVersion root = rawLatest(EntityService.get().nidForPublicId(JournalStore.rootBlockId(anchor)));
-        assertEquals(DocumentModelTerms.CONVERSATION_JOURNAL.nid(), kindNid(root), "the root block's kind");
+        assertEquals(IkeConcept.CONVERSATION_JOURNAL.nid(), kindNid(root), "the root block's kind");
         assertEquals("Block conversation", root.fieldValues().get(2), "the root carries the conversation name");
         long[] turnNids = ((LongIdList) root.fieldValues().get(4)).toArray();
         assertEquals(2, turnNids.length, "one exchange = two turn blocks");
 
         SemanticEntityVersion assistantTurn = rawLatest(turnNids[1]);
-        assertEquals(DocumentModelTerms.CONVERSATION_TURN.nid(), kindNid(assistantTurn), "a turn's kind");
-        assertEquals(DocumentModelTerms.KOMET_ASSISTANT.nid(), assistantTurn.authorNid(), "the turn block's author");
+        assertEquals(IkeConcept.CONVERSATION_TURN.nid(), kindNid(assistantTurn), "a turn's kind");
+        assertEquals(IkeConcept.KOMET_ASSISTANT.nid(), assistantTurn.authorNid(), "the turn block's author");
         long[] members = ((LongIdList) assistantTurn.fieldValues().get(4)).toArray();
         assertEquals(3, members.length, "paragraph, blank line, listing");
-        assertEquals(DocumentModelTerms.PARAGRAPH.nid(), kindNid(rawLatest(members[0])));
-        assertEquals(DocumentModelTerms.PROSE_ELEMENT_PATTERN.nid(), rawLatest(members[1]).patternNid(),
+        assertEquals(IkeConcept.DOCUMENT_PARAGRAPH.nid(), kindNid(rawLatest(members[0])));
+        assertEquals(IkePattern.PROSE_ELEMENT_PATTERN.nid(), rawLatest(members[1]).patternNid(),
                 "a blank line is the turn's own line");
         SemanticEntityVersion listing = rawLatest(members[2]);
-        assertEquals(DocumentModelTerms.LISTING.nid(), kindNid(listing));
+        assertEquals(IkeConcept.DOCUMENT_LISTING.nid(), kindNid(listing));
         assertEquals("java", listing.fieldValues().get(3), "the fence's info string is the listing's parameters");
         assertEquals(3, ((LongIdList) listing.fieldValues().get(4)).size(), "fences and the code line");
 
@@ -223,7 +229,7 @@ class JournalStoreIT {
     private static long soleManifestNid(PublicId anchor) {
         List<SemanticEntity<SemanticEntityVersion>> manifests = EntityService.get().semanticsForComponentOfPattern(
                 EntityService.get().nidForPublicId(anchor),
-                DocumentModelTerms.JOURNAL_MANIFEST_PATTERN.nid()).toList();
+                IkePattern.JOURNAL_MANIFEST_PATTERN.nid()).toList();
         assertEquals(1, manifests.size(), "exactly one manifest per journal");
         return manifests.getFirst().nid();
     }

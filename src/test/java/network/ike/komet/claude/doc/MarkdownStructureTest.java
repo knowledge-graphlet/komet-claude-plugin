@@ -17,6 +17,7 @@ package network.ike.komet.claude.doc;
 
 import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityProxy.Concept;
+import network.ike.foundation.ike.bindings.IkeConcept;
 import network.ike.komet.claude.doc.MarkdownStructure.Child;
 import network.ike.komet.claude.doc.MarkdownStructure.Element;
 import network.ike.komet.claude.doc.MarkdownStructure.Line;
@@ -57,15 +58,15 @@ class MarkdownStructureTest {
     void headingsNestSectionsByLevel() {
         Turn turn = MarkdownStructure.parse("Intro\n\n# A\n\nbody\n\n## A.1\n\nmore\n\n# B\n\nend");
         List<Member> top = turn.turn().members();
-        assertEquals(DocumentModelTerms.PARAGRAPH, kind(top.get(0)));
+        assertEquals(IkeConcept.DOCUMENT_PARAGRAPH, kind(top.get(0)));
         Element a = ((Child) top.get(2)).element();
         Element b = ((Child) top.get(3)).element();
-        assertEquals(DocumentModelTerms.SECTION, a.kind());
+        assertEquals(IkeConcept.DOCUMENT_SECTION, a.kind());
         assertEquals("A", a.title());
         assertEquals(1, a.level());
         assertEquals("B", b.title());
         Element a1 = a.members().stream().filter(m -> m instanceof Child).map(m -> ((Child) m).element())
-                .filter(e -> e.kind() == DocumentModelTerms.SECTION).findFirst().orElseThrow();
+                .filter(e -> e.kind() == IkeConcept.DOCUMENT_SECTION).findFirst().orElseThrow();
         assertEquals("A.1", a1.title());
         assertEquals(2, a1.level());
         assertEquals(9, a.lastLine(), "a section runs to the line before the next heading of its level");
@@ -76,17 +77,17 @@ class MarkdownStructureTest {
         Turn turn = MarkdownStructure.parse("```koncept-tree\nAortic stenosis\n```\n\n1. one\n2. two\n\n| a |\n|---|\n| 1 |");
         List<Member> top = turn.turn().members();
         Element listing = ((Child) top.get(0)).element();
-        assertEquals(DocumentModelTerms.LISTING, listing.kind());
+        assertEquals(IkeConcept.DOCUMENT_LISTING, listing.kind());
         assertEquals("koncept-tree", listing.parameters());
         assertEquals(3, listing.members().size(), "both fences and the code line");
         Element list = ((Child) top.get(2)).element();
-        assertEquals(DocumentModelTerms.LIST, list.kind());
+        assertEquals(IkeConcept.DOCUMENT_LIST, list.kind());
         assertEquals("ordered", list.parameters());
         assertEquals(2, list.members().size(), "two items");
-        assertEquals(DocumentModelTerms.LIST_ITEM, kind(list.members().get(0)));
+        assertEquals(IkeConcept.DOCUMENT_LIST_ITEM, kind(list.members().get(0)));
         Element table = ((Child) top.get(4)).element();
-        assertEquals(DocumentModelTerms.TABLE, table.kind());
-        assertEquals(java.util.Arrays.asList(DocumentModelTerms.TABLE_ROW, null, DocumentModelTerms.TABLE_ROW),
+        assertEquals(IkeConcept.DOCUMENT_TABLE, table.kind());
+        assertEquals(java.util.Arrays.asList(IkeConcept.DOCUMENT_TABLE_ROW, null, IkeConcept.DOCUMENT_TABLE_ROW),
                 table.members().stream().map(MarkdownStructureTest::kind).toList(),
                 "header row, the delimiter line the table owns, a body row");
     }

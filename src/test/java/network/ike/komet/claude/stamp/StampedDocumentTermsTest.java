@@ -15,53 +15,15 @@
  */
 package network.ike.komet.claude.stamp;
 
-import dev.ikm.tinkar.common.util.uuid.UuidT5Generator;
-import dev.ikm.tinkar.terms.EntityProxy;
 import org.junit.jupiter.api.Test;
-
-import java.util.List;
-import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * The identity-agreement gate the #844 reconciliation asked for, for the git-provenance terms:
- * every identity is the IKE starter set's own derivation, {@code T5(set UUID, birth FQN)},
- * so this plugin's seeding and the set's ledger ({@code AsciiDocModelSet}) write one component.
+ * The annotation kinds a trailer names map to the concepts the IKE starter set declares, so the
+ * engine and the graph agree on one identity per kind.
  */
 class StampedDocumentTermsTest {
-
-    /** The IkeFoundation knowledge set's UUID, as {@code network.ike.foundation.ike.terms.Ike.SET} declares it. */
-    private static final UUID IKE_SET = UUID.fromString("d890e06f-ec35-429a-b541-d0ead19695e2");
-
-    @Test
-    void namespaceIsTheStarterSets() {
-        assertEquals(IKE_SET, StampedDocumentTerms.NAMESPACE,
-                "identities are adopted from the IkeFoundation set, never minted under a plugin namespace");
-    }
-
-    @Test
-    void identitiesAreTheSetsBirthNameDerivations() {
-        for (var pair : List.of(
-                pair(StampedDocumentTerms.STAMPED_DOCUMENT, "AsciiDoc document (IkeFoundation)"),
-                pair(StampedDocumentTerms.GIT_PROVENANCE, "Git provenance (IkeFoundation)"),
-                pair(StampedDocumentTerms.GIT_SOURCE, "Git source (IkeFoundation)"),
-                pair(StampedDocumentTerms.SOURCE_PATH, "Source path (IkeFoundation)"),
-                pair(StampedDocumentTerms.SOURCE_COMMIT, "Source commit (IkeFoundation)"),
-                pair(StampedDocumentTerms.ANNOTATION, "Annotation (IkeFoundation)"),
-                pair(StampedDocumentTerms.REVIEWED_PROVENANCE, "Reviewed provenance (IkeFoundation)"),
-                pair(StampedDocumentTerms.ANNOTATION_KIND, "Annotation kind (IkeFoundation)"),
-                pair(StampedDocumentTerms.REVIEWED_VERSION, "Reviewed version (IkeFoundation)"),
-                pair(StampedDocumentTerms.ANNOTATED_ELEMENTS, "Annotated elements (IkeFoundation)"),
-                pair(StampedDocumentTerms.UNCATEGORIZED_COMMENT, "Uncategorized comment (IkeFoundation)"),
-                pair(StampedDocumentTerms.JUDGMENT, "Judgment (IkeFoundation)"),
-                pair(StampedDocumentTerms.AFFIRMATION, "Affirmation (IkeFoundation)"),
-                pair(StampedDocumentTerms.REFUTATION, "Refutation (IkeFoundation)"),
-                pair(StampedDocumentTerms.GIT_SOURCE_PATTERN, "Git source pattern (IkeFoundation)"),
-                pair(StampedDocumentTerms.ANNOTATION_PATTERN, "Annotation pattern (IkeFoundation)"))) {
-            assertEquals(UuidT5Generator.get(IKE_SET, pair.birthFqn()), pair.proxy().publicId().asUuidArray()[0], pair.birthFqn());
-        }
-    }
 
     /** The engine names a trailer's kind by the same identity the set declares, so git and graph agree. */
     @Test
@@ -69,11 +31,5 @@ class StampedDocumentTermsTest {
         for (design.knowledge.stamp.adoc.model.AnnotationKind kind : design.knowledge.stamp.adoc.model.AnnotationKind.values()) {
             assertEquals(kind.uuid(), StampedDocumentTerms.kind(kind).publicId().asUuidArray()[0], kind.name());
         }
-    }
-
-    private record Pair(EntityProxy proxy, String birthFqn) { }
-
-    private static Pair pair(EntityProxy proxy, String birthFqn) {
-        return new Pair(proxy, birthFqn);
     }
 }

@@ -17,6 +17,7 @@ package network.ike.komet.claude.doc;
 
 import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityProxy.Concept;
+import network.ike.foundation.ike.bindings.IkeConcept;
 import org.commonmark.ext.gfm.tables.TableBlock;
 import org.commonmark.ext.gfm.tables.TableRow;
 import org.commonmark.ext.gfm.tables.TablesExtension;
@@ -90,7 +91,7 @@ public final class MarkdownStructure {
     }
 
     /**
-     * A parsed turn: its lines and its root element, of kind {@link DocumentModelTerms#CONVERSATION_TURN}.
+     * A parsed turn: its lines and its root element, of kind {@link IkeConcept#CONVERSATION_TURN}.
      *
      * @param lines the turn's lines, split on {@code \n} with trailing empty lines kept
      * @param turn  the root element covering every line
@@ -118,7 +119,7 @@ public final class MarkdownStructure {
                 top.add(draft);
             }
         }
-        Draft turn = new Draft(DocumentModelTerms.CONVERSATION_TURN, 0, "", "", 0, last);
+        Draft turn = new Draft(IkeConcept.CONVERSATION_TURN, 0, "", "", 0, last);
         nestSections(turn, top, lines);
         return new Turn(lines, turn.build());
     }
@@ -156,7 +157,7 @@ public final class MarkdownStructure {
     }
 
     private static boolean isSection(Draft d) {
-        return d.kind.publicId().equals(DocumentModelTerms.SECTION.publicId());
+        return d.kind.publicId().equals(IkeConcept.DOCUMENT_SECTION.publicId());
     }
 
     private static Draft draft(Node node, int listDepth, int lastLine) {
@@ -167,31 +168,31 @@ public final class MarkdownStructure {
         int first = range[0];
         int last = range[1];
         return switch (node) {
-            case Heading h -> new Draft(DocumentModelTerms.SECTION, h.getLevel(), headingText(node), "", first, last);
-            case Paragraph p -> new Draft(DocumentModelTerms.PARAGRAPH, 0, "", "", first, last);
-            case FencedCodeBlock f -> new Draft(DocumentModelTerms.LISTING, 0, "",
+            case Heading h -> new Draft(IkeConcept.DOCUMENT_SECTION, h.getLevel(), headingText(node), "", first, last);
+            case Paragraph p -> new Draft(IkeConcept.DOCUMENT_PARAGRAPH, 0, "", "", first, last);
+            case FencedCodeBlock f -> new Draft(IkeConcept.DOCUMENT_LISTING, 0, "",
                     f.getInfo() == null ? "" : f.getInfo(), first, last);
-            case IndentedCodeBlock c -> new Draft(DocumentModelTerms.LISTING, 0, "", "", first, last);
-            case BlockQuote q -> new Draft(DocumentModelTerms.QUOTATION, 0, "", "", first, last);
+            case IndentedCodeBlock c -> new Draft(IkeConcept.DOCUMENT_LISTING, 0, "", "", first, last);
+            case BlockQuote q -> new Draft(IkeConcept.DOCUMENT_QUOTATION, 0, "", "", first, last);
             case ListBlock l -> {
-                Draft list = new Draft(DocumentModelTerms.LIST, listDepth, "",
+                Draft list = new Draft(IkeConcept.DOCUMENT_LIST, listDepth, "",
                         l instanceof BulletList ? "bullet" : "ordered", first, last);
                 for (Node item = l.getFirstChild(); item != null; item = item.getNext()) {
                     if (item instanceof ListItem) {
                         int[] r = range(item, lastLine);
                         if (r != null) {
-                            list.children.add(new Draft(DocumentModelTerms.LIST_ITEM, listDepth, "", "", r[0], r[1]));
+                            list.children.add(new Draft(IkeConcept.DOCUMENT_LIST_ITEM, listDepth, "", "", r[0], r[1]));
                         }
                     }
                 }
                 yield list;
             }
             case TableBlock t -> {
-                Draft table = new Draft(DocumentModelTerms.TABLE, 0, "", "", first, last);
+                Draft table = new Draft(IkeConcept.DOCUMENT_TABLE, 0, "", "", first, last);
                 collectRows(t, table, lastLine);
                 yield table;
             }
-            default -> new Draft(DocumentModelTerms.OPAQUE, 0, "", "", first, last);
+            default -> new Draft(IkeConcept.DOCUMENT_OPAQUE_BLOCK, 0, "", "", first, last);
         };
     }
 
@@ -200,7 +201,7 @@ public final class MarkdownStructure {
             if (child instanceof TableRow) {
                 int[] r = range(child, lastLine);
                 if (r != null) {
-                    table.children.add(new Draft(DocumentModelTerms.TABLE_ROW, 0, "", "", r[0], r[1]));
+                    table.children.add(new Draft(IkeConcept.DOCUMENT_TABLE_ROW, 0, "", "", r[0], r[1]));
                 }
             } else {
                 collectRows(child, table, lastLine);

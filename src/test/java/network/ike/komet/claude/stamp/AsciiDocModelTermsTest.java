@@ -17,7 +17,8 @@ package network.ike.komet.claude.stamp;
 
 import design.knowledge.stamp.adoc.dialect.Block;
 import design.knowledge.stamp.adoc.dialect.Reference;
-import network.ike.komet.claude.doc.DocumentModelTerms;
+import network.ike.foundation.ike.bindings.IkeConcept;
+import network.ike.foundation.ike.bindings.IkePattern;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
@@ -35,17 +36,17 @@ class AsciiDocModelTermsTest {
 
     @Test
     void identitiesMatchTheGeneratedStarterSetBindings() {
-        assertEquals(UUID.fromString("42f72861-a1d4-5735-aaa1-8b82b8fdeedf"), uuid(AsciiDocModelTerms.DOCUMENT_ATTRIBUTES_PATTERN), "ASCIIDOC_DOCUMENT_ATTRIBUTES_PATTERN");
-        assertEquals(UUID.fromString("7b6d88f3-a1b6-53c7-93fd-5d986e0b526e"), uuid(AsciiDocModelTerms.LITERAL), "ASCIIDOC_LITERAL_BLOCK");
-        assertEquals(UUID.fromString("bc226198-6325-5ca0-8ce6-1fa99370c49a"), uuid(AsciiDocModelTerms.CROSS_REFERENCE_PATTERN), "ASCIIDOC_CROSS_REFERENCE_PATTERN");
-        assertEquals(UUID.fromString("ef541de8-c2bd-5140-a185-62d96653fc8b"), uuid(AsciiDocModelTerms.REFERENCED_ENTRY), "ASCIIDOC_REFERENCED_ENTRY");
+        assertEquals(UUID.fromString("42f72861-a1d4-5735-aaa1-8b82b8fdeedf"), uuid(IkePattern.ASCIIDOC_DOCUMENT_ATTRIBUTES_PATTERN), "ASCIIDOC_DOCUMENT_ATTRIBUTES_PATTERN");
+        assertEquals(UUID.fromString("7b6d88f3-a1b6-53c7-93fd-5d986e0b526e"), uuid(IkeConcept.ASCIIDOC_LITERAL_BLOCK), "ASCIIDOC_LITERAL_BLOCK");
+        assertEquals(UUID.fromString("bc226198-6325-5ca0-8ce6-1fa99370c49a"), uuid(IkePattern.ASCIIDOC_CROSS_REFERENCE_PATTERN), "ASCIIDOC_CROSS_REFERENCE_PATTERN");
+        assertEquals(UUID.fromString("ef541de8-c2bd-5140-a185-62d96653fc8b"), uuid(IkeConcept.ASCIIDOC_REFERENCED_ENTRY), "ASCIIDOC_REFERENCED_ENTRY");
     }
 
     @Test
     void sharedKindsComeFromTheBlockModelDocumentsAndJournalsShare() {
-        assertSame(DocumentModelTerms.PARAGRAPH, AsciiDocModelTerms.kind(Block.Kind.PARAGRAPH));
-        assertSame(DocumentModelTerms.QUOTATION, AsciiDocModelTerms.kind(Block.Kind.QUOTE));
-        assertSame(AsciiDocModelTerms.SIDEBAR, AsciiDocModelTerms.kind(Block.Kind.SIDEBAR));
+        assertSame(IkeConcept.DOCUMENT_PARAGRAPH, AsciiDocModelTerms.kind(Block.Kind.PARAGRAPH));
+        assertSame(IkeConcept.DOCUMENT_QUOTATION, AsciiDocModelTerms.kind(Block.Kind.QUOTE));
+        assertSame(IkeConcept.ASCIIDOC_SIDEBAR_BLOCK, AsciiDocModelTerms.kind(Block.Kind.SIDEBAR));
     }
 
     @Test
@@ -57,7 +58,7 @@ class AsciiDocModelTermsTest {
         for (Reference.Kind kind : Reference.Kind.values()) {
             assertNotNull(AsciiDocModelTerms.referencePattern(kind), kind.name());
         }
-        assertSame(StampedDocumentTerms.STAMPED_DOCUMENT, AsciiDocModelTerms.DOCUMENT, "the document kind is the set's AsciiDoc document");
+        assertSame(IkeConcept.ASCIIDOC_DOCUMENT, AsciiDocModelTerms.kind(Block.Kind.DOCUMENT), "the document kind is the set's AsciiDoc document");
     }
 
     @Test
@@ -65,12 +66,12 @@ class AsciiDocModelTermsTest {
         Reference citation = new Reference(Reference.Kind.CITATION, 4, 0, "aho1977", "", "<<aho1977>>");
         Object[] fields = AsciiDocModelTerms.referenceFields(citation, null);
         assertEquals("aho1977", fields[0]);
-        assertSame(AsciiDocModelTerms.REFERENCED_ENTRY, fields[1]);
+        assertSame(IkeConcept.ASCIIDOC_REFERENCED_ENTRY, fields[1]);
         Reference conditional = new Reference(Reference.Kind.CONDITIONAL, 9, 0, "env-site", "negated", "ifndef::env-site[]");
         assertEquals(Boolean.TRUE, AsciiDocModelTerms.referenceFields(conditional, null)[1]);
     }
 
-    private static UUID uuid(dev.ikm.tinkar.terms.EntityProxy proxy) {
+    private static UUID uuid(dev.ikm.tinkar.terms.EntityFacade proxy) {
         return proxy.publicId().asUuidArray()[0];
     }
 }

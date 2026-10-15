@@ -34,6 +34,8 @@ import dev.ikm.tinkar.terms.EntityProxy.Concept;
 import dev.ikm.tinkar.terms.EntityProxy.Semantic;
 import dev.ikm.tinkar.terms.KernelConcept;
 import dev.ikm.tinkar.terms.State;
+import network.ike.foundation.ike.bindings.IkeConcept;
+import network.ike.foundation.ike.bindings.IkePattern;
 import network.ike.komet.claude.doc.MarkdownStructure.Child;
 import network.ike.komet.claude.doc.MarkdownStructure.Element;
 import network.ike.komet.claude.doc.MarkdownStructure.Line;
@@ -53,7 +55,7 @@ import java.util.function.Supplier;
  * rebuilds a conversation from them.
  *
  * <p><b>Model.</b> A journal is a structured document in the block model it shares with documents
- * materialized from git ({@link DocumentModelTerms}, {@code IKE-Network/ike-issues#844}). One anchor
+ * materialized from git ({@code IKE-Network/ike-issues#844}). One anchor
  * concept per conversation. Each line of each turn is a prose element; the journal manifest on the
  * anchor orders every line, a new version per append. Each turn is a {@code Conversation turn}
  * block whose members are its blocks and its blank lines, split by {@link MarkdownStructure}; the
@@ -62,8 +64,8 @@ import java.util.function.Supplier;
  * block of a conversation as its subject, the same way it takes a block of a document.
  *
  * <p>Turn attribution is the STAMP author dimension: a user turn's lines and blocks stamp with the
- * view's edit-coordinate author, an assistant turn's with {@link DocumentModelTerms#KOMET_ASSISTANT}.
- * All instance data stamps under {@link DocumentModelTerms#CONVERSATION_JOURNAL_MODULE}, so journals
+ * view's edit-coordinate author, an assistant turn's with {@link IkeConcept#KOMET_ASSISTANT}.
+ * All instance data stamps under {@link IkeConcept#CONVERSATION_JOURNAL_MODULE}, so journals
  * are filterable by the module dimension. A journal block's identity is given when its turn is
  * written: random for lines and blocks, and derived from the anchor for the root block.
  *
@@ -112,14 +114,6 @@ public final class JournalStore {
     }
 
     /**
-     * Writes the shared block model's vocabulary into the open datastore if absent. Idempotent and
-     * thread-safe; safe to call before every write.
-     */
-    public static void bootstrapIfAbsent() {
-        DocumentModelTerms.bootstrapIfAbsent();
-    }
-
-    /**
      * The root block's identity: derived from the anchor, so a journal has exactly one.
      *
      * @param anchor the journal anchor
@@ -135,9 +129,9 @@ public final class JournalStore {
      * Persists one completed exchange: mints the journal anchor if needed (idempotently, at
      * {@code anchor} when non-null, else at a new random id), writes the user turn (author = the
      * edit coordinate's author) and the assistant turn (author =
-     * {@link DocumentModelTerms#KOMET_ASSISTANT}) as lines and blocks, appends their lines to a new
+     * {@link IkeConcept#KOMET_ASSISTANT}) as lines and blocks, appends their lines to a new
      * version of the journal manifest and their turn blocks to a new version of the root block. All
-     * instance data stamps under {@link DocumentModelTerms#CONVERSATION_JOURNAL_MODULE}. Call off the
+     * instance data stamps under {@link IkeConcept#CONVERSATION_JOURNAL_MODULE}. Call off the
      * FX thread, only after the exchange succeeded.
      *
      * @param anchor            the conversation's journal anchor, or {@code null} on first append
@@ -149,13 +143,13 @@ public final class JournalStore {
      */
     public PublicId appendExchange(PublicId anchor, String conversationName,
                                    String userMarkdown, String assistantMarkdown) {
-        bootstrapIfAbsent();
+        DocumentVocabulary.requirePresent();
         PublicId anchorId = anchor != null ? anchor : PublicIds.newRandom();
         // The anchor is "new" only when no chronology exists — a nid mapping alone (minted by an
         // earlier failed append) must not skip the anchor concept's creation. An unknown anchor id
         // is never resolved to a nid here: a strict store (Rocks) throws on unknown UUIDs.
         ConceptFacade anchorConcept = Concept.make(anchorId);
-        boolean anchorNew = DocumentModelTerms.entityAbsent(anchorConcept);
+        boolean anchorNew = DocumentVocabulary.entityAbsent(anchorConcept);
         String name = (conversationName == null || conversationName.isBlank())
                 ? "Conversation journal" : conversationName;
 
@@ -169,7 +163,7 @@ public final class JournalStore {
         List<SemanticEntity<SemanticEntityVersion>> manifests = anchorNew ? List.of()
                 : EntityService.get().semanticsForComponentOfPattern(
                         EntityService.get().nidForPublicId(anchorId),
-                        DocumentModelTerms.JOURNAL_MANIFEST_PATTERN.nid()).toList();
+                        IkePattern.JOURNAL_MANIFEST_PATTERN.nid()).toList();
         if (!manifests.isEmpty()) {
             if (manifests.size() > 1) {
                 LOG.warn("Journal anchor {} carries {} manifests; appending to the first",
@@ -191,7 +185,7 @@ public final class JournalStore {
         Semantic root = Semantic.make(rootBlockId(anchorId));
         LongIdList priorTurns = LongIds.list.empty();
         if (!manifests.isEmpty()) {
-            SemanticEntityVersion rootHead = DocumentModelTerms.entityAbsent(root) ? null
+            SemanticEntityVersion rootHead = DocumentVocabulary.entityAbsent(root) ? null
                     : rawHead(EntityHandle.get(EntityService.get().nidForPublicId(root)).expectSemantic());
             if (rootHead == null) {
                 throw new IllegalStateException("Journal " + anchorId.idString()
@@ -207,7 +201,7 @@ public final class JournalStore {
         // even across same-millisecond exchanges. Closing the writer unfinished cancels both stamps,
         // so a partial append leaves no durable orphans.
         try (StampedWriter writer = StampedWriter.open("conversation-journal-append", State.ACTIVE, userTime,
-                userAuthor(), DocumentModelTerms.CONVERSATION_JOURNAL_MODULE, KernelConcept.DEVELOPMENT_PATH)) {
+                userAuthor(), IkeConcept.CONVERSATION_JOURNAL_MODULE, KernelConcept.DEVELOPMENT_PATH)) {
             if (anchorNew) {
                 writer.concept(anchorConcept.publicId());
                 writer.fullyQualifiedName(anchorConcept.publicId(), name);
@@ -218,20 +212,20 @@ public final class JournalStore {
             }
             long userTurn = writeTurn(writer, anchorConcept, userMarkdown, lines);
 
-            writer.restamp(State.ACTIVE, assistantTime, DocumentModelTerms.KOMET_ASSISTANT,
-                    DocumentModelTerms.CONVERSATION_JOURNAL_MODULE, KernelConcept.DEVELOPMENT_PATH);
+            writer.restamp(State.ACTIVE, assistantTime, IkeConcept.KOMET_ASSISTANT,
+                    IkeConcept.CONVERSATION_JOURNAL_MODULE, KernelConcept.DEVELOPMENT_PATH);
             long assistantTurn = writeTurn(writer, anchorConcept, assistantMarkdown, lines);
 
             // Manifest and root: a new version of each, at the assistant's stamp, in the same
             // writer, so a crash cannot leave a second manifest or a turn outside the root.
             LongIdList newLines = LongIds.list.of(lines.stream().mapToLong(Long::longValue).toArray());
-            writer.semantic(manifest, DocumentModelTerms.JOURNAL_MANIFEST_PATTERN, anchorConcept.publicId(), newLines);
+            writer.semantic(manifest, IkePattern.JOURNAL_MANIFEST_PATTERN.publicId(), anchorConcept.publicId(), newLines);
             long[] turns = new long[priorTurns.size() + 2];
             System.arraycopy(priorTurns.toArray(), 0, turns, 0, priorTurns.size());
             turns[turns.length - 2] = userTurn;
             turns[turns.length - 1] = assistantTurn;
-            writer.semantic(root, DocumentModelTerms.BLOCK_PATTERN, anchorConcept.publicId(),
-                    DocumentModelTerms.CONVERSATION_JOURNAL, 0, name, "", LongIds.list.of(turns));
+            writer.semantic(root, IkePattern.DOCUMENT_BLOCK_PATTERN.publicId(), anchorConcept.publicId(),
+                    IkeConcept.CONVERSATION_JOURNAL, 0, name, "", LongIds.list.of(turns));
 
             writer.commit();
             LOG.info("Appended exchange to journal {} ({} turns, {} lines)",
@@ -255,7 +249,7 @@ public final class JournalStore {
         long[] lineNids = new long[turn.lines().size()];
         for (int i = 0; i < lineNids.length; i++) {
             lineNids[i] = writer.semantic(Semantic.make(PublicIds.newRandom()),
-                    DocumentModelTerms.PROSE_ELEMENT_PATTERN, anchor.publicId(), turn.lines().get(i));
+                    IkePattern.PROSE_ELEMENT_PATTERN.publicId(), anchor.publicId(), turn.lines().get(i));
             manifest.add(lineNids[i]);
         }
         return writeElement(writer, anchor, turn.turn(), lineNids);
@@ -270,7 +264,7 @@ public final class JournalStore {
                 case Child child -> writeElement(writer, anchor, child.element(), lineNids);
             };
         }
-        return writer.semantic(Semantic.make(PublicIds.newRandom()), DocumentModelTerms.BLOCK_PATTERN, anchor.publicId(),
+        return writer.semantic(Semantic.make(PublicIds.newRandom()), IkePattern.DOCUMENT_BLOCK_PATTERN.publicId(), anchor.publicId(),
                 element.kind(), element.level(), element.title(), element.parameters(), LongIds.list.of(members));
     }
 
@@ -310,7 +304,7 @@ public final class JournalStore {
      * block version's STAMP author).
      *
      * @param markdown          the turn's Markdown source
-     * @param assistantAuthored {@code true} when the turn's author is {@link DocumentModelTerms#KOMET_ASSISTANT}
+     * @param assistantAuthored {@code true} when the turn's author is {@link IkeConcept#KOMET_ASSISTANT}
      */
     public record TurnRecord(String markdown, boolean assistantAuthored) {
     }
@@ -325,8 +319,8 @@ public final class JournalStore {
      */
     public Optional<List<TurnRecord>> load(PublicId anchor) {
         if (anchor == null || !PrimitiveData.get().hasPublicId(anchor)
-                || DocumentModelTerms.entityAbsent(DocumentModelTerms.BLOCK_PATTERN)) {
-            // Unknown anchor, or a store this vocabulary was never bootstrapped into.
+                || DocumentVocabulary.entityAbsent(IkePattern.DOCUMENT_BLOCK_PATTERN)) {
+            // Unknown anchor, or a store built from a starter set without the block model.
             return Optional.empty();
         }
         ViewCalculator calculator = viewCalculator.get();
@@ -334,7 +328,7 @@ public final class JournalStore {
             return Optional.empty();
         }
         Semantic root = Semantic.make(rootBlockId(anchor));
-        if (DocumentModelTerms.entityAbsent(root)) {
+        if (DocumentVocabulary.entityAbsent(root)) {
             // A journal written before the shared block model, or none: the JSON copy is the record.
             return Optional.empty();
         }
@@ -345,8 +339,8 @@ public final class JournalStore {
             return Optional.empty();
         }
         LongIdList turnNids = (LongIdList) rootVersion.get().fieldValues().get(4);
-        long assistantNid = DocumentModelTerms.KOMET_ASSISTANT.nid();
-        long proseNid = DocumentModelTerms.PROSE_ELEMENT_PATTERN.nid();
+        long assistantNid = IkeConcept.KOMET_ASSISTANT.nid();
+        long proseNid = IkePattern.PROSE_ELEMENT_PATTERN.nid();
         List<TurnRecord> turns = new ArrayList<>(turnNids.size());
         for (long turnNid : turnNids.toArray()) {
             Latest<SemanticEntityVersion> turn = stamps.latestSemanticVersion(turnNid);

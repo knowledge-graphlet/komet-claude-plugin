@@ -20,6 +20,7 @@ import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
+import network.ike.foundation.ike.bindings.IkePattern;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -89,7 +90,7 @@ public final class GitDocumentExporter {
         String path = "";
         long anchorNid = EntityService.get().nidForPublicId(anchor);
         for (SemanticEntity<SemanticEntityVersion> source : EntityService.get()
-                .semanticsForComponentOfPattern(anchorNid, StampedDocumentTerms.GIT_SOURCE_PATTERN.nid()).toList()) {
+                .semanticsForComponentOfPattern(anchorNid, IkePattern.GIT_SOURCE_PATTERN.nid()).toList()) {
             SemanticEntityVersion latest = null;
             for (SemanticEntityVersion v : source.versions()) {
                 if (v.time() != Long.MAX_VALUE && (latest == null || v.time() > latest.time())) {
