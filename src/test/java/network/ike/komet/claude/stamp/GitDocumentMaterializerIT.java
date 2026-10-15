@@ -129,9 +129,14 @@ class GitDocumentMaterializerIT {
 
     @Test
     void aLaterRefutationSupersedesAndCommentsCarryTheirText() throws Exception {
-        // Its own repository: the class shares one store, and seedRepository's commits would
-        // otherwise be recorded there before the first test reads them as new.
+        // Its own repository with its own history: the class shares one store, and a line element's
+        // identity is its introducing commit's SHA and position. Seeded the same way in the same
+        // second, this repository's commits would share the first test's SHAs, and with them its line
+        // elements — so whichever test ran first would stamp the other's lines.
         Path repoRoot = java.nio.file.Files.createDirectories(root.resolve("refutation"));
+        gitIn(repoRoot, "init", "-q", "-b", "main");
+        gitIn(repoRoot, "-c", "user.name=alice", "-c", "user.email=alice@example.test", "commit", "-q", "--no-gpg-sign", "--allow-empty",
+                "--date=2025-12-31T00:00:00Z", "-m", "start the refutation repository");
         Path file = seedRepository(repoRoot);
         List<String> content = List.of(":topic-id: anf-demo-topic", "one", "two-b", "three");
         Annotation refutation = Annotation.of(AnnotationKind.REFUTATION, LineRange.of(Path.of("doc.adoc"), 3, 3, lastContentCommit, content));
