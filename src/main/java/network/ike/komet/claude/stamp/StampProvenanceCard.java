@@ -164,7 +164,7 @@ public final class StampProvenanceCard extends AbstractHostCard {
                 }
                 row.tick.setSelected(in);
             }
-            annotateSelected(kind, "The assistant prepared this " + kind.label().toLowerCase() + " at your request.", text);
+            annotateSelected(kind, "The assistant prepared this " + displayName(kind).toLowerCase() + " at your request.", text);
         });
     }
 
@@ -196,6 +196,19 @@ public final class StampProvenanceCard extends AbstractHostCard {
         return CARD_NAME;
     }
 
+    /** The annotation buttons' order: the two judgments, then the comment. */
+    private static final List<AnnotationKind> TOOLBAR_ORDER =
+            List.of(AnnotationKind.AFFIRMATION, AnnotationKind.REFUTATION, AnnotationKind.COMMENT);
+
+    /**
+     * @param kind an annotation kind
+     * @return what a person reads for it: "Comment" for the kind whose birth name, "Uncategorized
+     *         comment", only tells it apart from the judgments in the graph
+     */
+    static String displayName(AnnotationKind kind) {
+        return kind == AnnotationKind.COMMENT ? "Comment" : kind.label();
+    }
+
     @Override
     protected void buildToolbarControls(HBox toolBar) {
         Button open = new Button("Open…");
@@ -207,7 +220,7 @@ public final class StampProvenanceCard extends AbstractHostCard {
         refresh.getStyleClass().add("claude-card-toolbar-button");
         refresh.setOnAction(e -> reload());
         List<Button> annotate = new ArrayList<>();
-        for (AnnotationKind kind : AnnotationKind.values()) {
+        for (AnnotationKind kind : TOOLBAR_ORDER) {
             Button button = new Button(kind == AnnotationKind.COMMENT ? "Comment…" : kind.verb() + "…");
             button.setTooltip(new Tooltip(switch (kind) {
                 case AFFIRMATION -> "Record that you have reviewed the ticked lines and stand behind them";
@@ -568,7 +581,7 @@ public final class StampProvenanceCard extends AbstractHostCard {
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
         confirm.setTitle(kind.verb() + " Lines");
         confirm.setHeaderText((headerNote == null ? "" : headerNote + "\n")
-                + "Record your " + kind.label().toLowerCase() + " of " + noun + " as an empty commit?");
+                + "Record your " + displayName(kind).toLowerCase() + (kind.judgment() ? " of " : " on ") + noun + " as an empty commit?");
         TextArea text = new TextArea(initialText == null ? "" : initialText);
         text.setPromptText(kind == AnnotationKind.REFUTATION ? "Why do you dispute these lines? (required)" : "Annotation text (optional)");
         text.setWrapText(true);
@@ -602,10 +615,10 @@ public final class StampProvenanceCard extends AbstractHostCard {
             }
         }).thenAccept(result -> Platform.runLater(() -> {
             if (result.ok()) {
-                statusLine.setText(kind.label() + " recorded as commit " + result.sha().substring(0, 7) + "; re-reading.");
+                statusLine.setText(displayName(kind) + " recorded as commit " + result.sha().substring(0, 7) + "; re-reading.");
                 reload();
             } else {
-                statusLine.setText(kind.label() + " not written: " + result.output());
+                statusLine.setText(displayName(kind) + " not written: " + result.output());
                 LOG.warn("Annotation commit failed in {}: {}", root, result.output());
             }
         }));

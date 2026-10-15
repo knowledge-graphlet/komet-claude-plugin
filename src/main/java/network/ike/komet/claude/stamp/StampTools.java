@@ -181,7 +181,7 @@ public final class StampTools {
                     return "Prepared " + annotations.size() + " trailer(s) for " + AnnotationCommit.subject(annotations) + ":\n" + trailers
                             + (handedOff
                                 ? "\n\nThe STAMP Provenance card has ticked these lines and is asking the person to confirm the "
-                                  + kind.label().toLowerCase() + " with a signed commit. Nothing is recorded until they do; tell "
+                                  + StampProvenanceCard.displayName(kind).toLowerCase() + " with a signed commit. Nothing is recorded until they do; tell "
                                   + "them the confirmation is waiting in the card."
                                 : "\n\nNo STAMP Provenance card shows this file, so nothing was handed off. Ask the person to open "
                                   + target.relative() + " in a STAMP Provenance card, tick lines "
