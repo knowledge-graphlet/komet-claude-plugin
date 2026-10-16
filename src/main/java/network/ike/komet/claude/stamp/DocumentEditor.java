@@ -34,6 +34,8 @@ import dev.ikm.tinkar.entity.StampEntity;
 import dev.ikm.tinkar.entity.transaction.Transaction;
 import dev.ikm.tinkar.terms.State;
 import network.ike.foundation.ike.bindings.IkePattern;
+import dev.ikm.komet.preferences.KometPreferences;
+import dev.ikm.komet.preferences.KometPreferencesImpl;
 import network.ike.komet.claude.doc.DocumentVocabulary;
 import org.eclipse.collections.api.factory.Lists;
 import org.eclipse.collections.api.list.ImmutableList;
@@ -41,6 +43,7 @@ import org.eclipse.collections.api.list.ImmutableList;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 
 /**
@@ -62,6 +65,8 @@ import java.util.Set;
  * carry is reported.
  */
 public final class DocumentEditor {
+
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(DocumentEditor.class);
 
     private DocumentEditor() { }
 
@@ -196,7 +201,10 @@ public final class DocumentEditor {
      */
     public static synchronized boolean cancel(PublicId anchor) {
         Optional<Transaction> transaction = pending(anchor);
-        transaction.ifPresent(Transaction::cancel);
+        if (transaction.isPresent()) {
+            GitDocumentMaterializer.load(anchor, true).ifPresent(pending -> keep(anchor, pending));
+            transaction.get().cancel();
+        }
         return transaction.isPresent();
     }
 
@@ -270,8 +278,214 @@ public final class DocumentEditor {
                 committedOnly.add(committedLines.get(j));
             }
         }
+        keep(anchor, pending);
         transaction.get().cancel();
         return new Settlement(true, false, committedLines.equals(pendingLines), List.copyOf(notCarried), List.copyOf(committedOnly));
+    }
+
+    /**
+     * An edit that was cancelled, by settling against a commit that did not carry all of it or by
+     * discarding it, and can be brought back as pending.
+     *
+     * @param block  the block it edited, as now committed
+     * @param text   the block's text with the edit restored over it
+     * @param author the edit's author
+     * @param path   the edit's path
+     */
+    public record Restorable(long block, String text, long author, long path) { }
+
+    /** Where cancelled edits are kept, one node per document, in the knowledge base's configuration preferences. */
+    private static final String RESTORABLE = "network/ike/komet/claude/restorable-edits";
+
+    /**
+     * The cancelled edits that could be brought back. A cancelled version is withdrawn from its
+     * record when the record is read, so what an edit wrote is kept when it is cancelled, in the
+     * knowledge base's configuration preferences, which survive a restart: for each edited block,
+     * its lines in order, and for each line whether the edit wrote it and, if so, its text. The
+     * restored text takes each line the edit wrote from the edit, and each line it left alone from
+     * the document as now committed, so what the commit changed there stays; a line the edit left
+     * alone that the commit removed stays removed. Only blocks whose restored text differs from
+     * their committed text are listed.
+     *
+     * @param anchor the document anchor's id
+     * @return the restorable edits, in document order
+     */
+    public static List<Restorable> restorable(PublicId anchor) {
+        Optional<GitDocumentMaterializer.StoredDocument> loaded = GitDocumentMaterializer.load(anchor, false);
+        if (loaded.isEmpty()) {
+            return List.of();
+        }
+        GitDocumentMaterializer.StoredDocument committed = loaded.get();
+        KometPreferences kept = keptEdits(anchor);
+        List<Restorable> found = new ArrayList<>();
+        int blocks = Integer.parseInt(kept.get("blocks", "0"));
+        for (int k = 0; k < blocks; k++) {
+            String b = "b." + k + ".";
+            OptionalLong blockNid = nidOf(kept.get(b + "id", ""));
+            if (blockNid.isEmpty() || !committed.blocks().containsKey(blockNid.getAsLong())) {
+                // The commit rewrote the line the block took its identity from, so the block is
+                // new: it is the first block of the same kind after the line the edit's block followed.
+                blockNid = successor(committed, kept.get(b + "kind", ""), nidOf(kept.get(b + "after", "")));
+                if (blockNid.isEmpty()) {
+                    continue;
+                }
+            }
+            List<String> restored = new ArrayList<>();
+            int members = Integer.parseInt(kept.get(b + "size", "0"));
+            for (int i = 0; i < members; i++) {
+                String m = b + "m." + i + ".";
+                if (Boolean.parseBoolean(kept.get(m + "edited", "false"))) {
+                    restored.add(kept.get(m + "text", ""));
+                } else {
+                    nidOf(kept.get(m + "id", "")).stream()
+                            .mapToObj(committed::line).flatMap(Optional::stream)
+                            .map(GitDocumentMaterializer.StoredLine::text).forEach(restored::add);
+                }
+            }
+            GitDocumentMaterializer.StoredBlock block = committed.blocks().get(blockNid.getAsLong());
+            List<String> current = block.members().stream()
+                    .map(nid -> committed.line(nid).map(GitDocumentMaterializer.StoredLine::text).orElse(null))
+                    .filter(java.util.Objects::nonNull).toList();
+            OptionalLong author = nidOf(kept.get(b + "author", ""));
+            OptionalLong path = nidOf(kept.get(b + "path", ""));
+            if (restored.isEmpty() || restored.equals(current) || author.isEmpty() || path.isEmpty()) {
+                continue;
+            }
+            found.add(new Restorable(block.nid(), String.join("\n", restored), author.getAsLong(), path.getAsLong()));
+        }
+        List<Long> order = committed.lines().stream().map(GitDocumentMaterializer.StoredLine::nid).toList();
+        found.sort(java.util.Comparator.comparingInt(r -> order.indexOf(committed.blocks().get(r.block()).members().getFirst())));
+        return List.copyOf(found);
+    }
+
+    /**
+     * Brings the restorable edits back as pending: each block's restored text is written over the
+     * block as now committed, in a pending transaction based on the document's latest commit, under
+     * the edit's own author and path. Where the commit changed a line the edit also changed, the
+     * edit's text stands over it as pending, for the person to resolve before committing. What was
+     * kept is cleared.
+     *
+     * @param anchor the document anchor's id
+     * @return how many blocks were restored
+     */
+    public static synchronized int restore(PublicId anchor) {
+        List<Restorable> restorable = restorable(anchor);
+        for (Restorable r : restorable) {
+            editBlock(anchor, r.block(), r.text(), r.author(), r.path());
+        }
+        forget(anchor);
+        return restorable.size();
+    }
+
+    /** Keeps what the pending edit wrote, block by block, before its transaction is cancelled. */
+    private static void keep(PublicId anchor, GitDocumentMaterializer.StoredDocument pending) {
+        List<Long> edited = editedBlocks(pending);
+        SemanticEntityVersion manifest = pendingManifestVersion(anchor);
+        KometPreferences kept = keptEdits(anchor);
+        try {
+            kept.clear();
+        } catch (java.util.prefs.BackingStoreException e) {
+            LOG.warn("Could not clear the kept edit of {}", anchor.idString(), e);
+        }
+        if (manifest == null) {
+            return;
+        }
+        kept.put("blocks", Integer.toString(edited.size()));
+        for (int k = 0; k < edited.size(); k++) {
+            String b = "b." + k + ".";
+            List<Long> members = pending.blocks().get(edited.get(k)).members();
+            kept.put(b + "id", uuidOf(edited.get(k)));
+            kept.put(b + "author", uuidOf(manifest.stamp().authorNid()));
+            kept.put(b + "path", uuidOf(manifest.stamp().pathNid()));
+            kept.put(b + "size", Integer.toString(members.size()));
+            kept.put(b + "kind", pending.blocks().get(edited.get(k)).kind().name());
+            long after = 0;
+            for (GitDocumentMaterializer.StoredLine line : pending.lines()) {
+                if (line.nid() == members.getFirst()) {
+                    break;
+                }
+                if (line.latest().time() != Long.MAX_VALUE) {
+                    after = line.nid();
+                }
+            }
+            if (after != 0) {
+                kept.put(b + "after", uuidOf(after));
+            }
+            for (int i = 0; i < members.size(); i++) {
+                String m = b + "m." + i + ".";
+                Optional<GitDocumentMaterializer.StoredLine> line = pending.line(members.get(i));
+                boolean written = line.map(l -> l.latest().time() == Long.MAX_VALUE).orElse(false);
+                kept.put(m + "id", uuidOf(members.get(i)));
+                kept.put(m + "edited", Boolean.toString(written));
+                if (written) {
+                    kept.put(m + "text", line.get().text());
+                }
+            }
+        }
+        flush(kept);
+    }
+
+    /** The first block of a kind that starts after a line in the committed document. */
+    private static OptionalLong successor(GitDocumentMaterializer.StoredDocument committed, String kind, OptionalLong after) {
+        List<Long> order = committed.lines().stream().map(GitDocumentMaterializer.StoredLine::nid).toList();
+        int from = after.isPresent() ? order.indexOf(after.getAsLong()) + 1 : 0;
+        if (after.isPresent() && from == 0) {
+            return OptionalLong.empty();                         // the line it followed is gone too
+        }
+        for (int i = from; i < order.size(); i++) {
+            long line = order.get(i);
+            for (GitDocumentMaterializer.StoredBlock block : committed.blocks().values()) {
+                if (block.kind().name().equals(kind) && !block.members().isEmpty() && block.members().getFirst() == line) {
+                    return OptionalLong.of(block.nid());
+                }
+            }
+        }
+        return OptionalLong.empty();
+    }
+
+    private static void forget(PublicId anchor) {
+        KometPreferences kept = keptEdits(anchor);
+        try {
+            kept.clear();
+        } catch (java.util.prefs.BackingStoreException e) {
+            LOG.warn("Could not clear the kept edit of {}", anchor.idString(), e);
+        }
+        flush(kept);
+    }
+
+    private static KometPreferences keptEdits(PublicId anchor) {
+        return KometPreferencesImpl.getConfigurationRootPreferences().node(RESTORABLE + "/" + anchor.asUuidArray()[0]);
+    }
+
+    private static void flush(KometPreferences preferences) {
+        try {
+            preferences.flush();
+        } catch (java.util.prefs.BackingStoreException e) {
+            LOG.warn("Could not save the kept edit", e);
+        }
+    }
+
+    private static String uuidOf(long nid) {
+        return EntityHandle.get(nid).orNull() instanceof dev.ikm.tinkar.entity.Entity<?> entity
+                ? entity.publicId().asUuidArray()[0].toString() : "";
+    }
+
+    private static OptionalLong nidOf(String uuid) {
+        if (uuid.isEmpty()) {
+            return OptionalLong.empty();
+        }
+        PublicId id = PublicIds.of(java.util.UUID.fromString(uuid));
+        return PrimitiveData.get().hasPublicId(id) ? OptionalLong.of(PrimitiveData.nid(id)) : OptionalLong.empty();
+    }
+
+    private static SemanticEntityVersion pendingManifestVersion(PublicId anchor) {
+        SemanticEntityVersion pendingManifest = null;
+        for (SemanticEntityVersion version : semantic(manifestNid(anchor)).versions()) {
+            if (version.uncommitted() && !version.canceled()) {
+                pendingManifest = version;
+            }
+        }
+        return pendingManifest;
     }
 
     /**
@@ -286,12 +500,7 @@ public final class DocumentEditor {
                     .map(nid -> pending.line(nid).map(GitDocumentMaterializer.StoredLine::text).orElse(""))
                     .collect(java.util.stream.Collectors.joining("\n")));
         }
-        SemanticEntityVersion pendingManifest = null;
-        for (SemanticEntityVersion version : semantic(manifestNid(anchor)).versions()) {
-            if (version.uncommitted() && !version.canceled()) {
-                pendingManifest = version;
-            }
-        }
+        SemanticEntityVersion pendingManifest = pendingManifestVersion(anchor);
         long author = pendingManifest.stamp().authorNid();
         long path = pendingManifest.stamp().pathNid();
         old.cancel();

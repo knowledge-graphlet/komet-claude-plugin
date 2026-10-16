@@ -185,7 +185,12 @@ public final class StampedDocumentCard extends AbstractHostCard {
         discard.setTooltip(new Tooltip("Cancel the edit made in Komet, so the document reads as committed again"));
         discard.getStyleClass().add("claude-card-toolbar-button");
         discard.setOnAction(e -> discardPending());
-        toolBar.getChildren().addAll(documents, refresh, export, commit, discard);
+        Button restore = new Button("Restore as pending");
+        restore.setId("stampedDocumentRestore");
+        restore.setTooltip(new Tooltip("Bring back the lines of a cancelled edit that the commit did not carry, as a pending edit over the document as now committed"));
+        restore.getStyleClass().add("claude-card-toolbar-button");
+        restore.setOnAction(e -> restorePending());
+        toolBar.getChildren().addAll(documents, refresh, export, commit, discard, restore);
     }
 
     @Override
@@ -852,7 +857,8 @@ public final class StampedDocumentCard extends AbstractHostCard {
         }));
     }
 
-    private static String describe(DocumentEditor.Settlement settlement) {
+    /** What settling an edit found, for a status line. */
+    static String describe(DocumentEditor.Settlement settlement) {
         if (settlement.rebased()) {
             return "the commit does not touch your edit, which stays pending on top of it.";
         }
@@ -864,7 +870,8 @@ public final class StampedDocumentCard extends AbstractHostCard {
         }
         StringBuilder text = new StringBuilder("the edit is settled against the commit, which differs from it.");
         if (!settlement.notCarried().isEmpty()) {
-            text.append(" Not carried: ").append(quoted(settlement.notCarried())).append('.');
+            text.append(" Not carried: ").append(quoted(settlement.notCarried()))
+                    .append(". Restore as pending brings them back over the commit.");
         }
         if (!settlement.committedOnly().isEmpty()) {
             text.append(" Only in the commit: ").append(quoted(settlement.committedOnly())).append('.');
@@ -876,6 +883,27 @@ public final class StampedDocumentCard extends AbstractHostCard {
         String shown = lines.stream().limit(3).map(l -> "\u201c" + (l.length() > 60 ? l.substring(0, 57) + "..." : l) + "\u201d")
                 .collect(Collectors.joining(", "));
         return lines.size() + " line(s), " + shown + (lines.size() > 3 ? ", …" : "");
+    }
+
+    /** Brings a cancelled edit back as pending, over the document as now committed; off the FX thread. */
+    private void restorePending() {
+        if (shown == null) {
+            statusLine.setText("Choose a document first.");
+            return;
+        }
+        PublicId anchor = shown.anchor();
+        statusLine.setText("Restoring …");
+        CompletableFuture.supplyAsync(() -> DocumentEditor.restore(anchor)).whenComplete((restored, failure) -> Platform.runLater(() -> {
+            if (failure != null) {
+                Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
+                statusLine.setText("Not restored: " + cause.getMessage());
+                LOG.warn("Restoring the edit of {} failed", anchor, cause);
+                return;
+            }
+            open(anchor, restored == 0 ? "Nothing to restore: no cancelled edit of this document differs from what is committed."
+                    : "Restored the edit of " + restored + " block(s) as pending over the latest commit; check the edited lines"
+                    + " against what the commit changed, then Commit… or Discard edit.");
+        }));
     }
 
     /** Cancels the pending edit, after the person confirms. */

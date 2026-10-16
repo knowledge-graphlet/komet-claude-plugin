@@ -114,6 +114,7 @@ class DocumentEditingIT {
         assertEquals(List.of(), settlement.committedOnly());
         assertSettledAs(anchor, dir, edited);
         assertEquals(2, blocks(anchor, Block.Kind.PARAGRAPH).size(), "the edited paragraph is still one block, not two");
+        assertEquals(List.of(), DocumentEditor.restorable(anchor), "a carried edit leaves nothing to restore");
     }
 
     /** Repeated lines pair by position: the two "x" lines and the delimiters are never confused. */
@@ -196,6 +197,37 @@ class DocumentEditingIT {
         assertSettledAs(anchor, dir, rebased);
     }
 
+    /** A commit to the edited block settles and reports the edit; restoring brings it back as pending over the commit. */
+    @Test
+    void anEditTheCommitDidNotCarryCanBeRestoredAsPending() throws Exception {
+        Path dir = repository("restore");
+        PublicId anchor = GitDocumentMaterializer.materialize(dir, dir.resolve("editing.adoc")).anchor();
+        long block = blockStartingWith(anchor, Block.Kind.PARAGRAPH, "Another paragraph.");
+        DocumentEditor.editBlock(anchor, block, "Another paragraph, edited in Komet.\nA second line from Komet.\n", edit);
+        String foreign = ORIGINAL.replace("The first line.", "The first line, from a pull.")
+                .replace("Another paragraph.", "Another paragraph, by hand.");
+
+        DocumentEditor.Settlement settlement = commitAndSettle(dir, anchor, foreign, "erin");
+
+        assertTrue(settlement.settled() && !settlement.carried(), settlement.toString());
+        assertEquals(List.of("Another paragraph, edited in Komet.", "A second line from Komet."), settlement.notCarried());
+        assertSettledAs(anchor, dir, foreign);
+        List<DocumentEditor.Restorable> restorable = DocumentEditor.restorable(anchor);
+        assertEquals(1, restorable.size(), restorable.toString());
+        assertEquals("Another paragraph, edited in Komet.\nA second line from Komet.", restorable.getFirst().text());
+
+        assertEquals(1, DocumentEditor.restore(anchor));
+
+        assertTrue(DocumentEditor.pending(anchor).isPresent(), "the edit is pending again");
+        assertEquals(1, uncommittedVersions(manifestOf(anchor)), "exactly one pending version of the manifest");
+        assertEquals(foreign, export(anchor, false), "the committed document is still the commit");
+        assertEquals(foreign.replace("Another paragraph, by hand.", "Another paragraph, edited in Komet.\nA second line from Komet."),
+                export(anchor, true), "the edit over the foreign text, the pull's own change kept elsewhere");
+        DocumentEditor.Settlement none = DocumentEditor.settle(anchor);
+        assertFalse(none.settled() || none.rebased(), "the restored edit is based on the newest commit: " + none);
+        assertEquals(List.of(), DocumentEditor.restorable(anchor), "restored, nothing is left to restore");
+    }
+
     @Test
     void nothingSettlesBeforeANewCommit() throws Exception {
         Path dir = repository("unsettled");
@@ -210,6 +242,9 @@ class DocumentEditingIT {
         assertTrue(DocumentEditor.pending(anchor).isPresent(), "the edit is still pending");
         assertTrue(DocumentEditor.cancel(anchor));
         assertEquals(ORIGINAL, export(anchor, true), "cancelled, the document reads as committed");
+
+        assertEquals(1, DocumentEditor.restore(anchor), "a discarded edit can be brought back");
+        assertEquals(ORIGINAL.replace("Another paragraph.", "Another paragraph, still being edited."), export(anchor, true));
     }
 
     /** The card's commit: a draft message, the person's own unsigned commit of one file, then settling. */

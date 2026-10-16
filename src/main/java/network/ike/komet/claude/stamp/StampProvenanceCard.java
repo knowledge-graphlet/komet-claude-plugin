@@ -114,6 +114,9 @@ public final class StampProvenanceCard extends AbstractHostCard {
     };
     private static final Color QUEUE = Color.web("#FFE082");
 
+    /** A report to put back on the status line once the next read of the file is shown. */
+    private String reportAfterLoad;
+
     /** Live cards, most recently realized last, so the assistant's tools can find the one in use. */
     private static final List<WeakReference<StampProvenanceCard>> OPEN = new CopyOnWriteArrayList<>();
 
@@ -325,21 +328,31 @@ public final class StampProvenanceCard extends AbstractHostCard {
         Path root = repoRoot;
         Path file = relative;
         statusLine.setText("Materializing " + file + " into the knowledge base …");
+        record Materialized(GitDocumentMaterializer.Result result, DocumentEditor.Settlement settlement) { }
         CompletableFuture.supplyAsync(() -> {
             try {
-                return GitDocumentMaterializer.materialize(root, root.resolve(file));
+                GitDocumentMaterializer.Result result = GitDocumentMaterializer.materialize(root, root.resolve(file));
+                // A commit that arrived from elsewhere (a pull, an edit outside Komet) settles or
+                // carries forward an edit pending in Komet, as the card's own commit does.
+                return new Materialized(result, DocumentEditor.settle(result.anchor()));
             } catch (IOException e) {
                 throw new java.io.UncheckedIOException(e);
             }
-        }).whenComplete((result, failure) -> Platform.runLater(() -> {
+        }).whenComplete((materialized, failure) -> Platform.runLater(() -> {
             if (failure != null) {
                 statusLine.setText("Materialization failed: " + failure.getMessage());
                 LOG.warn("Materializing {} failed", file, failure);
                 return;
             }
+            GitDocumentMaterializer.Result result = materialized.result();
+            DocumentEditor.Settlement settlement = materialized.settlement();
             statusLine.setText("Materialized '" + result.name() + "': " + result.commits() + " commit(s) written, " + result.lines()
                     + " line(s), " + result.blocks() + " block version(s), " + result.references() + " reference(s), "
-                    + result.annotations() + " annotation(s). Open it in the STAMPed Document card.");
+                    + result.annotations() + " annotation(s). "
+                    + (settlement.settled() || settlement.rebased() ? "Edit in Komet: " + StampedDocumentCard.describe(settlement)
+                    : "Open it in the STAMPed Document card."));
+            reportAfterLoad = statusLine.getText();             // kept through the re-read below
+            reload();                                            // show the commits just read in
             StampedDocumentCard card = StampedDocumentCard.mostRecent();
             if (card != null) {
                 card.refresh();
@@ -391,6 +404,10 @@ public final class StampProvenanceCard extends AbstractHostCard {
             preferences().put(PREF_FILE, file.toAbsolutePath().normalize().toString());
             syncPreferences("open file");
             show(loaded.workingTreeDiffers());
+            if (reportAfterLoad != null) {
+                statusLine.setText(reportAfterLoad);
+                reportAfterLoad = null;
+            }
         }));
     }
 
