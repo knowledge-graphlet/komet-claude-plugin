@@ -131,6 +131,18 @@ public final class StampProvenanceCard extends AbstractHostCard {
         return found;
     }
 
+    /** Re-reads the open file in every live card, after something committed to it; call on the FX thread. */
+    public static void reloadAll() {
+        for (WeakReference<StampProvenanceCard> ref : OPEN) {
+            StampProvenanceCard card = ref.get();
+            if (card == null) {
+                OPEN.remove(ref);
+            } else {
+                card.reload();
+            }
+        }
+    }
+
     /** @return the repository root of the open file, or {@code null} before a file is opened */
     public Path repoRoot() {
         return repoRoot;

@@ -1,0 +1,493 @@
+/*
+ * Copyright © 2026 Knowledge Graphlet / IKE Network
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.komet.claude.stamp;
+
+import dev.ikm.tinkar.common.id.LongIds;
+import dev.ikm.tinkar.common.id.PublicId;
+import dev.ikm.tinkar.common.id.PublicIds;
+import dev.ikm.tinkar.common.service.PrimitiveData;
+import dev.ikm.tinkar.coordinate.edit.EditCoordinate;
+import dev.ikm.tinkar.entity.EntityHandle;
+import dev.ikm.tinkar.entity.EntityService;
+import dev.ikm.tinkar.entity.PublicIdentifierRecord;
+import dev.ikm.tinkar.entity.RecordListBuilder;
+import dev.ikm.tinkar.entity.SemanticEntity;
+import dev.ikm.tinkar.entity.SemanticEntityVersion;
+import dev.ikm.tinkar.entity.SemanticRecord;
+import dev.ikm.tinkar.entity.SemanticRecordBuilder;
+import dev.ikm.tinkar.entity.SemanticVersionRecord;
+import dev.ikm.tinkar.entity.SemanticVersionRecordBuilder;
+import dev.ikm.tinkar.entity.StampEntity;
+import dev.ikm.tinkar.entity.transaction.Transaction;
+import dev.ikm.tinkar.terms.State;
+import network.ike.foundation.ike.bindings.IkePattern;
+import network.ike.komet.claude.doc.DocumentVocabulary;
+import org.eclipse.collections.api.factory.Lists;
+import org.eclipse.collections.api.list.ImmutableList;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+
+/**
+ * Edits a materialized document in the graph, one block at a time, as uncommitted versions the
+ * person settles by committing the file in git (ike-lab-documents topic {@code dev-komet-actions}:
+ * an edit lands as uncommitted versions, like the activate and inactivate actions).
+ *
+ * <p>An edit replaces the lines of one block. The old and new lines are matched on their text:
+ * an unchanged line keeps its element; a changed line gets a new version of its element with the
+ * new text, keeping the identity git gave it; a new line gets a provisional element, since its
+ * identity, {@code line:<sha>:<position>}, comes from a commit that does not exist yet; a removed
+ * line leaves the manifest, and the commit retires it. The manifest and the block get new
+ * versions listing the result.
+ *
+ * <p>Every edit to one document writes into one pending transaction, under one stamp, so editing
+ * a block again replaces its pending versions rather than stacking a second set, and the whole
+ * pending edit can be cancelled at once: when the person's commit is materialized, {@link #settle}
+ * cancels the transaction, the commit's own lines stand in its place, and what the commit did not
+ * carry is reported.
+ */
+public final class DocumentEditor {
+
+    private DocumentEditor() { }
+
+    /**
+     * What one edit did.
+     *
+     * @param block   the edited block's nid
+     * @param changed lines whose text changed
+     * @param added   new lines, with provisional elements
+     * @param removed lines that left the block
+     */
+    public record Edit(long block, int changed, int added, int removed) {
+
+        /** @return whether the edit changed anything */
+        public boolean changedAnything() {
+            return changed + added + removed > 0;
+        }
+    }
+
+    /**
+     * Replaces the lines of one block with new text.
+     *
+     * @param anchor the document anchor's id
+     * @param block  the nid of a block whose members are all lines (a paragraph, a listing)
+     * @param text   the block's new text; one line per line
+     * @param edit   the edit coordinate whose author and path the edit is written under
+     * @return what the edit did
+     * @throws IllegalArgumentException when the block is not one of the document's, holds child
+     *                                  blocks, or the new text is empty
+     */
+    public static synchronized Edit editBlock(PublicId anchor, long block, String text, EditCoordinate edit) {
+        return editBlock(anchor, block, text, edit.getAuthorNidForChanges(), edit.getDefaultPathNid());
+    }
+
+    /** The edit under an author and path given directly: the edit coordinate's, or, on a rebase, the edit's own. */
+    private static Edit editBlock(PublicId anchor, long block, String text, long authorNid, long pathNid) {
+        DocumentVocabulary.requirePresent();
+        GitDocumentMaterializer.StoredDocument document = GitDocumentMaterializer.load(anchor, true)
+                .orElseThrow(() -> new IllegalArgumentException("The store holds no document " + anchor.idString()));
+        GitDocumentMaterializer.StoredBlock stored = document.blocks().get(block);
+        if (stored == null) {
+            throw new IllegalArgumentException("Block " + block + " is not a block of " + anchor.idString());
+        }
+        List<Long> manifest = new ArrayList<>(document.lines().stream().map(GitDocumentMaterializer.StoredLine::nid).toList());
+        Set<Long> lineNids = Set.copyOf(manifest);
+        if (!lineNids.containsAll(stored.members())) {
+            throw new IllegalArgumentException("A " + stored.kind() + " block holding other blocks is not edited as text");
+        }
+        int start = manifest.indexOf(stored.members().getFirst());
+        for (int i = 0; i < stored.members().size(); i++) {
+            if (start + i >= manifest.size() || manifest.get(start + i).longValue() != stored.members().get(i)) {
+                throw new IllegalArgumentException("The block's lines are not contiguous in the document");
+            }
+        }
+        List<String> newLines = text.lines().toList();
+        if (newLines.isEmpty()) {
+            throw new IllegalArgumentException("A block keeps at least one line; removing a block is not an edit of its text");
+        }
+        List<Long> oldNids = stored.members();
+        List<String> oldLines = oldNids.stream().map(nid -> document.line(nid).orElseThrow().text()).toList();
+        List<Step> steps = diff(oldLines, newLines);
+        if (steps.stream().allMatch(step -> step.kind == Kind.KEEP)) {
+            return new Edit(block, 0, 0, 0);
+        }
+
+        Transaction transaction = pending(anchor).orElseGet(
+                () -> Transaction.make("Edit document " + anchor.idString() + BASE + document.commit()));
+        long manifestNid = manifestNid(anchor);
+        SemanticEntityVersion manifestHead = GitDocumentMaterializer.latest(semantic(manifestNid), true);
+        StampEntity<?> stamp = transaction.getStamp(State.ACTIVE, Long.MAX_VALUE, authorNid, manifestHead.moduleNid(), pathNid);
+        long anchorNid = EntityService.get().nidForPublicId(anchor);
+        List<Long> newNids = new ArrayList<>();
+        int changed = 0;
+        int added = 0;
+        int removed = 0;
+        for (Step step : steps) {
+            switch (step.kind) {
+                case KEEP -> newNids.add(oldNids.get(step.oldIndex));
+                case RETEXT -> {
+                    long nid = oldNids.get(step.oldIndex);
+                    writeVersion(transaction, nid, stamp, Lists.immutable.of(newLines.get(step.newIndex)));
+                    newNids.add(nid);
+                    changed++;
+                }
+                case INSERT -> {
+                    newNids.add(writeNew(transaction, PublicIds.newRandom(), IkePattern.PROSE_ELEMENT_PATTERN.publicId(),
+                            anchorNid, stamp, Lists.immutable.of(newLines.get(step.newIndex))));
+                    added++;
+                }
+                case REMOVE -> removed++;
+            }
+        }
+        List<Long> order = new ArrayList<>(manifest.subList(0, start));
+        order.addAll(newNids);
+        order.addAll(manifest.subList(start + oldNids.size(), manifest.size()));
+        writeVersion(transaction, manifestNid, stamp, Lists.immutable.of(LongIds.list.of(order.stream().mapToLong(Long::longValue).toArray())));
+        SemanticEntityVersion blockHead = GitDocumentMaterializer.latest(semantic(block), true);
+        List<Object> blockFields = new ArrayList<>(blockHead.fieldValues().castToList());
+        blockFields.set(4, LongIds.list.of(newNids.stream().mapToLong(Long::longValue).toArray()));
+        writeVersion(transaction, block, stamp, Lists.immutable.ofAll(blockFields));
+        return new Edit(block, changed, added, removed);
+    }
+
+    /**
+     * @param anchor the document anchor's id
+     * @return the transaction holding the document's pending edit, if any
+     */
+    public static Optional<Transaction> pending(PublicId anchor) {
+        if (!PrimitiveData.get().hasPublicId(anchor)) {
+            return Optional.empty();
+        }
+        long manifestNid = manifestNid(anchor);
+        if (manifestNid == 0) {
+            return Optional.empty();
+        }
+        for (SemanticEntityVersion version : semantic(manifestNid).versions()) {
+            if (version.uncommitted() && !version.canceled()) {
+                Optional<Transaction> transaction = Transaction.forVersion(version);
+                if (transaction.isPresent()) {
+                    return transaction;
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Cancels the document's pending edit, so the document reads as committed again.
+     *
+     * @param anchor the document anchor's id
+     * @return whether there was a pending edit to cancel
+     */
+    public static synchronized boolean cancel(PublicId anchor) {
+        Optional<Transaction> transaction = pending(anchor);
+        transaction.ifPresent(Transaction::cancel);
+        return transaction.isPresent();
+    }
+
+    /**
+     * What settling a pending edit found.
+     *
+     * @param settled       whether a pending edit was settled: a commit newer than the one it was
+     *                      made against, and touching the blocks it edits, has been materialized
+     * @param rebased       whether the pending edit was carried forward instead, onto a newer commit
+     *                      that touches none of the blocks it edits; it stays pending
+     * @param carried       whether the commit holds the document exactly as the pending edit had it
+     * @param notCarried    lines written in Komet that the commit does not hold, in document order;
+     *                      their pending versions are cancelled with the rest
+     * @param committedOnly lines the commit holds that the pending edit did not: edits made to the
+     *                      file outside Komet, or lines the edit removed that the person kept
+     */
+    public record Settlement(boolean settled, boolean rebased, boolean carried, List<String> notCarried, List<String> committedOnly) {
+
+        static final Settlement NONE = new Settlement(false, false, false, List.of(), List.of());
+        static final Settlement REBASED = new Settlement(false, true, false, List.of(), List.of());
+    }
+
+    /**
+     * Settles the document's pending edit once the person's commit is materialized. The commit
+     * is the person's word on the edit: whatever it holds is the document, and every pending
+     * version is cancelled, whether the commit carried it or not, so nothing is left pending
+     * against an older commit. What the commit did not carry, and what it holds that the edit did
+     * not, is reported. The lines are matched in order, so a line repeated in the document (a
+     * listing delimiter, a list marker) pairs with its counterpart by position, never by its text
+     * alone.
+     *
+     * <p>Nothing is settled while the document's latest commit is still the one the edit was made
+     * against: the edit is still being made. Nor is anything settled by a commit that touches none
+     * of the edited blocks (a pull of someone else's work, the person's own commit to another part
+     * of the file): the edit is carried forward onto that commit and stays pending. A commit touches
+     * a block when the block, or any line it held when the edit was made, has a committed version
+     * newer than the edit's base; the walker's line identities make that exact.
+     *
+     * @param anchor the document anchor's id
+     * @return what settling found
+     */
+    public static synchronized Settlement settle(PublicId anchor) {
+        Optional<Transaction> transaction = pending(anchor);
+        if (transaction.isEmpty()) {
+            return Settlement.NONE;
+        }
+        String base = baseCommit(transaction.get());
+        GitDocumentMaterializer.StoredDocument committed = GitDocumentMaterializer.load(anchor, false).orElseThrow();
+        if (committed.commit().equals(base)) {
+            return Settlement.NONE;
+        }
+        GitDocumentMaterializer.StoredDocument pending = GitDocumentMaterializer.load(anchor, true).orElseThrow();
+        long anchorNid = EntityService.get().nidForPublicId(anchor);
+        long baseTime = baseTime(anchorNid, base);
+        List<Long> edited = editedBlocks(pending);
+        if (baseTime != Long.MIN_VALUE && !edited.isEmpty() && edited.stream().noneMatch(b -> touchedSince(b, baseTime))) {
+            return rebase(anchor, transaction.get(), pending, edited);
+        }
+        List<String> committedLines = committed.lines().stream().map(GitDocumentMaterializer.StoredLine::text).toList();
+        List<String> pendingLines = pending.lines().stream().map(GitDocumentMaterializer.StoredLine::text).toList();
+        boolean[][] matched = matchInOrder(pendingLines, committedLines);
+        List<String> notCarried = new ArrayList<>();
+        for (int i = 0; i < pendingLines.size(); i++) {
+            if (!matched[0][i] && pending.lines().get(i).latest().time() == Long.MAX_VALUE) {
+                notCarried.add(pendingLines.get(i));
+            }
+        }
+        List<String> committedOnly = new ArrayList<>();
+        for (int j = 0; j < committedLines.size(); j++) {
+            if (!matched[1][j]) {
+                committedOnly.add(committedLines.get(j));
+            }
+        }
+        transaction.get().cancel();
+        return new Settlement(true, false, committedLines.equals(pendingLines), List.copyOf(notCarried), List.copyOf(committedOnly));
+    }
+
+    /**
+     * Carries the pending edit forward onto the newest commit: each edited block's pending text is
+     * written again over the block as now committed, in a new pending transaction based on that
+     * commit, under the edit's own author and path; the old transaction is cancelled.
+     */
+    private static Settlement rebase(PublicId anchor, Transaction old, GitDocumentMaterializer.StoredDocument pending, List<Long> edited) {
+        List<String> texts = new ArrayList<>();
+        for (long block : edited) {
+            texts.add(pending.blocks().get(block).members().stream()
+                    .map(nid -> pending.line(nid).map(GitDocumentMaterializer.StoredLine::text).orElse(""))
+                    .collect(java.util.stream.Collectors.joining("\n")));
+        }
+        SemanticEntityVersion pendingManifest = null;
+        for (SemanticEntityVersion version : semantic(manifestNid(anchor)).versions()) {
+            if (version.uncommitted() && !version.canceled()) {
+                pendingManifest = version;
+            }
+        }
+        long author = pendingManifest.stamp().authorNid();
+        long path = pendingManifest.stamp().pathNid();
+        old.cancel();
+        for (int i = 0; i < edited.size(); i++) {
+            editBlock(anchor, edited.get(i), texts.get(i), author, path);
+        }
+        return Settlement.REBASED;
+    }
+
+    /** The blocks with a pending version, in document order. */
+    private static List<Long> editedBlocks(GitDocumentMaterializer.StoredDocument pending) {
+        List<Long> edited = new ArrayList<>();
+        for (GitDocumentMaterializer.StoredBlock block : pending.blocks().values()) {
+            if (block.stamp().time() == Long.MAX_VALUE) {
+                edited.add(block.nid());
+            }
+        }
+        List<Long> order = pending.lines().stream().map(GitDocumentMaterializer.StoredLine::nid).toList();
+        edited.sort(java.util.Comparator.comparingInt(b -> order.indexOf(pending.blocks().get(b).members().getFirst())));
+        return edited;
+    }
+
+    /**
+     * Whether a commit since the base touched a block: the block, or a line it held at the base,
+     * has a committed version newer than the base.
+     */
+    private static boolean touchedSince(long block, long baseTime) {
+        SemanticEntityVersion atBase = null;
+        for (SemanticEntityVersion version : semantic(block).versions()) {
+            if (version.canceled() || version.time() == Long.MAX_VALUE) {
+                continue;
+            }
+            if (version.time() > baseTime) {
+                return true;
+            }
+            if (atBase == null || version.time() > atBase.time()) {
+                atBase = version;
+            }
+        }
+        if (atBase == null) {
+            return true;
+        }
+        for (long line : ((dev.ikm.tinkar.common.id.LongIdList) atBase.fieldValues().get(4)).toArray()) {
+            for (SemanticEntityVersion version : semantic(line).versions()) {
+                if (!version.canceled() && version.time() != Long.MAX_VALUE && version.time() > baseTime) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** The time of the commit an edit was made against, from the git-source version recording it. */
+    private static long baseTime(long anchorNid, String base) {
+        for (SemanticEntity<SemanticEntityVersion> source : EntityService.get()
+                .semanticsForComponentOfPattern(anchorNid, IkePattern.GIT_SOURCE_PATTERN.nid()).toList()) {
+            for (SemanticEntityVersion version : source.versions()) {
+                if (!version.canceled() && version.time() != Long.MAX_VALUE && version.fieldValues().size() > 1
+                        && base.equals(String.valueOf(version.fieldValues().get(1)))) {
+                    return version.time();
+                }
+            }
+        }
+        return Long.MIN_VALUE;
+    }
+
+    /**
+     * Which lines of each list the longest common subsequence pairs, in order.
+     *
+     * @return {@code [0]} for the first list, {@code [1]} for the second
+     */
+    static boolean[][] matchInOrder(List<String> a, List<String> b) {
+        int n = a.size();
+        int m = b.size();
+        int[][] lcs = new int[n + 1][m + 1];
+        for (int i = n - 1; i >= 0; i--) {
+            for (int j = m - 1; j >= 0; j--) {
+                lcs[i][j] = a.get(i).equals(b.get(j)) ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+            }
+        }
+        boolean[][] matched = {new boolean[n], new boolean[m]};
+        int i = 0;
+        int j = 0;
+        while (i < n && j < m) {
+            if (a.get(i).equals(b.get(j))) {
+                matched[0][i++] = true;
+                matched[1][j++] = true;
+            } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
+                i++;
+            } else {
+                j++;
+            }
+        }
+        return matched;
+    }
+
+    private static final String BASE = " on commit ";
+
+    /** The commit an edit was made against, carried in its transaction's name, which is saved with it. */
+    private static String baseCommit(Transaction transaction) {
+        String name = transaction.name() == null ? "" : transaction.name();
+        int at = name.lastIndexOf(BASE);
+        return at < 0 ? "" : name.substring(at + BASE.length());
+    }
+
+    private static long manifestNid(PublicId anchor) {
+        long anchorNid = EntityService.get().nidForPublicId(anchor);
+        return EntityService.get().semanticsForComponentOfPattern(anchorNid, IkePattern.JOURNAL_MANIFEST_PATTERN.nid())
+                .findFirst().map(SemanticEntity::nid).orElse(0L);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static SemanticEntity<SemanticEntityVersion> semantic(long nid) {
+        return (SemanticEntity<SemanticEntityVersion>) EntityHandle.get(nid).expectSemantic();
+    }
+
+    private static void writeVersion(Transaction transaction, long nid, StampEntity<?> stamp, ImmutableList<Object> values) {
+        SemanticRecord record = (SemanticRecord) EntityHandle.get(nid).orNull();
+        SemanticRecord updated = record.with(new SemanticVersionRecord(record, stamp.nid(), values)).build();
+        transaction.addComponent(updated);
+        EntityService.get().putEntity(updated);
+    }
+
+    private static long writeNew(Transaction transaction, PublicId id, PublicId pattern, long referencedNid,
+                                 StampEntity<?> stamp, ImmutableList<Object> values) {
+        long nid = EntityService.get().nidForSemantic(pattern, id);
+        PublicIdentifierRecord identifier = PublicIdentifierRecord.make(id);
+        RecordListBuilder<SemanticVersionRecord> versions = RecordListBuilder.make();
+        SemanticRecord semantic = SemanticRecordBuilder.builder()
+                .nid(nid)
+                .mostSignificantBits(identifier.mostSignificantBits())
+                .leastSignificantBits(identifier.leastSignificantBits())
+                .additionalUuidLongs(identifier.additionalUuidLongs())
+                .patternNid(EntityService.get().nidForPattern(pattern))
+                .referencedComponentNid(referencedNid)
+                .versions(versions)
+                .build();
+        versions.add(SemanticVersionRecordBuilder.builder().chronology(semantic).stampNid(stamp.nid()).fieldValues(values).build());
+        SemanticRecord built = SemanticRecordBuilder.builder(semantic).versions(versions.toImmutable()).build();
+        transaction.addComponent(built);
+        EntityService.get().putEntity(built);
+        return nid;
+    }
+
+    // ── line matching ──────────────────────────────────────────────────────────
+
+    private enum Kind { KEEP, RETEXT, INSERT, REMOVE }
+
+    private record Step(Kind kind, int oldIndex, int newIndex) { }
+
+    /**
+     * Old to new lines: the longest common subsequence of equal lines is kept; between two kept
+     * lines, old and new lines pair off as re-texts in order, and what is left over is inserted
+     * or removed.
+     */
+    static List<Step> diff(List<String> oldLines, List<String> newLines) {
+        int n = oldLines.size();
+        int m = newLines.size();
+        int[][] lcs = new int[n + 1][m + 1];
+        for (int i = n - 1; i >= 0; i--) {
+            for (int j = m - 1; j >= 0; j--) {
+                lcs[i][j] = oldLines.get(i).equals(newLines.get(j)) ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+            }
+        }
+        List<Step> steps = new ArrayList<>();
+        int i = 0;
+        int j = 0;
+        List<Integer> gapOld = new ArrayList<>();
+        List<Integer> gapNew = new ArrayList<>();
+        while (i < n || j < m) {
+            if (i < n && j < m && oldLines.get(i).equals(newLines.get(j))) {
+                flush(gapOld, gapNew, steps);
+                steps.add(new Step(Kind.KEEP, i++, j++));
+            } else if (j < m && (i == n || lcs[i][j + 1] >= lcs[i + 1][j])) {
+                gapNew.add(j++);
+            } else {
+                gapOld.add(i++);
+            }
+        }
+        flush(gapOld, gapNew, steps);
+        return steps;
+    }
+
+    private static void flush(List<Integer> gapOld, List<Integer> gapNew, List<Step> steps) {
+        int pairs = Math.min(gapOld.size(), gapNew.size());
+        for (int k = 0; k < pairs; k++) {
+            steps.add(new Step(Kind.RETEXT, gapOld.get(k), gapNew.get(k)));
+        }
+        for (int k = pairs; k < gapOld.size(); k++) {
+            steps.add(new Step(Kind.REMOVE, gapOld.get(k), -1));
+        }
+        for (int k = pairs; k < gapNew.size(); k++) {
+            steps.add(new Step(Kind.INSERT, -1, gapNew.get(k)));
+        }
+        gapOld.clear();
+        gapNew.clear();
+    }
+
+}

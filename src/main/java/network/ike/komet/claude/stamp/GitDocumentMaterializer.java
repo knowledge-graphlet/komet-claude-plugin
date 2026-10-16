@@ -522,6 +522,20 @@ public final class GitDocumentMaterializer {
      * @return the document, or empty when the anchor has no manifest
      */
     public static Optional<StoredDocument> load(PublicId anchor) {
+        return load(anchor, false);
+    }
+
+    /**
+     * Rebuild a document from the store, either as committed or with the edit pending in the
+     * store: with {@code pending}, the manifest, each line and each block read their uncommitted
+     * version where they have one, so a line written in Komet and not yet committed in git is in
+     * the document. The git source, the attributes and the references stay as committed.
+     *
+     * @param anchor  the document anchor id
+     * @param pending whether to include uncommitted versions
+     * @return the document, or empty when the anchor has no manifest
+     */
+    public static Optional<StoredDocument> load(PublicId anchor, boolean pending) {
         long anchorNid = EntityService.get().nidForPublicId(anchor);
         List<SemanticEntity<SemanticEntityVersion>> manifests = EntityService.get()
                 .semanticsForComponentOfPattern(anchorNid, IkePattern.JOURNAL_MANIFEST_PATTERN.nid()).toList();
@@ -529,7 +543,7 @@ public final class GitDocumentMaterializer {
             return Optional.empty();
         }
         SemanticEntity<SemanticEntityVersion> manifest = manifests.getFirst();
-        SemanticEntityVersion head = latest(manifest);
+        SemanticEntityVersion head = latest(manifest, pending);
         if (head == null) {
             return Optional.empty();
         }
@@ -554,7 +568,7 @@ public final class GitDocumentMaterializer {
             SemanticEntityVersion last = null;
             for (EntityVersion version : element.versions()) {
                 SemanticEntityVersion v = (SemanticEntityVersion) version;
-                if (v.time() == Long.MAX_VALUE) {
+                if (v.canceled() || (v.time() == Long.MAX_VALUE && !pending)) {
                     continue;
                 }
                 if (first == null || v.time() < first.time()) {
@@ -572,7 +586,7 @@ public final class GitDocumentMaterializer {
         }
         int versions = 0;
         for (SemanticEntityVersion v : manifest.versions()) {
-            if (v.time() != Long.MAX_VALUE) {
+            if (v.time() != Long.MAX_VALUE && !v.canceled()) {      // a settled edit leaves a cancelled pending version
                 versions++;
             }
         }
@@ -595,7 +609,7 @@ public final class GitDocumentMaterializer {
         StoredBlock root = null;
         for (SemanticEntity<SemanticEntityVersion> s : EntityService.get()
                 .semanticsForComponentOfPattern(anchorNid, IkePattern.DOCUMENT_BLOCK_PATTERN.nid()).toList()) {
-            SemanticEntityVersion v = latest(s);
+            SemanticEntityVersion v = latest(s, pending);
             if (v == null || v.state() != State.ACTIVE) {
                 continue;
             }
@@ -691,12 +705,17 @@ public final class GitDocumentMaterializer {
     }
 
     private static SemanticEntityVersion latest(SemanticEntity<SemanticEntityVersion> entity) {
+        return latest(entity, false);
+    }
+
+    /** The latest version, committed only or with an uncommitted one (which is latest) when {@code pending}. */
+    static SemanticEntityVersion latest(SemanticEntity<SemanticEntityVersion> entity, boolean pending) {
         if (entity.canceled()) {
             return null;
         }
         SemanticEntityVersion head = null;
         for (SemanticEntityVersion version : entity.versions()) {
-            if (version.time() == Long.MAX_VALUE) {
+            if (version.canceled() || (version.time() == Long.MAX_VALUE && !pending)) {
                 continue;
             }
             if (head == null || version.time() > head.time()) {

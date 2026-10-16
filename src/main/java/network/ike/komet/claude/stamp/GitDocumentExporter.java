@@ -82,7 +82,20 @@ public final class GitDocumentExporter {
      * @return the document, or empty when the store holds no manifest for it
      */
     public static Optional<Exported> export(PublicId anchor) {
-        Optional<GitDocumentMaterializer.StoredDocument> stored = GitDocumentMaterializer.load(anchor);
+        return export(anchor, false);
+    }
+
+    /**
+     * Gives a document back from the store, as committed or with the edit pending in the store
+     * ({@link DocumentEditor}): the pending export is the file the person commits to record the
+     * edit in git.
+     *
+     * @param anchor  the document anchor's id
+     * @param pending whether to include uncommitted versions
+     * @return the document, or empty when the store holds no manifest for it
+     */
+    public static Optional<Exported> export(PublicId anchor, boolean pending) {
+        Optional<GitDocumentMaterializer.StoredDocument> stored = GitDocumentMaterializer.load(anchor, pending);
         if (stored.isEmpty()) {
             return Optional.empty();
         }

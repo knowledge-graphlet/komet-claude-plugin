@@ -1,0 +1,372 @@
+/*
+ * Copyright © 2026 Knowledge Graphlet / IKE Network
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.komet.claude.stamp;
+
+import design.knowledge.stamp.adoc.dialect.Block;
+import dev.ikm.tinkar.common.id.PublicId;
+import dev.ikm.tinkar.common.service.PrimitiveData;
+import dev.ikm.tinkar.coordinate.Coordinates;
+import dev.ikm.tinkar.coordinate.edit.EditCoordinateRecord;
+import dev.ikm.tinkar.entity.EntityService;
+import dev.ikm.tinkar.entity.SemanticEntity;
+import dev.ikm.tinkar.entity.SemanticEntityVersion;
+import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
+import network.ike.foundation.ike.bindings.IkePattern;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * The editing round trip (ike-issues#806): a block edited in the graph is pending, uncommitted,
+ * beside the committed document; the person commits the exported file in git; materializing the
+ * commit and settling leaves one document, with the commit's lines and no pending or provisional
+ * versions, that exports back as the committed file.
+ */
+@TestInstance(TestInstance.Lifecycle.PER_CLASS)
+class DocumentEditingIT {
+
+    private static final File PB_STARTER_DATA = new File("target/data/ike-starter-set-reasoned-pb.zip");
+
+    private static final String ORIGINAL = """
+            :topic-id: anf-editing
+            = Editing
+
+            The first line.
+            The second line.
+
+            Another paragraph.
+
+            ----
+            x
+            x
+            y
+            ----
+            """;
+
+    @TempDir
+    Path root;
+
+    private EditCoordinateRecord edit;
+
+    @BeforeAll
+    void setupDatabase() {
+        assertTrue(PB_STARTER_DATA.exists(), "Starter data must be present at " + PB_STARTER_DATA.getAbsolutePath());
+        PrimitiveData.selectControllerByName("Load Ephemeral Store");
+        PrimitiveData.start();
+        new LoadEntitiesFromProtobufFile(PB_STARTER_DATA).compute();
+        edit = Coordinates.Edit.Default();
+    }
+
+    @AfterAll
+    void teardownDatabase() {
+        PrimitiveData.stop();
+    }
+
+    @Test
+    void anEditCommittedInGitSettlesIntoOneDocument() throws Exception {
+        Path dir = repository("settles");
+        Path file = dir.resolve("editing.adoc");
+        PublicId anchor = GitDocumentMaterializer.materialize(dir, file).anchor();
+        long block = blockStartingWith(anchor, Block.Kind.PARAGRAPH, "The first line.");
+
+        DocumentEditor.Edit first = DocumentEditor.editBlock(anchor, block, "The first line, revised.\nThe second line.\n", edit);
+        assertEquals(new DocumentEditor.Edit(block, 1, 0, 0), first);
+        assertEquals(ORIGINAL, export(anchor, false), "the committed document is untouched by a pending edit");
+
+        DocumentEditor.Edit second = DocumentEditor.editBlock(anchor, block,
+                "The first line, revised again.\nThe second line.\nA third line.\n", edit);
+        assertEquals(1, second.changed());
+        assertEquals(1, second.added());
+        String edited = ORIGINAL.replace("The second line.\n", "The second line.\nA third line.\n")
+                .replace("The first line.", "The first line, revised again.");
+        assertEquals(edited, export(anchor, true), "the pending document carries the latest edit");
+        assertEquals(1, uncommittedVersions(manifestOf(anchor)), "editing again replaces the pending manifest version");
+
+        DocumentEditor.Settlement settlement = commitAndSettle(dir, anchor, export(anchor, true), "bob");
+
+        assertTrue(settlement.settled() && settlement.carried(), settlement.toString());
+        assertEquals(List.of(), settlement.notCarried());
+        assertEquals(List.of(), settlement.committedOnly());
+        assertSettledAs(anchor, dir, edited);
+        assertEquals(2, blocks(anchor, Block.Kind.PARAGRAPH).size(), "the edited paragraph is still one block, not two");
+    }
+
+    /** Repeated lines pair by position: the two "x" lines and the delimiters are never confused. */
+    @Test
+    void repeatedLinesAreMatchedInOrder() throws Exception {
+        Path dir = repository("repeated");
+        PublicId anchor = GitDocumentMaterializer.materialize(dir, dir.resolve("editing.adoc")).anchor();
+        long listing = blockStartingWith(anchor, Block.Kind.LISTING, "----");
+        DocumentEditor.editBlock(anchor, listing, "----\nx\nz\nx\ny\n----\n", edit);
+        String carried = ORIGINAL.replace("x\nx\ny", "x\nz\nx\ny");
+
+        DocumentEditor.Settlement exact = commitAndSettle(dir, anchor, carried, "bob");
+        assertTrue(exact.carried(), exact.toString());
+        assertSettledAs(anchor, dir, carried);
+
+        listing = blockStartingWith(anchor, Block.Kind.LISTING, "----");
+        DocumentEditor.editBlock(anchor, listing, "----\nx\nz\nq\nx\ny\n----\n", edit);
+        DocumentEditor.Settlement partial = commitAndSettle(dir, anchor, carried.replace("x\nz\nx", "x\nz\nx\nx"), "carol");
+
+        assertTrue(partial.settled() && !partial.carried(), partial.toString());
+        assertEquals(List.of("q"), partial.notCarried(), "the inserted line the person did not commit");
+        assertEquals(List.of("x"), partial.committedOnly(), "the extra repeated line the person added by hand");
+        assertSettledAs(anchor, dir, carried.replace("x\nz\nx", "x\nz\nx\nx"));
+    }
+
+    @Test
+    void handEditsCommittedBesideTheEditAreReported() throws Exception {
+        Path dir = repository("hand");
+        PublicId anchor = GitDocumentMaterializer.materialize(dir, dir.resolve("editing.adoc")).anchor();
+        long block = blockStartingWith(anchor, Block.Kind.PARAGRAPH, "The first line.");
+        DocumentEditor.editBlock(anchor, block, "The first line, in Komet.\nThe second line.\n", edit);
+        String committed = export(anchor, true).replace("Another paragraph.", "Another paragraph, by hand.");
+
+        DocumentEditor.Settlement settlement = commitAndSettle(dir, anchor, committed, "bob");
+
+        assertTrue(settlement.settled() && !settlement.carried(), settlement.toString());
+        assertEquals(List.of(), settlement.notCarried(), "everything edited in Komet was committed");
+        assertEquals(List.of("Another paragraph, by hand."), settlement.committedOnly());
+        assertSettledAs(anchor, dir, committed);
+    }
+
+    @Test
+    void aRejectedEditIsCancelledAndReported() throws Exception {
+        Path dir = repository("rejected");
+        PublicId anchor = GitDocumentMaterializer.materialize(dir, dir.resolve("editing.adoc")).anchor();
+        long block = blockStartingWith(anchor, Block.Kind.PARAGRAPH, "Another paragraph.");
+        DocumentEditor.editBlock(anchor, block, "Another paragraph, edited in Komet.\n", edit);
+        String committed = ORIGINAL.replace("Another paragraph.", "Another paragraph, by hand.");
+
+        DocumentEditor.Settlement settlement = commitAndSettle(dir, anchor, committed, "carol");
+
+        assertTrue(settlement.settled() && !settlement.carried(), "a commit to the edited block settles it: " + settlement);
+        assertEquals(List.of("Another paragraph, edited in Komet."), settlement.notCarried());
+        assertEquals(List.of("Another paragraph, by hand."), settlement.committedOnly());
+        assertSettledAs(anchor, dir, committed);
+    }
+
+    /** A commit that touches none of the edited blocks carries the edit forward; it stays pending. */
+    @Test
+    void aForeignCommitToAnotherBlockRebasesTheEdit() throws Exception {
+        Path dir = repository("foreign");
+        Path file = dir.resolve("editing.adoc");
+        PublicId anchor = GitDocumentMaterializer.materialize(dir, file).anchor();
+        DocumentEditor.editBlock(anchor, blockStartingWith(anchor, Block.Kind.PARAGRAPH, "The first line."),
+                "The first line, being edited.\nThe second line.\nA line added in Komet.\n", edit);
+        String foreign = ORIGINAL.replace("Another paragraph.", "Another paragraph, from a pull.");
+
+        DocumentEditor.Settlement settlement = commitAndSettle(dir, anchor, foreign, "erin");
+
+        assertTrue(settlement.rebased() && !settlement.settled(), settlement.toString());
+        assertTrue(DocumentEditor.pending(anchor).isPresent(), "the edit is still pending");
+        assertEquals(foreign, export(anchor, false), "the committed document is the foreign commit");
+        String rebased = foreign.replace("The first line.", "The first line, being edited.")
+                .replace("The second line.\n", "The second line.\nA line added in Komet.\n");
+        assertEquals(rebased, export(anchor, true), "the edit carried forward onto the foreign commit");
+        assertEquals(1, uncommittedVersions(manifestOf(anchor)), "one pending manifest version, on the new base");
+
+        DocumentEditor.Settlement later = commitAndSettle(dir, anchor, export(anchor, true), "bob");
+        assertTrue(later.settled() && later.carried(), later.toString());
+        assertSettledAs(anchor, dir, rebased);
+    }
+
+    @Test
+    void nothingSettlesBeforeANewCommit() throws Exception {
+        Path dir = repository("unsettled");
+        Path file = dir.resolve("editing.adoc");
+        PublicId anchor = GitDocumentMaterializer.materialize(dir, file).anchor();
+        DocumentEditor.editBlock(anchor, blockStartingWith(anchor, Block.Kind.PARAGRAPH, "Another paragraph."),
+                "Another paragraph, still being edited.\n", edit);
+
+        GitDocumentMaterializer.materialize(dir, file);
+
+        assertFalse(DocumentEditor.settle(anchor).settled(), "no commit since the edit was made");
+        assertTrue(DocumentEditor.pending(anchor).isPresent(), "the edit is still pending");
+        assertTrue(DocumentEditor.cancel(anchor));
+        assertEquals(ORIGINAL, export(anchor, true), "cancelled, the document reads as committed");
+    }
+
+    /** The card's commit: a draft message, the person's own unsigned commit of one file, then settling. */
+    @Test
+    void theCardsCommitRecordsTheEditAsThePersonsOwnCommit() throws Exception {
+        Path dir = repository("card");
+        git(dir, "config", "user.name", "dana");
+        git(dir, "config", "user.email", "dana@example.test");
+        Path file = dir.resolve("editing.adoc");
+        PublicId anchor = GitDocumentMaterializer.materialize(dir, file).anchor();
+        DocumentEditor.editBlock(anchor, blockStartingWith(anchor, Block.Kind.PARAGRAPH, "Another paragraph."),
+                "Another paragraph, committed from the card.\n", edit);
+        GitDocumentExporter.Exported pending = GitDocumentExporter.export(anchor, true).orElseThrow();
+        String draft = DocumentCommit.draftMessage(pending.path(),
+                GitDocumentExporter.export(anchor, false).orElseThrow().lines(), pending.lines());
+        assertTrue(draft.startsWith("Edit editing.adoc\n"), draft);
+        assertTrue(draft.contains("Another paragraph, committed from the card."), draft);
+        Files.writeString(dir.resolve("unrelated.txt"), "left alone\n");
+
+        GitDocumentExporter.writeTo(pending, dir);
+        DocumentCommit.Result result = DocumentCommit.write(dir, pending.path(), draft, false);
+        assertTrue(result.ok(), result.output());
+        GitDocumentMaterializer.materialize(dir, file, true);
+        DocumentEditor.Settlement settlement = DocumentEditor.settle(anchor);
+
+        assertTrue(settlement.carried(), settlement.toString());
+        assertSettledAs(anchor, dir, pending.text());
+        assertEquals("dana", gitOut(dir, "log", "-1", "--format=%an"), "the commit is the person's own");
+        assertEquals("Edit editing.adoc", gitOut(dir, "log", "-1", "--format=%s"));
+        assertEquals("editing.adoc", gitOut(dir, "show", "--name-only", "--format=", "HEAD"), "the commit holds the one file");
+        assertEquals("N", gitOut(dir, "log", "-1", "--format=%G?"), "unsigned, as chosen");
+        assertEquals(2, GitDocumentMaterializer.load(anchor).orElseThrow().manifestVersions(),
+                "one manifest version per commit that changed the file; the cancelled pending one is not counted");
+    }
+
+    @Test
+    void otherStagedChangesRefuseTheCommit() throws Exception {
+        Path dir = repository("staged");
+        Path file = dir.resolve("editing.adoc");
+        PublicId anchor = GitDocumentMaterializer.materialize(dir, file).anchor();
+        DocumentEditor.editBlock(anchor, blockStartingWith(anchor, Block.Kind.PARAGRAPH, "Another paragraph."), "Edited.\n", edit);
+        Files.writeString(dir.resolve("other.txt"), "staged\n");
+        git(dir, "add", "other.txt");
+        String head = gitOut(dir, "rev-parse", "HEAD");
+        GitDocumentExporter.writeTo(GitDocumentExporter.export(anchor, true).orElseThrow(), dir);
+
+        DocumentCommit.Result result = DocumentCommit.write(dir, "editing.adoc", "Edit editing.adoc\n", false);
+
+        assertFalse(result.ok());
+        assertTrue(result.output().contains("other.txt"), result.output());
+        assertEquals(head, gitOut(dir, "rev-parse", "HEAD"), "nothing was committed");
+        assertTrue(DocumentEditor.pending(anchor).isPresent(), "the edit is still pending");
+    }
+
+    @Test
+    void aBlockHoldingBlocksIsNotEditedAsText() throws Exception {
+        Path dir = repository("refuses");
+        PublicId anchor = GitDocumentMaterializer.materialize(dir, dir.resolve("editing.adoc")).anchor();
+        GitDocumentMaterializer.StoredDocument document = GitDocumentMaterializer.load(anchor).orElseThrow();
+        long section = document.blocks().values().stream().filter(b -> b.kind() == Block.Kind.SECTION || b.kind() == Block.Kind.DOCUMENT)
+                .findFirst().orElseThrow().nid();
+        try {
+            DocumentEditor.editBlock(anchor, section, "text", edit);
+        } catch (IllegalArgumentException expected) {
+            assertTrue(DocumentEditor.pending(anchor).isEmpty(), "a refused edit writes nothing");
+            return;
+        }
+        throw new AssertionError("a block holding blocks was edited as text");
+    }
+
+    private Path repository(String name) throws Exception {
+        Path dir = Files.createDirectories(root.resolve(name));
+        git(dir, "init", "-q", "-b", "main");
+        Files.writeString(dir.resolve("editing.adoc"), ORIGINAL);
+        commit(dir, "alice", "Add the document");
+        return dir;
+    }
+
+    /** Each commit a day after the last, as commits are apart in time; git dates have one-second resolution. */
+    private int day;
+
+    private void commit(Path dir, String author, String message) throws Exception {
+        git(dir, "add", "editing.adoc");
+        git(dir, "-c", "user.name=" + author, "-c", "user.email=" + author + "@example.test",
+                "commit", "-q", "--no-gpg-sign", "--date=2026-01-" + String.format("%02d", ++day) + "T00:00:00Z", "-m", message);
+    }
+
+    private static String export(PublicId anchor, boolean pending) {
+        return GitDocumentExporter.export(anchor, pending).orElseThrow().text();
+    }
+
+    private static List<GitDocumentMaterializer.StoredBlock> blocks(PublicId anchor, Block.Kind kind) {
+        return GitDocumentMaterializer.load(anchor, true).orElseThrow().blocks().values().stream()
+                .filter(b -> b.kind() == kind).toList();
+    }
+
+    private static long blockStartingWith(PublicId anchor, Block.Kind kind, String text) {
+        GitDocumentMaterializer.StoredDocument document = GitDocumentMaterializer.load(anchor, true).orElseThrow();
+        return document.blocks().values().stream()
+                .filter(b -> b.kind() == kind)
+                .filter(b -> document.line(b.members().getFirst()).map(l -> l.text().equals(text)).orElse(false))
+                .findFirst().orElseThrow().nid();
+    }
+
+    /** The person writes the file, commits it, and the commit is materialized and the edit settled. */
+    private DocumentEditor.Settlement commitAndSettle(Path dir, PublicId anchor, String text, String author) throws Exception {
+        Path file = dir.resolve("editing.adoc");
+        Files.writeString(file, text);
+        commit(dir, author, "Commit the edit");
+        GitDocumentMaterializer.materialize(dir, file);
+        return DocumentEditor.settle(anchor);
+    }
+
+    /** Nothing pending, no provisional line, and the store gives back the committed file. */
+    private static void assertSettledAs(PublicId anchor, Path dir, String committed) throws Exception {
+        assertTrue(DocumentEditor.pending(anchor).isEmpty(), "nothing is left pending");
+        assertEquals(committed, Files.readString(dir.resolve("editing.adoc")));
+        assertEquals(committed, export(anchor, false), "the committed document is the commit");
+        assertEquals(committed, export(anchor, true), "no provisional line or pending version remains");
+        assertEquals(0, uncommittedVersions(manifestOf(anchor)));
+        assertEquals(GitDocumentExporter.Relation.IDENTICAL_TO_HEAD,
+                GitDocumentExporter.compare(GitDocumentExporter.export(anchor).orElseThrow(), dir).relation());
+    }
+
+    private static SemanticEntity<SemanticEntityVersion> manifestOf(PublicId anchor) {
+        long anchorNid = EntityService.get().nidForPublicId(anchor);
+        return EntityService.get().semanticsForComponentOfPattern(anchorNid, IkePattern.JOURNAL_MANIFEST_PATTERN.nid())
+                .findFirst().orElseThrow();
+    }
+
+    private static int uncommittedVersions(SemanticEntity<SemanticEntityVersion> semantic) {
+        SemanticEntity<?> fresh = (SemanticEntity<?>) dev.ikm.tinkar.entity.EntityHandle.get(semantic.nid()).orNull();
+        int count = 0;
+        for (var v : fresh.versions()) {
+            if (v.uncommitted() && !v.canceled()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static String gitOut(Path dir, String... args) throws Exception {
+        List<String> command = new ArrayList<>(List.of("git"));
+        command.addAll(List.of(args));
+        Process p = new ProcessBuilder(command).directory(dir.toFile()).redirectErrorStream(true).start();
+        String out = new String(p.getInputStream().readAllBytes()).strip();
+        p.waitFor();
+        return out;
+    }
+
+    private static void git(Path dir, String... args) throws Exception {
+        List<String> command = new ArrayList<>(List.of("git"));
+        command.addAll(List.of(args));
+        Process p = new ProcessBuilder(command).directory(dir.toFile()).redirectErrorStream(true).start();
+        String out = new String(p.getInputStream().readAllBytes());
+        if (p.waitFor() != 0) {
+            throw new IllegalStateException("git " + String.join(" ", args) + " failed: " + out);
+        }
+    }
+}

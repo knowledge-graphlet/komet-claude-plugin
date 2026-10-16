@@ -28,16 +28,21 @@ import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
+import dev.ikm.tinkar.coordinate.Coordinates;
+import dev.ikm.tinkar.coordinate.edit.EditCoordinateRecord;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.StampEntity;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
+import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
+import javafx.scene.control.ButtonType;
 import javafx.scene.control.ChoiceBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.TextArea;
 import javafx.scene.control.Tooltip;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
@@ -69,6 +74,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Collectors;
 import java.util.regex.Pattern;
 
 /**
@@ -89,6 +95,8 @@ public final class StampedDocumentCard extends AbstractHostCard {
     static final String CARD_NAME = "STAMPed Document";
 
     private static final String PREF_DOCUMENT = "network.ike.komet.claude.stamp.document";
+    /** The working tree a document was last committed or exported into. */
+    private static final String PREF_WORKING_TREE = "network.ike.komet.claude.stamp.workingTree";
     private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneId.systemDefault());
     private static final DateTimeFormatter MOMENT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm zzz").withZone(ZoneId.systemDefault());
     private static final Pattern MARKER = Pattern.compile("^\\s*(\\*+|-|\\.+|\\d+\\.)\\s+");
@@ -167,7 +175,17 @@ public final class StampedDocumentCard extends AbstractHostCard {
         export.setTooltip(new Tooltip("Write the document from the store back into a repository's working tree at its recorded path, and compare it with HEAD"));
         export.getStyleClass().add("claude-card-toolbar-button");
         export.setOnAction(e -> chooseExportTarget());
-        toolBar.getChildren().addAll(documents, refresh, export);
+        Button commit = new Button("Commit…");
+        commit.setId("stampedDocumentCommit");
+        commit.setTooltip(new Tooltip("Write the document with your edit into its working tree and record it there as your own git commit"));
+        commit.getStyleClass().add("claude-card-toolbar-button");
+        commit.setOnAction(e -> commitPending());
+        Button discard = new Button("Discard edit");
+        discard.setId("stampedDocumentDiscard");
+        discard.setTooltip(new Tooltip("Cancel the edit made in Komet, so the document reads as committed again"));
+        discard.getStyleClass().add("claude-card-toolbar-button");
+        discard.setOnAction(e -> discardPending());
+        toolBar.getChildren().addAll(documents, refresh, export, commit, discard);
     }
 
     @Override
@@ -222,8 +240,19 @@ public final class StampedDocumentCard extends AbstractHostCard {
      * @param anchor the document anchor's id
      */
     public void open(PublicId anchor) {
+        open(anchor, null);
+    }
+
+    /**
+     * Shows a document by its anchor and, once it is drawn, puts a report on the status line in
+     * place of the document's own summary.
+     *
+     * @param anchor the document anchor's id
+     * @param report what to report, or {@code null} for the summary
+     */
+    private void open(PublicId anchor, String report) {
         statusLine.setText("Reading from the store …");
-        CompletableFuture.supplyAsync(() -> GitDocumentMaterializer.load(anchor)).whenComplete((loaded, failure) -> Platform.runLater(() -> {
+        CompletableFuture.supplyAsync(() -> GitDocumentMaterializer.load(anchor, true)).whenComplete((loaded, failure) -> Platform.runLater(() -> {
             if (failure != null) {
                 statusLine.setText("Could not read the document: " + failure.getMessage());
                 LOG.warn("Loading {} failed", anchor, failure);
@@ -234,6 +263,9 @@ public final class StampedDocumentCard extends AbstractHostCard {
                 return;
             }
             show(loaded.get());
+            if (report != null) {
+                statusLine.setText(report);
+            }
         }));
     }
 
@@ -314,7 +346,9 @@ public final class StampedDocumentCard extends AbstractHostCard {
         render(document.root(), context, 0, 0);
         int affirmed = (int) document.lines().stream().filter(l -> !l.affirmers().isEmpty()).count();
         int references = document.references().values().stream().mapToInt(List::size).sum();
-        statusLine.setText(status(document, document.blocks().size() + " blocks, " + references + " references, " + affirmed + " affirmed lines"));
+        long edited = document.lines().stream().filter(DocumentEditorView::uncommitted).count();
+        statusLine.setText(status(document, document.blocks().size() + " blocks, " + references + " references, " + affirmed + " affirmed lines"
+                + (edited == 0 ? "" : "; " + edited + " line(s) edited in Komet, uncommitted: Commit… to record them in git")));
     }
 
     /** The card's view, or the default one before the card is hosted. */
@@ -376,7 +410,7 @@ public final class StampedDocumentCard extends AbstractHostCard {
                 stack.getChildren().add(blockRow(heading.isEmpty() ? own : heading, label, context, depth));
                 renderChildren(children, context, depth);
             }
-            case PARAGRAPH -> stack.getChildren().add(blockRow(own, prose(joined(own, true)), context, depth, references(own, context)));
+            case PARAGRAPH -> stack.getChildren().add(editable(block, own, blockRow(own, prose(joined(own, true)), context, depth, references(own, context))));
             case ADMONITION -> {
                 String label = block.parameters().replaceAll("[\\[\\]]", "");
                 String text = joined(own, true).replaceFirst("^(NOTE|TIP|WARNING|IMPORTANT|CAUTION):\\s*", "");
@@ -393,7 +427,8 @@ public final class StampedDocumentCard extends AbstractHostCard {
                 } else {
                     body.setStyle("-fx-background-color: #F4F3F1; -fx-padding: 6; -fx-background-radius: 4;");
                 }
-                stack.getChildren().add(blockRow(own, titled(block, body), context, depth));
+                Node row = blockRow(own, titled(block, body), context, depth);
+                stack.getChildren().add(block.kind() == Block.Kind.LISTING || block.kind() == Block.Kind.LITERAL ? editable(block, own, row) : row);
             }
             case EXAMPLE, QUOTE, SIDEBAR, OPEN -> {
                 Label head = new Label(block.title().isEmpty() ? block.parameters().isEmpty() ? block.kind().name().toLowerCase() : block.parameters() : block.title());
@@ -586,6 +621,7 @@ public final class StampedDocumentCard extends AbstractHostCard {
             distinct.putIfAbsent(line.introduced().nid(), line.introduced());
         }
         List<StampEntity<?>> stamps = new ArrayList<>(distinct.values());
+        stamps.removeIf(stamp -> stamp.time() == Long.MAX_VALUE);     // a provisional line: marked below instead
         stamps.sort(Comparator.comparingLong(StampEntity::time));
         int shown = 0;
         for (StampEntity<?> stamp : stamps) {
@@ -602,6 +638,14 @@ public final class StampedDocumentCard extends AbstractHostCard {
                     : stamps.size() + " STAMPs introduced these lines, from " + MOMENT.format(Instant.ofEpochMilli(stamps.getFirst().time()))
                     + " to " + MOMENT.format(Instant.ofEpochMilli(stamps.getLast().time()))));
             gutter.getChildren().add(when);
+        }
+        long edited = lines.stream().filter(DocumentEditorView::uncommitted).count();
+        if (edited > 0) {
+            Label mark = new Label("edited");
+            mark.setFont(SMALL);
+            mark.setStyle("-fx-text-fill: #b26a00; -fx-font-weight: bold;");
+            mark.setTooltip(new Tooltip(edited + " of these " + lines.size() + " line(s) edited in Komet and not yet committed in git"));
+            gutter.getChildren().add(mark);
         }
         long affirmed = lines.stream().filter(l -> !l.affirmers().isEmpty()).count();
         if (affirmed > 0) {
@@ -647,6 +691,218 @@ public final class StampedDocumentCard extends AbstractHostCard {
                 + "\nAuthor: " + StampNames.name(view, stamp.authorNid())
                 + "\nModule: " + StampNames.name(view, stamp.moduleNid())
                 + "\nPath: " + StampNames.name(view, stamp.pathNid());
+    }
+
+    // ── editing ───────────────────────────────────────────────────────────────
+
+    /** Lets a block whose members are all lines be edited as text, on a double click. */
+    private Node editable(GitDocumentMaterializer.StoredBlock block, List<GitDocumentMaterializer.StoredLine> own, Node row) {
+        VBox holder = new VBox(row);
+        Tooltip.install(row, new Tooltip("Double-click to edit this " + block.kind().name().toLowerCase()));
+        row.setOnMouseClicked(e -> {
+            if (e.getClickCount() == 2 && shown != null) {
+                startEdit(holder, row, block, own);
+            }
+        });
+        return holder;
+    }
+
+    private void startEdit(VBox holder, Node row, GitDocumentMaterializer.StoredBlock block, List<GitDocumentMaterializer.StoredLine> own) {
+        TextArea area = new TextArea(own.stream().map(GitDocumentMaterializer.StoredLine::text).collect(Collectors.joining("\n")));
+        area.setId("stampedDocumentBlockEditor");
+        area.setFont(MONO);
+        area.setPrefRowCount(Math.max(3, own.size() + 1));
+        Button save = new Button("Save");
+        save.setId("stampedDocumentSaveEdit");
+        save.setDefaultButton(false);
+        Button cancel = new Button("Cancel");
+        cancel.setId("stampedDocumentCancelEdit");
+        Label hint = new Label("Saved edits stay uncommitted in Komet until you commit the document in git.");
+        hint.setFont(SMALL);
+        hint.setStyle("-fx-text-fill: #5f6b7a;");
+        HBox buttons = new HBox(6, save, cancel, hint);
+        buttons.setAlignment(Pos.CENTER_LEFT);
+        holder.getChildren().setAll(area, buttons);
+        cancel.setOnAction(e -> holder.getChildren().setAll(row));
+        save.setOnAction(e -> saveEdit(block, area.getText()));
+        area.requestFocus();
+    }
+
+    /**
+     * Saves an edit of one block as uncommitted versions, off the FX thread, and re-reads the
+     * document.
+     *
+     * @param block the block edited
+     * @param text  its new text
+     */
+    private void saveEdit(GitDocumentMaterializer.StoredBlock block, String text) {
+        PublicId anchor = shown.anchor();
+        EditCoordinateRecord edit = editCoordinate();
+        statusLine.setText("Saving the edit …");
+        CompletableFuture.supplyAsync(() -> DocumentEditor.editBlock(anchor, block.nid(), text, edit))
+                .whenComplete((result, failure) -> Platform.runLater(() -> {
+                    if (failure != null) {
+                        Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
+                        statusLine.setText("Edit not saved: " + cause.getMessage());
+                        LOG.warn("Editing block {} of {} failed", block.nid(), anchor, cause);
+                        return;
+                    }
+                    open(anchor);
+                }));
+    }
+
+    /** The card's edit coordinate, or the default one before the card is hosted. */
+    private EditCoordinateRecord editCoordinate() {
+        return getCardViewProperties() != null ? getCardViewProperties().nodeView().editCoordinate().toEditCoordinateRecord()
+                : Coordinates.Edit.Default();
+    }
+
+    /** The working tree to commit into: the one used last, the provenance card's if it holds the file, or one the person chooses. */
+    private Optional<Path> workingTree(String path) {
+        String remembered = preferences().get(PREF_WORKING_TREE, "");
+        if (!remembered.isEmpty() && java.nio.file.Files.isRegularFile(Path.of(remembered).resolve(path))) {
+            return Optional.of(Path.of(remembered));
+        }
+        StampProvenanceCard provenance = StampProvenanceCard.mostRecent();
+        if (provenance != null && provenance.repoRoot() != null && java.nio.file.Files.isRegularFile(provenance.repoRoot().resolve(path))) {
+            return Optional.of(provenance.repoRoot());           // the repository the person is reviewing holds it
+        }
+        javafx.stage.DirectoryChooser chooser = new javafx.stage.DirectoryChooser();
+        chooser.setTitle("Working tree that holds " + path);
+        java.io.File chosen = chooser.showDialog(host.getScene() == null ? null : host.getScene().getWindow());
+        if (chosen == null) {
+            return Optional.empty();
+        }
+        preferences().put(PREF_WORKING_TREE, chosen.toPath().toString());
+        syncPreferences();
+        return Optional.of(chosen.toPath());
+    }
+
+    /**
+     * Records the pending edit in git as the person's own commit: writes the document with the
+     * edit into the working tree, asks for the message (a draft is offered) and the signing
+     * choice, commits that one file, re-reads the commit into the store and settles the edit.
+     */
+    public void commitPending() {
+        if (shown == null) {
+            statusLine.setText("Choose a document first.");
+            return;
+        }
+        PublicId anchor = shown.anchor();
+        if (DocumentEditor.pending(anchor).isEmpty()) {
+            statusLine.setText("Nothing to commit: no edit of this document is pending in Komet.");
+            return;
+        }
+        GitDocumentExporter.Exported pending = GitDocumentExporter.export(anchor, true).orElseThrow();
+        GitDocumentExporter.Exported committed = GitDocumentExporter.export(anchor, false).orElseThrow();
+        Optional<Path> chosenRoot = workingTree(pending.path());
+        if (chosenRoot.isEmpty()) {
+            return;
+        }
+        Path root = chosenRoot.get();
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+        confirm.setTitle("Commit Document Edit");
+        confirm.setHeaderText("Write " + pending.path() + " with your edit into " + root + " and commit it?");
+        TextArea message = new TextArea(DocumentCommit.draftMessage(pending.path(), committed.lines(), pending.lines()));
+        message.setId("stampedDocumentCommitMessage");
+        message.setWrapText(true);
+        message.setPrefRowCount(6);
+        Label details = new Label("The message is a draft: rewrite it as you like. The commit holds this one file and is yours,"
+                + " made through your own git. Signing (-S) gives it non-repudiation. Komet then re-reads the commit"
+                + " and settles your edit, reporting anything the commit did not carry.");
+        details.setWrapText(true);
+        confirm.getDialogPane().setContent(new VBox(8, message, details));
+        ButtonType signed = new ButtonType("Signed Commit");
+        ButtonType unsigned = new ButtonType("Unsigned Commit");
+        confirm.getButtonTypes().setAll(signed, unsigned, ButtonType.CANCEL);
+        for (ButtonType type : List.of(signed, unsigned)) {
+            confirm.getDialogPane().lookupButton(type).disableProperty().bind(message.textProperty().isEmpty());
+        }
+        confirm.initOwner(host.getScene() == null ? null : host.getScene().getWindow());
+        Optional<ButtonType> choice = confirm.showAndWait();
+        if (choice.isEmpty() || choice.get() == ButtonType.CANCEL) {
+            return;
+        }
+        boolean sign = choice.get() == signed;
+        String text = message.getText();
+        statusLine.setText("Writing and committing " + pending.path() + " …");
+        CompletableFuture.supplyAsync(() -> {
+            try {
+                Path file = GitDocumentExporter.writeTo(pending, root);
+                DocumentCommit.Result result = DocumentCommit.write(root, pending.path(), text, sign);
+                if (!result.ok()) {
+                    return "Not committed: " + result.output()
+                            + " The file in the working tree holds your edit; the edit is still pending in Komet.";
+                }
+                GitDocumentMaterializer.materialize(root, file, true);
+                return "Committed " + result.sha().substring(0, 7) + " (" + (sign ? "signed" : "unsigned") + "); "
+                        + describe(DocumentEditor.settle(anchor));
+            } catch (java.io.IOException e) {
+                throw new java.io.UncheckedIOException(e);
+            }
+        }).whenComplete((report, failure) -> Platform.runLater(() -> {
+            if (failure != null) {
+                Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
+                statusLine.setText("Commit failed: " + cause.getMessage());
+                LOG.warn("Committing {} failed", anchor, cause);
+                return;
+            }
+            open(anchor, report);
+            StampProvenanceCard.reloadAll();
+        }));
+    }
+
+    private static String describe(DocumentEditor.Settlement settlement) {
+        if (settlement.rebased()) {
+            return "the commit does not touch your edit, which stays pending on top of it.";
+        }
+        if (!settlement.settled()) {
+            return "the commit is not yet in the store, so the edit is still pending.";
+        }
+        if (settlement.carried()) {
+            return "the edit is settled: the commit carries all of it.";
+        }
+        StringBuilder text = new StringBuilder("the edit is settled against the commit, which differs from it.");
+        if (!settlement.notCarried().isEmpty()) {
+            text.append(" Not carried: ").append(quoted(settlement.notCarried())).append('.');
+        }
+        if (!settlement.committedOnly().isEmpty()) {
+            text.append(" Only in the commit: ").append(quoted(settlement.committedOnly())).append('.');
+        }
+        return text.toString();
+    }
+
+    private static String quoted(List<String> lines) {
+        String shown = lines.stream().limit(3).map(l -> "\u201c" + (l.length() > 60 ? l.substring(0, 57) + "..." : l) + "\u201d")
+                .collect(Collectors.joining(", "));
+        return lines.size() + " line(s), " + shown + (lines.size() > 3 ? ", …" : "");
+    }
+
+    /** Cancels the pending edit, after the person confirms. */
+    private void discardPending() {
+        if (shown == null) {
+            return;
+        }
+        PublicId anchor = shown.anchor();
+        if (DocumentEditor.pending(anchor).isEmpty()) {
+            statusLine.setText("No edit of this document is pending in Komet.");
+            return;
+        }
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION, "Cancel the edit made in Komet? The document will read as committed again.",
+                ButtonType.YES, ButtonType.NO);
+        confirm.setTitle("Discard Edit");
+        confirm.initOwner(host.getScene() == null ? null : host.getScene().getWindow());
+        if (confirm.showAndWait().filter(b -> b == ButtonType.YES).isEmpty()) {
+            return;
+        }
+        CompletableFuture.supplyAsync(() -> DocumentEditor.cancel(anchor)).whenComplete((done, failure) -> Platform.runLater(() -> open(anchor)));
+    }
+
+    /** Whether a line's latest version was written in Komet and is not yet committed. */
+    private static final class DocumentEditorView {
+        static boolean uncommitted(GitDocumentMaterializer.StoredLine line) {
+            return line.latest().time() == Long.MAX_VALUE;
+        }
     }
 
     private void syncPreferences() {
