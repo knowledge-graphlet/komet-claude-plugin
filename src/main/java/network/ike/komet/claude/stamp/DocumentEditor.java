@@ -42,6 +42,7 @@ import org.eclipse.collections.api.list.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -283,16 +284,56 @@ public final class DocumentEditor {
         return new Settlement(true, false, committedLines.equals(pendingLines), List.copyOf(notCarried), List.copyOf(committedOnly));
     }
 
+    /** How a kept edit's block is found in the document as now committed. */
+    public enum Match {
+        /** The block it edited still exists under its identity; it is restored there without asking. */
+        EXACT,
+        /** The block's identity is gone and exactly one block of its kind lies where it was: the person confirms it. */
+        CONFIRM,
+        /** The block's identity is gone and more than one block, or none, could be it: the person picks one or cancels. */
+        CHOOSE
+    }
+
     /**
      * An edit that was cancelled, by settling against a commit that did not carry all of it or by
      * discarding it, and can be brought back as pending.
      *
-     * @param block  the block it edited, as now committed
-     * @param text   the block's text with the edit restored over it
-     * @param author the edit's author
-     * @param path   the edit's path
+     * @param index      the edit's place among the document's kept edits, which {@link #restore(PublicId, Map)} takes
+     * @param match      how its block was found
+     * @param target     the block it would be restored over: the block itself when {@link Match#EXACT}, the one
+     *                   candidate when {@link Match#CONFIRM}, 0 when {@link Match#CHOOSE}
+     * @param candidates the blocks it could be restored over, for the person to pick from when the block's identity
+     *                   is gone: those of its kind between the lines it sat between, or every block of its kind when
+     *                   none lies there
+     * @param lines      the edit's lines, the lines it left alone as now committed where they still are
+     * @param author     the edit's author
+     * @param path       the edit's path
      */
-    public record Restorable(long block, String text, long author, long path) { }
+    public record Restorable(int index, Match match, long target, List<Long> candidates, List<Kept> lines, long author, long path) {
+
+        /** @return the block's text with the edit restored over it, the untouched lines taken from {@code over} */
+        public String text(GitDocumentMaterializer.StoredDocument over) {
+            List<String> text = new ArrayList<>();
+            for (Kept line : lines) {
+                if (line.edited()) {
+                    text.add(line.text());
+                } else {
+                    line.nid().stream().mapToObj(over::line).flatMap(Optional::stream)
+                            .map(GitDocumentMaterializer.StoredLine::text).forEach(text::add);
+                }
+            }
+            return String.join("\n", text);
+        }
+    }
+
+    /**
+     * One line of a kept edit.
+     *
+     * @param nid    the line's nid, when the store still holds it
+     * @param edited whether the edit wrote it
+     * @param text   the edited text, when it did
+     */
+    public record Kept(OptionalLong nid, boolean edited, String text) { }
 
     /** Where cancelled edits are kept, one node per document, in the knowledge base's configuration preferences. */
     private static final String RESTORABLE = "network/ike/komet/claude/restorable-edits";
@@ -300,12 +341,18 @@ public final class DocumentEditor {
     /**
      * The cancelled edits that could be brought back. A cancelled version is withdrawn from its
      * record when the record is read, so what an edit wrote is kept when it is cancelled, in the
-     * knowledge base's configuration preferences, which survive a restart: for each edited block,
-     * its lines in order, and for each line whether the edit wrote it and, if so, its text. The
-     * restored text takes each line the edit wrote from the edit, and each line it left alone from
-     * the document as now committed, so what the commit changed there stays; a line the edit left
-     * alone that the commit removed stays removed. Only blocks whose restored text differs from
-     * their committed text are listed.
+     * knowledge base's configuration preferences, which survive a restart but stay with that store:
+     * for each edited block, its identity and kind, the unedited lines it sat between, and its lines
+     * in order, with whether the edit wrote each and, if so, its text. Restored, each line the edit
+     * wrote comes from the edit and each line it left alone from the document as now committed, so
+     * what the commit changed there stays.
+     *
+     * <p>Where the block went is explicit. When its identity still exists it is the block
+     * ({@link Match#EXACT}). When a commit rewrote the line it took its identity from, the block is
+     * new, and only the person can say which it is: exactly one block of its kind between the lines
+     * it sat between is offered for confirmation ({@link Match#CONFIRM}); several, or none, are
+     * offered to choose from ({@link Match#CHOOSE}). An edit whose restored text equals its block's
+     * committed text is not listed.
      *
      * @param anchor the document anchor's id
      * @return the restorable edits, in document order
@@ -317,64 +364,104 @@ public final class DocumentEditor {
         }
         GitDocumentMaterializer.StoredDocument committed = loaded.get();
         KometPreferences kept = keptEdits(anchor);
+        List<Long> order = committed.lines().stream().map(GitDocumentMaterializer.StoredLine::nid).toList();
         List<Restorable> found = new ArrayList<>();
         int blocks = Integer.parseInt(kept.get("blocks", "0"));
         for (int k = 0; k < blocks; k++) {
             String b = "b." + k + ".";
-            OptionalLong blockNid = nidOf(kept.get(b + "id", ""));
-            if (blockNid.isEmpty() || !committed.blocks().containsKey(blockNid.getAsLong())) {
-                // The commit rewrote the line the block took its identity from, so the block is
-                // new: it is the first block of the same kind after the line the edit's block followed.
-                blockNid = successor(committed, kept.get(b + "kind", ""), nidOf(kept.get(b + "after", "")));
-                if (blockNid.isEmpty()) {
-                    continue;
-                }
+            if (kept.get(b + "id", "").isEmpty()) {
+                continue;                                        // restored or cancelled away
             }
-            List<String> restored = new ArrayList<>();
+            List<Kept> lines = new ArrayList<>();
             int members = Integer.parseInt(kept.get(b + "size", "0"));
             for (int i = 0; i < members; i++) {
                 String m = b + "m." + i + ".";
-                if (Boolean.parseBoolean(kept.get(m + "edited", "false"))) {
-                    restored.add(kept.get(m + "text", ""));
-                } else {
-                    nidOf(kept.get(m + "id", "")).stream()
-                            .mapToObj(committed::line).flatMap(Optional::stream)
-                            .map(GitDocumentMaterializer.StoredLine::text).forEach(restored::add);
-                }
+                lines.add(new Kept(nidOf(kept.get(m + "id", "")), Boolean.parseBoolean(kept.get(m + "edited", "false")),
+                        kept.get(m + "text", "")));
             }
-            GitDocumentMaterializer.StoredBlock block = committed.blocks().get(blockNid.getAsLong());
-            List<String> current = block.members().stream()
-                    .map(nid -> committed.line(nid).map(GitDocumentMaterializer.StoredLine::text).orElse(null))
-                    .filter(java.util.Objects::nonNull).toList();
             OptionalLong author = nidOf(kept.get(b + "author", ""));
             OptionalLong path = nidOf(kept.get(b + "path", ""));
-            if (restored.isEmpty() || restored.equals(current) || author.isEmpty() || path.isEmpty()) {
+            if (author.isEmpty() || path.isEmpty()) {
                 continue;
             }
-            found.add(new Restorable(block.nid(), String.join("\n", restored), author.getAsLong(), path.getAsLong()));
+            String kind = kept.get(b + "kind", "");
+            OptionalLong blockNid = nidOf(kept.get(b + "id", ""));
+            Restorable restorable;
+            if (blockNid.isPresent() && committed.blocks().containsKey(blockNid.getAsLong())) {
+                restorable = new Restorable(k, Match.EXACT, blockNid.getAsLong(), List.of(blockNid.getAsLong()), List.copyOf(lines),
+                        author.getAsLong(), path.getAsLong());
+            } else {
+                List<Long> between = between(committed, kind, nidOf(kept.get(b + "after", "")), nidOf(kept.get(b + "before", "")));
+                if (between.size() == 1) {
+                    restorable = new Restorable(k, Match.CONFIRM, between.getFirst(), between, List.copyOf(lines),
+                            author.getAsLong(), path.getAsLong());
+                } else {
+                    List<Long> candidates = between.isEmpty() ? ofKind(committed, kind) : between;
+                    restorable = new Restorable(k, Match.CHOOSE, 0, candidates, List.copyOf(lines), author.getAsLong(), path.getAsLong());
+                }
+            }
+            if (restorable.match() != Match.CHOOSE) {
+                GitDocumentMaterializer.StoredBlock block = committed.blocks().get(restorable.target());
+                List<String> current = block.members().stream()
+                        .map(nid -> committed.line(nid).map(GitDocumentMaterializer.StoredLine::text).orElse(null))
+                        .filter(java.util.Objects::nonNull).toList();
+                if (String.join("\n", current).equals(restorable.text(committed))) {
+                    continue;                                    // the commit carried it
+                }
+            }
+            found.add(restorable);
         }
-        List<Long> order = committed.lines().stream().map(GitDocumentMaterializer.StoredLine::nid).toList();
-        found.sort(java.util.Comparator.comparingInt(r -> order.indexOf(committed.blocks().get(r.block()).members().getFirst())));
+        found.sort(java.util.Comparator.comparingInt(r -> r.candidates().isEmpty() ? Integer.MAX_VALUE
+                : order.indexOf(committed.blocks().get(r.candidates().getFirst()).members().getFirst())));
         return List.copyOf(found);
     }
 
     /**
-     * Brings the restorable edits back as pending: each block's restored text is written over the
-     * block as now committed, in a pending transaction based on the document's latest commit, under
-     * the edit's own author and path. Where the commit changed a line the edit also changed, the
-     * edit's text stands over it as pending, for the person to resolve before committing. What was
-     * kept is cleared.
+     * Brings back the kept edits whose block still exists ({@link Match#EXACT}); the others wait for
+     * the person to confirm or pick their block, through {@link #restore(PublicId, Map)}.
      *
      * @param anchor the document anchor's id
      * @return how many blocks were restored
      */
     public static synchronized int restore(PublicId anchor) {
-        List<Restorable> restorable = restorable(anchor);
-        for (Restorable r : restorable) {
-            editBlock(anchor, r.block(), r.text(), r.author(), r.path());
+        Map<Integer, Long> exact = new java.util.LinkedHashMap<>();
+        for (Restorable r : restorable(anchor)) {
+            if (r.match() == Match.EXACT) {
+                exact.put(r.index(), r.target());
+            }
         }
-        forget(anchor);
-        return restorable.size();
+        return restore(anchor, exact);
+    }
+
+    /**
+     * Brings kept edits back as pending over the blocks the person confirmed or picked: each edit's
+     * restored text is written over its block as now committed, in a pending transaction based on the
+     * document's latest commit, under the edit's own author and path. Where the commit changed a line
+     * the edit also changed, the edit's text stands over it as pending, for the person to resolve
+     * before committing. The edits restored are no longer kept; the rest stay restorable.
+     *
+     * @param anchor  the document anchor's id
+     * @param targets the block to restore each edit over, by {@link Restorable#index()}; an edit not
+     *                named stays kept
+     * @return how many blocks were restored
+     * @throws IllegalArgumentException when a target is not one of the edit's candidates
+     */
+    public static synchronized int restore(PublicId anchor, Map<Integer, Long> targets) {
+        GitDocumentMaterializer.StoredDocument committed = GitDocumentMaterializer.load(anchor, false).orElseThrow();
+        int restored = 0;
+        for (Restorable r : restorable(anchor)) {
+            Long target = targets.get(r.index());
+            if (target == null) {
+                continue;
+            }
+            if (!r.candidates().contains(target)) {
+                throw new IllegalArgumentException("Block " + target + " is not one this edit can be restored over");
+            }
+            editBlock(anchor, target, r.text(committed), r.author(), r.path());
+            forget(anchor, r.index());
+            restored++;
+        }
+        return restored;
     }
 
     /** Keeps what the pending edit wrote, block by block, before its transaction is cancelled. */
@@ -382,34 +469,33 @@ public final class DocumentEditor {
         List<Long> edited = editedBlocks(pending);
         SemanticEntityVersion manifest = pendingManifestVersion(anchor);
         KometPreferences kept = keptEdits(anchor);
-        try {
-            kept.clear();
-        } catch (java.util.prefs.BackingStoreException e) {
-            LOG.warn("Could not clear the kept edit of {}", anchor.idString(), e);
-        }
+        clear(kept, anchor);
         if (manifest == null) {
             return;
         }
+        List<GitDocumentMaterializer.StoredLine> order = pending.lines();
         kept.put("blocks", Integer.toString(edited.size()));
         for (int k = 0; k < edited.size(); k++) {
             String b = "b." + k + ".";
             List<Long> members = pending.blocks().get(edited.get(k)).members();
             kept.put(b + "id", uuidOf(edited.get(k)));
+            kept.put(b + "kind", pending.blocks().get(edited.get(k)).kind().name());
             kept.put(b + "author", uuidOf(manifest.stamp().authorNid()));
             kept.put(b + "path", uuidOf(manifest.stamp().pathNid()));
             kept.put(b + "size", Integer.toString(members.size()));
-            kept.put(b + "kind", pending.blocks().get(edited.get(k)).kind().name());
-            long after = 0;
-            for (GitDocumentMaterializer.StoredLine line : pending.lines()) {
-                if (line.nid() == members.getFirst()) {
+            int first = indexOf(order, members.getFirst());
+            int last = indexOf(order, members.getLast());
+            for (int i = first - 1; i >= 0; i--) {
+                if (order.get(i).latest().time() != Long.MAX_VALUE) {
+                    kept.put(b + "after", uuidOf(order.get(i).nid()));
                     break;
                 }
-                if (line.latest().time() != Long.MAX_VALUE) {
-                    after = line.nid();
-                }
             }
-            if (after != 0) {
-                kept.put(b + "after", uuidOf(after));
+            for (int i = last + 1; i < order.size(); i++) {
+                if (order.get(i).latest().time() != Long.MAX_VALUE) {
+                    kept.put(b + "before", uuidOf(order.get(i).nid()));
+                    break;
+                }
             }
             for (int i = 0; i < members.size(); i++) {
                 String m = b + "m." + i + ".";
@@ -425,32 +511,54 @@ public final class DocumentEditor {
         flush(kept);
     }
 
-    /** The first block of a kind that starts after a line in the committed document. */
-    private static OptionalLong successor(GitDocumentMaterializer.StoredDocument committed, String kind, OptionalLong after) {
-        List<Long> order = committed.lines().stream().map(GitDocumentMaterializer.StoredLine::nid).toList();
-        int from = after.isPresent() ? order.indexOf(after.getAsLong()) + 1 : 0;
-        if (after.isPresent() && from == 0) {
-            return OptionalLong.empty();                         // the line it followed is gone too
+    private static int indexOf(List<GitDocumentMaterializer.StoredLine> lines, long nid) {
+        for (int i = 0; i < lines.size(); i++) {
+            if (lines.get(i).nid() == nid) {
+                return i;
+            }
         }
-        for (int i = from; i < order.size(); i++) {
-            long line = order.get(i);
-            for (GitDocumentMaterializer.StoredBlock block : committed.blocks().values()) {
-                if (block.kind().name().equals(kind) && !block.members().isEmpty() && block.members().getFirst() == line) {
-                    return OptionalLong.of(block.nid());
+        return -1;
+    }
+
+    /** The blocks of a kind that start strictly between two lines of the committed document. */
+    private static List<Long> between(GitDocumentMaterializer.StoredDocument committed, String kind, OptionalLong after, OptionalLong before) {
+        List<Long> order = committed.lines().stream().map(GitDocumentMaterializer.StoredLine::nid).toList();
+        int from = after.isPresent() ? order.indexOf(after.getAsLong()) : -1;
+        int to = before.isPresent() ? order.indexOf(before.getAsLong()) : order.size();
+        if ((after.isPresent() && from < 0) || (before.isPresent() && to < 0)) {
+            return List.of();                                    // a line it sat between is gone too
+        }
+        List<Long> found = new ArrayList<>();
+        for (GitDocumentMaterializer.StoredBlock block : committed.blocks().values()) {
+            if (block.kind().name().equals(kind) && !block.members().isEmpty()) {
+                int at = order.indexOf(block.members().getFirst());
+                if (at > from && at < to) {
+                    found.add(block.nid());
                 }
             }
         }
-        return OptionalLong.empty();
+        found.sort(java.util.Comparator.comparingInt(n -> order.indexOf(committed.blocks().get(n).members().getFirst())));
+        return found;
     }
 
-    private static void forget(PublicId anchor) {
+    /** Every block of a kind, in document order. */
+    private static List<Long> ofKind(GitDocumentMaterializer.StoredDocument committed, String kind) {
+        return between(committed, kind, OptionalLong.empty(), OptionalLong.empty());
+    }
+
+    /** Drops one kept edit, leaving the others restorable. */
+    private static void forget(PublicId anchor, int index) {
         KometPreferences kept = keptEdits(anchor);
+        kept.put("b." + index + ".id", "");
+        flush(kept);
+    }
+
+    private static void clear(KometPreferences kept, PublicId anchor) {
         try {
             kept.clear();
         } catch (java.util.prefs.BackingStoreException e) {
             LOG.warn("Could not clear the kept edit of {}", anchor.idString(), e);
         }
-        flush(kept);
     }
 
     private static KometPreferences keptEdits(PublicId anchor) {

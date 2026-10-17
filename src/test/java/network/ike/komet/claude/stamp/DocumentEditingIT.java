@@ -212,11 +212,22 @@ class DocumentEditingIT {
         assertTrue(settlement.settled() && !settlement.carried(), settlement.toString());
         assertEquals(List.of("Another paragraph, edited in Komet.", "A second line from Komet."), settlement.notCarried());
         assertSettledAs(anchor, dir, foreign);
+        GitDocumentMaterializer.StoredDocument committed = GitDocumentMaterializer.load(anchor).orElseThrow();
+        long byHand = blockStartingWith(anchor, Block.Kind.PARAGRAPH, "Another paragraph, by hand.");
+        GitDocumentMaterializer.StoredLine changed = committed.line(
+                committed.blocks().get(byHand).members().getFirst()).orElseThrow();
+        assertEquals("erin", StampNames.name(dev.ikm.tinkar.coordinate.Calculators.View.Default(), changed.latest().authorNid()),
+                "the line the commit changed carries the commit's author");
         List<DocumentEditor.Restorable> restorable = DocumentEditor.restorable(anchor);
         assertEquals(1, restorable.size(), restorable.toString());
-        assertEquals("Another paragraph, edited in Komet.\nA second line from Komet.", restorable.getFirst().text());
+        DocumentEditor.Restorable kept = restorable.getFirst();
+        assertEquals(DocumentEditor.Match.CONFIRM, kept.match(), "the commit rewrote the line the block took its identity from");
+        assertEquals(byHand, kept.target(), "the one paragraph where the edited one was");
+        assertEquals("Another paragraph, edited in Komet.\nA second line from Komet.", kept.text(committed));
+        assertEquals(0, DocumentEditor.restore(anchor), "nothing is written before the person confirms the block");
+        assertTrue(DocumentEditor.pending(anchor).isEmpty());
 
-        assertEquals(1, DocumentEditor.restore(anchor));
+        assertEquals(1, DocumentEditor.restore(anchor, java.util.Map.of(kept.index(), kept.target())));
 
         assertTrue(DocumentEditor.pending(anchor).isPresent(), "the edit is pending again");
         assertEquals(1, uncommittedVersions(manifestOf(anchor)), "exactly one pending version of the manifest");
@@ -226,6 +237,79 @@ class DocumentEditingIT {
         DocumentEditor.Settlement none = DocumentEditor.settle(anchor);
         assertFalse(none.settled() || none.rebased(), "the restored edit is based on the newest commit: " + none);
         assertEquals(List.of(), DocumentEditor.restorable(anchor), "restored, nothing is left to restore");
+    }
+
+    /** The block's identifying line survived the commit: restored without asking. */
+    @Test
+    void anEditOverABlockThatKeptItsIdentityIsRestoredExactly() throws Exception {
+        Path dir = repository("exact");
+        PublicId anchor = GitDocumentMaterializer.materialize(dir, dir.resolve("editing.adoc")).anchor();
+        long block = blockStartingWith(anchor, Block.Kind.PARAGRAPH, "The first line.");
+        DocumentEditor.editBlock(anchor, block, "The first line.\nThe second line, edited in Komet.\n", edit);
+        String foreign = ORIGINAL.replace("The second line.", "The second line, by hand.");
+        DocumentEditor.Settlement settlement = commitAndSettle(dir, anchor, foreign, "erin");
+        assertTrue(settlement.settled(), settlement.toString());
+
+        List<DocumentEditor.Restorable> restorable = DocumentEditor.restorable(anchor);
+        assertEquals(1, restorable.size(), restorable.toString());
+        assertEquals(DocumentEditor.Match.EXACT, restorable.getFirst().match());
+        assertEquals(block, restorable.getFirst().target(), "the same block, its identity kept");
+        assertEquals(1, DocumentEditor.restore(anchor));
+        assertEquals(foreign.replace("The second line, by hand.", "The second line, edited in Komet."), export(anchor, true));
+    }
+
+    /** Two paragraphs where the edited one was: nothing is written until the person picks one. */
+    @Test
+    void severalCandidatesWaitForThePersonToPick() throws Exception {
+        String original = ":topic-id: anf-pick\n= Pick\n\nIntro.\n\nTarget paragraph.\n";
+        Path dir = repository("several", original);
+        PublicId anchor = GitDocumentMaterializer.materialize(dir, dir.resolve("editing.adoc")).anchor();
+        DocumentEditor.editBlock(anchor, blockStartingWith(anchor, Block.Kind.PARAGRAPH, "Target paragraph."),
+                "Target paragraph, edited in Komet.\n", edit);
+        String foreign = original.replace("Target paragraph.", "Target rewritten by hand.\n\nAppended paragraph.");
+        assertTrue(commitAndSettle(dir, anchor, foreign, "erin").settled());
+
+        List<DocumentEditor.Restorable> restorable = DocumentEditor.restorable(anchor);
+        assertEquals(1, restorable.size(), restorable.toString());
+        DocumentEditor.Restorable kept = restorable.getFirst();
+        assertEquals(DocumentEditor.Match.CHOOSE, kept.match());
+        long rewritten = blockStartingWith(anchor, Block.Kind.PARAGRAPH, "Target rewritten by hand.");
+        long appended = blockStartingWith(anchor, Block.Kind.PARAGRAPH, "Appended paragraph.");
+        assertEquals(List.of(rewritten, appended), kept.candidates());
+        assertEquals(0, DocumentEditor.restore(anchor), "nothing is written while the block is in doubt");
+        assertTrue(DocumentEditor.pending(anchor).isEmpty());
+        assertEquals(1, DocumentEditor.restorable(anchor).size(), "the edit stays restorable");
+        long intro = blockStartingWith(anchor, Block.Kind.PARAGRAPH, "Intro.");
+        try {
+            DocumentEditor.restore(anchor, java.util.Map.of(kept.index(), intro));
+            throw new AssertionError("a block that is not a candidate was accepted");
+        } catch (IllegalArgumentException expected) {
+            assertTrue(DocumentEditor.pending(anchor).isEmpty(), "a refused target writes nothing");
+        }
+
+        assertEquals(1, DocumentEditor.restore(anchor, java.util.Map.of(kept.index(), rewritten)));
+        assertEquals(foreign.replace("Target rewritten by hand.", "Target paragraph, edited in Komet."), export(anchor, true));
+        assertEquals(List.of(), DocumentEditor.restorable(anchor));
+    }
+
+    /** The edited paragraph is gone: every paragraph is offered, and nothing is written until one is picked. */
+    @Test
+    void noCandidateOffersEveryBlockOfTheKind() throws Exception {
+        String original = ":topic-id: anf-none\n= None\n\nIntro.\n\nTarget paragraph.\n";
+        Path dir = repository("none", original);
+        PublicId anchor = GitDocumentMaterializer.materialize(dir, dir.resolve("editing.adoc")).anchor();
+        DocumentEditor.editBlock(anchor, blockStartingWith(anchor, Block.Kind.PARAGRAPH, "Target paragraph."),
+                "Target paragraph, edited in Komet.\n", edit);
+        String foreign = ":topic-id: anf-none\n= None\n\nIntro.\n";
+        assertTrue(commitAndSettle(dir, anchor, foreign, "erin").settled());
+
+        List<DocumentEditor.Restorable> restorable = DocumentEditor.restorable(anchor);
+        assertEquals(1, restorable.size(), restorable.toString());
+        assertEquals(DocumentEditor.Match.CHOOSE, restorable.getFirst().match());
+        assertEquals(List.of(blockStartingWith(anchor, Block.Kind.PARAGRAPH, "Intro.")), restorable.getFirst().candidates(),
+                "every paragraph left, for the person to choose from");
+        assertEquals(0, DocumentEditor.restore(anchor));
+        assertTrue(DocumentEditor.pending(anchor).isEmpty(), "nothing is written while the block is in doubt");
     }
 
     @Test
@@ -316,9 +400,13 @@ class DocumentEditingIT {
     }
 
     private Path repository(String name) throws Exception {
+        return repository(name, ORIGINAL);
+    }
+
+    private Path repository(String name, String text) throws Exception {
         Path dir = Files.createDirectories(root.resolve(name));
         git(dir, "init", "-q", "-b", "main");
-        Files.writeString(dir.resolve("editing.adoc"), ORIGINAL);
+        Files.writeString(dir.resolve("editing.adoc"), text);
         commit(dir, "alice", "Add the document");
         return dir;
     }

@@ -128,6 +128,8 @@ public final class StampedDocumentCard extends AbstractHostCard {
     private final Label statusLine = new Label("Choose a document the store holds.");
     private final ChoiceBox<String> documents = new ChoiceBox<>();
     private final Map<Long, Image> badges = new HashMap<>();
+    /** The rendered row of each editable block, by nid, so a block can be highlighted. */
+    private final Map<Long, VBox> rowsByBlock = new HashMap<>();
     private Map<String, PublicId> anchors = new LinkedHashMap<>();
     private GitDocumentMaterializer.StoredDocument shown;
     private boolean built;
@@ -256,6 +258,11 @@ public final class StampedDocumentCard extends AbstractHostCard {
      * @param report what to report, or {@code null} for the summary
      */
     private void open(PublicId anchor, String report) {
+        open(anchor, report, null);
+    }
+
+    /** As {@link #open(PublicId, String)}, then runs {@code afterShow} on the FX thread once the document is drawn. */
+    private void open(PublicId anchor, String report, Runnable afterShow) {
         statusLine.setText("Reading from the store …");
         CompletableFuture.supplyAsync(() -> GitDocumentMaterializer.load(anchor, true)).whenComplete((loaded, failure) -> Platform.runLater(() -> {
             if (failure != null) {
@@ -270,6 +277,9 @@ public final class StampedDocumentCard extends AbstractHostCard {
             show(loaded.get());
             if (report != null) {
                 statusLine.setText(report);
+            }
+            if (afterShow != null) {
+                afterShow.run();
             }
         }));
     }
@@ -335,6 +345,7 @@ public final class StampedDocumentCard extends AbstractHostCard {
         shown = document;
         stack.getChildren().clear();
         badges.clear();
+        rowsByBlock.clear();
         Map<Long, GitDocumentMaterializer.StoredLine> lines = new HashMap<>();
         for (GitDocumentMaterializer.StoredLine line : document.lines()) {
             lines.put(line.nid(), line);
@@ -703,6 +714,7 @@ public final class StampedDocumentCard extends AbstractHostCard {
     /** Lets a block whose members are all lines be edited as text, on a double click. */
     private Node editable(GitDocumentMaterializer.StoredBlock block, List<GitDocumentMaterializer.StoredLine> own, Node row) {
         VBox holder = new VBox(row);
+        rowsByBlock.put(block.nid(), holder);
         Tooltip.install(row, new Tooltip("Double-click to edit this " + block.kind().name().toLowerCase()));
         row.setOnMouseClicked(e -> {
             if (e.getClickCount() == 2 && shown != null) {
@@ -885,7 +897,12 @@ public final class StampedDocumentCard extends AbstractHostCard {
         return lines.size() + " line(s), " + shown + (lines.size() > 3 ? ", …" : "");
     }
 
-    /** Brings a cancelled edit back as pending, over the document as now committed; off the FX thread. */
+    /**
+     * Brings cancelled edits back as pending, over the document as now committed. An edit whose
+     * block still exists is restored straight away; an edit whose block a commit gave a new
+     * identity waits for the person: the one block it could be is highlighted for confirmation, or,
+     * when several or none could be, the person picks one. Cancelling leaves the edit restorable.
+     */
     private void restorePending() {
         if (shown == null) {
             statusLine.setText("Choose a document first.");
@@ -893,17 +910,132 @@ public final class StampedDocumentCard extends AbstractHostCard {
         }
         PublicId anchor = shown.anchor();
         statusLine.setText("Restoring …");
-        CompletableFuture.supplyAsync(() -> DocumentEditor.restore(anchor)).whenComplete((restored, failure) -> Platform.runLater(() -> {
-            if (failure != null) {
-                Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
-                statusLine.setText("Not restored: " + cause.getMessage());
-                LOG.warn("Restoring the edit of {} failed", anchor, cause);
-                return;
+        record Found(int restored, List<DocumentEditor.Restorable> waiting) { }
+        CompletableFuture.supplyAsync(() -> new Found(DocumentEditor.restore(anchor), DocumentEditor.restorable(anchor)))
+                .whenComplete((found, failure) -> Platform.runLater(() -> {
+                    if (failure != null) {
+                        Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
+                        statusLine.setText("Not restored: " + cause.getMessage());
+                        LOG.warn("Restoring the edit of {} failed", anchor, cause);
+                        return;
+                    }
+                    if (found.restored() == 0 && found.waiting().isEmpty()) {
+                        open(anchor, "Nothing to restore: no cancelled edit of this document differs from what is committed.");
+                        return;
+                    }
+                    open(anchor, restoredReport(found.restored()), () -> resolve(anchor, found.waiting(), 0, found.restored()));
+                }));
+    }
+
+    private static String restoredReport(int restored) {
+        return restored == 0 ? "" : "Restored the edit of " + restored + " block(s) as pending over the latest commit; check the"
+                + " edited lines against what the commit changed, then Commit… or Discard edit.";
+    }
+
+    /** Asks the person where each waiting edit goes, one at a time, and restores it there. */
+    private void resolve(PublicId anchor, List<DocumentEditor.Restorable> waiting, int at, int restoredSoFar) {
+        if (at >= waiting.size()) {
+            if (restoredSoFar > 0) {
+                statusLine.setText(restoredReport(restoredSoFar));
             }
-            open(anchor, restored == 0 ? "Nothing to restore: no cancelled edit of this document differs from what is committed."
-                    : "Restored the edit of " + restored + " block(s) as pending over the latest commit; check the edited lines"
-                    + " against what the commit changed, then Commit… or Discard edit.");
-        }));
+            return;
+        }
+        DocumentEditor.Restorable edit = waiting.get(at);
+        String editText = edit.lines().stream().filter(DocumentEditor.Kept::edited).map(DocumentEditor.Kept::text)
+                .collect(Collectors.joining("\n"));
+        Optional<Long> chosen;
+        if (edit.match() == DocumentEditor.Match.CONFIRM) {
+            highlight(edit.target(), true);
+            Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+            confirm.setTitle("Restore Edit");
+            confirm.setHeaderText("A commit rewrote the block this edit was made in. Restore the edit over the highlighted block?");
+            TextArea lines = new TextArea(editText);
+            lines.setEditable(false);
+            lines.setPrefRowCount(Math.min(6, Math.max(2, edit.lines().size())));
+            confirm.getDialogPane().setContent(new VBox(6, new Label("The lines you wrote:"), lines));
+            ButtonType here = new ButtonType("Restore Here");
+            confirm.getButtonTypes().setAll(here, ButtonType.CANCEL);
+            confirm.initOwner(host.getScene() == null ? null : host.getScene().getWindow());
+            chosen = confirm.showAndWait().filter(b -> b == here).map(b -> edit.target());
+            highlight(edit.target(), false);
+        } else {
+            chosen = choose(edit, editText);
+        }
+        if (chosen.isEmpty()) {
+            statusLine.setText("Kept the edit restorable; Restore as pending offers it again.");
+            resolve(anchor, waiting, at + 1, restoredSoFar);
+            return;
+        }
+        long target = chosen.get();
+        CompletableFuture.supplyAsync(() -> DocumentEditor.restore(anchor, Map.of(edit.index(), target)))
+                .whenComplete((restored, failure) -> Platform.runLater(() -> {
+                    if (failure != null) {
+                        Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
+                        statusLine.setText("Not restored: " + cause.getMessage());
+                        LOG.warn("Restoring an edit of {} over block {} failed", anchor, target, cause);
+                        return;
+                    }
+                    open(anchor, restoredReport(restoredSoFar + restored),
+                            () -> resolve(anchor, waiting, at + 1, restoredSoFar + restored));
+                }));
+    }
+
+    /** Lets the person pick the block an edit goes over, highlighting each as it is chosen; empty when they cancel. */
+    private Optional<Long> choose(DocumentEditor.Restorable edit, String editText) {
+        Map<String, Long> byLabel = new LinkedHashMap<>();
+        for (long candidate : edit.candidates()) {
+            GitDocumentMaterializer.StoredBlock block = shown.blocks().get(candidate);
+            String first = block == null || block.members().isEmpty() ? "block " + candidate
+                    : shown.line(block.members().getFirst()).map(GitDocumentMaterializer.StoredLine::text).orElse("block " + candidate);
+            String label = first.length() > 70 ? first.substring(0, 67) + "..." : first;
+            while (byLabel.containsKey(label)) {
+                label = label + " ";
+            }
+            byLabel.put(label, candidate);
+        }
+        ChoiceBox<String> picker = new ChoiceBox<>();
+        picker.setId("stampedDocumentRestoreTarget");
+        picker.getItems().setAll(byLabel.keySet());
+        long[] lit = {0};
+        picker.getSelectionModel().selectedItemProperty().addListener((obs, was, is) -> {
+            if (lit[0] != 0) {
+                highlight(lit[0], false);
+            }
+            lit[0] = is == null ? 0 : byLabel.get(is);
+            if (lit[0] != 0) {
+                highlight(lit[0], true);
+            }
+        });
+        Alert ask = new Alert(Alert.AlertType.CONFIRMATION);
+        ask.setTitle("Restore Edit");
+        ask.setHeaderText(edit.candidates().isEmpty() ? "No block of this kind is left to restore the edit over."
+                : "A commit rewrote the block this edit was made in, and more than one block could be it, or none. Pick the block"
+                + " to restore the edit over, or cancel to keep it restorable.");
+        TextArea lines = new TextArea(editText);
+        lines.setEditable(false);
+        lines.setPrefRowCount(Math.min(6, Math.max(2, edit.lines().size())));
+        ask.getDialogPane().setContent(new VBox(6, new Label("The lines you wrote:"), lines, new Label("Restore over:"), picker));
+        ButtonType here = new ButtonType("Restore Here");
+        ask.getButtonTypes().setAll(here, ButtonType.CANCEL);
+        ask.getDialogPane().lookupButton(here).disableProperty().bind(picker.getSelectionModel().selectedItemProperty().isNull());
+        ask.initOwner(host.getScene() == null ? null : host.getScene().getWindow());
+        Optional<Long> chosen = ask.showAndWait().filter(b -> b == here).map(b -> byLabel.get(picker.getValue()));
+        if (lit[0] != 0) {
+            highlight(lit[0], false);
+        }
+        return chosen;
+    }
+
+    private void highlight(long block, boolean on) {
+        VBox row = rowsByBlock.get(block);
+        if (row != null) {
+            row.setStyle(on ? "-fx-background-color: #FFF3C4; -fx-border-color: #b26a00; -fx-border-width: 2; -fx-border-radius: 4;" : "");
+            if (on) {
+                row.setId("stampedDocumentRestoreHighlight");
+            } else if ("stampedDocumentRestoreHighlight".equals(row.getId())) {
+                row.setId(null);
+            }
+        }
     }
 
     /** Cancels the pending edit, after the person confirms. */
