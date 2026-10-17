@@ -78,6 +78,9 @@ module komet.claude {
     // Rule engine: author Evrete rules (RulesBase) and actions (AbstractAction*)
     // contributed via the RuleProvider SPI; org.evrete.dsl for the rule annotations.
     requires dev.ikm.komet.rules;
+    // Komet actions (dev-komet-actions, IKE-Network/ike-issues#1306): the plugin implements the
+    // starter set's Edit document block, which the STAMPed Document card's Save performs.
+    requires dev.ikm.komet.actions;
     requires org.evrete.dsl.java;
 
     // STAMP-in-git engine: history walk, affirmations, identity adapter (ike-issues#468).
@@ -147,6 +150,11 @@ module komet.claude {
     // Living in the plugin, the rule + action update without a new komet release (#620).
     provides dev.ikm.komet.framework.rulebase.RuleProvider
             with network.ike.komet.claude.zulip.rules.ZulipRuleProvider;
+
+    // The plugin's Komet actions, found through PluggableService like Komet's own. Class-path
+    // tests find them through META-INF/services, which lists the same classes.
+    provides dev.ikm.komet.actions.KometAction
+            with network.ike.komet.claude.stamp.EditDocumentBlock;
 
     // Headless commit narrator: started once at app startup (after datastore load) by the
     // ServiceLifecycle machinery, regardless of whether the assistant UI is opened.

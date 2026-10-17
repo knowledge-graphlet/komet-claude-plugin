@@ -16,15 +16,25 @@
 package network.ike.komet.claude.stamp;
 
 import design.knowledge.stamp.adoc.dialect.Block;
+import dev.ikm.komet.actions.KometAction;
+import dev.ikm.komet.actions.KometActionInput;
+import dev.ikm.komet.actions.KometActionResult;
+import dev.ikm.komet.actions.KometActions;
+import dev.ikm.komet.terms.KometConcept;
 import dev.ikm.tinkar.common.id.PublicId;
+import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
+import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.Coordinates;
 import dev.ikm.tinkar.coordinate.edit.EditCoordinateRecord;
 import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
+import dev.ikm.tinkar.terms.EntityProxy;
+import network.ike.foundation.ike.bindings.IkeConcept;
 import network.ike.foundation.ike.bindings.IkePattern;
+import org.eclipse.collections.api.factory.Lists;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -397,6 +407,78 @@ class DocumentEditingIT {
             return;
         }
         throw new AssertionError("a block holding blocks was edited as text");
+    }
+
+    // ── the edit as a Komet action (IKE-Network/ike-issues#1306) ──────────────────
+
+    @Test
+    void theEditIsPerformedAsTheStarterSetsAction() throws Exception {
+        Path dir = repository("action");
+        PublicId anchor = GitDocumentMaterializer.materialize(dir, dir.resolve("editing.adoc")).anchor();
+        long block = blockStartingWith(anchor, Block.Kind.PARAGRAPH, "The first line.");
+        KometAction action = KometActions.expect(KometConcept.EDIT_DOCUMENT_BLOCK);
+        assertTrue(action instanceof EditDocumentBlock, "the plugin implements Edit document block: " + action);
+
+        KometActionInput input = EditDocumentBlock.input(block, "The first line, by action.\nThe second line.\n");
+        KometActionResult result = action.perform(input, Calculators.View.Default(), edit);
+
+        assertTrue(result.completed(), result.message());
+        assertEquals(input.id(), result.input(), "the result refers to its input");
+        assertEquals(ORIGINAL.replace("The first line.", "The first line, by action."), export(anchor, true));
+        assertEquals(ORIGINAL, export(anchor, false), "the edit is uncommitted");
+        long stamp = result.writtenVersion().orElseThrow().nid();
+        assertEquals(Long.MAX_VALUE, EntityService.get().getStampFast(stamp).time(), "the version written is uncommitted");
+        assertEquals(1, uncommittedVersions(manifestOf(anchor)));
+
+        KometActionResult same = action.perform(EditDocumentBlock.input(block, "The first line, by action.\nThe second line.\n"),
+                Calculators.View.Default(), edit);
+        assertTrue(same.completed() && same.writtenVersion().isEmpty(), "unchanged text writes nothing: " + same);
+        DocumentEditor.cancel(anchor);
+    }
+
+    @Test
+    void theActionRefusesAnEditOnTopOfSomeoneElsesPendingEdit() throws Exception {
+        Path dir = repository("other-author");
+        PublicId anchor = GitDocumentMaterializer.materialize(dir, dir.resolve("editing.adoc")).anchor();
+        KometAction action = KometActions.expect(KometConcept.EDIT_DOCUMENT_BLOCK);
+        long first = blockStartingWith(anchor, Block.Kind.PARAGRAPH, "The first line.");
+        long another = blockStartingWith(anchor, Block.Kind.PARAGRAPH, "Another paragraph.");
+        assertTrue(action.perform(EditDocumentBlock.input(first, "The first line, mine.\nThe second line.\n"),
+                Calculators.View.Default(), edit).completed());
+        String pending = export(anchor, true);
+        EditCoordinateRecord assistant = EditCoordinateRecord.make(IkeConcept.KOMET_ASSISTANT.nid(),
+                edit.getDefaultModuleNid(), edit.getDefaultPathNid());
+
+        KometActionResult refused = action.perform(EditDocumentBlock.input(another, "Another paragraph, the assistant's.\n"),
+                Calculators.View.Default(), assistant);
+
+        assertEquals(KometConcept.ACTION_REFUSED.nid(), refused.outcome().nid(), refused.message());
+        assertTrue(refused.writtenVersion().isEmpty());
+        assertEquals(pending, export(anchor, true), "nothing was written over the pending edit");
+        assertTrue(action.perform(EditDocumentBlock.input(another, "Another paragraph, mine too.\n"),
+                Calculators.View.Default(), edit).completed(), "the pending edit's own author edits on");
+        DocumentEditor.cancel(anchor);
+    }
+
+    @Test
+    void theActionRefusesWhatIsNotEditedAsText() throws Exception {
+        Path dir = repository("action-refuses");
+        PublicId anchor = GitDocumentMaterializer.materialize(dir, dir.resolve("editing.adoc")).anchor();
+        GitDocumentMaterializer.StoredDocument document = GitDocumentMaterializer.load(anchor).orElseThrow();
+        long holder = document.blocks().values().stream().filter(b -> b.kind() == Block.Kind.SECTION || b.kind() == Block.Kind.DOCUMENT)
+                .findFirst().orElseThrow().nid();
+        KometAction action = KometActions.expect(KometConcept.EDIT_DOCUMENT_BLOCK);
+        long paragraph = blockStartingWith(anchor, Block.Kind.PARAGRAPH, "Another paragraph.");
+        long line = document.lines().getFirst().nid();
+        for (KometActionInput input : List.of(EditDocumentBlock.input(holder, "text"),
+                EditDocumentBlock.input(paragraph, ""),
+                EditDocumentBlock.input(line, "A line is not a block."),
+                new KometActionInput(PublicIds.newRandom(), KometConcept.INACTIVATE_COMPONENT,
+                        EntityProxy.Semantic.make(paragraph), Lists.immutable.of("Wrong action.")))) {
+            KometActionResult result = action.perform(input, Calculators.View.Default(), edit);
+            assertEquals(KometConcept.ACTION_REFUSED.nid(), result.outcome().nid(), result.message());
+            assertTrue(DocumentEditor.pending(anchor).isEmpty(), "a refused edit writes nothing: " + result.message());
+        }
     }
 
     private Path repository(String name) throws Exception {

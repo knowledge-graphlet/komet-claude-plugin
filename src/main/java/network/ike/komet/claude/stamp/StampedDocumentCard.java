@@ -30,6 +30,8 @@ import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.Coordinates;
 import dev.ikm.tinkar.coordinate.edit.EditCoordinateRecord;
+import dev.ikm.komet.actions.KometActions;
+import dev.ikm.komet.terms.KometConcept;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.StampEntity;
 import javafx.application.Platform;
@@ -746,8 +748,9 @@ public final class StampedDocumentCard extends AbstractHostCard {
     }
 
     /**
-     * Saves an edit of one block as uncommitted versions, off the FX thread, and re-reads the
-     * document.
+     * Saves an edit of one block as uncommitted versions by performing the starter set's
+     * {@code Edit document block} action, off the FX thread, and re-reads the document. A refused
+     * or failed run leaves the editor open with the reason.
      *
      * @param block the block edited
      * @param text  its new text
@@ -755,13 +758,19 @@ public final class StampedDocumentCard extends AbstractHostCard {
     private void saveEdit(GitDocumentMaterializer.StoredBlock block, String text) {
         PublicId anchor = shown.anchor();
         EditCoordinateRecord edit = editCoordinate();
+        ViewCalculator view = view();
         statusLine.setText("Saving the edit …");
-        CompletableFuture.supplyAsync(() -> DocumentEditor.editBlock(anchor, block.nid(), text, edit))
+        CompletableFuture.supplyAsync(() -> KometActions.expect(KometConcept.EDIT_DOCUMENT_BLOCK)
+                        .perform(EditDocumentBlock.input(block.nid(), text), view, edit))
                 .whenComplete((result, failure) -> Platform.runLater(() -> {
                     if (failure != null) {
                         Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
                         statusLine.setText("Edit not saved: " + cause.getMessage());
                         LOG.warn("Editing block {} of {} failed", block.nid(), anchor, cause);
+                        return;
+                    }
+                    if (!result.completed()) {
+                        statusLine.setText("Edit not saved: " + result.message());
                         return;
                     }
                     open(anchor);

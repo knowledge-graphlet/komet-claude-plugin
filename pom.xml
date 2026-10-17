@@ -240,6 +240,11 @@
             <groupId>dev.ikm.komet</groupId>
             <artifactId>rules</artifactId>
         </dependency>
+        <!-- KometAction (dev-komet-actions): the plugin implements Edit document block. -->
+        <dependency>
+            <groupId>dev.ikm.komet</groupId>
+            <artifactId>actions</artifactId>
+        </dependency>
 
         <!-- LifeHash identicon generator (non-JavaFX) for the Zulip Koncept badge —
              the same library komet's Identicon uses. Version managed by komet-bom. -->

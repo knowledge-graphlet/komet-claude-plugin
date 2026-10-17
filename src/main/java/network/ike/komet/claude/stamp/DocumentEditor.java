@@ -195,6 +195,18 @@ public final class DocumentEditor {
     }
 
     /**
+     * @param anchor the document anchor's id
+     * @return the author of the document's pending edit, if one is pending
+     */
+    public static OptionalLong pendingAuthor(PublicId anchor) {
+        if (pending(anchor).isEmpty()) {
+            return OptionalLong.empty();
+        }
+        SemanticEntityVersion pendingManifest = pendingManifestVersion(anchor);
+        return pendingManifest == null ? OptionalLong.empty() : OptionalLong.of(pendingManifest.stamp().authorNid());
+    }
+
+    /**
      * Cancels the document's pending edit, so the document reads as committed again.
      *
      * @param anchor the document anchor's id
