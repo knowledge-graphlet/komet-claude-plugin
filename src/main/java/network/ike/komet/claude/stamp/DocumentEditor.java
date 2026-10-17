@@ -133,8 +133,11 @@ public final class DocumentEditor {
             return new Edit(block, 0, 0, 0);
         }
 
-        Transaction transaction = pending(anchor).orElseGet(
-                () -> Transaction.make("Edit document " + anchor.idString() + BASE + document.commit()));
+        Transaction transaction = pending(anchor).orElseGet(() -> {
+            Transaction made = Transaction.make("Edit document " + anchor.idString());
+            made.externalBasis(GIT_BASIS + document.commit());     // kept in the transaction's record (#1308)
+            return made;
+        });
         long manifestNid = manifestNid(anchor);
         SemanticEntityVersion manifestHead = GitDocumentMaterializer.latest(semantic(manifestNid), true);
         StampEntity<?> stamp = transaction.getStamp(State.ACTIVE, Long.MAX_VALUE, authorNid, manifestHead.moduleNid(), pathNid);
@@ -717,13 +720,16 @@ public final class DocumentEditor {
         return matched;
     }
 
-    private static final String BASE = " on commit ";
+    /** How an edit's external basis names the git commit it was made against. */
+    private static final String GIT_BASIS = "git:";
 
-    /** The commit an edit was made against, carried in its transaction's name, which is saved with it. */
+    /**
+     * The commit an edit was made against: its transaction's external basis, which the
+     * transaction's record keeps across a restart (IKE-Network/ike-issues#1308).
+     */
     private static String baseCommit(Transaction transaction) {
-        String name = transaction.name() == null ? "" : transaction.name();
-        int at = name.lastIndexOf(BASE);
-        return at < 0 ? "" : name.substring(at + BASE.length());
+        String basis = transaction.externalBasis();
+        return basis.startsWith(GIT_BASIS) ? basis.substring(GIT_BASIS.length()) : "";
     }
 
     private static long manifestNid(PublicId anchor) {
