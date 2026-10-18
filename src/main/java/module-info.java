@@ -109,6 +109,8 @@ module komet.claude {
     exports network.ike.komet.claude.semantic;
     // Git-derived STAMPs as Tinkar terms, for the Document surface and the assistant's tools.
     exports network.ike.komet.claude.stamp;
+    // What the open knowledge base is made of (#1304): the composition card and its reader.
+    exports network.ike.komet.claude.composition;
 
     // The vendored json4j (Json) discovers optional Serializer/Deserializer providers via
     // ServiceLoader in its static initializer; in a named module that REQUIRES a matching
@@ -125,7 +127,8 @@ module komet.claude {
             with network.ike.komet.claude.ClaudeCard.Factory,
                  network.ike.komet.claude.instructions.InstructionEditorCard.Factory,
                  network.ike.komet.claude.stamp.StampProvenanceCard.Factory,
-                 network.ike.komet.claude.stamp.StampedDocumentCard.Factory;
+                 network.ike.komet.claude.stamp.StampedDocumentCard.Factory,
+                 network.ike.komet.claude.composition.KnowledgeBaseCompositionCard.Factory;
     // KlArea.Factory makes the embeddable areas available in the knowledge-layout editor palette.
     provides dev.ikm.komet.layout.KlArea.Factory
             with network.ike.komet.claude.ClaudeCheckArea.Factory,

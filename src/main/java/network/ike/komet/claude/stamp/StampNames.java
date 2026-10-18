@@ -30,7 +30,7 @@ import network.ike.komet.claude.koncept.ComponentText;
  * this looks through the view first and then reads the component's own descriptions directly,
  * the latest committed one of any type on any path.
  */
-final class StampNames {
+public final class StampNames {
 
     private StampNames() { }
 
@@ -42,7 +42,7 @@ final class StampNames {
      * @param nid  the component's nid in the open store
      * @return the name; never a nid
      */
-    static String name(ViewCalculator view, long nid) {
+    public static String name(ViewCalculator view, long nid) {
         String viewed = ComponentText.name(view, nid);
         if (!viewed.equals(ComponentText.identifier(nid))) {
             return viewed;
@@ -51,7 +51,7 @@ final class StampNames {
     }
 
     /** The text of the component's latest committed description, of any type and on any path. */
-    static java.util.Optional<String> recordedName(long nid) {
+    public static java.util.Optional<String> recordedName(long nid) {
         String best = null;
         long bestTime = Long.MIN_VALUE;
         for (SemanticEntity<SemanticEntityVersion> description : EntityService.get()
