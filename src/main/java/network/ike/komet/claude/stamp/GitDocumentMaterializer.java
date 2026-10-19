@@ -57,6 +57,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -90,6 +91,11 @@ import java.util.regex.Pattern;
  * versions name every materialized commit, and each annotation semantic exists or not — so a
  * later run is incremental. Whether the store is ephemeral or persisted is the datastore's
  * choice, not this class's.
+ *
+ * <p>An aggregator — a compendium or guide assembled from {@code include::} directives — is
+ * materialized as an assembly ({@link #materializeAssembly(Path, Path)}): the file, then every
+ * file it includes as its own document, each written by the same single-file path
+ * (IKE-Network/ike-issues#1307).
  */
 public final class GitDocumentMaterializer {
 
@@ -258,6 +264,146 @@ public final class GitDocumentMaterializer {
             LOG.info("Materialized {} as '{}': {} commit(s) written, {} already recorded, {} line(s), {} block version(s), {} reference version(s), {} annotation(s)",
                     path, name, history.events().size() - skipped, skipped, lines, blocks, references, annotations);
             return new Result(anchor.publicId(), name, history.events().size() - skipped, lines, annotations, blocks, references, repo.headRevision());
+        }
+    }
+
+    // ── assemblies ────────────────────────────────────────────────────────────
+
+    /**
+     * An include an assembly names that could not be materialized, reported instead of failing
+     * the batch.
+     *
+     * @param including the file holding the directive, relative to the repository root
+     * @param line      the directive's 1-based line
+     * @param target    the target as written
+     * @param reason    why: an attribute the text does not set, a path outside the repository,
+     *                  a file not committed, or not AsciiDoc
+     */
+    public record Unresolved(Path including, int line, String target, String reason) {
+
+        @Override
+        public String toString() {
+            return including + ":" + line + " " + target + " — " + reason;
+        }
+    }
+
+    /**
+     * What materializing an assembly wrote: the assembly file's own result first, then one per
+     * included file in include order, each file once however many directives name it.
+     *
+     * @param documents  the assembly's result, then the included files' in include order
+     * @param unresolved the includes that could not be followed, in document order
+     */
+    public record AssemblyResult(List<Result> documents, List<Unresolved> unresolved) {
+
+        /** @return the assembly file's own result */
+        public Result assembly() {
+            return documents.getFirst();
+        }
+
+        /** @return commits written across the batch */
+        public int commits() {
+            return documents.stream().mapToInt(Result::commits).sum();
+        }
+
+        /** @return line elements introduced across the batch */
+        public int lines() {
+            return documents.stream().mapToInt(Result::lines).sum();
+        }
+
+        /** @return block versions written across the batch */
+        public int blocks() {
+            return documents.stream().mapToInt(Result::blocks).sum();
+        }
+
+        /** @return the one-line summary the card reports */
+        public String summary() {
+            return documents.size() + " document(s), " + commits() + " commit(s) written, " + lines() + " line(s), " + blocks() + " block version(s)"
+                    + (unresolved.isEmpty() ? "" : "; " + unresolved.size() + " include(s) not resolved");
+        }
+    }
+
+    /**
+     * The include directives a committed file holds, so a card can offer the assembly before
+     * anything is written.
+     *
+     * @param headLines the file's committed lines
+     * @return how many {@code include::} directives the text holds
+     */
+    public static int includeCount(List<String> headLines) {
+        return IncludeResolver.includes(headLines).size();
+    }
+
+    /**
+     * Materialize an assembly: the file itself, then every file its {@code include::}
+     * directives name, each as its own document, in include order
+     * (IKE-Network/ike-issues#1307). An include resolves through the text's attribute entries,
+     * the repository's conventions or the including file's directory
+     * ({@link IncludeResolver}); it must be committed in this repository and be AsciiDoc, and
+     * one that is not is reported by name while the rest proceed. An included file that is
+     * itself an aggregator is followed in turn, each file once, so a cycle ends where it began.
+     * Every document is written the way {@link #materialize(Path, Path)} writes one, so the
+     * batch is as incremental and idempotent as the single file.
+     *
+     * @param repoRoot working-tree root
+     * @param file     the assembly file within it, absolute or root-relative
+     * @return what was written, and what could not be followed
+     * @throws IOException if the repository or the assembly file cannot be read
+     */
+    public static AssemblyResult materializeAssembly(Path repoRoot, Path file) throws IOException {
+        Path root = repoRoot.toAbsolutePath().normalize();
+        Path relative = (file.isAbsolute() ? root.relativize(file.toAbsolutePath().normalize()) : file).normalize();
+        List<Result> documents = new ArrayList<>();
+        List<Unresolved> unresolved = new ArrayList<>();
+        Set<Path> visited = new LinkedHashSet<>();
+        try (GitRepo repo = GitRepo.open(root)) {
+            List<String> lines = repo.headLines(relative);
+            visited.add(relative);
+            documents.add(materialize(root, root.resolve(relative)));
+            follow(repo, root, relative, lines, visited, documents, unresolved);
+        }
+        LOG.info("Materialized assembly {}: {}", relative, new AssemblyResult(documents, unresolved).summary());
+        return new AssemblyResult(documents, unresolved);
+    }
+
+    private static void follow(GitRepo repo, Path root, Path including, List<String> lines, Set<Path> visited,
+                               List<Result> documents, List<Unresolved> unresolved) throws IOException {
+        Map<Path, List<String>> committed = new HashMap<>();
+        java.util.function.Predicate<Path> exists = candidate -> committedLines(repo, candidate, committed).isPresent();
+        for (IncludeResolver.Resolution resolution : IncludeResolver.resolve(root, including, lines, exists)) {
+            if (resolution.resolved().isEmpty()) {
+                unresolved.add(new Unresolved(including, resolution.line(), resolution.target(), resolution.reason()));
+                continue;
+            }
+            Path target = resolution.resolved().get();
+            if (!visited.add(target)) {
+                continue;                                        // already in this batch: a cycle, or named twice
+            }
+            String name = target.getFileName().toString();
+            if (!name.endsWith(".adoc") && !name.endsWith(".asciidoc")) {
+                unresolved.add(new Unresolved(including, resolution.line(), resolution.target(), "not an AsciiDoc file"));
+                continue;
+            }
+            List<String> targetLines = committedLines(repo, target, committed).orElseThrow();
+            documents.add(materialize(root, root.resolve(target)));
+            if (!IncludeResolver.includes(targetLines).isEmpty()) {
+                follow(repo, root, target, targetLines, visited, documents, unresolved);
+            }
+        }
+    }
+
+    /** A file's committed lines, or empty when HEAD does not hold it. */
+    private static Optional<List<String>> committedLines(GitRepo repo, Path relative, Map<Path, List<String>> cache) {
+        List<String> cached = cache.get(relative);
+        if (cached != null) {
+            return Optional.of(cached);
+        }
+        try {
+            List<String> lines = repo.headLines(relative);
+            cache.put(relative, lines);
+            return Optional.of(lines);
+        } catch (IOException e) {
+            return Optional.empty();
         }
     }
 

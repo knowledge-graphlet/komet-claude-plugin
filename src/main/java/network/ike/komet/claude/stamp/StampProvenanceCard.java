@@ -274,6 +274,7 @@ public final class StampProvenanceCard extends AbstractHostCard {
         banner.setVisible(false);
         banner.setManaged(false);
         statusLine.setPadding(new Insets(4, 8, 4, 8));
+        statusLine.setWrapText(true);                             // an assembly report names each unresolved include on its own line
         rows.setPadding(new Insets(6));
         ScrollPane scroll = new ScrollPane(rows);
         scroll.setFitToWidth(true);
@@ -325,6 +326,88 @@ public final class StampProvenanceCard extends AbstractHostCard {
             statusLine.setText("Open a committed .adoc file first.");
             return;
         }
+        int includes = headLines == null ? 0 : GitDocumentMaterializer.includeCount(headLines);
+        if (includes > 0) {
+            // An aggregator: offer the whole assembly, every included file as its own document.
+            Alert choice = new Alert(Alert.AlertType.CONFIRMATION);
+            choice.setTitle("Materialize an assembly");
+            choice.setHeaderText(relative.getFileName() + " includes " + includes + " file" + (includes == 1 ? "" : "s") + ".");
+            choice.setContentText("Materialize this file and every file it includes, each as its own document, in include order? "
+                    + "An include that cannot be resolved is reported by name; the rest proceed.");
+            ButtonType all = new ButtonType("Materialize All");
+            ButtonType only = new ButtonType("This File Only");
+            choice.getButtonTypes().setAll(all, only, ButtonType.CANCEL);
+            if (host.getScene() != null) {
+                choice.initOwner(host.getScene().getWindow());
+            }
+            Optional<ButtonType> chosen = choice.showAndWait();
+            if (chosen.isEmpty() || chosen.get() == ButtonType.CANCEL) {
+                return;
+            }
+            if (chosen.get() == all) {
+                materializeAssembly();
+                return;
+            }
+        }
+        materializeFile();
+    }
+
+    /**
+     * Writes the open file and every file its {@code include::} directives name into the open
+     * knowledge base, each as its own document, through
+     * {@link GitDocumentMaterializer#materializeAssembly(Path, Path)}, off the FX thread
+     * (IKE-Network/ike-issues#1307). Reports one summary line, and names any include that could
+     * not be resolved. Public so UI automation can run the batch without the dialog.
+     */
+    public void materializeAssembly() {
+        if (repoRoot == null || relative == null) {
+            statusLine.setText("Open a committed .adoc file first.");
+            return;
+        }
+        Path root = repoRoot;
+        Path file = relative;
+        statusLine.setText("Materializing the assembly " + file + " and its includes into the knowledge base …");
+        record Materialized(GitDocumentMaterializer.AssemblyResult result, int settled) { }
+        CompletableFuture.supplyAsync(() -> {
+            try {
+                GitDocumentMaterializer.AssemblyResult result = GitDocumentMaterializer.materializeAssembly(root, root.resolve(file));
+                int settled = 0;
+                for (GitDocumentMaterializer.Result document : result.documents()) {
+                    DocumentEditor.Settlement settlement = DocumentEditor.settle(document.anchor());
+                    if (settlement.settled() || settlement.rebased()) {
+                        settled++;
+                    }
+                }
+                return new Materialized(result, settled);
+            } catch (IOException e) {
+                throw new java.io.UncheckedIOException(e);
+            }
+        }).whenComplete((materialized, failure) -> Platform.runLater(() -> {
+            if (failure != null) {
+                statusLine.setText("Materialization failed: " + failure.getMessage());
+                LOG.warn("Materializing the assembly {} failed", file, failure);
+                return;
+            }
+            GitDocumentMaterializer.AssemblyResult result = materialized.result();
+            StringBuilder report = new StringBuilder("Materialized assembly '" + result.assembly().name() + "': " + result.summary() + ".");
+            if (materialized.settled() > 0) {
+                report.append(" Edits pending in Komet were settled in ").append(materialized.settled()).append(" document(s).");
+            }
+            for (GitDocumentMaterializer.Unresolved u : result.unresolved()) {
+                report.append("\nNot resolved: ").append(u);
+            }
+            statusLine.setText(report.toString());
+            reportAfterLoad = statusLine.getText();
+            reload();
+            StampedDocumentCard card = StampedDocumentCard.mostRecent();
+            if (card != null) {
+                card.refresh();
+            }
+        }));
+    }
+
+    /** The single-file path: the open file alone, whatever it includes. */
+    private void materializeFile() {
         Path root = repoRoot;
         Path file = relative;
         statusLine.setText("Materializing " + file + " into the knowledge base …");
