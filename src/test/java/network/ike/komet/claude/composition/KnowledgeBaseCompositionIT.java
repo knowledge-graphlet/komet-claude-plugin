@@ -62,26 +62,33 @@ class KnowledgeBaseCompositionIT {
 
     @Test
     void readsReleasesInArrivalOrderAssembliesAndExportsNewestFirst() {
-        assertEquals(Recorded.NOT_RECORDED, KnowledgeBaseComposition.read().recorded(),
-                "the starter set declares the registry but holds no registrations");
+        // The starter set registers its own reasoning build: one assembly, no release, no export.
+        Composition starter = KnowledgeBaseComposition.read();
+        assertEquals(Recorded.RECORDED, starter.recorded());
+        assertEquals(List.of(), starter.releases());
+        assertEquals(List.of(), starter.exports());
+        assertEquals(1, starter.assemblies().size(), "the starter set's own assembly");
+        long starterBuilt = starter.assemblies().getFirst().stamp().time();
+        // Everything this test registers comes after the starter set's build.
+        registeredFrom = starterBuilt;
 
         PublicId firstId = id("release: first 2026-01-01");
-        long first = release(1_000L, firstId, "First 2026-01-01", "g:first:zip:2026-01-01", "", "sha256:aa",
+        long first = release(at(1_000L), firstId, "First 2026-01-01", "g:first:zip:2026-01-01", "", "sha256:aa",
                 "first 1", "", List.of());
-        release(1_500L, firstId, "First 2026-01-01", "g:first:zip:2026-01-01", "", "sha256:aa",
+        release(at(1_500L), firstId, "First 2026-01-01", "g:first:zip:2026-01-01", "", "sha256:aa",
                 "first 2", "", List.of());
-        long second = release(2_000L, id("release: second"), "Second 2026-02-01", "second.zip", "", "sha256:bb",
+        long second = release(at(2_000L), id("release: second"), "Second 2026-02-01", "second.zip", "", "sha256:bb",
                 "second 1", "edition=full", List.of(first));
-        assemble(3_000L, "inputs one", "PB g:starter:zip:1-SNAPSHOT 1-20261017.1 sha256:00\n"
+        assemble(at(3_000L), "inputs one", "PB g:starter:zip:1-SNAPSHOT 1-20261017.1 sha256:00\n"
                 + "SOURCE g:first:zip:2026-01-01 sha256:aa\nSOURCE second.zip sha256:bb", List.of(first, second), "");
-        assemble(5_000L, "inputs one", "PB g:starter:zip:1-SNAPSHOT 1-20261017.1 sha256:00\n"
+        assemble(at(5_000L), "inputs one", "PB g:starter:zip:1-SNAPSHOT 1-20261017.1 sha256:00\n"
                 + "SOURCE g:first:zip:2026-01-01 sha256:aa\nSOURCE second.zip sha256:bb", List.of(first, second), "");
-        long third = release(4_000L, id("release: first 2026-03-01"), "First 2026-03-01", "g:first:zip:2026-03-01", "",
+        long third = release(at(4_000L), id("release: first 2026-03-01"), "First 2026-03-01", "g:first:zip:2026-03-01", "",
                 "sha256:cc", "first 2", "", List.of(first, second));
-        assemble(6_000L, "inputs two", "PB g:starter:zip:1-SNAPSHOT 1-20261018.2 sha256:01\n"
+        assemble(at(6_000L), "inputs two", "PB g:starter:zip:1-SNAPSHOT 1-20261018.2 sha256:01\n"
                 + "SOURCE g:first:zip:2026-03-01 sha256:cc\nSOURCE second.zip sha256:bb",
                 List.of(first, second, third), "ElkSnomed");
-        export(7_000L, "kb-reasoned-pb.zip", "all modules", "sha256:ee", 42L);
+        export(at(7_000L), "kb-reasoned-pb.zip", "all modules", "sha256:ee", 42L);
 
         Composition composition = KnowledgeBaseComposition.read();
         assertEquals(Recorded.RECORDED, composition.recorded());
@@ -102,8 +109,8 @@ class KnowledgeBaseCompositionIT {
         assertEquals("sha256:cc", composition.releases().get(2).latest().checksum(),
                 "a new release of a source is a registration of its own");
 
-        assertEquals(List.of(6_000L, 5_000L, 3_000L), composition.assemblies().stream().map(a -> a.stamp().time()).toList(),
-                "assembly builds newest first");
+        assertEquals(List.of(at(6_000L), at(5_000L), at(3_000L), starterBuilt),
+                composition.assemblies().stream().map(a -> a.stamp().time()).toList(), "assembly builds newest first");
         Assembly latest = composition.latest().orElseThrow();
         assertEquals("ElkSnomed", latest.classifier());
         assertEquals(new Input("PB", "g:starter:zip:1-SNAPSHOT", "1-20261018.2", "sha256:01"), latest.inputs().getFirst());
@@ -144,6 +151,12 @@ class KnowledgeBaseCompositionIT {
         AnthropicTool tool = KnowledgeBaseCompositionTools.tools(() -> null).getFirst();
         assertEquals(List.of(), tool.inputSchema().get("required"));
         assertEquals("No active knowledge-base view is available.", tool.execute(Map.of()));
+    }
+
+    private long registeredFrom;
+
+    private long at(long offset) {
+        return registeredFrom + offset;
     }
 
     private static PublicId id(String key) {
