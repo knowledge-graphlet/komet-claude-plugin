@@ -55,7 +55,7 @@ import java.util.Set;
  * <p>An edit replaces the lines of one block. The old and new lines are matched on their text:
  * an unchanged line keeps its element; a changed line gets a new version of its element with the
  * new text, keeping the identity git gave it; a new line gets a provisional element, since its
- * identity, {@code line:<sha>:<position>}, comes from a commit that does not exist yet; a removed
+ * identity, {@code line:<sha>:<path>:<position>}, comes from a commit that does not exist yet; a removed
  * line leaves the manifest, and the commit retires it. The manifest and the block get new
  * versions listing the result.
  *
