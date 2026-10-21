@@ -31,6 +31,7 @@ import network.ike.komet.claude.stamp.InlineMarkup.Span;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -73,6 +74,8 @@ final class DocBookProjection {
     private static final Pattern BLOCK_MACRO = Pattern.compile("^([a-z]+)::([^\\[]*)\\[(.*)\\]$");
     private static final Pattern CELL = Pattern.compile("(?:^|(?<=\\s))((?:\\d+(?:\\.\\d+)?[+*])?[<^>]?(?:\\.[<^>])?[aehlmdsv]?)\\|");
     private static final Set<Block.Kind> VERBATIM = Set.of(Block.Kind.LISTING, Block.Kind.LITERAL, Block.Kind.DIAGRAM);
+    /** The lines that say something of the block they precede: its attributes, its id, its title. */
+    private static final Set<ConceptFacade> METADATA = Set.of(IkeConcept.BLOCK_ATTRIBUTE_LINE, IkeConcept.ANCHOR_LINE, IkeConcept.BLOCK_TITLE_LINE);
     /** How many characters of text a label shows. */
     private static final int LABEL_CHARS = 72;
 
@@ -114,7 +117,7 @@ final class DocBookProjection {
                 }
             }
         } else {
-            element = content(member, document.root());
+            element = content(member, document.root(), List.of(), Set.of());
             own.addAll(element.lines);
         }
         Map<String, String> attributes = new LinkedHashMap<>();
@@ -158,9 +161,13 @@ final class DocBookProjection {
         }
     }
 
-    /** A block's nodes: the block's element, the included document an include block is, or none for a block with nothing to show. */
-    private List<Node> block(DocumentAssembly.Member member, StoredBlock block) {
-        Element element = content(member, block);
+    /**
+     * A block's nodes: the block's element, the included document an include block is, or none
+     * for a block with nothing to show. {@code leading} are metadata lines the block before it
+     * held; {@code carried} the nids of its own trailing ones, which are the next block's.
+     */
+    private List<Node> block(DocumentAssembly.Member member, StoredBlock block, List<StoredLine> leading, Set<Long> carried) {
+        Element element = content(member, block, leading, carried);
         List<Node> children = element.withTitle();
         if (block.kind() == Block.Kind.OPAQUE && element.attributes.isEmpty() && element.title == null) {
             if (children.isEmpty()) {
@@ -180,8 +187,14 @@ final class DocBookProjection {
     /**
      * Folds a block's members: markup lines into its title and attributes, content lines into
      * mixed content, child blocks into elements, in the order the tree holds them.
+     *
+     * <p>The dialect keeps a metadata line written straight after a paragraph's text, with no
+     * blank line between, inside the paragraph; it says something of the block after it. So a
+     * child's trailing metadata lines are carried to the next child block: they fold into that
+     * block, as {@code leading}, and the child leaves them out, as {@code carried}. With no block
+     * after it, they stay where the dialect put them.
      */
-    private Element content(DocumentAssembly.Member member, StoredBlock block) {
+    private Element content(DocumentAssembly.Member member, StoredBlock block, List<StoredLine> leading, Set<Long> carried) {
         Element element = new Element(DocumentGraph.kindName(block.kind()));
         Flow flow = new Flow(member);
         List<StoredLine> comment = new ArrayList<>();
@@ -190,7 +203,12 @@ final class DocBookProjection {
         String continuing = null;                                // an attribute entry whose value goes on to the next line
         boolean admonitionLabel = block.kind() == Block.Kind.ADMONITION;
         List<StoredBlock> rows = new ArrayList<>();
-        for (long nid : block.tree()) {
+        List<Long> members = new ArrayList<>();
+        leading.forEach(line -> members.add(line.nid()));
+        block.tree().stream().filter(nid -> !carried.contains(nid)).forEach(members::add);
+        List<StoredLine> pending = List.of();                    // the previous child's trailing metadata, for the next child block
+        for (int i = 0; i < members.size(); i++) {
+            long nid = members.get(i);
             StoredLine line = line(member, nid);
             if (line == null) {
                 StoredBlock child = member.document().blocks().get(nid);
@@ -202,7 +220,11 @@ final class DocBookProjection {
                 if (block.kind() == Block.Kind.TABLE && child.kind() == Block.Kind.TABLE_ROW) {
                     rows.add(child);
                 } else {
-                    element.children.addAll(block(member, child));
+                    List<StoredLine> trailing = blockFollows(member, members, i) ? trailingMetadata(member, child) : List.of();
+                    Set<Long> out = new HashSet<>();
+                    trailing.forEach(l -> out.add(l.nid()));
+                    element.children.addAll(block(member, child, pending, out));
+                    pending = trailing;
                 }
                 continue;
             }
@@ -312,6 +334,51 @@ final class DocBookProjection {
             listStyle(member, block).ifPresent(style -> element.attributes.put("style", style));
         }
         return element;
+    }
+
+    /** Whether the member after {@code index}, past blank lines, is a block. */
+    private boolean blockFollows(DocumentAssembly.Member member, List<Long> members, int index) {
+        for (int i = index + 1; i < members.size(); i++) {
+            StoredLine line = line(member, members.get(i));
+            if (line == null) {
+                return member.document().blocks().containsKey(members.get(i));
+            }
+            if (role(member, line).meaning() != IkeConcept.BLANK_LINE) {
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * A block's metadata lines after its last content line, from the first of them to its end;
+     * none when it has no content line before them, or ends in a child block.
+     */
+    private List<StoredLine> trailingMetadata(DocumentAssembly.Member member, StoredBlock block) {
+        List<Long> tree = block.tree();
+        int last = tree.size() - 1;
+        while (last >= 0) {
+            StoredLine line = line(member, tree.get(last));
+            if (line == null) {
+                break;
+            }
+            ConceptFacade meaning = role(member, line).meaning();
+            if (meaning != IkeConcept.BLANK_LINE && !METADATA.contains(meaning)) {
+                break;
+            }
+            last--;
+        }
+        if (last < 0) {
+            return List.of();                                    // only metadata: nothing for it to come after
+        }
+        List<StoredLine> trailing = new ArrayList<>();
+        for (int i = last + 1; i < tree.size(); i++) {
+            StoredLine line = line(member, tree.get(i));
+            if (!trailing.isEmpty() || METADATA.contains(role(member, line).meaning())) {
+                trailing.add(line);
+            }
+        }
+        return trailing;
     }
 
     /** A list item's first line: its marker dropped, a description item's term as a {@code Term} element, the rest the item's text. */

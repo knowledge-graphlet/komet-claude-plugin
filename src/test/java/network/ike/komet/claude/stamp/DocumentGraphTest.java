@@ -530,6 +530,49 @@ class DocumentGraphTest {
         assertNoMarkupLineLeft(root, host);
     }
 
+    @Test
+    void theDocBookProjectionCarriesMetadataAfterAParagraphToTheNextBlock() {
+        StoredDocument document = stored("""
+                == Grammar
+
+                indexterm:[Annotation trailer, grammar]
+                [source,text]
+                ----
+                Annotation: <kind> <target>
+                ----
+                """);
+        DocumentAssembly assembly = DocumentAssembly.of(document, "docs/a.adoc", path -> Optional.empty());
+
+        Node root = DocumentGraph.docbook(assembly);
+        assertNoMarkupLineLeft(root, document);
+
+        Node paragraph = all(root).stream().filter(n -> n.blockKind() == Block.Kind.PARAGRAPH).findFirst().orElseThrow();
+        assertEquals(Map.of(), paragraph.markup().attributes(), "the attribute line is not the paragraph's");
+        assertEquals(List.of("Index term"), elements(paragraph.children()), "the paragraph keeps only its index term");
+        assertEquals(List.of(document.lines().get(2)), paragraph.markup().lines());
+        assertEquals(assembly.ordinal(document.lines().get(2).nid()), paragraph.last());
+
+        Node listing = all(root).stream().filter(n -> n.blockKind() == Block.Kind.LISTING).findFirst().orElseThrow();
+        assertEquals(Map.of("style", "source", "language", "text"), listing.markup().attributes(), "the attribute line is the listing's");
+        assertEquals(document.lines().get(3), listing.markup().lines().getFirst(), "the listing came from the attribute line");
+        assertEquals(assembly.ordinal(document.lines().get(3).nid()), listing.first(), "and spans it");
+        assertEquals("Annotation: <kind> <target>", listing.children().getFirst().markup().text());
+    }
+
+    @Test
+    void metadataAfterTheLastBlockStaysWhereItIs() {
+        StoredDocument document = stored("""
+                A claim.
+                [source,text]
+                """);
+        DocumentAssembly assembly = DocumentAssembly.of(document, "docs/a.adoc", path -> Optional.empty());
+
+        Node root = DocumentGraph.docbook(assembly);
+        assertNoMarkupLineLeft(root, document);
+        Node paragraph = all(root).stream().filter(n -> n.blockKind() == Block.Kind.PARAGRAPH).findFirst().orElseThrow();
+        assertEquals(List.of(document.lines().get(0), document.lines().get(1)), paragraph.markup().lines(), "no block to carry it to");
+    }
+
     /** The five documents the projection was built against: a topic of the lab, its surface topic, two ANF topics, the ANF compendium. */
     static final List<Path> REAL_DOCUMENTS = List.of(
             Path.of(System.getProperty("user.home"), "ike-dev/ike-lab-documents/topics/src/docs/asciidoc/topics/dev/working-set-lease.adoc"),
