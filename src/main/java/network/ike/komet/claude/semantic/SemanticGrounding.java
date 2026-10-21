@@ -113,6 +113,11 @@ public final class SemanticGrounding implements Grounder {
                 return NONE;
             }
         }
+        // A lookup mints nothing: an id the store does not hold grounds nothing, where resolving
+        // it would give it a nid, and a store keyed by pattern refuses that (IKE-Network/ike-issues#1313).
+        if (!dev.ikm.tinkar.common.service.PrimitiveData.get().hasPublicId(PublicIds.of(uuid))) {
+            return NONE;
+        }
         return EntityService.get().nidForPublicId(PublicIds.of(uuid));
     }
 
@@ -127,7 +132,8 @@ public final class SemanticGrounding implements Grounder {
                 return NONE;
             }
         }
-        if (uuids.isEmpty()) {
+        if (uuids.isEmpty()
+                || !dev.ikm.tinkar.common.service.PrimitiveData.get().hasPublicId(PublicIds.of(uuids.toArray(new UUID[0])))) {
             return NONE;
         }
         return EntityService.get().nidForPublicId(PublicIds.of(uuids.toArray(new UUID[0])));

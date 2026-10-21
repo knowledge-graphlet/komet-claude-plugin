@@ -133,7 +133,7 @@ class StructuredBlockIT {
         } catch (RuntimeException | Error noToolkit) {
             Assumptions.abort("no JavaFX toolkit here: " + noToolkit);
         }
-        PrimitiveData.selectControllerByName("Load Ephemeral Store");
+        PrimitiveData.selectControllerByName("Load Memory-Only 64-bit Store");
         PrimitiveData.start();
         new LoadEntitiesFromProtobufFile(PB_STARTER_DATA).compute();
         StructuredBlocks.register(KIND);

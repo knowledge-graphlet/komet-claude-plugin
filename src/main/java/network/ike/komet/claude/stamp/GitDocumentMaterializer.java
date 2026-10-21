@@ -211,7 +211,7 @@ public final class GitDocumentMaterializer {
                     if (now != null && !contentRecorded) {
                         long[] nids = new long[event.manifest().size()];
                         for (int i = 0; i < nids.length; i++) {
-                            nids[i] = EntityService.get().nidForPublicId(lineProxy(adapter, event.manifest().get(i)).publicId());
+                            nids[i] = lineNid(adapter, event.manifest().get(i));
                         }
                         writer.semantic(manifest, IkePattern.JOURNAL_MANIFEST_PATTERN.publicId(), anchor.publicId(), LongIds.list.of(nids));
                         writer.semantic(source, IkePattern.GIT_SOURCE_PATTERN.publicId(), anchor.publicId(), event.pathAtCommit(), event.commit().sha());
@@ -242,7 +242,7 @@ public final class GitDocumentMaterializer {
                         CommitEvent.AnnotationEvent a = event.annotations().get(i);
                         long[] nids = new long[a.lines().size()];
                         for (int j = 0; j < nids.length; j++) {
-                            nids[j] = EntityService.get().nidForPublicId(lineProxy(adapter, a.lines().get(j)).publicId());
+                            nids[j] = lineNid(adapter, a.lines().get(j));
                         }
                         writer.semantic(proxy, IkePattern.ANNOTATION_PATTERN.publicId(), anchor.publicId(),
                                 StampedDocumentTerms.kind(a.kind()), EntityProxy.make(reviewedStampNid(source, a.reviewedSha())),
@@ -500,7 +500,7 @@ public final class GitDocumentMaterializer {
         }
         long[] lineNids = new long[manifest.size()];
         for (int i = 0; i < lineNids.length; i++) {
-            lineNids[i] = EntityService.get().nidForPublicId(lineProxy(adapter, manifest.get(i)).publicId());
+            lineNids[i] = lineNid(adapter, manifest.get(i));
         }
         Map<Block, String> keys = new HashMap<>();
         Map<Block, Long> nids = new HashMap<>();
@@ -565,7 +565,15 @@ public final class GitDocumentMaterializer {
         return shas;
     }
 
-    static Semantic lineProxy(GitIdentityAdapter adapter, LineId id) {
+    /**
+     * The nid of a line: a semantic of the prose element pattern, minted under it if the store has
+     * not seen the line, as a store keyed by pattern requires (IKE-Network/ike-issues#1313).
+     */
+    static long lineNid(GitIdentityAdapter adapter, LineId id) {
+        return EntityService.get().nidForSemantic(IkePattern.PROSE_ELEMENT_PATTERN.publicId(), lineProxy(adapter, id).publicId());
+    }
+
+        static Semantic lineProxy(GitIdentityAdapter adapter, LineId id) {
         Identity identity = adapter.line(id);
         return Semantic.make(identity.name(), identity.uuid());
     }

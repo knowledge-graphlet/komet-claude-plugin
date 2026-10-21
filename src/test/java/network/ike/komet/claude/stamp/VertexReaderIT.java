@@ -66,7 +66,7 @@ class VertexReaderIT {
     @BeforeAll
     void setupDatabase() {
         assertTrue(PB_STARTER_DATA.exists(), "Starter data must be present at " + PB_STARTER_DATA.getAbsolutePath());
-        PrimitiveData.selectControllerByName("Load Ephemeral Store");
+        PrimitiveData.selectControllerByName("Load Memory-Only 64-bit Store");
         PrimitiveData.start();
         assertTrue(new LoadEntitiesFromProtobufFile(PB_STARTER_DATA).compute().getTotalCount() > 0);
     }

@@ -15,6 +15,9 @@
  */
 package network.ike.komet.claude.koncept;
 
+import dev.ikm.tinkar.entity.EntityHandle;
+import dev.ikm.tinkar.common.id.impl.NidLayout;
+import dev.ikm.tinkar.common.id.Nid;
 import dev.ikm.tinkar.terms.KernelConcept;
 import dev.ikm.tinkar.terms.KernelPattern;
 import dev.ikm.tinkar.common.id.LongIds;
@@ -33,16 +36,20 @@ import static org.junit.jupiter.api.Assertions.fail;
  * What the store-backed tests of {@code IKE-Network/ike-issues#1170} share: the assertion that a
  * text holds no nid, and a view under which no component has a description.
  *
- * <p>The tests run against the IKE starter set in the ephemeral store. That store numbers
- * components upward from {@code Integer.MIN_VALUE + 1}, so in decimal every nid it assigns is a
- * minus sign and ten digits beginning {@code 21474} or {@code 21473}. {@link #assertNoNid} looks
- * for a number of that shape, and for the forms a nid has been written in:
- * {@code <nid>}, {@code nid=N}, {@code [nid N]}, {@code (nid N)} and {@code nid: N}.
+ * <p>The tests run against the IKE starter set in the memory-only store. {@link #assertNoNid}
+ * looks for the forms a nid has been written in, {@code <nid>}, {@code nid=N}, {@code [nid N]},
+ * {@code (nid N)} and {@code nid: N}; for a number of the shape a sequential store assigns, a minus
+ * sign and ten digits beginning {@code 21474} or {@code 21473}; and, while a store is open, for any
+ * number the store holds an entity under, which is how a 64-bit store's nids, ten digits or more,
+ * are found without taking a time in milliseconds for one (IKE-Network/ike-issues#1313).
  */
 public final class NidFree {
 
-    /** A nid of the ephemeral store in decimal: {@code Integer.MIN_VALUE} plus a small count. */
-    private static final Pattern EPHEMERAL_NID = Pattern.compile("-2147[34]\\d{5}(?!\\d)");
+    /** A nid of a sequential store in decimal: {@code Integer.MIN_VALUE} plus a small count. */
+    private static final Pattern SEQUENTIAL_NID = Pattern.compile("-2147[34]\\d{5}(?!\\d)");
+
+    /** A decimal number long enough to be a nid of either layout, not part of a word or a UUID. */
+    private static final Pattern NUMBER = Pattern.compile("(?<![\\w-])-?\\d{10,19}(?!\\w)");
 
     /** The form {@code PrimitiveData.text} writes for a component with no description. */
     private static final Pattern ANGLE_BRACKET_NID = Pattern.compile("<-?\\d+>");
@@ -60,11 +67,38 @@ public final class NidFree {
      * @param text the text to examine
      */
     public static void assertNoNid(String what, String text) {
-        for (Pattern form : new Pattern[]{EPHEMERAL_NID, ANGLE_BRACKET_NID, LABELLED_NID}) {
+        for (Pattern form : new Pattern[]{SEQUENTIAL_NID, ANGLE_BRACKET_NID, LABELLED_NID}) {
             Matcher matcher = form.matcher(text);
             if (matcher.find()) {
                 fail(what + " holds a nid: \"" + matcher.group() + "\" in:\n" + text);
             }
+        }
+        Matcher number = NUMBER.matcher(text);
+        while (number.find()) {
+            if (heldByTheStore(number.group())) {
+                fail(what + " holds the store's nid " + number.group() + " in:\n" + text);
+            }
+        }
+    }
+
+    /** Whether a number is the nid of an entity the open store holds; false with no store open. */
+    private static boolean heldByTheStore(String written) {
+        long number;
+        try {
+            number = Long.parseLong(written);
+        } catch (NumberFormatException tooLong) {
+            return false;
+        }
+        boolean aNidOfTheLayout = NidLayout.active() == NidLayout.SIXTY_FOUR_BIT
+                ? Nid.isValid64(number)
+                : number > Integer.MIN_VALUE && number < Integer.MAX_VALUE && number != 0;
+        if (!aNidOfTheLayout) {
+            return false;
+        }
+        try {
+            return !EntityHandle.get(number).isAbsent();
+        } catch (RuntimeException noStore) {
+            return false;
         }
     }
 

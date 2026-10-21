@@ -60,7 +60,7 @@ class SemanticLiftIT {
                 "Starter data must be present at " + PB_STARTER_DATA.getAbsolutePath());
         // No CachingService.clearAll() — see SemanticGroundingIT for the rationale (avoids
         // ExecutorProvider.reset()'s concrete-Controller lookup; each *IT runs in its own fork).
-        PrimitiveData.selectControllerByName("Load Ephemeral Store");
+        PrimitiveData.selectControllerByName("Load Memory-Only 64-bit Store");
         PrimitiveData.start();
         long count = new LoadEntitiesFromProtobufFile(PB_STARTER_DATA).compute().getTotalCount();
         assertTrue(count > 0, "Should load entities from the starter-data protobuf file");

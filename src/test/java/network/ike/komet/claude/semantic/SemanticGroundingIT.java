@@ -67,7 +67,7 @@ class SemanticGroundingIT {
         // ExecutorProvider.reset() and its concrete-Controller lookup. Each *IT runs in its own
         // fork (reuseForks=false), so no cross-class cache reset is needed. Mirrors
         // complex-clause-plugin's classpath IT setup.
-        PrimitiveData.selectControllerByName("Load Ephemeral Store");
+        PrimitiveData.selectControllerByName("Load Memory-Only 64-bit Store");
         PrimitiveData.start();
         long count = new LoadEntitiesFromProtobufFile(PB_STARTER_DATA).compute().getTotalCount();
         assertTrue(count > 0, "Should load entities from the starter-data protobuf file");
