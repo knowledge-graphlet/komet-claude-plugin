@@ -118,6 +118,9 @@ module komet.claude {
     // use. We register no providers, so these resolve to empty lists.
     uses network.ike.komet.claude.json.Json.Serializer;
     uses network.ike.komet.claude.json.Json.Deserializer;
+    // Structured block kinds of the document surface (IKE-Network/ike-issues#1312): a listing block
+    // whose style a kind names reads through the kind's control and edits in its editor.
+    uses network.ike.komet.claude.stamp.StructuredBlockKind;
 
     // The Komet Assistant is contributed as a first-class CARD (a KlCardProvider): the Journal
     // discovers it for the "+" menu and hosts it natively in a CardKlWindow — its own chrome and
@@ -126,7 +129,6 @@ module komet.claude {
     provides dev.ikm.komet.layout_engine.host.KlCardProvider
             with network.ike.komet.claude.ClaudeCard.Factory,
                  network.ike.komet.claude.instructions.InstructionEditorCard.Factory,
-                 network.ike.komet.claude.stamp.StampProvenanceCard.Factory,
                  network.ike.komet.claude.stamp.StampedDocumentCard.Factory,
                  network.ike.komet.claude.composition.KnowledgeBaseCompositionCard.Factory;
     // KlArea.Factory makes the embeddable areas available in the knowledge-layout editor palette.

@@ -1,0 +1,153 @@
+// anf-circumstance-timing
+// Topic: Circumstance Timing and Purpose
+// Type: reference
+// Status: draft
+:topic-id: anf-circumstance-timing
+:topic-type: reference
+:topic-status: draft
+:topic-keywords: timing, purpose, interval, lower-bound, upper-bound, semantic, resolution, UTI
+
+[[anf-circumstance-timing]]
+= Circumstance Timing and Purpose
+
+indexterm:[ANF, circumstance timing]
+Every ANF Circumstance --
+whether Performance,
+Request, or Narrative --
+carries a Time attribute that captures when the clinical event
+occurred or is expected to occur,
+and an optional Purpose attribute that records the clinical rationale.
+These two attributes are shared across all Circumstance types
+and are defined independently of the type-specific attributes
+documented in the Performance and Request references.
+
+Not all attributes are required for every ANF statement;
+only those relevant to the clinical element need to be populated.
+The following Urinary Tract Infection clinical narrative
+illustrates both attributes:
+
+[quote]
+Date of Encounter: July 9, 2023.
+A 32-year-old female presented with dysuria, urinary frequency, and suprapubic discomfort which the patient reported had started on July 7.
+A urinalysis showed positive leukocyte esterase, nitrites, and elevated white blood cells (25 WBC/HPF), consistent with a urinary tract infection.
+If symptoms persist or worsen, or if she develops fever or flank pain, she was instructed to return for further evaluation and to assess kidney function.
+
+== Time
+
+indexterm:[ANF, performance circumstance time]
+The Time attribute describes when the action was performed or requested,
+expressed as a ((Measure)) interval in Unix Epoch seconds.
+For a Performance Circumstance,
+the timing captures when an action or observation took place.
+For a Request Circumstance,
+the timing captures when the requested action is to take place in the future.
+For a Narrative Circumstance,
+the timing reflects when the narrative was charted or when the
+relevant result was received.
+
+=== Performance Circumstance Time
+
+In the UTI narrative,
+the patient's dysuria began on July 7,
+2023, and was still present at the encounter on July 9,
+2023. The Performance Circumstance time interval spans from the
+symptom onset through the encounter date.
+
+.Performance Circumstance Time Data Elements
+[cols="1,2,2", options="header"]
+|===
+| Data Element | Description | Example (Dysuria)
+
+| lowerBound (float)
+| Lower bound of the time interval (symptom onset)
+| 1688688001
+
+| includeLowerBound (boolean)
+| Whether the lower bound is included
+| True
+
+| resolution (decimal)
+| Smallest allowed increment for the measure
+| 1
+
+| upperBound (float)
+| Upper bound of the time interval (encounter date)
+| 1688947199
+
+| includeUpperBound (boolean)
+| Whether the upper bound is included
+| True
+
+| semantic (logical expression)
+| Unit of the time measure
+| Concept "Seconds" (SCTID: 257997001)
+|===
+
+=== Request Circumstance Time
+
+indexterm:[ANF, request circumstance time]
+When a request specifies a clear future date --
+such as "return in 7 days for follow-up urinalysis" --
+the time interval is populated with the target date.
+However, when the request is conditional on a future event with no
+defined timeline (such as "return if fever or flank pain develop"),
+the timing is indeterminate and all data elements are left blank.
+
+.Request Circumstance Time Data Elements (Conditional Future)
+[cols="1,2,2", options="header"]
+|===
+| Data Element | Description | Example (Conditional Return)
+
+| lowerBound (float)
+| Lower bound of the time interval
+| Blank
+
+| includeLowerBound (boolean)
+| Whether the lower bound is included
+| Blank
+
+| resolution (decimal)
+| Smallest allowed increment
+| Blank
+
+| upperBound (float)
+| Upper bound of the time interval
+| Blank
+
+| includeUpperBound (boolean)
+| Whether the upper bound is included
+| Blank
+
+| semantic (logical expression)
+| Unit of the time measure
+| Blank
+|===
+
+== Purpose
+
+indexterm:[ANF, purpose attribute]
+The ((Purpose)) attribute describes the reason for a
+Performance or Request Circumstance --
+why a procedure is being performed or why a request is being made.
+Purpose is typically a therapeutic or diagnostic intent
+expressed as a logical expression.
+There can be more than one intent per statement.
+Not all ANF statements have a documented purpose;
+for example,
+a chronological age statement has no associated purpose.
+
+.Purpose Attribute Data Elements
+[cols="1,2,2", options="header"]
+|===
+| Data Element | Description | Example (UTI Follow-Up)
+
+| semantic (logical expression)
+| Reason for the request or performance
+| Concept "Has Focus" (SCTID: 363702006) + Concept "Kidney Infection" (SCTID: 129128006)
+|===
+
+In the UTI narrative,
+the purpose of the request for the patient to return if fever
+or flank pain develops is to assess for ((kidney infection)).
+The Purpose is expressed as a combination of "has focus" and
+"kidney infection," linking the request to its diagnostic intent.

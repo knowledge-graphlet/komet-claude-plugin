@@ -45,7 +45,7 @@ class StampToolsTest {
 
         assertEquals(List.of("stamp_lines", "propose_annotation"), tools.stream().map(AnthropicTool::name).toList());
         assertEquals("object", tools.get(0).inputSchema().get("type"));
-        assertEquals(List.of("kind", "ranges"), tools.get(1).inputSchema().get("required"));
+        assertEquals(List.of("kind"), tools.get(1).inputSchema().get("required"), "ranges default to the card's selection");
     }
 
     @Test
@@ -87,7 +87,7 @@ class StampToolsTest {
 
         assertTrue(out.startsWith("Prepared 1 trailer(s) for Affirm doc.adoc 1-1:"), out);
         assertTrue(out.contains("Annotation: " + AnnotationKind.AFFIRMATION.ref() + " doc.adoc:1-1@" + headBefore.substring(0, 7) + "#"), out);
-        assertTrue(out.contains("No STAMP Provenance card shows this file"), out);
+        assertTrue(out.contains("No Stamped Document card shows this file"), out);
         try (GitRepo repo = GitRepo.open(root)) {
             assertEquals(headBefore, repo.headRevision(), "the tool never commits");
         }
@@ -97,7 +97,7 @@ class StampToolsTest {
     void errorsComeBackAsTextNotExceptions() throws Exception {
         Path file = seedRepository();
 
-        assertTrue(StampTools.stampLines(noCard).execute(Map.of()).startsWith("Error: no file given"));
+        assertTrue(StampTools.stampLines(noCard).execute(Map.of()).startsWith("Error: no Stamped Document card shows a document and no file was given"));
         assertTrue(StampTools.stampLines(noCard).execute(Map.of("file", root.resolve("missing.adoc").toString())).startsWith("Error:"));
         assertTrue(StampTools.proposeAnnotation(noCard).execute(Map.of("file", file.toString(), "kind", "affirm",
                         "ranges", List.of(Map.of("from", 2, "to", 9)))).startsWith("Error:"));
@@ -105,6 +105,8 @@ class StampToolsTest {
                 "ranges", List.of(Map.of("from", 1, "to", 1)))).startsWith("Error: a refutation needs text"));
         assertTrue(StampTools.proposeAnnotation(noCard).execute(Map.of("file", file.toString(), "kind", "doubt",
                 "ranges", List.of(Map.of("from", 1, "to", 1)))).startsWith("Error: kind must be"));
+        assertTrue(StampTools.proposeAnnotation(noCard).execute(Map.of("file", file.toString(), "kind", "affirm"))
+                .startsWith("Error: ranges must be"), "without a card there is no selection to default to");
     }
 
     /**

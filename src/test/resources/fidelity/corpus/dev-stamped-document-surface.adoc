@@ -1,0 +1,554 @@
+// dev-stamped-document-surface
+// Topic: The Stamped Document Surface — Reading, Source, and Provenance in One Card
+// Type: concept
+// Status: proposed
+:topic-id: dev-stamped-document-surface
+:topic-type: concept
+:topic-status: proposed
+:topic-keywords: stamped document, STAMP provenance, reading view, source view, provenance layer, \
+  TextFlow run, StoredLine, hover popover, identicon margin, Document surface, line selection, context menu, \
+  review queue, margin mark, stamp_lines, propose_annotation, Komet assistant
+:topic-scope-note: Settles the surface a person reads a materialized AsciiDoc document on in \
+  Komet: one card with a Reading view and a Source view under a Provenance layer, a contextual \
+  toolbar, paragraphs drawn as runs that each carry their source line, provenance on hover, and \
+  selection by line with a context menu for the acts of xref:dev-stamp-annotation[annotation]. \
+  The card is an instance of the Document surface of xref:dev-interaction-surface-family[the \
+  interaction-surface family], and takes its grid, margins and scroll discipline from there; \
+  this topic adds only what a document materialized from git needs. The materialization and editing it draws are xref:dev-komet-actions[] ("Where a performed \
+  action lands"); the trailer the selection produces is xref:dev-annotation-trailer[]. \
+  The Page layout view and its furniture, print, insertion of areas and editing in place are the successor \
+  xref:dev-document-surface-pages[]. Tracked \
+  in `IKE-Network/ike-issues#1307`. Open decisions are listed at the end for KEC.
+
+[[dev-stamped-document-surface]]
+= The Stamped Document Surface — Reading, Source, and Provenance in One Card
+
+indexterm:[stamped document, surface]
+indexterm:[STAMP provenance, reading view]
+A committed AsciiDoc file is materialized into the knowledge base with a STAMP
+on every line and block, one per commit that touched it, and the annotations
+people have made on those lines travel with it
+(xref:dev-komet-actions[], `IKE-Network/ike-issues#1307`). A reviewer reading
+such a document wants two things of the surface at once: to read the document
+as a document, and to see, for any sentence, where it came from and what has
+been said about it. A paragraph on screen is often made of lines from several
+commits, so "where it came from" has no single answer per paragraph. This
+topic settles the surface that shows both: one card, a Reading view and a
+Source view, and a Provenance layer over either, with selection by line so
+that affirming, refuting and commenting start from the text itself.
+
+The card is not a surface of its own kind. It is the *Document surface* of
+xref:dev-interaction-surface-family[the interaction-surface family], blocks on
+the twelve-track grid with prose in `body` and marginalia in a margin region,
+one scroll axis, row virtualization owned by the surface, shown for a document
+whose blocks were materialized from git. Journals and git documents share one
+block model (xref:dev-komet-actions[]), so they share one surface type, and
+what this topic adds, provenance on the text and selection by line, is what a
+reviewed document needs of that surface rather than a second lineage of cards.
+
+== What the two cards do today
+
+indexterm:[stamped document, two cards]
+The assistant plugin (`komet-claude-plugin`, package
+`network.ike.komet.claude.stamp`) shows a materialized document on two
+journal cards.
+
+The *STAMP Provenance card* (`StampProvenanceCard`) is a line ledger: one row
+per line with a checkbox, the line number, the introducing commit's identicon,
+an annotation mark, and the text. Its toolbar holds Open, Refresh, Affirm,
+Refute, Comment, Materialize and a Review queue toggle. A person ticks lines
+and then chooses an act; the card computes the trailers and asks for the
+signed commit.
+
+The *Stamped Document card* (`StampedDocumentCard`) is the reading view. It
+draws each block from the store as a wrapped `Label` per paragraph, with a
+margin column to the left of each block holding the identicons of the STAMPs
+that introduced its lines, the first date with a "+N" for the rest, and an edited or affirmed
+mark. Its toolbar holds the document chooser, Refresh, Export, Commit, Discard
+edit and Restore as pending. A double click on a block edits it as text, which
+lands as the person's uncommitted edit under `Edit document block`.
+
+KEC reviewed a screenshot of both on 2026-10-19 and found three faults.
+
+* The toolbars are crowded and unreadable: every verb is a button, always
+  shown, whether or not it applies. Commit, Discard edit and Restore as
+  pending mean nothing until an edit is pending, and Affirm, Refute and
+  Comment mean nothing until lines are ticked.
+* The reading view cannot select text. A `Label` has no selection, so the
+  reviewer who has just read a sentence must find it again by line number in
+  the ledger to affirm or refute it.
+* Provenance is hidden behind a margin tooltip. The identicons stand beside a
+  whole block, and the fact that one paragraph joins lines from several commits
+  shows only as "+2" after a date, with the detail in a tooltip per identicon.
+  Nothing on the text itself says which words came from which commit.
+
+The split into two cards is the root of the first two faults: the ledger has
+the acts and the lines, and the reading view has the document, and neither
+has both.
+
+== One card, three views, one layer
+
+indexterm:[stamped document, Reading view]
+indexterm:[stamped document, Source view]
+indexterm:[stamped document, Provenance layer]
+The two cards become one *Stamped Document* card with three views of the
+same `StoredDocument` and one layer that applies to any of them. KEC named
+the three on 2026-10-20: Source, Reading, Page layout.
+
+.Views and the layer
+[cols="1,3", options="header"]
+|===
+| Part | What it shows
+
+| Reading view
+| The document rendered as a document: headings, paragraphs, lists, tables,
+listings, admonitions, as the Stamped Document card draws them today, but
+with each paragraph built from runs that carry their source lines (the next
+section). This is the default view.
+
+| Source view
+| The document as lines: the ledger the STAMP Provenance card draws today,
+one row per `StoredLine` with its number, introducing identicon, annotation
+mark and text. The row is the same run the Reading view draws, so hover,
+highlighting and selection behave the same in both views.
+
+| Page layout view
+| The document laid into pages by JavaFX from the stored blocks through the
+paged engine, over the same page model the Typst writer uses, in two
+passes: an instant greedy layout, then a re-flow of each paragraph to the
+exact lines Typst set, with Typst's compile as the layout oracle, keeping
+the blocks so provenance and selection survive. The pages are one
+continuous scroll on the card's one axis, with a footer indicator of the
+current page and no page stepper, by KEC's rule of 2026-10-20 that a Komet
+surface scrolls a sequence and never steps it; nothing is edited here, and
+a double click opens the block in Reading. Designed in the successor,
+xref:dev-document-surface-pages[]; print itself is Typst's output.
+
+| Provenance layer
+| What the document carries beside its text: the identicon marginalia, the
+commit tints, the review-queue margin marks and the annotation marks. Each is
+a toggle in the layer menu; the layer is drawn over whichever view is shown.
+Turning the layer off leaves a plain document. The marks are the family's
+marginalia: they occupy the `right-margin` region and share a row with the
+block they belong to, scrolling with it. The family draws the one scrollbar on
+the left to keep the right margin clean for exactly this, so the identicon
+column moves from the left of the block, where today's card draws it, to the
+right margin.
+|===
+
+A document opened from a repository (the ledger's Open) and a document chosen
+from the store (the reading view's chooser) are one choice: the card opens a
+file, materializes it if the store does not hold it yet, and shows the store's
+copy. Refresh re-reads the repository and the store together.
+
+Switching documents is one of three gestures, by where the document is: the
+chooser for one the store holds, Open file… for one on disk not yet
+materialized, and Clone… for one on a remote (the repository section
+below), which then offers the chooser on the result. *Close* returns the
+card to its empty state, the status line asking for a document, and touches
+neither the store nor the repository: the materialized document stays. A
+switch or a close while an edit is pending *refuses*, the status line saying
+that an edit is pending and pointing at Commit… and Discard edit, as the
+action already refuses a second edit on top of an uncommitted one;
+discarding is the person's decision, never a side effect of a chooser.
+
+== The toolbar is contextual
+
+indexterm:[stamped document, toolbar]
+indexterm:[stamped document, overflow menu]
+The toolbar shows what applies now and nothing else. Its fixed part is the
+document chooser, the view switch and the layer menu. The view switch is
+one segmented three-way selection, a radio group drawn as a single
+segmented control with Source, Reading and Page layout as its segments,
+exactly one selected and the arrow keys moving the selection, never three
+buttons: KEC's rule of 2026-10-20 for exclusive states on a Komet toolbar
+(xref:dev-document-surface-pages[], the views section). The
+rest appears with the state that makes it meaningful.
+
+.What the toolbar shows, and when
+[cols="1,2", options="header"]
+|===
+| State | What appears
+
+| Always
+| Document chooser; the segmented Source / Reading / Page layout selection; layer menu (marginalia, tints,
+review queue, annotation marks); overflow menu.
+
+| An edit is pending
+| Commit… and Discard edit, as a group with the pending-edit banner.
+
+| A cancelled edit can be restored
+| Restore as pending, in the same group, only while the restorable edit
+exists.
+
+| Lines are selected
+| Nothing on the toolbar. The acts on a selection are the context menu of
+the selection (below), where the reviewer's pointer already is.
+
+| Overflow menu
+| Refresh, Export…, Materialize, Open file…, Close, Show history; and the
+repository verbs of the section below: Repository…, Clone…, Fetch, Pull,
+Push, History. Rarely used verbs, and those that act on the whole document
+or its repository rather than on what is selected.
+|===
+
+The status line stays: it is where the card says what it is doing and what
+it refuses.
+
+== Runs carry their lines
+
+indexterm:[stamped document, TextFlow run]
+indexterm:[StoredLine, run]
+A paragraph is drawn as a `TextFlow` of runs, one `Text` per source line,
+joined by the space AsciiDoc puts between the lines of a paragraph. Each run
+holds its `StoredLine`, so the nid, the introducing and latest STAMPs, and the
+annotations in force are at hand from the node under the pointer. The block
+holds its `StoredBlock`, so a run knows its block and its neighbours. Inline
+references (`k:` badges, cross references, links) render inside the run that
+holds them, as the reading view renders them today; a line with a badge is
+still one run.
+
+`TextFlow` wraps across runs, so the document reads as prose while every word
+keeps its line. This is the whole of the mechanism: the layer, the hover, the
+highlighting and the selection are all functions of "which run is this". It is
+also the family's rule that prose is a small per-block text control, one
+block's worth, so the surface keeps row virtualization and no block ever
+realizes more than itself.
+
+Headings, list items, table cells and listing lines are runs too, each a one-
+line paragraph or a line of a verbatim block. The Source view is the same
+runs laid out one per row, with the number, identicon and mark columns
+beside them.
+
+== Provenance on hover
+
+indexterm:[stamped document, hover popover]
+indexterm:[stamped document, identicon highlighting]
+indexterm:[stamped document, commit tints]
+Hovering a run opens a popover for its line: the introducing STAMP's
+identicon, author, date and state; the commit's short SHA and subject, read
+from the repository when the card has one open; the latest STAMP when a later
+commit changed the line; and the annotations in force, each with its kind,
+author and text. The popover is the tooltip the margin shows today, moved to
+the text and given the line's annotations.
+
+Hovering an identicon in the margin highlights every run in the block that
+commit introduced, so the reviewer sees at once which sentences of a paragraph
+came from which commit. The "+N" after the date goes; the margin shows every
+introducing identicon for the block, and hover tells them apart.
+
+Commit tints are a toggle in the layer: each run tinted by its introducing
+STAMP, the hue derived from the STAMP's identicon seed, so the same commit is
+the same colour everywhere in the document. Off by default; a reviewer turns
+it on to see the shape of a document's history, and off to read.
+
+== Selection is by line
+
+indexterm:[stamped document, line selection]
+indexterm:[stamped document, context menu]
+Selection works at the level annotation works at: whole lines. Dragging across
+runs selects the runs the drag touched, snapped to run boundaries, in either
+view; a click selects one run, a shift-click extends to a range. A selection
+is a contiguous range of lines, which may cross blocks, and it is shown as a
+highlight on the runs and as a mark in the margin. Snapping to lines is not a
+limitation of the drawing but the meaning of the act: an annotation names a
+line range in its trailer (`path:from-to@rev#hash`,
+xref:dev-annotation-trailer[]), so what is selected is exactly what will be
+recorded.
+
+The right-click menu of a selection offers the acts.
+
+.The context menu
+[cols="1,3", options="header"]
+|===
+| Item | What it does
+
+| Affirm…
+| Prepares an affirmation of the selected lines: computes the trailers,
+shows them with the lines, and asks for the signed commit. What the ledger's
+Affirm button does today for ticked lines.
+
+| Refute…
+| The same with a refutation, whose text is required.
+
+| Comment…
+| The same with a comment, which takes no stance.
+
+| Edit block
+| Opens the block the selection starts in as text, the double-click edit of
+today, landing as an uncommitted `Edit document block`. Disabled while an
+edit is pending elsewhere in the document, as the action's refusal already
+is.
+
+| Show history
+| Lists the STAMPs of the selected lines in order, with the commit subject
+of each and the annotations made on them, in the same popover form as hover,
+pinned until closed.
+|===
+
+Line selection sits one level below the selection the family already has to
+route: selecting a block, and selecting a nested surface. The three do not
+share a gesture. A drag or click on text selects lines within the block rows
+it touches; a click on a block's margin or frame selects the block, as the
+double-click edit does today; and a nested surface takes the gestures inside
+its own frame. A line selection never promotes itself to a block selection,
+and the context menu offered is the one for the level selected.
+
+The checkboxes of the ledger are the selection of the Source view. Whether
+the Source view keeps a checkbox column as a second way to build a
+non-contiguous selection is one of the decisions below.
+
+== The review queue is a margin mark
+
+indexterm:[review queue, margin mark]
+The review queue, the lines introduced but affirmed by no one, with refuted
+lines kept in it, is shown as marks in the margin rather than as a tint over
+the body: a mark beside each block that holds queued lines, and the queued
+runs underlined when the layer's review-queue toggle is on. The reviewer scans
+the margin for what is left to review and reads the text untinted. The toggle
+moves from the toolbar into the layer menu, where it belongs with the other
+provenance marks.
+
+== The assistant works on the selection
+
+indexterm:[Komet assistant, stamp_lines]
+indexterm:[Komet assistant, propose_annotation]
+The assistant's two provenance tools already address lines of the open
+document. `stamp_lines` reads the STAMPs and annotations of a line range, and
+`propose_annotation` computes the trailers for a range and hands them to the
+card for the person to confirm with a signed commit. The selection becomes
+their default subject: a call to `stamp_lines` with no range reads the
+selected lines, so "who wrote this?" asked with a sentence selected is
+answered for that sentence; a call to `propose_annotation` with no range
+proposes for the selection, and the card shows the proposal on the selected
+runs, with the same confirm dialog the context menu opens. The assistant
+proposes and the person settles, as xref:dev-komet-actions[] rules for
+everything the assistant writes.
+
+When actions take the shape of xref:dev-komet-actions[] on this surface, the
+selection is the subject an offer is made against: a block by its element
+semantic, a line range by its lines. The context menu then lists the offers
+the rules make for the selection, and the assistant's tools are those same
+offers.
+
+== The repository and its operations
+
+indexterm:[stamped document, repository panel]
+indexterm:[git operations, stamped document]
+A document materialized from git is read and annotated on this surface, but
+nothing on it says where the document comes from or lets a person move it.
+KEC put it plainly on 2026-10-19: "I don't see git info commands surfaced
+anywhere. Filename/Git URL? And raw git commands to load from a new git
+repo, or commit and push?" Today the provenance card's status line shows the
+repository-relative path, the short commit and the branch; the document card
+shows the document id and its commit; the repository root is known to the
+card and not shown; and the remote URL is neither shown nor stored, since
+the Git source pattern records a path and a commit and nothing else. The
+core's `GitRepo` reads the repository (open, head revision, branch, head
+lines, lines at a revision) and every commit runs through the person's own
+git command (`DocumentCommit`, `AnnotationCommit`), so identity, signing and
+credentials are theirs. This section adds the panel and the operations on
+that footing.
+
+=== The Repository panel
+
+indexterm:[Repository panel, stamped document]
+A *Repository panel* opens from the toolbar's overflow menu (Repository…)
+and shows, for the repository of the open document:
+
+* the *root*, the absolute path, and the document's path within it;
+* the *remotes*, each name with its URL as a clickable link, read from the
+  repository's configuration;
+* the *branch*, and the *HEAD* as its short sha and commit summary;
+* *ahead and behind* against the branch's upstream, as git counts them
+  (`git rev-list --left-right --count @{upstream}...HEAD`
+  <<git-rev-list>>), or "no upstream" when the branch has none;
+* the *file status* of the open document: clean, modified in the working
+  tree, or carrying a pending edit in Komet, the last being the surface's
+  own state rather than git's.
+
+The panel is read from git each time it is opened and after each operation
+below; it is not watched, since a stamped document changes only when a
+commit lands.
+
+=== Operations through the person's own git
+
+indexterm:[git operations, refusal over retry]
+Every operation runs the person's `git` as a process, as the commits do
+today, never JGit for anything that authenticates or writes a ref, and each
+one reports git's own output in the status line and refuses rather than
+retries. The operations are the plain git verbs <<git-clone>> <<git-fetch>>
+<<git-pull>> <<git-push>>, named as git names them.
+
+.The operations
+[cols="1,3", options="header"]
+|===
+| Operation | What it does, and what it refuses
+
+| Clone…
+| Asks for a URL and a folder, runs `git clone` into it, and offers to open
+the document chooser on the result. It refuses a folder that is not empty,
+as git does <<git-clone>>, and it never clones *into* an existing tree: a
+synced working set in `ike-dev` arrives as a bare tree and is materialized
+at the open gesture, and a clone into it is the way to corrupt it
+(`IKE-Network/ike-issues#1057`; the rule is recorded in the workspace's own
+instructions <<ike-dev-claude>>). When the chosen folder is inside a synced
+workspace, the panel says so and names the manifest the new repository must
+be added to.
+
+| Fetch
+| `git fetch` on the current remote; updates ahead and behind.
+
+| Pull
+| `git pull --ff-only` <<git-pull>>: fast-forward only, and when the branch
+has diverged git's refusal is shown as git wrote it, with no merge and no
+rebase offered. Divergence is a decision for the person at their terminal,
+not for a card.
+
+| Push
+| Shows the ahead count and the remote and branch it will push to, asks for
+confirmation, then `git push` <<git-push>>. A rejected push is reported as
+git reports it; nothing is forced.
+
+| Commit…
+| As already designed: the person's signed commit of a document edit or an
+annotation, through their git.
+|===
+
+=== The History view
+
+indexterm:[History view, stamped document]
+A *History view*, from the overflow menu, lists commits for the open file
+and, on a switch, for the whole repository, each with its short sha,
+author, date and subject, from `git log` <<git-log>>. Selecting a commit
+highlights the runs it introduced in the Reading and Source views, the
+same highlighting the margin identicon gives on hover, so a person can read
+a commit as a set of lines rather than as a diff; where the card already has
+the commit's STAMP, the two are one object.
+
+=== Authentication, and the Dock-launch trap
+
+indexterm:[Dock launch, environment]
+indexterm:[git credentials, Komet]
+Komet launched from the Dock does not inherit the shell's environment, the
+trap the workspace already records for IntelliJ and `JAVA_HOME`
+<<ike-dev-claude>>. So nothing here depends on `PATH` or on environment
+variables: authentication comes from git's own configuration as git
+resolves it, the credential helper for HTTPS <<git-credentials>>, the SSH
+configuration and the agent socket it names for SSH, and the signing key
+git's configuration names; the card passes a repository and a verb and
+nothing else. A failure, a missing helper, an unreachable agent, a rejected
+key, is surfaced with git's message and not interpreted.
+
+=== Terminology
+
+The Git source pattern gains a referent: a *Git repository* concept, with
+its *remote URL* and *default branch*, which a document's Git source refers
+to, so that a document in the store knows the repository it came from and
+not only a path and a commit within it. The panel's remotes, ahead and
+behind, and file status are read live and not stored. The names here are
+git's, except *Repository panel*, *History view* and *pending edit in
+Komet*, which are this surface's own.
+
+== Beyond the scroll
+
+indexterm:[stamped document, successor]
+This topic settles the document as one scroll. What a document needs beyond
+that, a Page layout view with running heads and folios, margins and a binding
+gutter, the card as a host of a document area and the insertion of figure and
+document areas into it, Komet's own print engine raised to Prince-equivalent
+quality, and editing in place within limits, is the successor topic
+xref:dev-document-surface-pages[]. It also proposes the answer to the first
+decision below, runs for reading and the `RichTextArea` for editing, and it
+carries the references for the terms this topic borrows: _marginalia_ and
+the _running head_ and _folio_ are the book's, as the style manuals and the
+typographers describe them (`chicago2017`, `harts2014`, `bringhurst2012`
+in the successor's References), and the _ledger_ is the Source view's own
+word for a line-per-row listing. _Reading view_, _Source view_ and
+_Provenance layer_ are names this topic coins; nothing in the family or in
+the lineage of printed books names a toggled layer of provenance marks.
+
+== Decisions
+
+indexterm:[stamped document, decisions]
+.For KEC
+[cols="1,3", options="header"]
+|===
+| Question | Proposal
+
+| Own run-level selection on `TextFlow`, or the `RichTextArea`
+| Build selection on `TextFlow` ourselves: a drag over runs, snapped to run
+boundaries, with a highlight drawn behind the selected runs. The selection
+is by line, so character-level selection is not needed, and the incubator
+`RichTextArea` would bring its own model, its own editing and its own
+styling for a document that is not edited in place. The family already keeps
+it out of the document for a second reason: it couples virtualization to
+owning its scrollbar, and the surface owns the one scroll axis
+(xref:dev-interaction-surface-family[]). The cost is a few hundred lines of
+mouse handling. The alternative is to adopt the `RichTextArea` per block, for
+the Reading view only, and map its character selection back to lines; it
+gives copy and native selection for free, at the price of a second document
+model to keep in step with the store.
+
+| Granularity of annotation
+| Lines, as the trailer grammar already fixes. A selection snaps to whole
+lines, and an annotation on part of a line annotates the line. Sub-line
+ranges would need a new trailer form and a content hash per fragment; nothing
+asks for them yet.
+
+| Clone into the synced workspace
+| Allow Clone into a new folder under `ike-dev` only with the panel naming
+the origins manifest the repository must be added to, and never into an
+existing tree. The alternative is to refuse any folder inside a synced
+workspace from Komet and leave such clones to the terminal, which is safer
+and one step more for the common case.
+
+| Whether the Source view keeps the checkbox column
+| Drop it. Click and shift-click select a range; a command-click adds a run
+to the selection, which gives the non-contiguous ticking the checkboxes gave,
+without a column. Keep it if KEC wants a selection that survives scrolling
+away and back as visibly as a ticked box does.
+|===
+
+== Phased delivery
+
+indexterm:[stamped document, phases]
+. *Toolbar and card merge.* One card; the ledger becomes its Source view;
+  the contextual toolbar with the overflow and layer menus; Open and the
+  chooser become one choice; Close, and the refusal to switch or close
+  while an edit is pending. No change to what is drawn in either view.
+. *Runs and hover.* Paragraphs as `TextFlow` runs carrying `StoredLine`; the
+  hover popover; margin-identicon highlighting; commit tints as a layer; the
+  review queue as margin marks; the marginalia moved to the right margin.
+. *Selection and the context menu.* Run-level selection in both views; the
+  context menu with Affirm, Refute, Comment, Edit block and Show history;
+  the checkbox column retired or kept per the decision above.
+. *The repository.* The Repository panel with root, remotes, branch, HEAD,
+  ahead and behind and file status; Clone, Fetch, Pull fast-forward only and
+  Push through the person's own git, each reporting git's output and
+  refusing rather than retrying; the History view with commit-to-lines
+  highlighting; the Git repository concept referenced from the Git source
+  pattern.
+. *The assistant.* `stamp_lines` and `propose_annotation` default to the
+  selection; proposals shown on the selected runs; the selection as the
+  subject of action offers once xref:dev-komet-actions[] lands on this
+  surface.
+
+Each phase ships on its own; the first removes the faults KEC saw without
+touching how text is drawn, the second and third are where the surface
+earns its name, and the fourth gives the document its repository.
+
+[bibliography]
+== References
+
+indexterm:[stamped document, references]
+The repository section borrows git's own names and rules; the sources:
+
+- [[[git-clone]]] Git. _git-clone_. https://git-scm.com/docs/git-clone (cloning into an existing directory is allowed only if it is empty).
+- [[[git-fetch]]] Git. _git-fetch_. https://git-scm.com/docs/git-fetch
+- [[[git-pull]]] Git. _git-pull_. https://git-scm.com/docs/git-pull (`--ff-only`: refuse to merge and exit with a non-zero status unless the current HEAD is already up to date or the pull can be resolved as a fast-forward).
+- [[[git-push]]] Git. _git-push_. https://git-scm.com/docs/git-push
+- [[[git-log]]] Git. _git-log_. https://git-scm.com/docs/git-log
+- [[[git-rev-list]]] Git. _git-rev-list_. https://git-scm.com/docs/git-rev-list (`--left-right --count` for ahead and behind against the upstream).
+- [[[git-credentials]]] Git. _gitcredentials_. https://git-scm.com/docs/gitcredentials (credential helpers as git resolves them from its configuration).
+- [[[ike-dev-claude]]] IKE Network. _ike-dev: Syncthing-based development sync_, workspace instructions (`~/ike-dev/CLAUDE.md`): never `git clone` into an existing synced tree, materialization at the open gesture (`IKE-Network/ike-issues#1057`); an application started from the Dock does not inherit the shell's environment.

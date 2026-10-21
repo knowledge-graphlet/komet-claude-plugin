@@ -20,30 +20,30 @@ import javafx.geometry.Insets;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
-import javafx.scene.effect.DropShadow;
+import javafx.scene.control.ToolBar;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
-import javafx.scene.control.ToolBar;
-import javafx.scene.paint.Color;
 import network.ike.komet.claude.doc.print.settings.PrintSettings;
-import network.ike.komet.claude.ui.MarkdownRichText;
-
-import java.util.List;
 
 /**
  * The paged print preview as a plain {@link BorderPane} view — the full-surface content shown when
- * the document area is promoted (via {@code KlExpandable}). A page canvas over its own
- * {@link PagedDocumentEngine}, a page-nav bar (◀ n/total ▶), and a Print button whose dialog and
- * output are the same layout — so preview equals print. It carries a snapshot of the turns and
- * settings; the host rebuilds a fresh view when either changes. Must be used on the JavaFX
- * application thread.
+ * the document area is promoted (via {@code KlExpandable}). Every page of its own
+ * {@link PagedDocumentEngine} stacked in one continuous vertical scroll, as a PDF viewer shows a
+ * document (KEC, 2026-10-20: a page stepper is the HTML pagination approach, a strongly
+ * discouraged anti-pattern for Komet), a footer that names the page under the eye, and a Print
+ * button whose dialog and output are the same layout — so preview equals print. It carries the
+ * print source and a snapshot of the settings; the host rebuilds a fresh view when either changes.
+ * Must be used on the JavaFX application thread.
  */
 public final class PagedPreviewView extends BorderPane {
 
-    private final List<MarkdownRichText.Entry> turns;
+    /** The gap between sheets, in points. */
+    static final double GAP = 18;
+
+    private final PrintSource source;
     private final ViewCalculator viewCalc;
     private final String runningHead;
     private final PrintSettings settings;
@@ -51,65 +51,81 @@ public final class PagedPreviewView extends BorderPane {
     private final StackPane pageCanvas = new StackPane();
     private final ScrollPane pageScroll = new ScrollPane(pageCanvas);
     private final Label pageLabel = new Label();
-    private final Button prevButton = new Button("◀");
-    private final Button nextButton = new Button("▶");
 
     private PagedDocumentEngine engine;
-    private int currentPage;
+    private double pageHeight;
 
     /**
-     * @param turns       the conversation's turns to render (a snapshot)
+     * @param source      what to render
      * @param viewCalc    the view for resolving concept chips; may be {@code null}
-     * @param runningHead the running-head text (the conversation name); may be blank
+     * @param runningHead the running-head text (the conversation or document name); may be blank
      * @param settings    the print settings
      */
-    public PagedPreviewView(List<MarkdownRichText.Entry> turns, ViewCalculator viewCalc,
+    public PagedPreviewView(PrintSource source, ViewCalculator viewCalc,
                             String runningHead, PrintSettings settings) {
-        this.turns = turns == null ? List.of() : turns;
+        this.source = source == null ? PrintSource.EMPTY : source;
         this.viewCalc = viewCalc;
         this.runningHead = runningHead == null ? "" : runningHead;
         this.settings = settings == null ? PrintSettings.DEFAULT : settings;
         buildUi();
         rebuildEngine();
-        showPage(0);
     }
 
     private void buildUi() {
         Button print = new Button("Print…");
-        print.setOnAction(e -> DocumentPrinter.print(turns, viewCalc, runningHead, settings));
-        prevButton.setOnAction(e -> showPage(currentPage - 1));
-        nextButton.setOnAction(e -> showPage(currentPage + 1));
-
+        print.setOnAction(e -> DocumentPrinter.print(source, viewCalc, runningHead, settings));
         Region spring = new Region();
         HBox.setHgrow(spring, Priority.ALWAYS);
-        ToolBar bar = new ToolBar(print, spring, prevButton, pageLabel, nextButton);
+        pageLabel.setId("printPreviewPageLabel");
+        ToolBar bar = new ToolBar(print, spring, pageLabel);
         setTop(bar);
 
         pageCanvas.setPadding(new Insets(24));
         pageCanvas.setStyle("-fx-background-color: #6f6f6f;");
         pageScroll.setFitToWidth(true);
-        pageScroll.setFitToHeight(true);
         pageScroll.setStyle("-fx-background: #6f6f6f;");
+        pageScroll.setPannable(false);
+        pageScroll.vvalueProperty().addListener((obs, was, is) -> namePage());
+        pageScroll.viewportBoundsProperty().addListener((obs, was, is) -> namePage());
         setCenter(pageScroll);
     }
 
     private void rebuildEngine() {
         double[] dims = PagedDocumentEngine.pageDimensionsPoints(settings);
-        engine = new PagedDocumentEngine(turns, viewCalc, runningHead, settings);
+        engine = new PagedDocumentEngine(source, viewCalc, runningHead, settings);
         engine.layout(dims[0], dims[1]);
+        pageHeight = dims[1];
+        pageCanvas.getChildren().setAll(engine.buildStack(GAP));
+        namePage();
     }
 
-    private void showPage(int index) {
+    /** @return the number of pages */
+    public int pageCount() {
+        return engine == null ? 0 : engine.pageCount();
+    }
+
+    /** @return the 0-based page under the eye: the one at the upper third of the viewport */
+    public int currentPage() {
+        if (engine == null || engine.pageCount() == 0) {
+            return 0;
+        }
+        double scrollable = Math.max(0, pageCanvas.getHeight() - pageScroll.getViewportBounds().getHeight());
+        double top = pageScroll.getVvalue() * scrollable + pageScroll.getViewportBounds().getHeight() / 3 - pageCanvas.getPadding().getTop();
+        return Math.clamp((int) Math.floor(top / (pageHeight + GAP)), 0, engine.pageCount() - 1);
+    }
+
+    /** Scrolls so a page's top edge sits at the viewport's top. */
+    public void scrollToPage(int page) {
         if (engine == null) {
             return;
         }
-        int last = Math.max(0, engine.pageCount() - 1);
-        currentPage = Math.clamp(index, 0, last);
-        Region page = engine.buildPage(currentPage);
-        page.setEffect(new DropShadow(18, 0, 4, Color.rgb(0, 0, 0, 0.4)));
-        pageCanvas.getChildren().setAll(page);
-        pageLabel.setText((currentPage + 1) + " / " + engine.pageCount());
-        prevButton.setDisable(currentPage <= 0);
-        nextButton.setDisable(currentPage >= last);
+        layout();
+        double target = pageCanvas.getPadding().getTop() + Math.clamp(page, 0, engine.pageCount() - 1) * (pageHeight + GAP);
+        double scrollable = pageCanvas.getHeight() - pageScroll.getViewportBounds().getHeight();
+        pageScroll.setVvalue(scrollable <= 0 ? 0 : Math.clamp(target / scrollable, 0, 1));
+    }
+
+    private void namePage() {
+        pageLabel.setText(engine == null ? "" : "Page " + (currentPage() + 1) + " of " + engine.pageCount());
     }
 }

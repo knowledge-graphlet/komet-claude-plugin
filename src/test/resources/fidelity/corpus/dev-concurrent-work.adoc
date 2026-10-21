@@ -1,0 +1,417 @@
+// dev-concurrent-work
+// Topic: Concurrent Work — Transactions, Bases, and Contradictions
+// Type: concept
+// Status: proposed
+:topic-id: dev-concurrent-work
+:topic-type: concept
+:topic-status: proposed
+:topic-keywords: concurrent work, transaction, change basis, private transaction, uncommitted, \
+  written not committed, contradiction, change set import, source release, change record, \
+  lost update, Latest
+:topic-scope-note: How people and the Komet assistant can work on the same knowledge at the \
+  same time, in one knowledge base or in several that exchange change sets, without one \
+  person's change silently replacing another's. Makes the transaction a persistent semantic \
+  that records what each change was made against, flags what others commit while a change is \
+  pending, and records contradictions an import finds for a person to resolve. Builds on \
+  xref:dev-komet-actions[Komet actions] and the import records of IKE-Network/ike-issues#1304. \
+  Direction agreed with KEC 2026-10-17; open items listed at the end.
+
+[[dev-concurrent-work]]
+= Concurrent Work — Transactions, Bases, and Contradictions
+
+indexterm:[concurrent work]
+indexterm:[transaction, persistence]
+A curator edits a paragraph of a topic in Komet while the Komet assistant
+proposes a change to the next one. A colleague works in another knowledge base
+and sends a change set that touches a concept the curator has also changed.
+Each of these is concurrent work: two changes made without either author
+seeing the other's. This topic sets out how Komet tells such changes apart from
+ordinary succession, keeps each person's pending work apart while it is being
+made, and shows a person every collision rather than letting the later change
+win without anyone noticing.
+
+== What is in place today
+
+indexterm:[concurrent work, current state]
+Several pieces exist, and each stops short of what concurrent work needs.
+
+* A view decides the latest version of a component by time on a path. Two
+  versions are a contradiction only when they have the _same_ time; otherwise
+  the later one wins. Two changes committed a minute apart, neither made with
+  knowledge of the other, therefore resolve to the later one, and the earlier
+  change is lost without a trace in the view.
+* Uncommitted versions, stamped at the end of time, survive a store restart by
+  design, and change sets carry them.
+* The transaction that owns those versions does not survive. Open transactions
+  lived only in memory until #1308: `Transaction.save` and `Transaction.restore`
+  had no callers, and `restore` opened the store's root directory instead of its
+  `transactions.encoded` file. After a restart the uncommitted versions remained
+  and no transaction owned them. Komet's KL windows say as much: their
+  publishing step notes that a version saved in an earlier session has no
+  transaction left to commit, and a details panel commits such versions under a
+  surrogate transaction. Transactions now persist as records (next section).
+* A transaction records its name, its stamps, the components it wrote and its
+  commit time. It does not record when it began or what it was made against.
+* Every commit announces itself: a `CommitEvent` carries the transaction, the
+  commit time, and the components written.
+* Editing a document materialized from git keeps one pending transaction per
+  document, with its base commit in the transaction's name. Settling compares
+  that base with newer commits (`touchedSince`), which is this topic's rule in
+  one place. A block edit is refused while another author's edit of the
+  document is pending, because two authors in one document would produce two
+  uncommitted versions that do not supersede each other.
+* Importing a change set merges each component's versions; the latest time
+  wins, and nothing is recorded about what collided.
+* Each source import writes a _Source release_ semantic and each assembly a
+  _Knowledge base composition_ semantic (IKE-Network/ike-issues#1304), so a
+  knowledge base records what went into it.
+
+== The rule: a change records what it was made against
+
+indexterm:[change basis]
+indexterm:[concurrent work, rule]
+Git does not call two commits a conflict because one is later. It calls them
+concurrent when neither is an ancestor of the other, and asks for a merge. STAMP
+versioning needs the same judgment, and for that a change must record its
+_basis_: the point in the store it was made against, a time on a path. For a
+document materialized from git, the basis is also the commit the edit started
+from.
+
+Two versions of one component are *concurrent* when neither change's basis
+includes the other version. Otherwise one simply succeeds the other. The rule
+is the same within one knowledge base, across knowledge bases exchanging change
+sets, and across git branches.
+
+The basis is not the time a change began. A transaction opened on Tuesday whose
+edit is carried forward onto a newer commit on Thursday (a rebase) has seen
+Thursday's commit, and its basis moves forward; so does the basis of a person
+who reviews what changed under a long-open transaction and continues. A
+transaction therefore records both its initiation, which never changes and
+answers "pending since when", and its basis, which can move.
+
+== Transactions become semantics
+
+indexterm:[transaction, as a semantic]
+indexterm:[Change transaction pattern]
+Rather than a separate file of open transactions, a transaction is a semantic of
+a kernel pattern, the _Change transaction pattern_, bound in tinkar-core as
+`KernelPattern.CHANGE_TRANSACTION_PATTERN` (IKE-Network/ike-issues#1308, built
+2026-10-17). The store, change sets and exports already carry semantics, so the
+record persists and travels with no mechanism of its own. Its STAMP history is
+the transaction log: the first version's time is the initiation, a version that
+moves the basis records the move, and the final version records commit or
+cancellation.
+
+The record's identity is the transaction's UUID, and it references the
+_Change tracking module_, so the records gather on bookkeeping no one browses
+rather than on each author's concept; every version is stamped by the
+transaction's author. Its fields are the transaction's name, its state (open,
+committed or cancelled), its basis (time and path), any external basis such as
+the git commit a document edit started from, and, while it is open, the
+components it has written. Four limits keep it cheap and correct.
+
+. *It is written under its own committed stamps.* Cancelled versions are
+  withdrawn when a record is read, so a record written under the transaction's
+  own uncommitted stamp would vanish with the work it describes. Each lifecycle
+  event is a committed version, in the change-tracking module, written directly
+  rather than through a transaction, so a record neither records itself nor
+  announces a commit. A cancelled transaction leaves an audit trail.
+. *It is written on lifecycle events only.* The first uncommitted stamp a
+  transaction mints opens its record; moving the basis, committing and
+  cancelling write a version; writing a component does not. Saving the store,
+  which it does before it stops, brings each open record's components up to
+  date. A version saying how the transaction ended lists no components: what
+  it wrote is on its stamps.
+. *It lists no stamps.* An uncommitted stamp's UUID derives from its
+  transaction's UUID and the stamp's own state, author, module and path, so a
+  restart finds an open transaction's stamps in one pass over the store's
+  stamps. Listing them would leave references a change set does not carry once
+  a transaction is cancelled, since a cancelled stamp does not travel.
+. *Bulk loads stay out.* A transaction whose uncommitted stamps are minted in a
+  load phase keeps no record, and importers write committed stamps directly.
+  Their record is the source release semantic of #1304.
+
+When a store opens, a lifecycle step started right after the entity provider
+rebuilds every transaction whose record says it is open, before the optional
+startup cancel of uncommitted stamps outside a transaction, so pending work
+keeps its owner and can still be committed or cancelled. A rebuilt transaction
+names its versions by stamp alone. The first-write time of each component, for
+the flag below, is not recorded yet.
+
+The change-tracking module is bookkeeping, not knowledge. Default views and
+published releases leave it out, as the filtered projection of
+xref:dev-changeset-filtering[change-set filtering] allows by module; change
+sets exchanged between people carry it. A store without the pattern falls back
+to transactions held in memory, with a warning, rather than refusing edits.
+
+== Pending work ends only when someone asks
+
+indexterm:[transaction, settlement]
+indexterm:[transaction, review]
+A transaction that wrote uncommitted versions stays open, across restarts, until
+someone commits or cancels it. Nothing settles pending work on its own: not a
+restart, not a crash part way through a request, and not an editor that happens
+to touch the same component. The capability lives in tinkar-core, so it is the
+same whatever surface drives the work: Komet's own windows, the assistant, the
+headless runner, or a client of the gRPC service.
+
+tinkar-core gives every surface the same three things:
+
+* `Transaction.openTransactions()`: the open transactions, made in this session
+  or rebuilt from their records, each with its name, when it began, its basis,
+  and the components it has written, for a person to review.
+* `Transaction.rebuiltOwnerOfPendingVersion(...)`: the rebuilt transaction that
+  owns a component's pending version under a given author, module, path and
+  state. A writer that leaves settling to the person continues that transaction
+  rather than opening a second one beside it, so its change lands on the
+  pending version's own stamp. Komet's `ObservableComposer` does this.
+* `commit()` and `cancel()` on any of them, when the person asks.
+
+In Komet the review is the KL window's own view of work in flight (ikmdev/komet
+#187, #198): the unpublished marks on what is not published yet, the strip
+that counts it with _Show_ to reach it, _Publish_ to commit it, and _Discard_
+to cancel it once confirmed. The window settles work it saved, work an earlier
+window saved, and work a session before a restart saved, alike.
+
+A service keeps pending work for its clients the same way, on the server and
+private to its author (KEC, 2026-10-17): its operations are the three above,
+offered to the caller for the caller's own transactions, and a client that
+reconnects finds its open transactions where it left them. No surface needs a
+mechanism of its own.
+
+Writers that commit at once are the exception still to remove. The rules
+engine's axiom and membership actions, and each write operation of the gRPC
+service, open a transaction and commit it in the same step; the axiom actions
+also continue whatever transaction owns the axiom's pending version, and so
+commit it unasked. Such a writer must leave its work pending for the person to
+settle, as the composer does, or refuse when the component already has pending
+work, as the activate and inactivate actions do.
+
+The rules engine's actions do both (KEC, 2026-10-17). None of them commits:
+each leaves its version uncommitted for the KL window to publish or discard.
+An axiom action continues the transaction that owns the axiom's pending version
+when that version has the same author, module and path the action would write,
+so successive edits to one definition land on one stamp, as the composer's do;
+a pending version under any other author, module or path is refused, since
+replacing it would rewrite someone else's edit. A membership action (add to or
+remove from the Tinkar or Komet base model) refuses when the membership
+semantic's latest version is uncommitted, as the activate and inactivate
+actions do: a membership toggle has nothing to continue. The KL window's own
+axiom editing already hands the updated definition to the window, which stages
+it, so the rule binds the axiom panels that write directly.
+
+== Within one knowledge base
+
+indexterm:[private transaction]
+indexterm:[written not committed]
+*Private transactions.* A transaction's uncommitted versions are visible to
+the session that wrote them and to no other session's views. Each person and
+the assistant works in a transaction of their own, so nobody's pending work is
+in anyone else's way, and the refusal of another author's pending document edit
+goes away. A private transaction gives the isolation a working path would give,
+without a path concept per person or per session; the paths of
+xref:tab-thread-paths[Threads as paths] remain for work that is meant to be
+seen as a branch. The rule that nothing is changed on top of an unsettled change
+still holds, now within what a transaction can see, and the basis records what
+it saw.
+
+*Written but not committed.* While a transaction is open, a small service
+listens to commit events. A commit by another transaction that touches a
+component this transaction has written, after the time this transaction first
+wrote it, is flagged. The check runs again at commit, against the basis, for
+what arrived while Komet was closed or through an import. For each flagged
+component the person sees three versions: the base they started from, the
+change committed since, and their own pending version (for documents through
+the rendered diff the card already draws). Committing a flagged component asks
+the person to look first; it does not block them. The assistant's tool adapter
+gets the same signal and re-reads the component rather than build on a stale
+copy.
+
+Components a transaction only read are not flagged. Tracking reads is possible
+but noisy, and is left for later.
+
+== Across knowledge bases
+
+indexterm:[change set import, contradiction]
+indexterm:[Import contradiction pattern]
+When a transaction commits, its record carries its basis to every knowledge
+base that imports the change set. An import then judges each component the
+change set touches:
+
+* The incoming change's basis includes the local versions: it succeeds them,
+  and nothing needs review.
+* A local change's basis includes the incoming version: the local version
+  stands.
+* Neither: the changes are concurrent, and the import records a contradiction.
+
+Content written before change records exist has no basis; for it, time stays
+the judgment, and records accumulate from the change that introduces them.
+
+A contradiction is recorded as a semantic of an _Import contradiction pattern_
+(name proposed), not only computed in a view, so it survives restarts and
+exports and a person can review it:
+
+[cols="1,3", options="header"]
+|===
+| Part | What it holds
+
+| Referenced component
+| The contradicted component.
+
+| Competing versions
+| The stamps of the versions that did not see each other.
+
+| Detecting import
+| The source release semantic of the import that found it.
+
+| Contradiction kind
+| A concurrent change, or two versions at the same time (today's narrow case).
+
+| Resolving version
+| The stamp of the version that resolves it; the kind concept itself while it is
+unresolved, as an unresolved field is held elsewhere in the starter set.
+|===
+
+The contradiction is active while unresolved. Resolving it is a change: a new
+version of the component whose basis includes every competing version, after
+which a new version of the contradiction, made inactive, names the resolving
+stamp. While an active contradiction exists for a component, the view reports a
+contradiction for it, the outcome `Latest` already has, now produced by
+concurrency and not only by equal times. A person's reasons for a resolution can
+be recorded as a Judgment annotation on the contradiction; the contradiction
+itself is the import's finding, not a person's annotation, so it is its own
+pattern rather than an annotation kind.
+
+== Consistent with import tracking
+
+indexterm:[source release, consistency]
+The import records of #1304 and the records here are one provenance:
+
+* Every import writes a source release record, change-set imports included,
+  as #1304 plans for change-set inputs, and each contradiction names the import
+  that found it, so what came in and what it collided with are recorded
+  together.
+* The change transaction, source release and composition patterns share the
+  starter set's provenance area, so a composition can list both the change
+  records and the source releases it took in.
+* A source release takes its release date from the latest stamp time the import
+  wrote; once change records exist, it can cite the bases of the changes it
+  carried, the same judgment as everywhere else.
+
+== Fewer components, fewer collisions
+
+indexterm:[document block model, granularity]
+A document materialized from git keeps its lines in one manifest semantic, so
+two people editing different blocks both write the manifest and collide.
+Splitting it, so a block holds its own lines and the document holds only the
+order of its blocks, makes edits to different blocks changes to different
+components. Most concurrent document edits then never contradict.
+
+== Alternatives considered
+
+indexterm:[concurrent work, alternatives]
+[cols="1,3", options="header"]
+|===
+| Alternative | Why not, or not alone
+
+| A path per author or per session
+| Strong isolation, but every path is a concept and a coordinate to manage, and
+the work still needs merging. Too heavy (KEC, 2026-10-17).
+
+| Temporary paths, retired at settlement
+| Retiring a path concept cleanly is unsolved; private transactions give the
+same isolation without one.
+
+| A git worktree per author
+| Cheap and merged by git, but it covers documents only, not the rest of the
+graph.
+
+| Short leases per block or component
+| A refusal at a finer grain: kept as a fallback, not a design.
+
+| Automatic merging
+| Curated knowledge needs a person's judgment about which change stands.
+|===
+
+== Order of work
+
+indexterm:[concurrent work, order of work]
+. Make the transaction a semantic of the Change transaction pattern, with
+  initiation and basis, written in the change-tracking module on lifecycle
+  events, rebuilt at startup (IKE-Network/ike-issues#1308). Built 2026-10-17:
+  tinkar-core `TransactionRecords` and `TransactionRecordsController`, starter
+  set `ChangeTrackingModelSet` (checkpoint `main-20261017-231137`). Still to do
+  under #1308:
+.. Removed the legacy serialization: `Transaction` is no longer `Encodable`;
+   its record is its only serialized form.
+.. Pending work ends only when asked (previous section): `openTransactions()`
+   and `rebuiltOwnerOfPendingVersion(...)` in tinkar-core; `ObservableComposer`
+   continues a rebuilt transaction; Pedro's KL window publishes and discards
+   work from before a restart. Verified in the image through the UI driver: a
+   composer continued a rebuilt transaction and committed it, and a Concept KL
+   window opened after a restart showed the earlier work as not published and
+   discarded it on request.
+.. The rules engine's axiom and membership actions no longer commit: they leave
+   their versions pending, continue an axiom's pending version under their own
+   author, module and path, and refuse pending work under any other (previous
+   section; `PendingWorkActionsIT` in komet/rules).
+.. Still to do: make the gRPC service's write operations leave work pending or
+   refuse over pending work; give the gRPC service the review, commit and cancel
+   operations, private to the caller.
+. Flag what others commit while a transaction is open, live from commit events
+  and again at commit, and show the three versions.
+. Make transactions private: views see only their own transaction's
+  uncommitted versions.
+. Judge concurrency on import from the change records, write Import
+  contradiction semantics, and resolve them on the card; change-set imports
+  write source release records.
+. Split the document manifest into blocks.
+
+== Decisions and open items
+
+indexterm:[concurrent work, decisions]
+.Direction agreed with KEC, 2026-10-17
+[cols="1,3", options="header"]
+|===
+| Decision | Direction
+
+| Isolation
+| No path per author or per session; private transactions isolate work within one
+knowledge base.
+
+| Conflicts
+| Concurrency, judged from each change's basis, defines a conflict, within one
+knowledge base and on import; time alone does not.
+
+| Transactions
+| Transactions persist, and they persist as semantics rather than through a
+mechanism of their own.
+
+| Contradictions on import
+| Recorded as semantics of their own pattern, consistent with the import
+records of #1304.
+|===
+
+.Open
+[cols="1,3", options="header"]
+|===
+| Question | Proposal
+
+| Names and homes
+| The fully qualified names of the Change transaction and Import contradiction
+patterns, their fields, and the change-tracking module, reviewed before the first
+checkpoint that carries them; both patterns are kernel patterns, bound in
+`KernelPattern`, because tinkar-core writes them.
+
+| Open transactions in change sets
+| A change set that shares uncommitted work carries its transaction's record,
+marked open; whether every change set does, or only those made to share work.
+
+| Reads
+| Whether a transaction also records components it read, so a decision based on
+a component someone has since changed is flagged.
+
+| The view's contradiction
+| Whether the view consults active contradiction semantics, or computes
+concurrency from bases each time and uses the semantics as the record only.
+|===

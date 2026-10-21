@@ -171,11 +171,13 @@ public final class BlockFactory {
      * Builds one turn's blocks: the role header, then the turn's content segments.
      *
      * @param turn the turn to render
-     * @return the turn's blocks, in order (never empty — the header is always present)
+     * @return the turn's blocks, in order; empty only for a role-less turn with no content
      */
     public List<DocumentBlock> turnBlocks(MarkdownRichText.Entry turn) {
         List<DocumentBlock> blocks = new ArrayList<>();
-        blocks.add(headerBlock(turn.role()));
+        if (!turn.role().label().isBlank()) {
+            blocks.add(headerBlock(turn.role()));           // a document that is no one's turn has no role header
+        }
         for (DocumentSegment segment : markdown.toSegments(turn)) {
             switch (segment) {
                 case DocumentSegment.ProseRun run -> {

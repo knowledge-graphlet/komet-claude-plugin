@@ -1,0 +1,85 @@
+// anf-compound-values
+// Topic: Compound Values and Their Components
+// Type: concept
+// Status: draft
+:topic-id: anf-compound-values
+:topic-type: concept
+:topic-status: draft
+:topic-keywords: refraction, complex-concept, expansion, composes, whole-statement, mixed-type, tuple
+:topic-scope-note: Covers values whose parts are meaningless apart. \
+  For panels whose parts stand alone, see anf-clinical-element-isolation.
+
+[[anf-compound-values]]
+= Compound Values and Their Components
+
+A compound value is a clinical object made of several parts
+that have no independent meaning and are read only as a set:
+a refraction's sphere, cylinder and axis,
+a multi-axis measurement,
+a structured index built from fixed sub-parts.
+It differs from a panel,
+where each element stands alone;
+in a compound, one part is meaningless without the others.
+ANF has no tuple-valued result,
+so a compound is represented by its components
+and by the structure that binds them.
+
+== Complex Concepts First
+
+indexterm:[clinical naming, complex concept]
+In the terminology layer a compound value is a ((Complex Concept)):
+one concept whose expansion yields one full ANF statement
+per component, each with a simple topic and a single value,
+linked to the others by associated statements with declared semantics.
+Where a Complex Concept exists for the object,
+enter it once and let expansion decompose it;
+the round trip back to the compound code is then recoverable.
+Where none exists yet,
+decompose by hand as follows
+and surface the missing concept as a terminology gap.
+
+== One Statement per Component
+
+indexterm:[ANF, compound value, component]
+Encode each component by its own data type,
+never by the dominant type of the compound
+(xref:anf-data-types[ANF Data Element Types]):
+a measured part is a Measure with its own unit,
+a coded choice is a Concept,
+a qualitative setting is a presence result on its own topic.
+Never coerce a qualitative part into a numeric field
+to make the set uniform,
+and never drop it because it is not numeric.
+Components share only their membership in the whole.
+
+== The Whole and Its Binding
+
+indexterm:[ANF, composes association]
+Bind the components to one whole statement
+whose topic is the compound itself
+and whose result is presence `[1, 1]`:
+the compound determination was made.
+Each component carries a ((composes)) association
+pointing at the whole
+(xref:anf-statement-relationships[Typed Relationships Between Statements]).
+The whole must be substantive --
+the same subject, timing and method as its components --
+never an empty anchor whose only meaning is the links into it.
+A reader who reaches the whole finds every part by traversal;
+a reader who reaches a part finds its whole by one link.
+
+Never encode a compound only as free text,
+which destroys the components;
+never encode the components without the binding,
+which destroys the fact that they are one object.
+
+NOTE: The 2026 appendix asked for a dedicated compound data type
+and, until one arrived, had every component repeat the whole value
+verbatim in a qualifier.
+This guide answers from the terminology layer instead:
+a compound is a Complex Concept, the statement structure is
+unchanged, and ANF has no qualifier field.
+The source's own rendering of the value is kept as provenance
+beside the statement set
+(xref:anf-source-fidelity[Source Fidelity Without a Qualifier Field]).
+This position is provisional.

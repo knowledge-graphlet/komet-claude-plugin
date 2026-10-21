@@ -54,5 +54,5 @@
  */
 .print-theme-manuscript .print-running-head,
 .print-theme-manuscript .print-page-number {
-    -fx-font-family: serif;
+    -fx-font-family: "Noto Serif", serif;
 }

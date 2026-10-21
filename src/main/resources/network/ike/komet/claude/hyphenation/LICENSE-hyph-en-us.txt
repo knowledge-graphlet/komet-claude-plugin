@@ -1,0 +1,15 @@
+hyph-en-us.tex — Hyphenation patterns for American English
+
+Source: the hyph-utf8 package of tex-hyphen (https://github.com/hyphenation/tex-hyphen),
+file hyph-utf8/tex/generic/hyph-utf8/patterns/tex/hyph-en-us.tex, version 2005-05-30,
+copied verbatim on 2026-10-20 (SHA-256 f4ffcd96c5cbc886bdad23f95dcae8edc3cd3620eae62f7946eceda97c4e68f8).
+It is the file Typst's hyphenator (the Rust crate hypher, 0.1.5) compiles for "en".
+
+Copyright (C) 1990, 2004, 2005 Gerard D.C. Kuiken
+
+Copying and distribution of this file, with or without modification, are permitted in any
+medium without royalty provided the copyright notice and this notice are preserved.
+
+The patterns are read at run time by network.ike.komet.claude.stamp.print.Hyphenator (Liang's
+algorithm), which, like hypher, uses the \patterns{} block only and not the \hyphenation{}
+exceptions.

@@ -1,0 +1,537 @@
+// anf-example-medication
+// Topic: Medication History Clinical Narrative -- ANF Worked Example
+// Type: reference
+// Status: draft
+:topic-id: anf-example-medication
+:topic-type: reference
+:topic-status: draft
+:topic-keywords: medication, lisinopril, metformin, hydrochlorothiazide, adverse-reaction, adherence, hypertension, pre-diabetes
+
+[[anf-example-medication]]
+= Medication History Clinical Narrative -- ANF Worked Example
+
+indexterm:[ANF, medication history example]
+This reference provides a complete worked example of building
+ANF statements from a medication history clinical narrative.
+Ten ANF statements are derived from a single encounter,
+covering demographics (gender and age),
+diagnoses (hypertension and pre-diabetes),
+current medications (lisinopril and metformin),
+medication adherence,
+adverse drug reactions,
+prior medications (hydrochlorothiazide),
+and medication side effects.
+Each statement is presented in compact form showing only the
+populated attributes.
+
+== Clinical Narrative
+
+indexterm:[clinical narrative, medication history]
+The following clinical narrative serves as the source for all
+ten ANF statements in this example.
+
+[example]
+====
+*Medication History* +
+Patient Name:
+Jane Doe +
+Patient Identifier:
+5486-89754 +
+Date of Encounter:
+January 5,
+2025 +
+Clinician:
+Dr. Jim Wilson (ID# 24-6759)
+
+Patient is a 58-year old female with a history of hypertension
+and pre-diabetes.
+She is currently taking lisinopril,
+20 mg oral tablet,
+once daily for blood pressure control,
+which she has been on for the past 2 years with good adherence
+and tolerability.
+Prior to starting lisinopril,
+she was briefly trialed on hydrochlorothiazide 25 mg oral tablet,
+once daily,
+but experienced mild dizziness and was switched due to side effects.
+The patient takes metformin 500 mg oral tablet,
+twice daily for glucose control which she has been on for the past 6 months.
+====
+
+== Isolation of Clinical Elements
+
+indexterm:[clinical element isolation, medication history]
+The first step is to identify the key clinical elements from
+which the ANF statements will be created.
+Ten ANF statements result from this narrative.
+
+.Clinical Elements for Medication History Use Case
+[cols="2,2", options="header"]
+|===
+| Clinical Element | ANF Statement Topic
+
+| Gender (female)
+| Female
+
+| 58 years old
+| Chronological Age
+
+| Hypertension
+| Hypertension
+
+| Pre-diabetes
+| Pre-diabetes
+
+| Lisinopril, 20 mg, once daily
+| Lisinopril, 20 mg oral tablet
+
+| Good Medication Adherence
+| Medication Adherence
+
+| Good Tolerability
+| Adverse Reaction caused by Drug
+
+| Hydrochlorothiazide, 25 mg
+| Hydrochlorothiazide, 25 mg oral tablet
+
+| Side Effect dizziness
+| Medication Side Effect
+
+| Metformin, 500 mg twice daily
+| Metformin, 500 mg
+|===
+
+== Statement 1: Female
+
+indexterm:[ANF, gender statement, female]
+This statement captures the patient's gender as a demographic finding.
+
+.Context -- Female
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Female (finding) -- SCTID: 248152002
+
+| subjectOfRecord
+| Patient 5486-89754 -- SCTID: 116154003
+
+| author
+| Practitioner 24-6759
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Female
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [1, INF] Countable Quantity -- 053d3845-e2f7-503c-8a39-e93a8db78224
+
+| participant
+| Patient 5486-89754 -- SCTID: 116154003
+|===
+
+== Statement 2: Chronological Age
+
+indexterm:[ANF, chronological age, medication example]
+This statement records the patient's age at the time of the encounter.
+
+.Context -- Chronological Age
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Current Chronological Age -- SCTID: 424144002
+
+| subjectOfRecord
+| Patient 5486-89754 -- SCTID: 116154003
+
+| author
+| Practitioner 24-6759
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Chronological Age
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [58, 58] year -- SCTID: 258707000
+
+| participant
+| Patient 5486-89754 -- SCTID: 116154003
+|===
+
+== Statement 3: Hypertension
+
+indexterm:[ANF, hypertension]
+This statement captures the patient's diagnosis of
+((hypertension)).
+
+.Context -- Hypertension
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Hypertensive Disorder -- SCTID: 38341003
+
+| subjectOfRecord
+| Patient 5486-89754 -- SCTID: 116154003
+
+| author
+| Practitioner 24-6759
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Hypertension
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [1, INF] Countable Quantity -- 053d3845-e2f7-503c-8a39-e93a8db78224
+
+| participant
+| Patient 5486-89754 -- SCTID: 116154003
+|===
+
+== Statement 4: Pre-diabetes
+
+indexterm:[ANF, pre-diabetes]
+This statement captures the patient's diagnosis of
+((pre-diabetes)).
+
+.Context -- Pre-diabetes
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Prediabetes Finding -- SCTID: 714628002
+
+| subjectOfRecord
+| Patient 5486-89754 -- SCTID: 116154003
+
+| author
+| Practitioner 24-6759
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Pre-diabetes
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [1, INF] Countable Quantity -- 053d3845-e2f7-503c-8a39-e93a8db78224
+
+| participant
+| Patient 5486-89754 -- SCTID: 116154003
+|===
+
+== Statement 5: Lisinopril, 20 mg Oral Tablet
+
+indexterm:[ANF, lisinopril]
+This statement records the patient's current medication:
+((lisinopril)) 20 mg oral tablet,
+taken once daily for blood pressure control over the past 2 years.
+
+.Context -- Lisinopril
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Product containing precisely lisinopril 20 milligram/1 each conventional release oral tablet (clinical drug) -- SCTID: 318860005
+
+| subjectOfRecord
+| Patient 5486-89754 -- SCTID: 116154003
+
+| author
+| Practitioner 24-6759
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Lisinopril
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| time
+| 1/5/2023 through 1/5/2025 (2-year duration)
+
+| purpose
+| Hypertensive disorder -- SCTID: 38341003
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [1, 1] Per day -- SCTID: 259032004
+
+| method
+| Oral Route -- SCTID: 26643006
+
+| participant
+| Patient 5486-89754 -- SCTID: 116154003
+|===
+
+== Statement 6: Medication Adherence
+
+indexterm:[ANF, medication adherence]
+This statement records the patient's good ((medication
+adherence)) to the lisinopril regimen.
+
+.Context -- Medication Adherence
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Adherence to medication regime -- SCTID: 401207004
+
+| subjectOfRecord
+| Patient 5486-89754 -- SCTID: 116154003
+
+| author
+| Practitioner 24-6759
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Medication Adherence
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [1, INF) Countable Quantity -- 053d3845-e2f7-503c-8a39-e93a8db78224
+
+| participant
+| Patient 5486-89754 -- SCTID: 116154003
+|===
+
+== Statement 7: Adverse Reaction Caused by Drug
+
+indexterm:[ANF, adverse reaction]
+This statement records the presence or absence of ((adverse
+drug reactions)) in the context of the patient's medication history.
+In this case it captures that no current adverse reaction is
+associated with the lisinopril therapy (good tolerability).
+
+.Context -- Adverse Reaction
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Adverse reaction caused by drug -- SCTID: 62014003
+
+| subjectOfRecord
+| Patient 5486-89754 -- SCTID: 116154003
+
+| author
+| Practitioner 24-6759
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Adverse Reaction
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [0, 0) Countable Quantity -- 053d3845-e2f7-503c-8a39-e93a8db78224 (absent)
+
+| participant
+| Patient 5486-89754 -- SCTID: 116154003
+|===
+
+== Statement 8: Hydrochlorothiazide, 25 mg Oral Tablet
+
+indexterm:[ANF, hydrochlorothiazide]
+This statement records the patient's prior medication:
+((hydrochlorothiazide)) 25 mg oral tablet,
+once daily,
+which was discontinued due to side effects.
+The time range upper bound indicates the end date prior to
+switching to lisinopril.
+
+.Context -- Hydrochlorothiazide
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Product containing precisely hydrochlorothiazide 25 milligram/1 each conventional release oral tablet (clinical drug) -- SCTID: 376209006
+
+| subjectOfRecord
+| Patient 5486-89754 -- SCTID: 116154003
+
+| author
+| Practitioner 24-6759
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Hydrochlorothiazide
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| time
+| Unknown start through 1/5/2023 (discontinued)
+
+| purpose
+| Hypertensive disorder -- SCTID: 38341003
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [1, 1] Per day -- SCTID: 259032004
+
+| method
+| Oral Route -- SCTID: 26643006
+
+| participant
+| Patient 5486-89754 -- SCTID: 116154003
+|===
+
+.Associated Statements -- Hydrochlorothiazide
+[cols="2,3", options="header"]
+|===
+| Association | Value
+
+| Medication Side Effects (finding)
+| SCTID: to be confirmed (401207004 is Adherence to medication regime)
+|===
+
+== Statement 9: Medication Side Effect
+
+indexterm:[ANF, medication side effect, dizziness]
+indexterm:[narrative circumstance, medication side effect]
+This statement records the medication side effect (mild
+dizziness) experienced with hydrochlorothiazide.
+Because the side effect is documented as free text rather than
+a structured coded result,
+this statement uses a ((Narrative Circumstance)) instead of a
+Performance Circumstance.
+
+.Context -- Medication Side Effect
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Medication Side Effects Finding -- SCTID: to be confirmed (401207004 is Adherence to medication regime)
+
+| subjectOfRecord
+| Patient 5486-89754 -- SCTID: 116154003
+
+| author
+| Practitioner 24-6759
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Narrative Circumstance -- Medication Side Effect
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| text
+| Mild dizziness from medication, terminated Hydrochlorothiazide
+|===
+
+== Statement 10: Metformin, 500 mg
+
+indexterm:[ANF, metformin]
+This statement records the patient's current medication:
+((metformin)) 500 mg oral tablet,
+taken twice daily for glucose control over the past 6 months.
+The statement follows the same structural pattern as the
+lisinopril statement,
+with the result indicating twice-daily dosing and the purpose
+referencing glucose control.
+
+.Context -- Metformin
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Metformin 500 mg oral tablet
+
+| subjectOfRecord
+| Patient 5486-89754 -- SCTID: 116154003
+
+| author
+| Practitioner 24-6759
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Metformin
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| time
+| 6 months prior through 1/5/2025
+
+| purpose
+| Prediabetes Finding -- SCTID: 714628002
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [2, 2] Per day -- SCTID: 259032004
+
+| method
+| Oral Route -- SCTID: 26643006
+
+| participant
+| Patient 5486-89754 -- SCTID: 116154003
+|===

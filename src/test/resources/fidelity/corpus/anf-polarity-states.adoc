@@ -1,0 +1,120 @@
+// anf-polarity-states
+// Topic: Absent, Indeterminate, and Not Sought
+// Type: concept
+// Status: draft
+:topic-id: anf-polarity-states
+:topic-type: concept
+:topic-status: draft
+:topic-keywords: polarity, presence-scale, disposition, hedged-negative, differential, suspected-diagnosis, Countable-Quantity
+:topic-scope-note: Covers the four states a narrative can leave a finding in \
+  and where each is recorded. For the Result and Disposition attributes \
+  themselves, see anf-performance-result.
+
+[[anf-polarity-states]]
+= Absent, Indeterminate, and Not Sought
+
+A narrative that mentions a finding says one of four things:
+it was looked for and found,
+looked for and not found,
+looked for without a usable answer,
+or never looked for.
+ANF keeps the four apart with two Performance Circumstance
+attributes, the Result and the Disposition
+(xref:anf-performance-result[Performance Circumstance Results]).
+An independent verification study of ten eye-exam narratives
+(2026) found polarity the least reproducible element across
+human and agent encoders (kappa 0.28, 73 negation flips),
+while examination status and laterality agreed almost perfectly.
+
+== The Four States
+
+indexterm:[polarity, four states]
+The topic never carries polarity.
+"No afferent pupillary defect" has the topic
+_relative afferent pupillary defect_ and a result of absent;
+the ((Presence scale)) is what makes absence a value
+rather than a negated concept.
+
+.The four states and where each is recorded
+[cols="2,2,1", options="header"]
+|===
+| The record says | Result | Disposition
+
+| Assessed and present
+| `[1, 1]` on the Presence scale
+| performed
+
+| Assessed and absent
+| `[0, 0]` on the Presence scale
+| performed
+
+| Assessed, indeterminate
+| `[0, 1]` on the Presence scale
+| performed
+
+| Not done, or deferred
+| none
+| not sought
+|===
+
+indexterm:[indeterminate result, Presence scale]
+An ((indeterminate)) result --
+a fundus view obscured by a dense cataract,
+a visual field too unreliable to read --
+is still a result:
+the act was performed and yielded no answer;
+the structural definition writes it `[0, 1]`.
+
+indexterm:[disposition, not sought]
+When the record states that an element was not done
+or was deferred,
+write a statement with disposition "not sought" and no result.
+When the record is simply silent,
+write nothing:
+ANF documents what was stated, not what was omitted
+(xref:anf-missing-data[Missing Identifiers, Dates, and Time Zones]).
+
+== Hedged Negatives
+
+A ((hedged negative)) --
+"none visible," "no clear," "without obvious" --
+asserts absence.
+Encode it `[0, 0]`.
+The hedge speaks to the method or the view,
+not to the determination:
+record the method where the narrative names one
+and keep the wording as provenance
+(xref:anf-source-fidelity[Source Fidelity Without a Qualifier Field]).
+Never promote a hedged negative to indeterminate.
+
+== Considered, Suspected, and Working Diagnoses
+
+indexterm:[differential diagnosis, ANF encoding]
+A finding that is merely considered,
+or that appears in a differential,
+has been asserted neither way.
+Never encode it as absent.
+If the reasoning matters,
+capture it as a
+xref:anf-narrative-circumstance[Narrative Circumstance];
+otherwise omit it.
+
+indexterm:[suspected diagnosis, encoded as present]
+A suspected, probable, or working diagnosis is different:
+it is an affirmative assertion made with stated confidence.
+Encode it present.
+Indeterminate means the assessment produced no answer;
+a suspected diagnosis is an answer offered provisionally.
+
+NOTE: The model has no attribute for epistemic confidence;
+the 2026 appendix held "suspected" and "probable" in a
+template qualifier ANF does not have.
+Candidates are an association to a Narrative statement
+carrying the wording, or a future attribute.
+Until that is settled, keep the wording as provenance.
+
+NOTE: This guide's worked examples still show the older
+Countable Quantity form:
+`[1, INF)` true, `[0, 0]` false, `[0, INF)` unknown.
+The Presence-scale form is the model's current form;
+the two agree on polarity and differ in the measure semantic.

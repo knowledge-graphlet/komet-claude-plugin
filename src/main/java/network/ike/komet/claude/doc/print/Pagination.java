@@ -35,11 +35,23 @@ import java.util.Objects;
  * next band. Prose blocks are not atomic and break naturally at the band boundary (clean
  * prose-splitting is a deferred follow-on). An atomic block taller than a whole band is pushed to a
  * clean band top and then allowed to straddle — there is no other option, and this never loops.
+ *
+ * <p><b>Keep-with-next rule.</b> A block that {@linkplain BlockBox#keepWithNext() keeps with the
+ * next} (a heading) is pushed with it: when the block fits the band but the start of the next one
+ * — its first {@value #COMPANION_FACTOR} heights' worth, or all of it when it is shorter — would
+ * not, the block goes to the next band too, so no page ends on a heading.
  */
 public final class Pagination {
 
     /** Sub-point slack so a block that fills a band to the pixel is not treated as straddling. */
     private static final double EPSILON = 0.5;
+
+    /**
+     * How much of the following block, in multiples of the keeping block's height, must share its
+     * page: its own height again — about two lines of the paragraph after a heading, which is what
+     * Typst's sticky heading keeps with it.
+     */
+    private static final double COMPANION_FACTOR = 1.0;
 
     private Pagination() {
     }
@@ -47,10 +59,21 @@ public final class Pagination {
     /**
      * A measured block awaiting placement.
      *
-     * @param height the block's laid-out height, in the same units as the band height (points)
-     * @param atomic whether the block must not be split across a page boundary
+     * @param height       the block's laid-out height, in the same units as the band height (points)
+     * @param atomic       whether the block must not be split across a page boundary
+     * @param keepWithNext whether the block must stay on the page the next block starts on
      */
-    public record BlockBox(double height, boolean atomic) {
+    public record BlockBox(double height, boolean atomic, boolean keepWithNext) {
+
+        /**
+         * A block that may end a page.
+         *
+         * @param height the block's laid-out height
+         * @param atomic whether the block must not be split across a page boundary
+         */
+        public BlockBox(double height, boolean atomic) {
+            this(height, atomic, false);
+        }
     }
 
     /**
@@ -77,6 +100,26 @@ public final class Pagination {
      * @throws NullPointerException     if {@code blocks} is {@code null}
      */
     public static PagePlan plan(List<BlockBox> blocks, double bandHeight) {
+        return plan(blocks, bandHeight, 0);
+    }
+
+    /** The fewest lines of a split block that may stand alone at the foot or the head of a page, as Typst keeps them. */
+    public static final int MIN_LINES = 2;
+
+    /**
+     * As {@link #plan(List, double)}, keeping orphans and widows off the page edges the way
+     * Typst's paragraph layout does: a block that may split is pushed whole to the next page when
+     * fewer than {@link #MIN_LINES} of its lines would stay at the foot, and is pushed by the lines
+     * it lacks when fewer than {@link #MIN_LINES} would spill to the head — the page then runs a
+     * line short, as Typst's does. Only a positive {@code lineHeight} enables the rule, so a host
+     * that paginates figures and prose of unknown pitch keeps the plain plan.
+     *
+     * @param blocks     the blocks in stacking order
+     * @param bandHeight the printable content-band height of one page, in points
+     * @param lineHeight the pitch of a line of body text, in points; 0 disables widow and orphan handling
+     * @return the page plan
+     */
+    public static PagePlan plan(List<BlockBox> blocks, double bandHeight, double lineHeight) {
         Objects.requireNonNull(blocks, "blocks is null");
         if (bandHeight <= 0) {
             throw new IllegalArgumentException("bandHeight must be positive: " + bandHeight);
@@ -93,11 +136,30 @@ public final class Pagination {
             double bandBottom = bandTop + bandHeight;
             boolean straddles = y + block.height() > bandBottom + EPSILON;
             boolean midBand = y > bandTop + EPSILON;
+            boolean orphaned = false;
+            if (block.keepWithNext() && i + 1 < n) {
+                double companion = Math.min(blocks.get(i + 1).height(), COMPANION_FACTOR * block.height());
+                orphaned = y + block.height() + companion > bandBottom + EPSILON;
+            }
 
-            if (block.atomic() && straddles && midBand) {
-                // Push the atomic block to the top of the next band so it starts clean.
+            if (((block.atomic() && straddles) || orphaned) && midBand) {
+                // Push the block to the top of the next band so it starts clean, or keeps its companion.
                 leadingSpacer[i] = bandBottom - y;
                 y = bandBottom;
+            } else if (!block.atomic() && straddles && lineHeight > 0 && block.height() >= MIN_LINES * 2 * lineHeight) {
+                double foot = bandBottom - y;                         // what stays on this page
+                double head = block.height() - foot;                  // what spills to the next
+                double minimum = MIN_LINES * lineHeight;
+                if (midBand && foot < minimum - EPSILON) {
+                    // An orphan: fewer than two lines would stand alone at the foot. Start the block on the next page.
+                    leadingSpacer[i] = foot;
+                    y = bandBottom;
+                } else if (head < minimum - EPSILON) {
+                    // A widow: fewer than two lines would stand alone at the head. Move the block down by the lines it lacks.
+                    double shift = Math.ceil((minimum - head) / lineHeight) * lineHeight;
+                    leadingSpacer[i] = shift;
+                    y += shift;
+                }
             }
             pageOfBlock[i] = (int) (y / bandHeight);
             y += block.height();

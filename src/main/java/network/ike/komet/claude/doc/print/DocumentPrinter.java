@@ -25,11 +25,8 @@ import javafx.scene.layout.Region;
 import javafx.scene.transform.Scale;
 import network.ike.komet.claude.doc.print.settings.PageSize;
 import network.ike.komet.claude.doc.print.settings.PrintSettings;
-import network.ike.komet.claude.ui.MarkdownRichText;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
-import java.util.List;
 
 /**
  * Prints a conversation's paged document via a {@link PrinterJob}, using the same
@@ -49,14 +46,14 @@ public final class DocumentPrinter {
     /**
      * Shows the system print dialog and, if the user proceeds, prints the conversation.
      *
-     * @param turns       the conversation's turns, in order
+     * @param source      what to print
      * @param viewCalc    the view for resolving concept chips; may be {@code null}
-     * @param runningHead the running-head text (the conversation name); may be blank
+     * @param runningHead the running-head text (the conversation or document name); may be blank
      * @param settings    the print settings
      * @return {@code true} if a job was printed; {@code false} if there is no printer or the user
      *         canceled
      */
-    public static boolean print(List<MarkdownRichText.Entry> turns, ViewCalculator viewCalc,
+    public static boolean print(PrintSource source, ViewCalculator viewCalc,
                                 String runningHead, PrintSettings settings) {
         PrinterJob job = PrinterJob.createPrinterJob();
         if (job == null) {
@@ -85,7 +82,7 @@ public final class DocumentPrinter {
         // and page count match the preview regardless of which printer/paper the dialog chose, and
         // no content falls into the printer's unprintable margin.
         double[] paper = PagedDocumentEngine.pageDimensionsPoints(settings);
-        PagedDocumentEngine engine = new PagedDocumentEngine(turns, viewCalc, runningHead, settings);
+        PagedDocumentEngine engine = new PagedDocumentEngine(source, viewCalc, runningHead, settings);
         engine.layout(paper[0], paper[1]);
         double scale = fitScale(layout, paper[0], paper[1]);
 

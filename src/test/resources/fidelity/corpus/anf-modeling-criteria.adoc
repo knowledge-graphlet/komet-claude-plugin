@@ -1,0 +1,176 @@
+// anf-modeling-criteria
+// Topic: Evaluation Criteria for ANF Modeling Challenges
+// Type: concept
+// Status: draft
+:topic-id: anf-modeling-criteria
+:topic-type: concept
+:topic-status: draft
+:topic-keywords: evaluation-criteria, modeling-decision, DRY, separation-of-concerns, scalability, metrological-rigor, computational-reasoning
+
+[[anf-modeling-criteria]]
+= Evaluation Criteria for ANF Modeling Challenges
+
+indexterm:[ANF, modeling criteria]
+indexterm:[evaluation criteria, ANF design]
+When use cases arise that do not fit cleanly into the existing ANF model,
+a systematic evaluation framework prevents ad hoc solutions and
+ensures consistency with ANF's architectural principles.
+The following eight criteria provide a decision procedure for
+locating new properties within the model and evaluating
+candidate solutions.
+These criteria were developed during the analysis of
+xref:anf-relative-measurements[relative measurements in ANF]
+and generalize to any novel modeling challenge.
+
+== Criterion 1: Identify the Fundamental Property
+
+indexterm:[fundamental property, modeling criterion]
+The first step is to name the underlying property or concern
+that the existing model does not capture.
+Avoid describing the problem in terms of a specific clinical scenario;
+instead, identify the abstract property.
+
+For example,
+when "pupils equal" proved difficult to represent,
+the fundamental property was not "bilateral comparison" but
+rather "the reference frame for measurements" —
+a more general concept that encompasses bilateral,
+temporal, baseline,
+and normative comparisons.
+Identifying the property at the right level of generality
+prevents solutions that are too narrow.
+
+== Criterion 2: Determine the Level of Abstraction
+
+Is the property specific to one clinical domain,
+or does it generalize across medicine?
+Domain-specific properties may warrant domain-specific handling,
+but properties that appear across multiple domains require a
+general solution.
+
+Reference frames for measurements appear in neurological exams
+(pupil symmetry),
+orthopedics (leg length discrepancy),
+pulmonology (percent of predicted FEV1),
+pediatrics (growth chart percentiles),
+and rheumatology (bone density T-scores).
+A property this general demands a solution in the model's core
+infrastructure,
+not in domain-specific extensions.
+
+== Criterion 3: Locate the Property in the Right Place
+
+indexterm:[separation of concerns, property placement]
+ANF maintains clean separation between what is being measured,
+how it is measured,
+and what the result means.
+For any new property,
+ask which of these categories it belongs to:
+
+- The phenomenon being measured → *Topic*
+- The measurement event itself → *Circumstance attribute*
+- The measurement interpretation → *Unit / Semantic*
+- The anatomical site → *Location attribute*
+- The measurement technique → *Method attribute*
+
+Placing a property in the wrong location creates either
+redundancy (repeating information that should be stated once)
+or coupling (entangling concerns that evolve independently).
+For measurement reference frames,
+the property belongs with the unit because the reference frame
+defines what the unit measures against,
+not how or when the measurement was taken.
+
+== Criterion 4: Evaluate Against the DRY Principle
+
+indexterm:[DRY principle, modeling criterion]
+Will this property need to be repeated in many statements,
+or can it be defined once and reused?
+Solutions that require per-statement population of the same
+information create maintenance burden and inconsistency risk.
+
+A property defined once in a concept definition (topic,
+unit, or method) and inherited by every statement that references
+that concept satisfies DRY.
+A property that must be populated in every individual statement does not.
+
+== Criterion 5: Test for Separation of Concerns
+
+Does the proposed solution maintain clean boundaries between
+the five ANF concerns:
+what is being measured (phenomenon),
+where it is being measured (location),
+how it is being measured (method),
+what was found (result),
+and what the result means (unit/semantic)?
+
+If a candidate solution blurs two of these boundaries —
+for example,
+encoding the comparison type into the topic rather than the unit —
+it will create coupling that makes future changes more expensive.
+
+== Criterion 6: Assess Scalability
+
+indexterm:[scalability, modeling criterion]
+Does the solution scale economically,
+or does it create combinatoric growth?
+Count the number of new concepts,
+attributes,
+or structural elements required as the number of use cases grows.
+
+A solution that requires one new concept per bilateral
+anatomical structure scales as O(n) where n is the number of structures.
+A solution that defines a small set of comparative unit types
+applicable to any structure scales as O(1) —
+constant cost regardless of how many structures use it.
+
+== Criterion 7: Verify Computational Reasoning Support
+
+Can systems automatically infer the property,
+or does it require manual interpretation?
+Solutions that embed semantics in machine-readable locations
+(concept definitions,
+unit properties,
+DL axioms) enable automated reasoning.
+Solutions that rely on human-readable conventions (naming patterns,
+documentation notes) do not.
+
+A DL reasoner can subsume a unit concept and infer its
+`measurementBasis` from the subsumption hierarchy.
+A system cannot reliably infer reference-frame semantics from a
+free-text circumstance attribute.
+
+== Criterion 8: Check Alignment with Domain Standards
+
+indexterm:[domain standards, modeling criterion]
+Does the solution align with established principles from the
+relevant domain —
+metrology,
+terminology science,
+clinical practice,
+or formal methods?
+Solutions grounded in domain theory are more likely to be correct,
+more likely to be accepted by domain experts,
+and less likely to require revision.
+
+The unit-property solution for measurement reference frames
+aligns with the metrological principle that reference frames
+are intrinsic to units of measure.
+This is not an ANF-specific invention but an application of
+established measurement theory.
+
+== Applying the Criteria
+
+These criteria are not a checklist to be scored mechanically.
+They are a structured reasoning framework:
+each criterion illuminates a different dimension of the design space,
+and together they constrain the solution toward architectural soundness.
+When a candidate solution fails one or more criteria,
+the failure points to where the design should be revised —
+not necessarily that the entire approach is wrong.
+
+The criteria complement the ANF ballot's design principles
+(principles A through L from the ANF ballot specification).
+The design principles define the goals;
+these criteria provide a procedure for evaluating whether a
+candidate solution achieves those goals for a specific modeling challenge.

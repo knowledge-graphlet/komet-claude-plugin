@@ -1,0 +1,217 @@
+// anf-context-attributes
+// Topic: Context Attributes
+// Type: reference
+// Status: draft
+:topic-id: anf-context-attributes
+:topic-type: reference
+:topic-status: draft
+:topic-keywords: subjectOfRecord, author, subjectOfInformation, topic, type, statement-id, time-context
+
+[[anf-context-attributes]]
+= Context Attributes
+
+indexterm:[ANF, context attributes]
+The Context component of an ANF statement carries the metadata
+that establishes what the statement is about,
+who it concerns,
+and when it was documented.
+Context attributes are distinct from Circumstance attributes --
+Context captures the background identity and framing of the statement,
+while Circumstance captures the clinical detail.
+This reference defines the seven Context attributes:
+ID, Time,
+Subject of Record,
+Authors, Subject of Information,
+Topic, and Type.
+
+Not all Context attributes are required for every ANF statement;
+only those relevant to the clinical element being captured need
+to be populated.
+The following systolic blood pressure clinical narrative is
+used throughout this reference to illustrate each attribute:
+
+[quote]
+A 62-year-old man presented to his doctor's office for a routine checkup.
+He had a Systolic Blood Pressure of 120 mmHg, taken on his Right Brachial Artery, using BP cuff adult size.
+Patient Identifier: 6594-86214.
+Date of Encounter: July 9, 2019.
+Clinician: Dr. Hannah Smith (ID# 47-3659).
+
+== ID (Identifier)
+
+indexterm:[ANF, statement identifier]
+The ((statement identifier)) is a unique ID assigned to each
+individual ANF statement.
+Statement identifiers enable association between related
+statements and provide a stable reference for cross-linking.
+This value is automatically assigned and does not require manual entry.
+
+== Time
+
+indexterm:[ANF, context time]
+The Time attribute describes when the statement was documented or asserted --
+for example,
+the time that charting in an electronic health record occurred.
+Time is expressed as a ((Measure)) interval using Unix Epoch
+time in seconds.
+
+.Context Time Attribute Data Elements
+[cols="1,2,2", options="header"]
+|===
+| Data Element | Description | Example (July 9, 2019)
+
+| lowerBound (float)
+| Lower bound of the time interval for documentation
+| 1562630401
+
+| includeLowerBound (boolean)
+| Whether the lower bound is included in the interval
+| True
+
+| resolution (decimal)
+| The smallest allowed increment for the measure
+| 1
+
+| upperBound (float)
+| Upper bound of the time interval for documentation
+| 1562716799
+
+| includeUpperBound (boolean)
+| Whether the upper bound is included in the interval
+| True
+
+| semantic (logical expression)
+| Unit of the time measure
+| Concept "Seconds" (SCTID: 257997001)
+|===
+
+When only the date of charting is known (without a precise clock time),
+the lower bound is set to the start of the day (12:00:01 AM)
+and the upper bound to the end of the day (11:59:59 PM),
+both inclusive.
+
+== Subject of Record
+
+indexterm:[ANF, subject of record]
+The ((subjectOfRecord)) attribute identifies the patient --
+or more precisely,
+the patient's clinical record --
+to which the statement belongs.
+This attribute always refers to the patient.
+
+.Subject of Record Attribute Data Elements
+[cols="1,2,2", options="header"]
+|===
+| Data Element | Description | Example
+
+| ID (identifier)
+| Unique ID for the patient's clinical record
+| 6594-86214
+
+| semantic (logical expression)
+| Description of the subject of record
+| Concept "Patient"
+|===
+
+== Authors
+
+indexterm:[ANF, author attribute]
+The ((author)) attribute records the list of practitioners or
+other individuals (social workers,
+nurses, patients themselves) who authored the clinical statement.
+When the information originates from a patient-filled form,
+the author is the patient.
+When a clinician documents the statement,
+the author's personal identifier (such as an NPI) is recorded.
+
+.Author Attribute Data Elements
+[cols="1,2,2", options="header"]
+|===
+| Data Element | Description | Example
+
+| ID (identifier)
+| Practitioner ID of the ordering or charting physician
+| 47-3659
+
+| semantic (logical expression)
+| Concept describing the author's role
+| Concept "Medical Practitioner" (SCTID: 158965000)
+|===
+
+== Subject of Information
+
+indexterm:[ANF, subject of information]
+The ((subjectOfInformation)) attribute is a logical expression
+that describes who the statement is about.
+Although most statements in a patient's chart are about the patient,
+a clinical record may also contain statements about family members,
+donors, or other related individuals.
+Possible values include "subject of record" (the patient),
+"family member," or "donor."
+
+.Subject of Information Attribute Data Elements
+[cols="1,2,2", options="header"]
+|===
+| Data Element | Description | Example
+
+| semantic (logical expression)
+| Who the statement is about
+| Concept "Patient"
+|===
+
+== Topic
+
+indexterm:[ANF, topic attribute]
+The ((Topic)) attribute identifies the central clinical concept
+of the ANF statement --
+what is being requested,
+measured, or observed.
+The Topic is governed by three principles:
+
+. The Topic defines an action that is being requested, measured, or observed.
+. The Topic must be able to exist on its own and retain its original intent and clarity.
+. The Topic can contain only one clinical concept.
+
+.Topic Attribute Data Elements
+[cols="1,2,2", options="header"]
+|===
+| Data Element | Description | Example
+
+| semantic (logical expression)
+| What the statement is about
+| Concept "Systolic Blood Pressure" (SCTID: 271649006)
+|===
+
+== Type
+
+indexterm:[ANF, type attribute]
+The ((Type)) attribute is a logical expression that identifies
+which kind of Circumstance the ANF statement carries.
+It distinguishes between a Performance Circumstance,
+a Request Circumstance,
+and a Narrative Circumstance.
+
+.Type Attribute Data Elements
+[cols="1,2,2", options="header"]
+|===
+| Data Element | Description | Example
+
+| semantic (logical expression)
+| Which type of Circumstance the statement uses
+| Concept "Performance Circumstance"
+|===
+
+A Performance Circumstance documents an action or determination
+that has already occurred --
+such as a measured blood pressure or the assessment of a symptom.
+A Request Circumstance describes a clinician's order or
+instruction for future action --
+such as a lab order or follow-up visit.
+A Narrative Circumstance captures free-text information that
+cannot be expressed in the structured Performance or Request models.
+
+Once the Type is determined,
+the Circumstance-specific attributes (see
+xref:anf-circumstance-timing[Circumstance Timing and Purpose],
+xref:anf-performance-result[Performance Circumstance Results],
+or xref:anf-request-control[Request Circumstance Control]) can be populated.

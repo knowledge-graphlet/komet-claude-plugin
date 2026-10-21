@@ -1,0 +1,1872 @@
+// dev-document-surface-pages
+// Topic: Document Surface Pages — Furniture, Insertion, Print Truth, and Editing in Place
+// Type: concept
+// Status: proposed
+:topic-id: dev-document-surface-pages
+:topic-type: concept
+:topic-status: proposed
+:topic-keywords: document surface, page furniture, running head, running footer, folio, page number, \
+  margin preset, binding gutter, keep together, page break, Source view, Reading view, Page layout view, continuous scroll, segmented control, layout oracle, layout fidelity harness, golden layouts, layout policy layer, Evrete rules, two-pass progressive layout, exact preview, PrintSettings, \
+  PagedDocumentEngine, print truth, Typst, Typst writer, typst-cffi, typst backend, RenderPdfMojo, vector PDF, hyphenation, footnotes, sidenotes, two-pass cross \
+  references, index generation, WYSIWYG, area insertion, KlSupplementalArea, \
+  KlParent, expansion rung, KlExpandable, KlPreferenceEditable, view context, nested document, \
+  edit in place, line provenance, reflow, tables, cells as blocks, column widths, continued caption, \
+  table notes, list of tables, live tables, terminology, CALS, formal object, identity discipline
+:topic-scope-note: Successor to xref:dev-stamped-document-surface[the stamped document surface], \
+  which settled one card with a Reading view, a Source view and a Provenance layer, and said nothing \
+  of pages. This topic adds what a document needs beyond the scroll: page furniture on screen and in \
+  print, the document as an area in knowledge-layout terms and how areas are inserted into it and it \
+  into a card, Komet's print chain, settled by KEC as Typst written from the block model with no \
+  Prince anywhere in the chain, and editing in place within pragmatic limits. It takes \
+  the grid and scroll discipline of xref:dev-interaction-surface-family[the \
+  interaction-surface family], the chronology model and projection flip of \
+  xref:dev-rich-interaction-surface[the rich interaction surface], the paper conventions of \
+  xref:dev-pdf-loose-leaf-variant[the loose-leaf variant] (whose rendering the Typst target takes \
+  over), and the landing rule of xref:dev-komet-actions[Komet actions]. Tracked in `IKE-Network/ike-issues#1307` under the epic \
+  `IKE-Network/ike-issues#806`. Open decisions are listed at the end for KEC.
+
+[[dev-document-surface-pages]]
+= Document Surface Pages — Furniture, Insertion, Print Truth, and Editing in Place
+
+indexterm:[document surface, pages]
+indexterm:[page furniture, document surface]
+xref:dev-stamped-document-surface[The stamped document surface] settled how a
+document materialized from git is read in Komet: one card, paragraphs drawn as
+runs that carry their source lines, provenance on hover, selection by line.
+It settled the document as a scroll. A document is also a thing that is
+printed, bound, paged through, cited by folio, and assembled from other
+documents, and the family topic promises all of that in one sentence, that
+the twelve-track grid maps to a page grid and the sticky header and footer
+become running heads, without saying how. This topic says how, for the four
+things the predecessor left out: the furniture of a page on screen and on
+paper; the insertion of one area into another in knowledge-layout terms;
+the print chain and what the typesetter must give; and what is edited in
+place.
+
+Komet already prints. The assistant plugin's document surface
+(`komet-claude-plugin`, package `network.ike.komet.claude.doc`) has a print
+engine, `PagedDocumentEngine`, that lays a column of blocks into pages of
+margins, a running-head band, a footer band and a clipped band of content,
+keeps atomic blocks together across page breaks (`Pagination`), and feeds the
+same pages to the preview and to the `PrinterJob`, so the preview is what the
+printer gets. Its choices are one persisted record, `PrintSettings`, whose
+every field is a concept-bound enum: `PageSize`, `PageOrientation`,
+`MarginPreset` (narrow, normal, wide), `DocumentTheme`, `FurnitureVisibility`
+for the running head, and `PageNumberPlacement` (none, header right, footer
+centre, footer right). That engine prints conversations. It knows nothing of
+a materialized document, of sections, of a title other than the conversation
+name, or of a binding. The documentation pipeline, meanwhile, prints the
+corpus through Prince and CSS Paged Media <<prince-guide>>, with running
+heads from named strings and folios from page counters <<cssgcpm3>>, a
+mirrored binding margin for duplex <<csspage3>> and chapter-local folios for
+a loose-leaf binder
+(xref:dev-pdf-loose-leaf-variant[], xref:dev-loose-leaf-index-and-diff[]).
+Neither prints the document this surface shows. KEC has settled that neither
+will: the print chain is Typst, written from the block model by a writer and
+never by hand, with the Reading and Page layout views FX-native and print as
+Typst's output (below). The sections below give the writer a document to
+print.
+
+== Three views of one document: Source, Reading and Page layout
+
+indexterm:[Source view, document surface]
+indexterm:[Reading view, document surface]
+indexterm:[Page layout view, document surface]
+The predecessor settled a Reading view and a Source view of the document as
+one scroll. KEC settled the third on 2026-10-20, after trying the built
+surface: "I'd like to have the JavaFX page layout (as close to perfect
+typist rendering as possible) to be a view mode, so we can have 'source',
+'reading', and 'page layout' as views." The surface therefore has three
+views, one segmented control, and the Provenance layer is drawn over any of
+them.footnote:[This topic first named the third view *Pages* and the
+one-axis scroll *Flow*, on 2026-10-19; KEC's names of 2026-10-20, *Reading*
+and *Page layout*, replace them throughout, and *Source* is the
+predecessor's.]
+
+.The three views
+[cols="1,3", options="header"]
+|===
+| View | What it shows
+
+| Source
+| The document as lines: the predecessor's ledger, one row per
+`StoredLine` with number, introducing identicon, annotation mark and text.
+
+| Reading
+| The family's Document surface: one vertical scroll axis, blocks on the
+twelve-track grid, prose in `body`, marginalia in `right-margin`, the runs
+and hover provenance of the predecessor. Furniture on screen is the family's
+sticky context: a header strip carrying the document title and the current
+section, and a footer strip carrying the position marker. This is where the
+document is read, selected and edited.
+
+| Page layout
+| The document laid into pages by JavaFX, from the stored blocks through
+the paged engine, each page drawn as paper with its furniture, in *one
+continuous vertical scroll of pages* (below), from the *same page model as
+the Typst writer*: page size,
+margins and binding gutter, furniture content and placement, keep and break
+rules, the same fonts at the same sizes. It is drawn in *two passes*, with
+Typst as the *layout oracle*, progressive like an image (below). Nothing is
+edited here; a double click on a block opens it in Reading, so text is
+never edited where it can reflow under the pointer.
+|===
+
+Page layout is a JavaFX rendering of Typst's page. KEC refined the
+decision minutes after making it, on 2026-10-20: "Can't you use Typst to
+retrofit line breaks? Since typst can be generated so quickly, I'd think
+you could do something like the progressive rendering that images can
+do..." So the view is drawn in two passes, progressive like an
+image.footnote:[*Layout oracle* and the *two-pass progressive layout* are
+this topic's names; the progressive image is the analogy KEC gave, and the
+oracle is the word for a thing asked for the right answer rather than
+computing it.]
+
+. *Pass one, instant.* The paged engine lays the stored blocks out greedily
+  in JavaFX over the page model, as it does today: the page appears at
+  once, with its furniture and its breaks by rule, and a paragraph's lines
+  are JavaFX's.
+. *Pass two, when the oracle answers.* The writer's Typst for the document
+  is compiled, and when the compile returns the view re-flows each
+  paragraph to Typst's exact lines, the same breaks, the same hyphenation
+  points, the same page assignment, with the same fonts and sizes, keeping
+  the `RichTextArea` blocks so that provenance and selection survive the
+  re-flow untouched. An edit shows at once in pass one and settles a moment
+  later in pass two.
+
+After pass two the page model, the breaks and the line counts *agree with
+Typst*; the residual is the settling latency, not the layout. The compile
+is fast because Typst compiles incrementally, memoizing what did not
+change, which is the design of the thesis behind it <<maedje2022>>, and
+the writer changes only the blocks an edit touched. The *fidelity measure*
+is then a check that pass two applied, not an estimate of distance: page
+count and the block each page breaks on, Page layout against Typst's own
+render of the same document, must be equal once settled, and the measure
+reports the settling latency, from the edit to pass two, as the number that
+matters. The measure runs in the acceptance test of the pipeline section.
+Print and PDF remain Typst's output, written from the block model; Page
+layout is what a person sees before printing, and after pass two it is the
+printed page's lines in JavaFX's hand. A later *exact-preview mode*,
+rendering Typst's own per-page output on screen, remains an option (the
+print-truth section) and is not a view.
+
+=== Page layout scrolls, never steps
+
+indexterm:[Page layout view, continuous scroll]
+indexterm:[Komet user interface, pagination anti-pattern]
+KEC saw a page navigation bar on the built view and set the rule on
+2026-10-20: "I would like the page layout to have a continuous scroll, not
+a button for 1 of 15. The button approach is the HTML pagination approach,
+which we do not want to take in our interface. It is a strongly discouraged
+anti-pattern for Komet user interfaces." The rule is general to Komet:
+*a sequence is scrolled, never stepped through with previous and next*.
+Paginated controls belong to the web page that could not afford to render
+its whole list; a Komet surface renders what is on screen and scrolls to
+the rest.
+
+For Page layout that means:
+
+* The pages are one continuous vertical scroll on the card's one scroll
+  axis, the family's rule that a surface exposes exactly one scroll and no
+  nested one, and its "structure over distance", that a reader moves by
+  structure and position rather than by a counter
+  (xref:dev-interaction-surface-family[]). No page stepper, no previous
+  and next, no "1 of 15" control.
+* A footer indicator shows the current page and the page count and follows
+  the scroll; it is the family's sticky position marker given a page number,
+  and it is read-only.
+* A jump is a scroll: the outline rail, a cross reference, a search hit and
+  the History view's commit each scroll the pages to the block, and the
+  indicator catches up.
+* Long documents are virtualized: only the pages in and near the viewport
+  are rendered, the rest hold their place as placeholders of *honest*
+  height, the height pass one or pass two assigned them, so the scrollbar's
+  length and the indicator's count are true and a jump lands where the page
+  will be.
+* When pass two settles and lines move, the scroll stays anchored to the
+  block being read: the block under the viewport's top keeps its place on
+  screen and the pages above and below re-flow around it, so settling never
+  moves the reader's eye.
+
+The prior art is the continuous page display of PDF viewers, the mode that
+scrolls through all pages as one strip rather than showing one page at a
+time <<pdf-continuous>>; the anti-pattern is the paginated list of the web,
+and Komet does not take it.
+
+=== The layout oracle
+
+indexterm:[layout oracle, Typst]
+indexterm:[two-pass progressive layout]
+The oracle is what pass two asks of Typst: for each page, for each block on
+it, the lines Typst set, each line as a range of source characters of the
+block with a flag where a word was hyphenated at the line's end, and the
+line's position on the page. Blocks and lines are addressed by the
+identities the writer aligned its spans to, so the answer maps onto the
+stored blocks without text matching where the route allows it. Three routes
+can obtain it, in order of preference:
+
+. *The embedded compiler's frames with source spans.* The compiler's layout
+  result carries each glyph run's position and its source span; the
+  foreign-function spike of the print-truth section now has this job as
+  well as incremental recompile, and it is the exact route.
+. *The command-line compile plus the PDF's line boxes.* `typst compile` to
+  PDF, then the text runs and their boxes read from the PDF and matched to
+  the block's text, hyphenation recovered where a line's last run ends in a
+  hyphen that the source lacks. Text matching is the weakness, and the
+  reader of the PDF must be a named module, never an automatic module, as
+  the Komet boot image allows none.
+. *Not SVG.* Typst's SVG export carries glyph outlines, not text, so there
+  is no span to match; it serves the exact-preview mode and nothing in the
+  oracle.
+
+
+`DocumentSurfaceArea` already builds a paged preview as its expanded view
+for a conversation, from the same engine. Page layout is that preview
+given the shared page model and a place beside Source and Reading, and
+making it a view rather than only the top of the expansion ladder is the
+first change this topic asks of the code.
+
+The view switch is *one segmented three-way selection* on the
+predecessor's contextual toolbar: a radio group rendered as a single
+segmented control with Source, Reading and Page layout as its segments,
+exactly one selected, the arrow keys moving the selection, never three
+separate buttons. KEC set the rule on 2026-10-20 after seeing the built
+toolbar: "The three different buttons is not elegant for toggling between
+these three states. I would think a 3 way selection/toggle is better. Maybe
+implemented like a radio group..." It is the Komet rule for *exclusive
+states on a toolbar*: a set of states of which exactly one holds is one
+segmented control, not a row of buttons that must be read together to know
+which holds. The prior art is the segmented control of the platform
+guidelines, a radio group in one bar that shows the chosen segment selected
+<<apple-hig-segmented>>; the family's Reading or Source switch and the
+Provenance layer's toggles are not of this kind, since layers compose and
+views do not.
+
+=== The layout fidelity harness
+
+indexterm:[layout fidelity harness]
+indexterm:[golden Typst layouts]
+indexterm:[pass-one score, per-rule attribution]
+The oracle corrects pass one; it can also *measure* it, and measuring it
+over time is how the greedy pass improves until pass two has less to do.
+KEC named the instrument on 2026-10-20: "the layout fidelity harness with a
+corpus, golden Typst layouts, a headless pass-one score with per-rule
+attribution, and a CI gate in the build report." The harness, the score
+and the attribution rules are this topic's own; the two things it stands
+on are in-house prior art, golden-file testing as `FoundationFidelityIT`
+practises it against a pinned baseline (the Terminology section), and the
+build report's Measures and gates (xref:dev-build-report-extension[]).
+
+* *The corpus.* The lab documents' dev topics, the ANF topics, the FDA
+  guidance notes, and synthetic stress documents: long paragraphs of
+  one-syllable words, paragraphs of long words with no hyphenation points,
+  tables at the page foot, headings at the page foot, nested lists, and a
+  chapter of forty-nine footnotes. Real documents find the common faults;
+  the synthetic ones pin each rule in isolation.
+* *Golden layouts.* For each corpus document, the oracle's answer from Typst
+  at a pinned version, stored beside the document: pages, blocks per page,
+  lines per block as source ranges with hyphenation flags. A regeneration
+  goal rewrites them, and the diff between old and new goldens is loud, a
+  report rather than a silent overwrite, because a golden changes for one
+  of two reasons, a Typst upgrade or a change in the writer's output, and
+  the second must be seen. The writer therefore needs its own round-trip
+  tests first, AsciiDoc to Typst to the oracle and back to the blocks;
+  without them the goldens would teach the engine the writer's mistakes.
+* *The headless pass-one score.* The paged engine runs headless over the
+  stored blocks and its layout is scored against the golden: pages
+  matching; blocks breaking on the same page; lines breaking identically;
+  lines off by one word; hyphenation points missed. Each is a count and a
+  ratio, per document and over the corpus.
+* *Per-rule attribution.* Each difference is attributed to a rule *by
+  elimination*: a line of the same words at a different width means
+  measurement or kerning; a break inside a word means hyphenation; a
+  different paragraph on the page means a keep or a spacing rule; the same
+  breaks with a different line count means leading. The attribution turns a
+  score into a work list, one rule at a time.
+* *Published and gated.* The score is published as build-report Measures,
+  and the gate fails a build whose score regresses against the last
+  published one, so a change to the engine, the fonts or the writer cannot
+  quietly move the view away from the page.
+
+The cheap rules are tuned first, measurement, leading, keeps, the
+hyphenation points the engine can take from Liang's patterns
+<<liang1983>> even when it breaks greedily. The honest limit is that a
+greedy breaker never matches an optimizing one on every paragraph: Typst
+sets a paragraph as a whole, and a line it lengthens to improve the next
+one is a line greedy breaking cannot foresee. So the harness ends by
+pointing at paragraph breaking, where an optimizing line breaker with
+hyphenation patterns, Knuth and Plass over Liang <<knuthplass1981>>
+<<liang1983>>, is the eventual answer for pass one and the harness its
+validation; until then pass two closes the gap, and the harness says how
+wide the gap is.
+
+=== The layout policy layer
+
+indexterm:[layout policy layer, Evrete]
+indexterm:[policy facts, dual consumption]
+The harness attributes a difference to a rule; the question that followed,
+from KEC on 2026-10-20, was whether the rules themselves belong in the rules
+engine: "Should we consider putting things like line-break rules in
+evrete?" The answer is a split, and KEC set it as a later phase: "record
+the layout policy layer: keep, break, widow and orphan, placement,
+furniture and perspective overrides as concept-bound Evrete rules consumed
+by both the JavaFX engine and the Typst writer, with the algorithms staying
+outside the rules engine, as a later phase after the harness."
+
+*Policy in rules, arithmetic in engines.* Line breaking, pagination
+fitting, hyphenation and glyph measurement are algorithms and never rules:
+a paragraph is set by minimising badness over all its lines at once
+<<knuthplass1981>>, hyphenation points come from pattern matching
+<<liang1983>>, and Typst's own engine does both inside the compiler
+<<maedje2022>>; a rules engine that fired per line or per glyph would
+re-implement them badly and slowly. What the arithmetic *obeys* is policy,
+and policy is what a rules engine is for. The policy becomes Evrete rules
+<<evrete>> over *block facts*, the same engine Komet's rules run on
+(`komet/rules`, `RulesBase` over Evrete, the engine whose offers
+xref:dev-komet-actions[] converges with the assistant's tools):
+
+* *keep rules by block kind*: a heading with its next block, a small table
+  together, a large table flowing, a figure with its caption;
+* *break rules*: a chapter on a recto, a section of a given level starting
+  a page, a list breaking only between items;
+* *widow and orphan thresholds* per block kind and document type;
+* *placement policy* for figures and tables, and the continued-caption
+  rule;
+* *furniture content* per page class (first, verso, recto, blank) and
+  folio placement;
+* *overrides* per document and per perspective.
+
+Each rule has a *concept identity*, which ties to the open item of
+xref:dev-komet-actions[] on rule identity as concepts and to the
+concept-bound behaviour that topic settles; is *pure and deterministic*,
+with *explicit precedence* among rules rather than an accident of salience;
+runs *once per layout pass* over the document's few hundred block facts,
+never over lines or glyphs; and has a harness test of its own, a corpus
+document that exercises it and the golden it must reproduce.
+
+*One source, two consumers.* The same policy facts are consumed by the
+JavaFX engine as constraints on pass one and emitted by the Typst writer as
+Typst `set` and `show` rules <<typst-styling>>, so the two passes cannot
+disagree on policy, only on the arithmetic the harness measures; and when
+the harness attributes a difference, it names the rule concept that fired,
+so "why did this page break here" has a readable answer, the rule by name.
+The policy-fact shape and this dual consumption are this topic's own; the
+prior art is Komet's rules engine on one side and Typst's `set` and `show`
+rules on the other.
+
+*Rules as knowledge.* KEC settled on 2026-10-20 that these rules are
+knowledge: each a concept, its definition a semantic in a declarative tier
+first and an executable tier compiled at runtime by Evrete where predicates
+run out, written and tried by the knowledge engineer in Komet, and
+governed by the knowledge lifecycle, an uncommitted version until
+committed, promoted and released with the product, rather than by a
+software release gate; executable rules run in a bounded module layer,
+pass admission per module, declare the rules API version they target, and
+a failing rule is disabled, never the application. The decision, the
+objections it overrode and the safeguard answering each are recorded once,
+in xref:dev-rules-as-knowledge[], which this section and
+xref:dev-komet-actions[] both cite.
+
+== Page furniture
+
+indexterm:[running head, content rule]
+indexterm:[running footer, content rule]
+indexterm:[folio, document surface]
+Furniture is everything on a page that is not the document's content: the
+running head, the running footer, the folio, the margins and the binding
+gutter. The word is the compositor's: Moxon's furniture is the head-sticks,
+side-sticks and gutter-sticks that hold the pages of type in the chase
+<<moxon1683>>, and the editorial sense, the running heads and folios that
+frame the text on every page, keeps the idea of what surrounds the matter
+without being it. The parts themselves are the book's as the style manuals
+describe them <<chicago2017>> <<harts2014>>. The rule for all of it is that
+furniture is *derived*, from the document's structure and from settings, and
+never typed. A person changes
+furniture by changing a setting; the document's own text never contains a
+running head.
+
+=== What the running head and footer say
+
+The conversation engine's running head is the conversation name and its
+footer is the page number. A document needs the book convention, the title
+on the verso and the section on the recto with the folio at the outer edge
+<<chicago2017>> <<harts2014>>, and the pipeline's stylesheet already follows
+it, so the surface adopts the same rules rather than a new vocabulary.
+
+.Furniture content rules
+[cols="1,3", options="header"]
+|===
+| Slot | Content
+
+| Running head, verso (left page)
+| The document title: the level-0 title of the materialized document, or of
+the outermost document when documents are nested (below).
+
+| Running head, recto (right page)
+| The current section: the heading of the last level-1 section begun on or
+before this page. This is the paged-media `string-set` rule <<cssgcpm3>> the
+loose-leaf overlay uses for `chapnum`, applied to the section title, and the
+`fo:static-content` with a retrieved marker of XSL <<xsl11>>. A page before the
+first section shows the document title on both faces.
+
+| Running head, single-sided
+| Title and current section together, title on the left and section on the
+right, since there is no verso to carry the title.
+
+| Running footer
+| The folio, placed by `PageNumberPlacement`, mirrored to the outside edge
+under a duplex gutter (below). Optionally beside it, the *as-of line*: the
+short SHA of the commit the document was materialized from and the date, so
+a printed page says which version it is. The as-of line is what the family
+asks of a printed frame, that it record the coordinate it resolved, applied to
+the whole document.
+
+| Front and back matter
+| Folios in lowercase roman on content-bearing front matter, arabic from the
+body, nothing on a title page or a blank verso <<chicago2017>>
+<<harts2014>>, as `ike-print.css` already does under Prince. The writer
+emits the same rule for a document with front matter.
+|===
+
+The folio follows one of two schemes, `FolioScheme`: *continuous*, one count
+through the document, the universal output of the loose-leaf topic; or
+*chapter-local*, `chapter-page` with each level-1 section restarting the count
+on a recto, the loose-leaf output. The scheme is a setting of the document,
+not of the printout, because the index and cross references of a loose-leaf
+edition are built against it (xref:dev-loose-leaf-index-and-diff[]).
+
+=== Margins, and the binding gutter is not the marginalia
+
+indexterm:[margin preset, document surface]
+indexterm:[binding gutter, document surface]
+indexterm:[marginalia, versus binding gutter]
+Three margins exist in this design and they must not share a name.
+
+* The *margin regions* of the family's grid, `left-margin` and
+  `right-margin`, two tracks each, are regions of the *screen* surface. They
+  hold marginalia: the identicons, review marks and sidenotes of the
+  predecessor's Provenance layer. They are not paper margins.
+* The *page margins* are the four edges of paper the content column stays
+  inside, chosen by `MarginPreset` (narrow, normal, wide; 36, 72 and 108
+  points today). The presets are uniform; the proportioned margins of the
+  book page, narrower inside than outside and narrower at the head than the
+  foot <<tschichold1991>> <<bringhurst2012>>, are a theme choice the
+  preset vocabulary can grow to. The engine draws the running-head band inside the top margin
+  and the footer band inside the bottom one.
+* The *binding gutter* is extra width on the bound edge, so that the content
+  clears the binding. It is a print-only setting, `BindingGutter`: *none*
+  (symmetric margins, the universal output); *simplex*, extra width on the
+  left edge of every page, for a single-sided printout bound on the left;
+  *duplex*, extra width on the inside edge, mirrored between recto and verso,
+  which is the `margin-inside` / `margin-outside` rule of the loose-leaf
+  overlay <<csspage3>>. The gutter adds a fixed half inch to the preset's edge; the preset
+  itself does not change.
+
+The word *gutter* is reserved for the binding allowance.footnote:[The
+distinction is this topic's. In bookwork the gutter is the inner margin of a
+spread <<harts2014>>, and in the compositor's chase the gutter-stick is the
+furniture between the pages <<moxon1683>>; both are the binding side, which
+is why the word is kept for that side alone here and never for the screen's
+margin regions.] The screen's margin tracks are *margin regions* and what
+they hold is *marginalia*; the predecessor already uses those words, and the
+family's `right-margin` keeps its name. When the Provenance layer prints, its marginalia go to the
+*outside* page margin, the one away from the binding, so an identicon is
+never swallowed by the gutter; the page margin for a printed Provenance layer
+is therefore the wide preset at least, and the writer widens it if the
+setting is narrower, reporting the change in the status line rather than
+clipping the marks.
+
+=== Keep and break rules
+
+indexterm:[keep together, document surface]
+indexterm:[page break, document surface]
+Breaks are rules by block kind, not settings; the writer emits them as
+Typst's `block(breakable:)` and keep settings. The rules a document adds:
+
+* A heading keeps with the block that follows it, `keep-with-next` in XSL's
+  words <<xsl11>>; a heading is never the last thing on a page.
+* A paragraph breaks between lines, never within a line, and leaves at least
+  two lines on each side of the break, the widow and orphan rule of the
+  typographers <<bringhurst2012>> <<chicago2017>>. Since a line is a
+  `StoredLine`, the break falls between source lines and provenance is
+  undisturbed.
+* A table keeps its caption and header row with the first body row and
+  repeats the header row on each continuation page, as CSS lets a header
+  row group repeat on paged media <<css21>>; it breaks between rows, and
+  inside a cell only when one row exceeds a page (the Tables section).
+* A listing breaks between lines like a paragraph, with no widow rule, so a
+  long listing paginates rather than overflowing.
+* A figure (a concept tree, a diagram, an image) is atomic and keeps with its
+  caption; a figure taller than a band is scaled to the band, as the family's
+  "fit" contract requires of a block that cannot fit its measure. A figure
+  does not float: it prints where its row falls, and the keep rule moves it
+  whole, which is the one of LaTeX's float placements <<lamport1994>> this
+  surface keeps, since a floated figure would part from the provenance of
+  the prose around it.
+* A level-1 section starts per `SectionStart`: *flow* (no break), *new page*,
+  or *recto* (new page, on a right-hand face, with a blank verso inserted),
+  the last being the book convention for chapter openings <<chicago2017>>,
+  required by the chapter-local folio scheme and the only value the
+  loose-leaf binder accepts.
+* A nested document starts as its outermost level-1 section would; it brings
+  no page settings of its own (below).
+
+=== Which settings are shared concepts
+
+indexterm:[PrintSettings, shared concepts]
+The existing enums are starter-set concepts with pinned public ids, persisted
+by name in one `Encodable` record under `DocumentSurfaceSettingKeys`. The
+document surface keeps every one of them and adds four. Nothing is renamed:
+the constant names are the wire format.
+
+.Settings concepts, existing and new
+[cols="2,1,1,3", options="header"]
+|===
+| Concept | Exists | Used on screen | Note
+
+| `PageSize`, `PageOrientation`
+| yes
+| Page layout only
+| Unchanged. Reading has no page.
+
+| `MarginPreset`
+| yes
+| Page layout only
+| Unchanged. The screen's margin regions are grid tracks, not this.
+
+| `DocumentTheme`
+| yes
+| both
+| Face, base size and prose family. Reading draws prose in the theme too, so
+the screen and the page differ in geometry and never in type.
+
+| `FurnitureVisibility` (running head)
+| yes
+| both
+| In Reading, hides the sticky header strip; in Page layout and print, the band.
+
+| `PageNumberPlacement`
+| yes
+| Page layout only
+| Gains `FOOTER_OUTSIDE`, the mirrored placement a duplex gutter needs.
+Adding a constant is wire-compatible; renaming is not.
+
+| `FolioScheme`
+| new
+| Page layout only
+| continuous, chapter-local.
+
+| `BindingGutter`
+| new
+| Page layout only
+| none, simplex, duplex.
+
+| `SectionStart`
+| new
+| both
+| flow, new page, recto. In Reading a new-page or recto start draws as a rule
+between sections, so the structure that will break a page is visible without
+pages.
+
+| `AsOfLine`
+| new
+| Page layout only
+| shown, hidden; a `FurnitureVisibility` for the footer's as-of line, kept
+as its own field so the running head's toggle stays what it is.
+|===
+
+The record grows from six fields to ten. Its encoder writes fields in order,
+so the change is a new encoder version with the old six read and the four
+new ones defaulted; the freeze test that pins the public ids extends to the
+new concepts. The generated settings form of `KlPreferenceEditable` shows the
+new fields with no further code, which is the reason to keep every choice an
+enum rather than a number.
+
+== The document in knowledge-layout terms
+
+indexterm:[document surface, KlSupplementalArea]
+indexterm:[area insertion, document surface]
+The family says a surface is a block, so a surface can sit in another
+surface's cell, and asserts that this is the composition the knowledge-layout
+tier already performs when a host card holds grid-placed areas and an area
+hosts a card. The assertion is right as an analogy and silent as a design: it
+does not say which knowledge-layout type a document surface is, which type a
+figure in it is, how a nested document's grid relates to its host's, who owns
+the page settings when documents nest, or how expansion climbs through the
+nesting. This section settles each.
+
+=== The document is an area; a card hosts it
+
+The document surface is an *area*, a `KlSupplementalArea` <<kl-area>>, as
+`DocumentSurfaceArea` already is for the conversation's document: an area
+with its own preferences node and lifecycle, implementing `KlExpandable` (its
+expanded view is Page layout) and `KlPreferenceEditable` over `PrintSettings`. It
+is never a card and never a window.
+
+* A *card* hosts the document area. `StampedDocumentCard` today is an
+  `AbstractHostCard` that draws its own content; it becomes a host card whose
+  one area is the stamped document area, with the card's toolbar being the
+  predecessor's contextual toolbar, and its Repository panel and History
+  view (xref:dev-stamped-document-surface[], "The repository and its
+  operations") as supplemental areas of the same card. `ClaudeCard` already holds a
+  `DocumentSurfaceArea` card-internally; the same area class, restored from
+  the card's preferences node, serves both, which is what "journals and git
+  documents share one block model" means in layout terms.
+* A *window* hosts cards: the journal card windows of
+  xref:dev-kview-window-retirement[] remain, and a document card is one of
+  them. The Scriptorium's retirement of the journal (xref:dev-scriptorium[])
+  changes which window hosts the card, not that a card hosts the area.
+
+=== Inserting a figure area into a document area
+
+A document area is a `KlParent`: it has a `gridPaneForChildren()`, and that
+grid pane *is* the twelve-track grid of the family, an `AreaGridSettings`
+grid <<kl-area>> with twelve columns and one row per block. A figure in the document is a
+*child area* of the document area, placed with the grid settings the layout
+tier already has, where the family's named regions are the closed set of
+column spans a child may take:
+
+.Named regions as grid spans
+[cols="1,1,2", options="header"]
+|===
+| Region | Columns | Child
+
+| `body` | 3–10 | a prose block; a figure at the text measure
+| `body-inset` | 4–9 | a narrower centred figure
+| `left-half`, `right-half` | 3–6, 7–10 | two figures side by side on one row
+| `full-bleed` | 1–12 | a wide table or a tree, across the margin regions
+| `left-margin`, `right-margin` | 1–2, 11–12 | marginalia sharing a row with the body block
+|===
+
+A concept tree, a table of versions, or a diagram is thus a `KlArea` of the
+kind the layout tier already produces for a field (`KlAreaForComponent`,
+`KlAreaForList`, and the rest of `dev.ikm.komet.layout.area`), inserted as a
+row with a span. Render dispatch (xref:dev-rich-render-dispatch[]) chooses the
+area factory by block kind; this topic chooses only where the result sits.
+The inserted area is a figure in the family's sense: it fits, it never
+scrolls, and if it cannot fit its span it scales or promotes to `full-bleed`.
+Its print form is the block's static adapter, scaled to the page's content
+width by the same rule.
+
+=== Inserting a document into a document, and into a card
+
+indexterm:[nested document, document surface]
+A document inserted into a document is a child document area placed in a row
+of the host's grid, in one of the family's two embed modes:
+
+* *Flow*: the nested document's rows dissolve into the host's. Its blocks are
+  rows of the host's grid, its sections are sections of the host for the
+  running head and the folio, and its grid tracks are not its own but the
+  host's, measured to the host's `body`. This is what an AsciiDoc `include`
+  is: the assembly that materialized thirty-six documents from one compendium
+  is one host document with thirty-five flowed children, each still its own
+  `StoredDocument` with its own lines and STAMPs.
+* *Fit*: the nested document is a framed excerpt, bounded to a span, with a
+  caption, as a figure. A quoted section of another document is this. It
+  carries its own as-of coordinate in the caption, the family's "current as
+  of" or "as authored" frame.
+
+A document inserted into a card is the first case above with the card as
+host: the card's `gridPaneForChildren()` holds the document area in a cell.
+The card is not a document, so there is no flow mode at this level; the
+document fits the cell and scrolls inside it as the family's one axis, which
+is the only scroll there is.
+
+=== Preferences and view context pass down
+
+indexterm:[preferences, nested areas]
+indexterm:[view context, nested areas]
+Two things pass from a host to the areas inserted in it, and they pass by
+different rules.
+
+*Preferences* pass by nesting of nodes: a child area's preferences node is a
+child of its host area's node, as `ClaudeCard` restores its
+`DocumentSurfaceArea` from `preferences().node(DocumentSurfaceArea.class)`.
+A figure area's settings live under the document's node, a flowed child
+document's under its host's. Page settings are the exception and the rule
+that follows from it: *the outermost document that is printed owns the page
+settings*, and a flowed child contributes blocks, sections and keep rules
+only. A child's own `PrintSettings`, if it has any from being opened alone,
+are ignored while it is flowed. A fitted child, being a figure, has no page
+settings at all.
+
+*View context* passes by inheritance with a visible override, which is the
+family's "coordinate-scope ambiguity" weak point answered. A figure area
+resolves its content against the view coordinate of the document it sits in,
+through the layout tier's context contract (`dev.ikm.komet.layout.context`),
+unless the figure pins its own, as a frame "as authored" does. A pinned
+figure shows a badge in its chrome naming the coordinate it is pinned to, so
+that a tree governed by a different path than the prose around it is never
+silent. A flowed child document inherits its host's coordinate and cannot
+pin one; a fitted child may.
+
+=== Expansion rungs through the nesting
+
+indexterm:[expansion rung, document surface]
+indexterm:[KlExpandable, document surface]
+Expansion is the ladder of `dev.ikm.komet.layout.expand` <<kl-expand>>: a
+`KlExpandable` figure fills the nearest `KlExpansionHost` rung, climbs one
+rung per activation, and steps down on Escape. Hosts opt in by marking their pane with
+a rung, which is how a window in `kview` is a rung without the layout tier
+knowing it. The nesting of this topic gives the ladder its rungs:
+
+. A figure area in a document expands to fill the *document area*, which
+  `DocumentSurfaceArea` already marks as the rung named "Document".
+. The document area expands to fill its *card*. Its expanded view is Page
+  layout.
+. The card expands to fill the *journal window*, and beyond that OS full
+  screen, which a document allows (`osFullScreenCapable`) and a small table
+  does not.
+
+A flowed child document is *not* a rung: its blocks are the host's rows, and
+a figure in it expands to the host document. A fitted child document is a
+rung, named by its caption, since it is a place a reader recognises. The
+preferences toggle of the expanded chrome, from `KlPreferenceEditable`, is
+where the page settings of the section above are edited: expand the document
+to Page layout, open preferences, and the generated form shows the ten fields.
+
+== Print truth: Typst from the block model, settled
+
+indexterm:[print truth, document surface]
+indexterm:[WYSIWYG, document surface]
+indexterm:[Typst, print target]
+Three engines could lay the document into pages: the JavaFX engine, on
+screen and through the printer from the running Komet; Prince, from HTML and
+CSS Paged Media in the documentation pipeline <<prince-guide>>; and a
+typesetter fed from the block model. The family topic names a fourth,
+DocBook and XSL-FO <<walsh2010>> <<xsl11>>, as the print-target vocabulary,
+which nothing in any chain renders. KEC settled the question twice on
+2026-10-19, and the second decision supersedes the first.
+
+=== The decision, and what changed
+
+The morning's decision made the JavaFX engine the print truth, raised to
+Prince's quality:
+
+[quote, KEC, 2026-10-19 (superseded the same day)]
+____
+The goal is to be able to render print at equivalent resolution/quality as
+prince, but to do it within JavaFX, and not depend on prince as part of the
+print chain. In some cases, we may render from FX controls, in ways that
+prince may not be able to directly manage. And also, there maybe
+html/css/prince limitations that we want to step around.
+____
+
+Later the same day KEC revised it, leaning first ("I'm leaning toward Typst
+as the final target in the chain. And I'm hoping that we can render Java FX
+on the screen with excellent fidelity.") and then settling:
+
+[quote, KEC, 2026-10-19 (settled)]
+____
+Typst is the final target in the chain, written from the block model and
+never hand-authored; the Flow view stays FX-native; the Pages view renders
+Typst output; diagrams reach Typst as SVG or via its Graphviz plugin; the
+four AsciiDoc-source disciplines apply.
+____
+
+What stayed: no Prince anywhere in the chain, and the print chain inside
+Komet. What changed: the typesetting is Typst's <<maedje2022>>, a
+typesetter built for the purpose, not a typesetter written in JavaFX over
+the toolkit's text layout. The JavaFX engine's paged preview, which the
+morning's decision would have grown into a typesetter, is not that
+typesetter; it lays out the Page layout view over the shared page model,
+and print is Typst's output.
+
+On 2026-10-20, after trying the built surface, KEC settled the on-screen
+side: "I'd like to have the JavaFX page layout (as close to perfect typist
+rendering as possible) to be a view mode, so we can have 'source',
+'reading', and 'page layout' as views." So the Page layout view is JavaFX's
+over the shared page model, tracking Typst as closely as JavaFX allows
+(the views section), and the 2026-10-19 statement that the on-screen pages
+render Typst's PNG or SVG is superseded: that rendering is an option for a
+later exact-preview mode, not the view. Minutes later KEC refined it,
+"Can't you use Typst to retrofit line breaks?", which makes Typst the
+layout oracle of a two-pass Page layout. Print and PDF stay Typst's.
+
+=== One author of Typst: the writer
+
+indexterm:[Typst writer, block model]
+A *Typst writer* reads the block model and emits Typst source. It is the
+only author of Typst: no Typst is hand-written, none is committed, and git
+holds AsciiDoc and nothing else. Typst and the Tinkar graph are both
+projections of the AsciiDoc source, the one for the page and the other for
+provenance, and the writer takes the graph's blocks, with their identities,
+as its input, so that what prints is what the surface shows and selects.
+The writer keeps every emitted span aligned to the block, row, cell or line
+it came from, which is what the exact-preview mapping (below), the PDF's
+way back to a block and the jump-from-click of Typst's introspection depend
+on.
+
+=== Reading and Page layout are FX-native; print is Typst's
+
+The *Reading* view is the FX-native surface, unchanged from the predecessor:
+`StampedDocumentCard`'s runs carrying their `StoredLine`s, hover provenance,
+selection by line, and the editing in place of the section below. KEC's hope
+for it is fidelity, that FX renders the same type with the same metrics as
+the page (fonts, below), not that FX paginates.
+
+The *Page layout* view is FX-native too, laid out by the paged engine from
+the stored blocks over the shared page model, in two passes with Typst as
+the layout oracle (the views section above), and it is the on-screen page.
+Print and PDF are Typst's output, written from the block model by the
+writer. KEC settled this on 2026-10-20, and it supersedes the statement of
+2026-10-19 that the on-screen pages render Typst's per-page PNG or SVG;
+that rendering becomes an option for a later *exact-preview mode* rather
+than the view, and Typst's compile serves the view as its oracle instead. Where it is offered, a click on
+Typst's page maps back to a source span through Typst's introspection, the
+`jump_from_click` of `typst-ide` <<typst-ide>>, and from the span, through
+the writer's alignment, to the block or line; the same alignment lets a
+reader of the PDF be taken to the block in Komet. Typst's own `query` and
+`context` give the writer the page of any block, so the Reading view's
+position marker can say which printed page a line falls on, and the
+fidelity measure can compare that page with the Page layout view's.
+
+=== Embedding is a spike, not a given
+
+indexterm:[typst-cffi, embedding]
+The Typst compiler is Rust. A thin C interface exists, the `typst-cffi`
+crate <<typst-cffi>>, which tracks Typst 0.15.1 <<typst-0.15>> and exposes
+compile-to-PDF, PNG and SVG; no Java binding exists. Embedding it in Komet
+means binding through the JDK's foreign-function and memory API, a native
+library per platform carried in the jlink image, and the spike decides
+whether that holds: whether the library builds and loads on each platform,
+whether compile latency serves pass two of the Page layout view after an
+edit, and whether the layout frames with their source spans, the oracle's
+exact route, and the introspection an exact-preview click needs are
+reachable through the C surface or need a wider one.
+
+The *headless target* needs no embedding: the writer emits Typst and the
+Typst command line compiles it. That target comes first, and it replaces
+Prince in the documentation toolchain and in CI for the documents the writer
+covers; in Komet the same binary is bundled in the jlink image and run as a
+process until the spike settles (the pipeline section below), at the cost
+of a process per compile.
+
+=== Fonts
+
+The same families are embedded by Typst and loaded by FX: the Noto families,
+chosen for coverage and for being free to embed, so that Reading, Page
+layout and the Typst page share glyph metrics at the same sizes, which is
+what lets pass two of Page layout place Typst's lines in JavaFX's hand
+without a glyph moving. Typst hyphenates from the document's language
+patterns, breaks paragraphs optimally and hangs punctuation into the margin
+by default (`hyphenate`, `lang`, `overhang` <<typst-text>>); pass one
+breaks greedily and does none of those, and pass two retrofits all three
+from the oracle.
+
+=== Diagrams
+
+indexterm:[diagrams, Typst]
+Typst embeds SVG and PNG natively <<typst-0.14>>. Every diagram reaches it
+as one or the other, with no server and no native binary:
+
+* Graphviz renders in-document through the `diagraph` package, Graphviz
+  compiled to WebAssembly as a Typst plugin <<diagraph>>; the writer emits
+  the DOT source and Typst lays it out.
+* PlantUML runs in-process in Komet in its pure-Java layout mode, Smetana
+  <<plantuml-smetana>>, and hands the writer SVG; no Graphviz binary is
+  required.
+* Komet's own renderers, the koncept tree and the graph figure, export SVG
+  of what they draw, so a live FX control prints as a vector of itself.
+* Diagram text travels as paths, or in fonts Typst can find, so a label is
+  never substituted.
+* No Kroki server, no Graphviz installation, no network.
+
+=== The four AsciiDoc-source disciplines
+
+indexterm:[AsciiDoc, source disciplines]
+Because git holds AsciiDoc alone, the source must stay AsciiDoc that every
+reader can render. Four disciplines hold.
+
+. *Standard AsciiDoc wherever it has the semantics.* Tables, footnotes,
+  cross references, index terms, bibliography and citations, and `stem`
+  blocks are written as Asciidoctor defines them <<asciidoctor-tables>>
+  <<asciidoctor-footnotes>>; the writer maps each to Typst, and LaTeX math
+  in a `stem` block reaches Typst through `mitex` <<mitex>>.
+. *Extend only where AsciiDoc has nothing*, through named macros or tagged
+  blocks, each with a legible fallback in plain Asciidoctor, on GitHub and
+  under Prawn: a Koncept badge falls back to its label, a live table to a
+  static table. Never a passthrough block, never a backend conditional in a
+  topic.
+. *The dialect parser types every extension block*, so that provenance and
+  editing do not stop at the edge of a macro: a live table is a typed block
+  with cells, not an opaque one.
+. *The IKE-DOC backend matrix is the test* <<ike-doc>>: a construct that
+  renders under html5, Prawn and the Typst target, or has a stated fallback
+  under each, is allowed; one that renders under Typst alone is not.
+
+=== What Typst gives, against the capability list
+
+The morning's decision listed what a typesetter must own. Typst owns most of
+it already; the table says how, and what it costs.
+
+.The capability list, met by Typst
+[cols="1,3", options="header"]
+|===
+| Capability | How Typst meets it
+
+| Typesetting
+| Optimized line breaking in the Knuth and Plass line <<knuthplass1981>>,
+hyphenation from language patterns <<liang1983>> selected by `lang`, and
+optical margin alignment through `overhang` <<typst-text>>, the protrusion
+of microtype <<thanh2000>>; widows and orphans by the paragraph's own
+settings. Prose keeps its `StoredLine`s because the writer emits one span
+per line and Typst's breaking is within the span.
+
+| Footnotes and sidenotes
+| A native `footnote`, placed at the foot of the page its reference falls on
+and continued across pages, the footnote of the printed book
+<<chicago2017>> rather than Asciidoctor's endnote <<asciidoctor-footnotes>>;
+a sidenote by placement in the outside margin beside its reference, where
+the Provenance layer's marginalia also go, clear of the gutter.
+
+| Running heads from section text
+| Context-driven: a header that queries the headings before the current page
+and sets the verso title and the recto section, which is `string-set` done
+in a language <<cssgcpm3>> rather than a stylesheet.
+
+| Cross references with page numbers
+| `ref` with the page counter in context; Typst iterates layout to a fixed
+point itself, so the two passes LaTeX runs by hand <<lamport1994>> are the
+compiler's, and the writer emits a reference and nothing more.
+
+| Index and generated lists
+| Outlines by kind: `outline(target: figure.where(kind: table))` is the list
+of tables, and the same for figures and equations <<typst-outline>>, the
+`lot` of DocBook <<stayton2007>> <<stayton2016>> as a query; the index from
+queried index entries with their pages, in the document's folio scheme.
+
+| Tables
+| Native tables with repeating multi-level headers (`table.header`), footers
+and row and column spans <<typst-outline>>; the Tables section's
+requirements map onto them, with continued captions from context.
+
+| Mathematics and bibliography
+| Native math, with LaTeX through `mitex` <<mitex>>; bibliographies through
+CSL with a hundred shipped styles and custom `.csl` files <<typst-0.14>>.
+
+| Output
+| Tagged PDF by default and PDF/UA-1 optional since 0.14, with PDF/UA-2
+pending, and PDF/A at every level <<typst-0.14>> <<typst-blog-0.14>>
+<<iso32000>> <<iso19005>> <<iso14289>>; PNG and SVG per page for the
+exact-preview mode and for the fidelity measure. The `PrinterJob` path prints the PDF through the operating system's
+dialog.
+|===
+
+The costs are four. A native dependency, if the embedding spike succeeds,
+and a process per compile if it does not. A two-model mapping, the block
+model to Typst and Typst's spans back to blocks, which the writer must keep
+exact or an exact-preview click lands on the wrong line. Live FX controls
+print as exported SVG, a vector of the control at the moment of export,
+never the control itself. And a young project's roadmap: Typst is at 0.15
+<<typst-0.15>>, its PDF/UA-2 is pending, and its C interface is one
+person's crate; the disciplines above keep the source independent of it, so
+a change of target is a new writer, not a new corpus.
+
+The Prince topics, xref:dev-pdf-loose-leaf-variant[] and
+xref:dev-loose-leaf-index-and-diff[], remain the record of the paper
+conventions, the folio schemes, the duplex gutter, the chapter-local index;
+the headless Typst target takes over their rendering as the writer covers
+the Maven-built books.
+
+== Typst in the documentation pipeline and in Komet
+
+indexterm:[Typst, documentation pipeline]
+indexterm:[ike-doc-maven-plugin, Typst renderer]
+Typst reaches the page from two front ends, the Maven-built books and
+Komet, and the two must agree. This section slots Typst into the pipeline
+where Prince sits today, puts the first Typst into Komet without a line of
+native code, and gives both front ends one writer.
+
+=== How Prince is slotted today
+
+The pipeline is `ike-doc-maven-plugin` (`ike-docs`, package
+`network.ike.docs.plugin`) <<ike-doc-plugin>>. Its `Backend` enum names
+three Asciidoctor backends, `HTML("html5", "html")`, `PDF("pdf",
+"pdf-prawn")` and `DOCBOOK("docbook5", "docbook")`, and `AsciidocMojo`
+converts each enabled one. `RenderPdfMojo` takes a `renderer` (prince, ah,
+weasyprint, xep, fop), an input and an output directory and a stylesheet,
+and runs the external executable: the CSS renderers over Asciidoctor's print
+HTML with `ike-print.css`, the FO renderers over DocBook. 
+`PrepareRendererOutputMojo` carries one `ike.skip.<renderer>` flag per
+renderer (`ike.skip.prince` false by default, the others true) and makes the
+`pdf-<renderer>/` directory for each that runs; `CopyDefaultPdfMojo` copies
+the `ike.pdf.default` renderer's output, Prince by default, to `pdf/`; and
+`ike-doc-resources` carries one assembly descriptor per renderer, with
+`assembly/prince.xml` zipping `pdf-prince/`. Prince never touched AsciiDoc:
+it consumed HTML. Typst consumes neither HTML nor DocBook, so it enters at
+the backend, not at the renderer alone.
+
+=== The converter: a `typst` backend
+
+indexterm:[AsciidoctorJ converter, typst backend]
+An AsciidoctorJ converter in Java, registered for the backend name `typst`
+through `@ConverterFor` and the instance's `javaConverterRegistry`
+<<asciidoctorj-converter>>, walks the Asciidoctor AST and emits `.typ`.
+`Backend` gains `TYPST("typst", "typst")`, and `AsciidocMojo` converts it
+beside the three it has, under an `ike.skip.typst` of its own. The converter
+lives in `ike-docs` beside `koncept-asciidoc-extension`, so that the Koncept
+macros and the converter version together. It emits standard Typst for what
+AsciiDoc has, tables, footnotes, cross references, index terms, bibliography
+and `stem`, and it emits nothing it cannot read back: the four source
+disciplines of the print-truth section hold for the pipeline as for Komet.
+
+=== The renderer: `typst compile` into `pdf-typst/`
+
+A `typst` renderer joins `RenderPdfMojo`'s `RendererType` with `.typ` as its
+input extension, running `typst compile` with `--root` at the document's
+source root (so `image` and `include` paths resolve) and `--font-path` at
+the pipeline's font directory (the Noto families of the print-truth
+section) <<typst-cli>>, into `pdf-typst/`. `PrepareRendererOutputMojo`
+gains `ike.skip.typst`; `ike-doc-resources` gains `assembly/typst.xml`
+zipping `pdf-typst/`; and `ike.pdf.default` accepts `typst`, so the copy to
+`pdf/` can take Typst's output once the acceptance test passes. The Typst
+command line is a single static binary, installed through Homebrew on `kec`
+and on the `ikes` TeamCity agent, pinned to one Typst version in the
+parent's properties as the renderer executables are today; the renderer
+refuses a binary of another version rather than rendering with it, since
+0.x minors break (the comparison below).
+
+=== The Koncept extension's Typst path
+
+indexterm:[Koncept extension, Typst]
+The Koncept extension renders a badge three ways today, as inline SVG for
+the html5 family, as a file-referenced image for DocBook and Prawn, and as
+a phrase where an image cannot go. It gains a fourth, Typst: a badge *drawn
+natively* in Typst from the appearance spec, the pill, pads, radius, colours,
+label face and stamp pentagon transcribed once into a shared `koncept.typ`
+template, with the identicon written beside the document as a
+content-addressed PNG and placed with pixelated scaling, as the DocBook and
+Prawn path already writes it. The badge demo of 2026-10-19 settled this
+against embedding the renderer's SVG <<typst-badge-demo>>: Typst substitutes
+a font inside an SVG silently, with no warning, so today's `sans-serif`
+label and the spec's family string both fell back to Libertinus Serif; an
+embedded SVG badge cannot adapt to a narrow table cell, where it is cropped,
+shrunk to illegibility or stretched, while a native badge wraps its label
+inside the pill; and an SVG badge sized to the spec pushes the lines that
+carry it apart, while the native box paints outside its layout box and
+leaves the leading alone. Native text in Typst does warn of a missing font,
+which is the failure mode we want. One badge in the compendium and one in
+Komet's printout are then one template call, not one picture. The glossary
+the extension assembles is emitted by the converter itself, from the tree
+processor's collected entries, with no Asciidoctor postprocessor in the
+path. That matters for a reason the code records: an SPI-registered
+postprocessor crashes the Prawn backend, which is why the extension's
+paragraph clean-up is guarded today, and the Typst path has no such
+postprocessor to guard.
+
+=== In Komet: the bundled binary first
+
+indexterm:[Komet, bundled Typst binary]
+Komet's first step is the same binary, bundled in the jlink image and run as
+a process: the block-model writer emits `.typ`, Komet runs `typst compile`
+with `--format pdf` for print, and `svg` or `png` at the display's `--ppi`
+for the fidelity measure and the exact-preview mode, and reads the files
+back. Zero foreign-function code, one
+binary per platform in the image, the same pinned version as the pipeline.
+The embedding spike of the print-truth section follows, for what a process
+cannot give: incremental recompile after an edit and click-to-source
+through `typst-ide`'s introspection.
+
+=== One shared Typst writer library
+
+indexterm:[Typst writer library, ike-docs]
+One Java library in `ike-docs` holds the Typst document model, the page and
+furniture setup, and the serializer to `.typ`. Two front ends feed it: the
+converter, from the Asciidoctor AST, and `komet-claude-plugin`'s block-model
+writer, which consumes the library the way it consumes `stamp-adoc-core`
+today, as a versioned dependency. The compendium and the Komet printout then
+agree by construction, because one serializer writes both, and the Page
+terminology's concepts drive that one serializer: a `FolioScheme` chosen in
+Komet and a `:folio-scheme:` attribute in a topic reach the same page setup.
+What differs between the front ends is only what the model is built from.
+
+=== The acceptance test
+
+The test is the ANF compendium (`knowledge-kompendium/anf`), rendered with
+Prince and with Typst and compared page by page: the same breaks, the same
+running heads and folios, tables of 49 rows crossing pages with their
+headers repeated, the 109 tables at their `cols` proportions, footnotes
+placed, the index and the lists generated. Differences are read against
+the comparison below and settled one by one; the copy to `pdf/` switches to
+Typst when none remains that a reader would notice.
+
+The test carries a *scale gate* as well. Typst lays out the whole document
+and re-lays it out until page numbers, counters and running heads stop
+changing, up to five passes, and only then exports pages; page-at-a-time is
+an export choice, never a layout one, which is what makes the furniture and
+the cross references possible at all <<typst-convergence>>. Field reports
+put the native compiler well inside our sizes: a table-heavy book of over
+two thousand pages in about a minute, memory growing linearly with content,
+with the known cost being `context` evaluated in every page's header and a
+regression in the convergence check in 0.15 on a 300-page document
+<<typst-scale>>. So the gate is measured, not assumed: the ANF compendium
+and the full lab compendium compiled with `--timings`, recording wall time
+and peak memory, against a budget set before the copy switches; and the
+writer keeps the running head to one cheap query per page, avoids chains
+where one element's placement depends on another's measured position, and
+emits one file per chapter. The Typst web application is not in the chain
+and is no measure of it: it runs the same compiler as WebAssembly under the
+browser's memory ceiling, at a fraction of native speed.
+
+*Prior art.* Two bridges from AsciiDoc to Typst exist, neither
+production-grade and neither in Java: a TypeScript converter over the
+Asciidoctor core library that walks the parsed AST <<asciidoctor-typst>>,
+whose construct mapping ours mirrors, and a shell script chaining
+Asciidoctor to DocBook and Pandoc's Typst writer <<adoc2typ>>, Pandoc
+having no AsciiDoc reader. Neither carries identities per block and line or
+the Koncept extensions, which is why the converter is written rather than
+adopted; the DocBook route serves as a baseline to compare output against.
+
+=== First evidence
+
+indexterm:[Typst, pipeline spike]
+The converter and the renderer were spiked on 2026-10-19
+<<typst-pipeline-spike>>. A new reactor subproject,
+`typst-asciidoc-converter`, holds the seed of the shared writer library
+(package `network.ike.docs.typst`: text escaping and labels, a page and
+furniture preamble) with the AsciidoctorJ converter as its first front end
+in a sub-package; `Backend.TYPST`, `ike.skip.typst` defaulting to true
+everywhere so nothing changes by default, `RendererType.TYPST` with an
+`ike.typst.version` pin that refuses a binary of another version,
+`assembly/typst.xml`, and a `-Dike.pdf.typst` profile. Three topics rendered
+end to end with no Typst warning and no fallback block: a design topic with
+four tables, an ANF topic with fifteen tables, and a regulatory topic with
+three tables and 49 footnotes, each placed at the foot of its page; Typst
+compiled them in 54 to 152 milliseconds to PDF and under a quarter of a
+second to PNG, with AsciidoctorJ's start-up dominating at about 1.6
+seconds, paid once per Maven execution. Twenty-eight converter unit tests,
+one per construct, pass.
+
+What the spike did not do is what the writer library is for: the page
+setup is one static preamble with no section numbering, table of contents,
+index, list of tables, chapter-local folios or `SectionStart` rules; keep
+rules are Typst's defaults; the Koncept badge is a placeholder and the
+glossary is not emitted. Two operational facts for the pipeline: `mitex`
+0.2.5 fails under Typst 0.15.1 (a symbol 0.15 removed), so 0.2.7 is pinned;
+and Typst fetches packages from its registry on first use and caches them
+under the user's cache directory, so a CI agent needs network once or a
+seeded cache. Whether the `minimal-fonts` subset carries the serif family
+the preamble names was not checked; a missing family falls back silently to
+the next in the list.
+
+=== Typst against Prince
+
+indexterm:[Typst, versus Prince]
+The comparison KEC was given, kept here so the choice is made with its
+costs in view. *Typst is ahead* on optimized line breaking, hyphenation and
+optical margins <<typst-text>>, native mathematics, openness (an open
+compiler, no license, no watermark) and speed. *Prince is ahead* on the
+maturity of CSS Paged Media, page floats, margin boxes, running elements
+and multi-column balancing <<prince-guide>>; on PDF/X and ICC colour
+management; on vertical CJK and broad internationalisation; and on
+stability, where Typst at 0.x still breaks between minors <<typst-0.15>>.
+*They are even* on SVG, on fonts, on tables since 0.14, and on PDF/UA-1
+<<typst-0.14>>. None of Prince's leads touches what the corpus prints
+today; its stability lead is why the version is pinned and the binary is
+bundled rather than taken from the path.
+
+== Tables
+
+indexterm:[tables, document surface]
+indexterm:[table, cells as blocks]
+Tables are not a block kind among others on this surface; they are the block
+kind the corpus is made of. The ANF document alone has 109 tables across its
+35 topics, every one with a header row, almost all of two or three columns
+with proportional widths (`[cols="2,3", options="header"]`
+<<asciidoctor-tables>>), some 1,400 cells
+whose text runs onto continuation lines, and tables of up to 49 rows that
+will cross a page however it is set. What the surface does with a table
+today is the weakest part of it, at every layer.
+
+* The dialect parser (`stamp-adoc-explorer` core,
+  `IkeDialectParser.parseRows`) models a row as a group of lines separated by
+  blank lines and says in so many words that cells are not modelled yet. A
+  cell therefore has no identity: no `StoredLine` of its own, no STAMP, and
+  nothing an edit or an annotation can name.
+* `StampedDocumentCard` renders a row by joining its lines and splitting on
+  the bar into `Label`s in a `GridPane`, ignoring the `cols` widths and every
+  span.
+* `PagedDocumentEngine` treats a table as atomic: a table taller than a page
+  is pushed to a page top and then straddles the break, with no header
+  repeated and no continued caption.
+
+The comparison that sets the bar is the two print chains the corpus has
+known. Prince over html5 gives fixed percentage column widths from a
+`colgroup`, weak row splitting at a tall cell, no footnotes inside a table,
+no continued caption, and no fit-to-width or automatic landscape
+<<prince-guide>>. DocBook's CALS table model has `colspec`, `spanspec`,
+`thead` and `tfoot` <<cals1995>> <<walsh2010>>, and the Informatics
+customization Stayton wrote for the ANF ballot documents turned hyphenation
+off inside tables and started chapters on an odd page <<stayton2016>>; the
+stock stylesheets do neither <<stayton2007>>. Typst, written from the block
+model (the print-truth section), is bounded by neither, and KEC's
+requirements for the table are these eight.
+
+.Table requirements
+[cols="1,3", options="header"]
+|===
+| Requirement | What it means
+
+| 1. Cells as blocks
+| *Parser work, in the dialect parser.* A cell becomes a block with its own
+identity, the child of its row, the row the child of its table, so that the
+cell is what provenance, editing and action subjects reach: a cell has the
+`StoredLine`s of its text, its introducing STAMP, and is the subject of
+`Edit document block` and of an annotation. An AsciiDoc-style cell (cell style `a`) holds
+nested blocks, paragraphs, lists and listings, which are children of the
+cell block; a plain cell holds runs. The row stays as the grouping the
+parser has, now of cell blocks rather than of lines; the table block carries
+the `cols` spec, the options and the caption. Everything below assumes
+this; nothing below is possible without it.
+
+| 2. Column widths
+| Each column's *min-content* width (its widest unbreakable word or figure)
+and *max-content* width (its widest cell set on one line) are measured, the
+two bounds of automatic table layout <<css21>>, and the `cols` proportions
+are the weights with which the slack between the sum of the minima and the
+available measure is distributed; a column never drops below its minimum.
+Rules are set as booktabs sets them, above the head, under it and below the
+last row, none between columns <<booktabs>>. The table is fitted to `body` first, to `full-bleed`
+if the minima exceed the body's measure, and to a landscape page last, only
+when the minima exceed the full-bleed measure of a portrait page. Spans take
+the summed width of the columns they cover and contribute their minimum
+divided across them.
+
+| 3. Row breaking
+| A table breaks between rows by default, and inside a tall cell only when
+one row by itself exceeds a page, the rule Prince applies weakly and CALS did
+not have. Header rows repeat at the top of every continuation page and the
+continuation carries the caption again with "(continued)", as `longtable`
+repeats its head and continued caption <<longtable>> and as XSL places a
+table marker in the repeated header <<xsl11>>; the running head of a page
+whose content is wholly a continued table names the table. Hyphenation is
+off inside tables, as the Informatics customization set it <<stayton2016>>,
+because a hyphenated word in a narrow cell reads worse than a ragged one.
+
+| 4. Keep rules by size
+| A small table, one that fits in a band with its caption, keeps together as
+a figure does; a large one flows across pages under the breaking rules
+above. The threshold is the band, not a row count, so the same table keeps
+on one page size and flows on another; the caption keeps with the first
+rows and the last row keeps with at least one other, so a table never leaves
+a lone row on a page.
+
+| 5. Table notes
+| A footnote whose reference is inside a table is a *table note*, placed
+under the table rather than at the foot of the page, numbered per table with
+its own marks (letters, so they do not collide with the page's footnotes, as
+the style manuals set them <<chicago2017>>),
+and repeated under the last part of a table that continues. This is the
+footnote inside a table that Prince cannot place.
+
+| 6. Numbering and the list of tables
+| A captioned table is numbered by chapter, `Table 3-2` under the
+chapter-local scheme and `Table 12` under the continuous one, from the
+table's typed block, and the list of tables of the print-truth section is
+generated from those typed blocks with their folios, the DocBook `lot`
+<<stayton2007>> KEC used to append by hand.
+
+| 7. Live tables
+| A table from the knowledge base, a pattern table through the Koncept
+`pattern-table` macro, is a `TableView` on screen, a live control over the
+view coordinate. It lays out through the *same table block*: the control's
+columns and rows are presented to the width algorithm, the breaking rules
+and the numbering as cells, so it prints as a typeset table with its header
+repeated and its notes placed, never as a snapshot of the control. The
+as-of coordinate the table resolved is its caption's frame, as the family
+asks of every live figure.
+
+| 8. The expansion figure on screen
+| On screen a table is the family's expansion figure <<kl-expand>>: it snaps
+to `body`, or
+to `full-bleed` when its minima exceed the body's measure, and when its
+minima exceed the card's width it does not scroll sideways, which the family
+forbids, but climbs a rung of the expansion ladder, to the document, then
+the card, then the window, where the width algorithm runs again against the
+wider measure. A live table expanded is still live; a stored table expanded
+is still selectable by cell.
+|===
+
+The parser work of the first requirement is the one named dependency outside
+Komet: the dialect parser is `stamp-adoc-explorer`'s, deployed as the
+snapshot the assistant plugin consumes, so cells as blocks land there first
+and the card follows.
+
+== Editing in place, within limits
+
+indexterm:[edit in place, document surface]
+indexterm:[line provenance, surviving an edit]
+WYSIWYG editing on this surface means editing a block where it is read, in
+Reading, in the theme the page will print in, and seeing the result in Page
+layout.
+It does not mean editing everything, and the limits are chosen so that
+provenance by line survives every edit the surface allows.
+
+.What is edited in place, and what is not
+[cols="1,3", options="header"]
+|===
+| Edited in place | How
+
+| Prose blocks: paragraph, heading text, list item, admonition body
+| The predecessor's `Edit block`: the block flips to its edit projection
+(below), the person edits text, and the result lands as an uncommitted
+`Edit document block` version under the person's, or the assistant's, author
+concept, settled by the git commit (xref:dev-komet-actions[]).
+
+| Table rows and cells
+| Once cells are blocks (the Tables section), a cell is edited as a block
+and is the subject of its own edit; a row is edited as a row when the cells
+of one row flip to edit projections together, and the result is one edit per
+cell changed. Adding or removing a row is a table edit with a different row
+count. Until the parser models cells, a row is edited as its lines in Source
+view.
+
+| Not edited in place | Why, and where instead
+
+| Furniture
+| Derived from structure and settings. Change the setting in the preferences
+form, or change the heading the running head is derived from.
+
+| Cross-document references
+| An `xref` resolves to another document's anchor; the text under it is the
+target's, and editing it is editing the target. Follow the reference and
+edit there. The reference macro itself is text of the referring line and
+edits as such in Source view.
+
+| Includes
+| An included file is a flowed child document, its own `StoredDocument` with
+its own lines. A block in it is edited as a block of that document, under
+its author and settled by a commit to that file, while the host shows it in
+place. The `include` line of the host is edited in Source view as text.
+
+| Block attributes, roles and options
+| Source view, as text. They are structure, not prose, and the Reading view
+does not show them.
+
+| Figures from the store
+| A tree or a diagram edits through its own editor, the structured block's
+projection flip of xref:dev-rich-interaction-surface[]; nothing in the
+document holds its content.
+
+| Marginalia
+| Never edited. An identicon is a fact and a review mark is an act of
+xref:dev-stamp-annotation[annotation] made through the context menu.
+|===
+
+=== Provenance across an edit
+
+An edit is a new version of one block. The block's text is split into lines
+again, and each new line is matched to the old lines of the block by content:
+a line whose text is unchanged keeps its `StoredLine`, its introducing STAMP
+and its annotations; a changed or added line gets a new `StoredLine` whose
+STAMP is the uncommitted edit's, with the editor as author; a removed line is
+gone from the block and keeps its history in the store. The match is by the
+same per-line content hash the annotation trailer uses
+(xref:dev-annotation-trailer[], `path:from-to@rev#hash`), so a line the
+trailer can name after the edit is the line it named before. An annotation on
+a changed line is in force on the old line, which the Reading view no longer
+shows; the predecessor's review-queue mark then shows the block as holding an
+annotation on a line that moved on, which is the staleness rule of
+xref:dev-stamp-annotation[] made visible. When the person's commit settles
+the edit, materialization reads the committed file and the new lines receive
+the commit's STAMP in place of the edit's; cancellation and restore follow
+xref:dev-komet-actions[] unchanged.
+
+=== Provenance across a reflow
+
+A page is a view, never a record. Pagination is Typst's function of the
+emitted blocks and the page settings, and nothing in the store refers to a
+page. A
+change of page size, margins, gutter or theme, or an edit that lengthens a
+paragraph, moves blocks between pages and touches no provenance, because
+provenance is on lines and blocks. It follows that a folio is never a
+provenance anchor: an annotation names lines, a citation of a printed page
+is resolved through the as-of line to the commit and then to the lines, and
+the loose-leaf index locates by chapter-local folio only because that scheme
+is stable across the reprint of other chapters
+(xref:dev-loose-leaf-index-and-diff[]). The Page layout view re-lays out
+after an edit in Reading at once, in pass one, and settles to Typst's lines
+in pass two a moment later; a person editing a heading sees the running
+head change on the facing Page layout view, which is the one WYSIWYG
+feedback that reflow makes cheap. The latency of pass two is what the
+embedding spike measures.
+
+== The prose control, reconciled
+
+indexterm:[prose control, TextFlow versus RichTextArea]
+Three topics name a prose control and seem to disagree.
+xref:dev-rich-interaction-surface[The rich interaction surface] says prose
+blocks are `RichTextArea`, and the conversation's `DocumentSurface` draws them
+so today, view-only and sized to content. xref:dev-stamped-document-surface[The
+stamped document surface] draws a paragraph as a `TextFlow` of runs, one per
+source line, and leaves `TextFlow` versus `RichTextArea` as its first
+decision. The family says only that prose is a small per-block control.
+
+The reconciliation is that the two topics describe two *projections* of one
+block, and the projection flip of the rich interaction surface is per block,
+so the read projection and the edit projection need not be the same control.
+
+* The *read projection* of a prose block is the `TextFlow` of runs. It is
+  what provenance by line needs, it carries no model of its own to keep in
+  step with the store, and it owns no scrollbar. Print no longer depends on
+  the control at all: the Typst writer reads the block model, so the read
+  control is free to be whatever reading needs.
+* The *edit projection* is the `RichTextArea`, one per block while that block
+  is being edited, with the text and `k:` tokens the rich interaction surface
+  specifies; on commit or cancel the block returns to its runs. A block edits
+  as the rich interaction surface says and reads as the stamped document
+  surface says.
+
+This resolves the predecessor's first decision in favour of `TextFlow` for
+reading without giving up the `RichTextArea`, and it asks one sentence of
+xref:dev-rich-interaction-surface[]: that "prose blocks are `RichTextArea`"
+be read as "prose blocks *edit* as `RichTextArea`". The conversation's
+`DocumentSurface` then moves its read projection to runs when the journal and
+the git document share the one block model, which the predecessor already
+expects.
+
+== Terminology
+
+indexterm:[document surface, terminology]
+indexterm:[starter set, document surface terminology]
+Everything above names things. Where a name is a starter-set concept, a
+surface can store it, an action can take it as a subject, and the assistant
+can say it; where it is only a word in a topic or an enum in a plugin, none
+of that holds. This section names the terminology the design needs and does
+not yet have, grounded in what `ike-starter-set` declares today
+(`ike-terms`, package `network.ike.foundation.ike.terms`), and records the
+discipline for minting it. Nothing here is minted before this topic settles.
+
+=== What the starter set holds
+
+.Existing terminology this design builds on
+[cols="1,3", options="header"]
+|===
+| Set | What it declares
+
+| `DocumentStructureSet`
+| One *Document block pattern* with five fields, *element kind*, *level*,
+*title*, *parameters* and *members*, over the kinds *document*, *section*,
+*paragraph*, *listing*, *quotation*, *list*, *list item*, *table*, *table
+row*, *table cell*, *image* and *opaque block*, plus *conversation journal*
+and *conversation turn*. A table's column specification and options are its
+parameters string; a row's cells are its members; a cell's lines are its
+members. The cell kind exists; the dialect parser does not yet emit it.
+
+| `AsciiDocModelSet`
+| The block kinds *admonition*, *example*, *sidebar*, *open*, *literal*,
+*diagram* and *bibliography entry*; the inline references *cross
+reference*, *link*, *footnote*, *citation*, *index term* and *estimate
+mark*; the compositions *include* and *conditional*; the *AsciiDoc document
+attributes pattern*; and the *Git source* and *Git provenance* patterns in
+the foundation module.
+
+| `AnnotationModelSet`
+| *Annotation* with the kinds *affirmation*, *refutation* and *uncategorized
+comment*, *reviewed version*, *annotated elements*, and the *Review module*.
+
+| `RichSurfaceTerms` (`rich-surface-starter-knowledge`)
+| The *journal manifest*, *prose element*, *component-list element* and
+*reference element* patterns. No surface-layout pattern, although
+xref:dev-rich-interaction-surface[] names one.
+|===
+
+Three terminology sets are missing, and the formal objects of the
+print-truth section need two concepts the structure set lacks. The
+predecessor's repository section adds a fourth, small one: a *Git
+repository* concept with remote URL and default branch, referenced from the
+Git source pattern.
+
+=== Tables terminology
+
+indexterm:[terminology, tables]
+indexterm:[CALS, table terminology]
+The table terminology adopts the OASIS CALS exchange table model
+<<cals1995>> rather than inventing names: it is the model DocBook tables
+are written in <<walsh2010>>, the model XSL formats <<xsl11>>, and the one
+the pipeline's own stylesheets once rendered. Each CALS element or attribute
+becomes a concept under a *Table model* root in the foundation module, and
+the writer maps each to Typst's table, following CALS and XSL table
+formatting <<xsl11>> for what the concept means on the page and CSS 2.1's
+automatic layout for widths <<css21>>.
+
+.Table terminology, after CALS
+[cols="1,1,2", options="header"]
+|===
+| Concept | CALS | What it holds
+
+| Table group | `tgroup` | The columns, spans, head, body and foot of one table; a block's child, so a table with two groups is allowed as CALS allows it.
+| Column spec | `colspec` | Column name and number; *column width*, proportional (`2*`, the `cols` proportion) or fixed (a length); alignment, character alignment and separators as defaults for the column.
+| Span spec | `spanspec` | A named span from a start column to an end column (`namest`, `nameend`).
+| Table head, body, foot | `thead`, `tbody`, `tfoot` | The row groups; the head repeats on continuation, the foot closes each part.
+| Table entry | `entry` | The cell: *column start* and *column end* (`namest`, `nameend`) or a span name; *more rows* (`morerows`) for a row span; *alignment* (left, centre, right, justify, char) and *character alignment* (`char`, `charoff`); *vertical alignment*; and its members, the lines or nested blocks.
+| Page-wide | `pgwide` | Whether the table takes the full measure, the family's `full-bleed`.
+| Orientation | `orient` | Portrait or landscape for this table, the width algorithm's last fit.
+| Frame and separators | `frame`, `colsep`, `rowsep` | The rules drawn, which booktabs reduces to three.
+|===
+
+The *Document table cell* kind already exists in the structure set; what is
+missing is the parser emitting it and the entry's attributes having
+somewhere to live. Today every CALS attribute of an AsciiDoc table lives
+only in the raw parameters string of the table block
+(`[cols="2,3", options="header"]`, a cell's `2+|` or `.2+|` prefix). The
+patterns proposed: a *Table group pattern* (column specs, span specs, head,
+body, foot, page-wide, orientation, frame) attached to the table block; a
+*Column spec pattern*; and a *Table entry pattern* (column start, column
+end, more rows, alignment, character alignment, vertical alignment) attached
+to the cell block, whose lines stay in the structure pattern's members.
+
+Two names in the Tables section are this topic's own and are marked so: the
+*live table binding*, a pattern that binds a table block to the knowledge-base
+pattern or query it is drawn from and to the coordinate frame it resolved
+(the family's "current as of" or "as authored"), which CALS has no notion
+of; and *cell-level provenance*, the cell as a block carrying its own
+`StoredLine`s and STAMPs, which no table model carries because no table
+model is materialized from git.
+
+=== Page terminology
+
+indexterm:[terminology, page]
+indexterm:[PrintSettings, starter-set concepts]
+The page terminology names what the furniture section chooses. A *Page
+model* root in the foundation module holds *page size* (Letter, Legal and
+the ISO sizes), *page orientation* (portrait, landscape), *margin preset*
+(narrow, normal, wide), *binding gutter* (none, simplex, duplex), *running
+head content* (document title, current section, title and section),
+*running footer content* (folio, as-of line), *folio placement* (none,
+header right, footer centre, footer right, footer outside), *folio scheme*
+(continuous, chapter-local), *section start* (flow, new page, recto), the
+*keep rules* (keep with next, keep together, widow and orphan lines),
+*furniture visibility* (shown, hidden) and *document theme* (default,
+manuscript). A *Page settings pattern* with one field per choice is the
+semantic form, so that a document's page settings can version with the
+document as a layout chronology of xref:dev-rich-interaction-surface[]
+does; the plugin's preferences node remains the per-machine cache of the
+same value.
+
+Six of these already have identities. The plugin's print-settings enums
+(`PageSize`, `PageOrientation`, `MarginPreset`, `DocumentTheme`,
+`FurnitureVisibility`, `PageNumberPlacement`) pin a public id on every
+constant inside `komet-claude-plugin`, with the comment that each "can
+become a Tinkar concept later" and a freeze test guarding the UUIDs. KEC's
+rule of 2026-10-17 settles when: a plugin's concepts are written in the
+starter set, even when the code lives in the plugin
+(xref:dev-komet-actions[], "Where a plugin's action concepts are written").
+So those identities move into the starter set as *adopted* identities, the
+tier of xref:dev-knowledge-set-identity[] for a UUID declared rather than
+derived, keeping the pinned UUIDs so that nothing persisted under them
+moves, and the hand-written enums give way to the generated bindings of
+xref:dev-enum-concept-bindings[]. The four new concepts and
+`FOOTER_OUTSIDE` are minted fresh, by derivation.
+
+=== Surface layout terminology
+
+indexterm:[terminology, surface layout]
+indexterm:[AreaGridSettings, concept binding]
+The surface layout terminology names what the family topic and this one say
+in prose. A *Surface model* root holds *surface*; *surface type* (Document,
+Console, Dashboard); *region* (left margin, body, right margin, body-inset,
+left-half, right-half, full-bleed); *grid placement* with the fields of the
+layout tier's `AreaGridSettings` that today have no concept binding,
+*column index*, *row index*, *column span*, *row span*, *horizontal grow*,
+*vertical grow*, *horizontal alignment*, *vertical alignment*, *margin*,
+*fill width*, *fill height* and *visible* <<kl-area>>; *perspective*, a
+named arrangement; *layer* (the Provenance layer, with its toggles
+marginalia, commit tints, review queue, annotation marks); *view* (Reading,
+Reading, Page layout); and *expansion rung* (figure, document, card, window,
+screen) <<kl-expand>>. The patterns proposed: the *Surface layout pattern*
+the rich interaction surface names and the rich-surface set lacks, mapping
+an element by its id to a grid placement, one semantic per perspective; and
+a *Surface pattern* holding a surface's type, the regions in use, its layers
+and its current view.
+
+=== Formal objects
+
+indexterm:[terminology, formal object]
+indexterm:[equation, stem block]
+The lists of figures, tables and equations are queries only if the things
+listed are typed. The structure set has a table kind and an image kind, no
+figure, no equation, and one *title* field that serves a section's heading,
+a block's title and a description term alike. Two concepts are needed. A
+*Formal object* concept, with the kinds *figure*, *table* and *equation*,
+marks a block as numbered and listed, and carries a *caption* distinct from
+the element title, since a captioned table also has a title row and a
+figure's caption is prose while its title is a label. A *Document equation*
+kind under *Document block* is the AsciiDoc `stem` block, which the
+structure set today keeps as an opaque block. The number of a formal object
+is never stored: it is derived from the object's position in its chapter
+under the folio scheme, so a reordering renumbers and a list of tables is
+the query "formal objects of kind table, in document order, with caption
+and folio".
+
+=== Identity discipline
+
+indexterm:[terminology, identity discipline]
+The sets above are minted under the starter set's discipline, and not
+before this topic settles.
+
+* *Names.* Every concept and pattern is born with a fully qualified name
+  under the foundation namespace, the `(IkeFoundation)` suffix, and its
+  identity is `T5` over the set's UUID and that birth name, the derived tier
+  of xref:dev-knowledge-set-identity[]; the six print-settings vocabularies
+  are the exception, adopted under their pinned UUIDs.
+* *Bindings.* The generated enums of xref:dev-enum-concept-bindings[]
+  replace hand-pinned constants, and their bijection tests hold the enum and
+  the concepts in step; the plugin's freeze test retires with the enums it
+  guarded.
+* *Fidelity.* `FoundationFidelityIT` in `ike-terms` gates the set's shape
+  against its baseline; its expected counts are bumped by the exact number
+  of declarations added, never rounded, and `ReferentialClosureIT` confirms
+  every reference resolves.
+* *Branch and checkpoint.* The declarations land on a feature sibling of
+  `ike-starter-set`, finish to `main`, and publish through
+  `ws:checkpoint-publish` (a `checkpoint/main-…` tag and file), which is the
+  artifact the plugin and the dialect parser consume; code binds to the
+  concepts only once a checkpoint carries them.
+* *Settlement first.* The names in this section are proposals. KEC settles
+  the topic, and the sets are minted from the settled text, so that the
+  starter set never carries a vocabulary a topic later renames.
+
+== Decisions
+
+indexterm:[document surface, decisions]
+.For KEC
+[cols="1,3", options="header"]
+|===
+| Question | Proposal
+
+| The family topic's print lineage
+| Amend the Lineage section of xref:dev-interaction-surface-family[] to say
+that Komet's print is the JavaFX engine over the block model, that the
+Maven-built books print through Prince, and that DocBook is an export the
+pipeline can emit and not a print path. The alternative is to leave the
+sentence as it stands, naming a DocBook and XSL-FO chain nothing renders.
+
+| The embedding spike's criteria
+| Go when `typst-cffi` builds and loads through the foreign-function API on
+every platform in the jlink image, a page recompiles within the latency an
+edit tolerates, and click-to-span introspection is reachable; otherwise the
+exact-preview mode, if offered, keeps the command line, a process per
+compile. The alternative is to commit to embedding before the spike, which
+stakes that mode on one person's crate.
+
+| The oracle's route
+| The command-line compile plus the PDF's line boxes first, since it needs
+no embedding and ships with the bundled binary, with the embedded
+compiler's frames replacing it when the spike succeeds. The alternative is
+to wait for the frames and ship Page layout as pass one alone until then,
+which is honest and leaves the view greedy for as long as the spike takes.
+
+| An exact-preview mode
+| Offer it later, as a mode beside Page layout rather than a fourth view,
+rendering Typst's per-page SVG (text stays text) with PNG at display
+resolution as the fallback, for the cases pass two does not cover, such as
+a live figure's exact print form. The alternative is never to offer it and
+let the PDF be the exact page, which is simpler now that pass two makes
+Page layout agree with Typst.
+
+| The fonts
+| The Noto families, embedded by Typst and loaded by FX, so that Reading,
+Page layout and the Typst page share metrics. The alternative is the theme's serif as today, with
+metrics that differ between the two views.
+
+| Where the writer library lives
+| In `ike-docs`, beside the converter and the Koncept extension, consumed
+by `komet-claude-plugin` as a versioned dependency like `stamp-adoc-core`.
+The alternative is a writer inside the plugin, which leaves the compendium
+and the printout to drift.
+
+| One pinned Typst version
+| One version in the parent's properties, the binary installed by Homebrew
+on `kec` and the `ikes` agent and bundled in the jlink image, the renderer
+refusing any other. The alternative is whatever `typst` is on the path,
+which a 0.x minor can break without notice.
+
+| Read as runs, edit as `RichTextArea`
+| Accept the reconciliation above, which also settles the predecessor's
+first decision, and amend one sentence of
+xref:dev-rich-interaction-surface[]. The alternative is `RichTextArea` for
+both projections with character selection mapped back to lines, at the price
+of a second document model.
+
+| Where page settings live when documents nest
+| With the outermost printed document; a flowed child contributes structure
+only. The alternative, letting a child carry its own section-start or folio
+rules into the host, makes an assembly's pagination depend on thirty-five
+files' settings.
+
+| The four new settings concepts
+| `FolioScheme`, `BindingGutter`, `SectionStart` and `AsOfLine`, plus
+`FOOTER_OUTSIDE` on `PageNumberPlacement`, as starter-set concepts with
+pinned ids and a new encoder version of `PrintSettings`. The alternative is
+to leave the loose-leaf choices to the pipeline's CSS alone, which keeps the
+screen unable to show a chapter-local folio or a gutter.
+
+| Table terminology after CALS
+| Adopt the CALS names (table group, column spec, span spec, entry, more
+rows, page-wide, orientation) as the concepts, so the terminology is the
+one DocBook, XSL and the pipeline already speak. The alternative is names of
+our own for the same things, which reads better in a menu and costs every
+reader who knows CALS a translation.
+
+| Marginalia in print
+| Printed in the outside margin, widening the page margin to wide when the
+Provenance layer is on. The alternative is a Provenance layer that is
+screen-only, so a reviewer's printout carries no identicons, which is
+simpler and loses the review-on-paper case.
+|===
+
+== Phased delivery
+
+indexterm:[document surface, phases]
+Two tracks, independent of each other: the pipeline track puts Typst where
+Prince is, and the surface track builds the document surface. The shared
+writer library is the first step of both.
+
+.Pipeline track
+. *The shared writer library and the `typst` backend.* The Typst document
+  model, page and furniture setup and serializer in `ike-docs`; the
+  AsciidoctorJ converter registered for `typst`, `Backend.TYPST`, and
+  `ike.skip.typst` in `AsciidocMojo`; standard Typst for tables, footnotes,
+  cross references, index terms, bibliography and `stem`.
+. *The `typst` renderer.* `RendererType.TYPST` in `RenderPdfMojo` running
+  `typst compile` with `--root` and `--font-path` into `pdf-typst/`;
+  `ike.skip.typst` in `PrepareRendererOutputMojo`; `assembly/typst.xml`;
+  `typst` accepted by `ike.pdf.default`; the pinned Typst version on `kec`
+  and the `ikes` agent; the ANF compendium rendered both ways and compared
+  page by page.
+. *The Koncept Typst path.* Badges as Typst drawing or embedded SVG; the
+  glossary emitted by the converter; the copy to `pdf/` switched to Typst
+  when the acceptance test passes, and Prince retired from CI.
+
+.Surface track
+. *The block-model writer and the bundled binary.* Komet's writer over the
+  shared library; the Typst binary in the jlink image run as a process for
+  print and PDF; the Page layout view beside Source and Reading, laid out by
+  the paged engine over the shared page model as pass one; the fidelity
+  measure against Typst's render; the document title and the current
+  section in the running head; tables by
+  their `cols` proportions with repeated headers and continued captions. No
+  new settings.
+. *The settings concepts.* `FolioScheme`, `BindingGutter`, `SectionStart`,
+  `AsOfLine` and `FOOTER_OUTSIDE`; the encoder version; the freeze test; the
+  generated form showing them; the writer emitting page setup, keep and
+  break rules by block kind, tables keeping or flowing by size, table
+  numbering by chapter and the lists of figures, tables and equations as
+  outlines, and the as-of line. The Page terminology and the formal-object
+  concepts minted in the starter set, the six print-settings vocabularies
+  adopted under their pinned ids.
+. *The area.* `StampedDocumentCard` as a host card over a stamped document
+  area; figure areas inserted by named-region span; flowed and fitted child
+  documents with the assembly's includes as flowed children; preferences
+  nodes and view-context inheritance with the pinned badge; the expansion
+  ladder through figure, document, card and window; the table as the
+  expansion figure, snapping to `body` or `full-bleed` and climbing a rung
+  when wider than the card; live pattern tables laid out through the table
+  block and printed as typeset tables; the Surface layout terminology
+  minted, with the surface-layout pattern the rich-surface set lacks; the
+  predecessor's Repository panel and git operations as its phase 4.
+. *Editing in place.* The edit projection as `RichTextArea` per block;
+  table rows; the line match by content hash across an edit; Page layout
+  re-laid out from Reading in pass one and settled in pass two from the
+  oracle by the command-line route, the PDF's line boxes read by a named
+  module; the writer's span alignment for the PDF's way back to a block; the predecessor's `DocumentSurface` moved to runs for reading; cells
+  as blocks in the dialect parser, with nested blocks for AsciiDoc cells, so
+  a cell is the subject of an edit and an annotation; the Tables terminology
+  minted after CALS, and the parser emitting table group, column spec and
+  entry semantics in place of the raw parameters string.
+. *The embedding spike.* `typst-cffi` bound through the foreign-function
+  and memory API, a native library per platform in the jlink image, measured
+  against the criteria in the decisions; go, and pass two reads the
+  oracle from the embedded compiler's frames with source spans, with
+  incremental recompile in process and click-to-source for an exact
+  preview; no go, and pass two keeps the command-line route.
+. *The layout fidelity harness.* The corpus with its synthetic stress
+  documents; golden Typst layouts pinned to the Typst version with the
+  regeneration goal and its loud diff, after the writer's own round-trip
+  tests; the headless pass-one score with per-rule attribution; the score
+  as build-report Measures with a CI gate on regression; the cheap rules
+  tuned first, paragraph breaking last.
+. *The layout policy layer.* Keep, break, widow and orphan, placement,
+  furniture and perspective overrides as concept-bound Evrete rules over
+  block facts, with explicit precedence and a harness test each; consumed
+  by the paged engine as constraints and emitted by the Typst writer as
+  `set` and `show` rules; the algorithms, line breaking, fitting,
+  hyphenation and measurement, left to the engines.
+. *Print coverage.* Sidenotes in the outside margin and table notes under
+  their table; the index from queried entries; equations through `mitex`;
+  diagrams through `diagraph`, Smetana and the SVG exports of Komet's own
+  renderers; live FX controls as exported SVG; hyphenation off inside
+  tables; PDF/UA-1 and PDF/A profiles; the loose-leaf outputs re-expressed
+  from the Page terminology for the Maven-built books.
+
+The pipeline track retires Prince from the toolchain for what the writer
+covers; the surface track's first phase shows a document's pages as Typst
+sets them, the second gives the page its settings, the third and fourth are
+the surface as the family describes it, an area among areas that is read,
+printed and edited in one place, the fifth decides where Typst runs, the
+sixth turns the oracle into a measuring instrument that improves pass one
+over time, the seventh moves layout policy into concept-bound rules that
+both engines obey, and the eighth is the print the morning's capability
+list asked for, met by Typst rather than written in JavaFX.
+
+[bibliography]
+== References
+
+indexterm:[document surface, references]
+Where this topic builds on established language or capability, the source is
+cited above; where it coins a term, a footnote says so. The works:
+
+- [[[chicago2017]]] University of Chicago Press. (2017). _The Chicago Manual of Style_ (17th ed.). Chicago: University of Chicago Press. Ch. 1, "Books and Journals" (the parts of a book, pagination and front-matter folios, running heads at §§ 1.10–1.16); ch. 3 (table notes); ch. 16, "Indexes".
+- [[[harts2014]]] Waddingham, A. (Ed.). (2014). _New Hart's Rules: The Oxford Style Guide_ (2nd ed.). Oxford: Oxford University Press. Ch. 1, "The parts of a book"; § 1.5, folios and running heads.
+- [[[bringhurst2012]]] Bringhurst, R. (2012). _The Elements of Typographic Style_ (4th ed.). Point Roberts, WA: Hartley & Marks. § 2.4, "Etiquette of Hyphenation and Pagination" (widows and orphans); ch. 8, "Shaping the Page" (margins and proportion).
+- [[[tschichold1991]]] Tschichold, J. (1991). _The Form of the Book: Essays on the Morality of Good Design_ (H. Hadeler, Trans.). Point Roberts, WA: Hartley & Marks. "Consistent Correlation Between Book Page and Type Area".
+- [[[moxon1683]]] Moxon, J. (1683). _Mechanick Exercises: or, the Doctrine of Handy-Works. Applied to the Art of Printing_ (Vol. 2). London. § 8 (furniture: head-sticks, side-sticks, gutter-sticks and quoins in the chase) and the closing _Dictionary_, whose entry reads "Furniture. See § 8." Modern edition: Davis, H., & Carter, H. (Eds.). (1962). _Mechanick Exercises on the Whole Art of Printing (1683–4)_. Oxford University Press.
+- [[[csspage3]]] W3C. _CSS Paged Media Module Level 3_. Working Draft. https://www.w3.org/TR/css-page-3/ (`@page`, page margins, `:left` and `:right` pages, margin boxes).
+- [[[cssgcpm3]]] W3C. _CSS Generated Content for Paged Media Module_. Working Draft. https://www.w3.org/TR/css-gcpm-3/ (`string-set` and `string()` for running heads, `target-counter`, the footnote area).
+- [[[css21]]] W3C. (2011). _Cascading Style Sheets Level 2 Revision 1 (CSS 2.1) Specification_. Recommendation. https://www.w3.org/TR/CSS21/ § 17.5.2, automatic table layout (minimum and maximum cell widths); § 17.2, header row groups repeated on paged media.
+- [[[prince-guide]]] YesLogic. _Prince User Guide_. https://www.princexml.com/doc/ (paged media, running headers and footers, tables, footnotes).
+- [[[xsl11]]] W3C. (2006). _Extensible Stylesheet Language (XSL) Version 1.1_. Recommendation. https://www.w3.org/TR/xsl11/ (`fo:page-sequence`, `fo:static-content`, `fo:marker` and `fo:retrieve-marker`, `fo:retrieve-table-marker`, `keep-with-next`).
+- [[[walsh2010]]] Walsh, N. (2010). _DocBook 5: The Definitive Guide_. Sebastopol, CA: O'Reilly. https://tdg.docbook.org/ (`table`, `tgroup`, `colspec`, `spanspec`, `tfoot`).
+- [[[cals1995]]] OASIS. _CALS Table Model_, DocBook `calstblx` module, derived from the US Department of Defense table model (`-//USA-DOD//DTD Table Model 951010//EN`): `tgroup` holds `colspec*`, `spanspec*`, `thead?`, `tfoot?`, `tbody`.
+- [[[stayton2007]]] Stayton, B. (2007). _DocBook XSL: The Complete Guide_ (4th ed.). Santa Cruz, CA: Sagehill Enterprises. http://www.sagehill.net/docbookxsl/ (`header.content` and `footer.content`, `generate.toc` and the lists of figures and tables, table formatting).
+- [[[stayton2016]]] Stayton, B. (2016, February 5). _Informatics DocBook Customizations_. Sagehill Enterprises, for the ANF ballot documents. In `ikmdev/solor-doc`, `anf-ballot-submission/docbook-customization/src/docbkx-stylesheet/` (`README`; `fo/docbook.xsl`: "Turn off table hyphenation", "start chapters on odd page", lists of requirements and editorial rules through `generate.toc`). https://github.com/ikmdev/solor-doc
+- [[[longtable]]] Carlisle, D. _The longtable package_. CTAN. https://ctan.org/pkg/longtable (tables across pages with repeated head and continued caption).
+- [[[booktabs]]] Fear, S. _The booktabs package_. CTAN. https://ctan.org/pkg/booktabs (rules in formal tables).
+- [[[knuthplass1981]]] Knuth, D. E., & Plass, M. F. (1981). Breaking paragraphs into lines. _Software: Practice and Experience_, 11(11), 1119–1184.
+- [[[liang1983]]] Liang, F. M. (1983). _Word Hy-phen-a-tion by Com-put-er_ (Report STAN-CS-83-977). PhD thesis, Stanford University.
+- [[[thanh2000]]] Thành, H. T. (2000). _Micro-typographic extensions to the TeX typesetting system_. PhD thesis, Masaryk University, Brno; and Schlicht, R. _The microtype package_. CTAN. https://ctan.org/pkg/microtype (character protrusion and font expansion).
+- [[[lamport1994]]] Lamport, L. (1994). _LaTeX: A Document Preparation System_ (2nd ed.). Reading, MA: Addison-Wesley. (Float placement; cross references resolved on a second run through the auxiliary file.)
+- [[[iso32000]]] ISO. (2020). _ISO 32000-2:2020, Document management — Portable document format — Part 2: PDF 2.0_. (Outlines, link annotations, embedded fonts.)
+- [[[iso19005]]] ISO. _ISO 19005, Document management — Electronic document file format for long-term preservation_ (PDF/A), Part 1 (2005) and later parts.
+- [[[iso14289]]] ISO. (2014). _ISO 14289-1:2014, Document management applications — Electronic document file format enhancement for accessibility — Part 1: Use of ISO 32000-1 (PDF/UA-1)_.
+- [[[asciidoctor-tables]]] Asciidoctor. _Tables_. AsciiDoc Language Documentation. https://docs.asciidoctor.org/asciidoc/latest/tables/ (`cols`, proportional widths, `options="header"`, AsciiDoc-style cells).
+- [[[asciidoctor-footnotes]]] Asciidoctor. _Footnotes_. AsciiDoc Language Documentation. https://docs.asciidoctor.org/asciidoc/latest/macros/footnote/ ("All AsciiDoc processors, including Asciidoctor, currently implement footnotes as endnotes.")
+- [[[ike-doc]]] IKE Network. _IKE-DOC: Documentation Project Standards_, backend feature matrix (html5, pdf, docbook5 and the renderers over each). `ike-build-standards`, unpacked to `.claude/standards/IKE-DOC.md` at `mvn validate`.
+- [[[kl-expand]]] IKM. _Package `dev.ikm.komet.layout.expand`_, package documentation (`package-info.java`): expansion as a stepped ladder of opt-in `KlExpansionHost` rungs, `KlExpandable`, `KlPreferenceEditable`. `ike-komet-wsr/komet/knowledge-layout`.
+- [[[maedje2022]]] Mädje, L. (2022). _A Programmable Markup Language for Typesetting_. Master's thesis, Technische Universität Berlin. https://laurmaedje.github.io/programmable-markup-language-for-typesetting.pdf (the thesis behind Typst; its incremental compilation, memoizing what an edit did not change, is why a recompile after an edit is fast enough to be the Page layout view's second pass).
+- [[[typst-0.14]]] Typst. (2025, October 24). _Version 0.14.0_, changelog. https://typst.app/docs/changelog/0.14.0 (PDFs tagged by default; PDF/UA-1 optional, PDF/UA-2 planned; all PDF/A levels; PDF input to `image`; CSL bibliographies since 0.9).
+- [[[typst-blog-0.14]]] Typst. (2025). _Typst 0.14_, release announcement. https://typst.app/blog/2025/typst-0.14 (accessible PDF by default, the accessibility guide).
+- [[[typst-0.15]]] Typst. (2026, June 15). _Version 0.15.0_, changelog. https://typst.app/docs/changelog/0.15.0/ (variable fonts, `typst eval` superseding `query`, several PDF standards at once); 0.15.1 is the patch release `typst-cffi` tracks.
+- [[[typst-text]]] Typst. _`text` function_, reference. https://typst.app/docs/reference/text/text/ (`hyphenate`, `lang` selecting the hyphenation patterns, `overhang` default true).
+- [[[typst-outline]]] Typst. _`outline` function_, reference. https://typst.app/docs/reference/model/outline/ (`target: figure.where(kind: table)` as a list of tables); and _`table.header`_ with `repeat`, since 0.11.0.
+- [[[typst-ide]]] Typst. _`typst-ide` crate_. https://docs.rs/typst-ide (`jump_from_click`: the source position for a click in a rendered frame; the `Jump` enum).
+- [[[typst-cffi]]] Binet, S. _typst-cffi: C-FFI for Typst_. https://codeberg.org/sbinet/typst-cffi; https://docs.rs/typst-cffi (0.6.1; `typst_compile_pdf`, `typst_compile_png`, `typst_compile_svg`; migrated to Typst 0.15.1).
+- [[[diagraph]]] _diagraph_, Typst Universe. https://typst.app/universe/package/diagraph (Graphviz as a WebAssembly plugin; `render` and `raw-render` of DOT to SVG; all Graphviz engines; 0.3.6 bundling Graphviz 13.1).
+- [[[mitex]]] _mitex_, Typst Universe. https://typst.app/universe/package/mitex; https://github.com/OrangeX4/mitex (LaTeX math in Typst, Rust compiled to WebAssembly; 0.2.7 under Typst 0.15.1, since 0.2.5 fails there).
+- [[[typst-badge-demo]]] IKE Network. (2026-10-19). _Koncept badges in Typst, demo and findings_. `ike-docs/notes/typst-badge-demo/README.md` (six real badges from `KonceptSvgRenderer` and `IdenticonRenderer`; three sources in four places; approach-by-reliability table; recommendation to draw natively with a pixelated PNG identicon).
+- [[[typst-pipeline-spike]]] IKE Network. (2026-10-19). _Typst pipeline spike: a typst Asciidoctor backend, end to end_. `ike-docs/notes/typst-pipeline-spike.md` and `notes/typst-pipeline-spike/` (the `typst-asciidoc-converter` module, plugin hooks, three topics rendered with timings and warnings, what works and what does not, prior art).
+- [[[plantuml-smetana]]] PlantUML. _Smetana: the internal Java port of Graphviz_. https://plantuml.com/smetana02; _Layout engines_. https://plantuml.com/layout-engines (`!pragma layout smetana`; no Graphviz process).
+- [[[asciidoctorj-converter]]] Asciidoctor. _Write a Custom Converter_, AsciidoctorJ documentation. https://docs.asciidoctor.org/asciidoctorj/3.0/write-converter (`StringConverter`, `@ConverterFor`, `javaConverterRegistry().register`, selected by backend name).
+- [[[typst-cli]]] Typst. _typst-compile(1)_, manual page. https://man.archlinux.org/man/typst-compile.1.en (`--root`, `--font-path`, `--format pdf|png|svg`, `--ppi`, `--pages`).
+- [[[ike-doc-plugin]]] IKE Network. _ike-doc-maven-plugin_, package `network.ike.docs.plugin` (`Backend`, `AsciidocMojo`, `RenderPdfMojo` and its `RendererType`, `PrepareRendererOutputMojo`, `CopyDefaultPdfMojo`); `ike-doc-resources` `assembly/<renderer>.xml`; `koncept-asciidoc-extension` (`KonceptSvgRenderer`, `KonceptGlossaryTreeprocessor`, `EmptyParagraphPostprocessor` and its note on the Prawn postprocessor crash). `ike-dev/ike-docs`.
+- [[[typst-convergence]]] Typst Forum. _How should I reasonably debug and resolve "layout did not converge" warnings?_ https://forum.typst.app/t/how-should-i-reasonably-debug-and-resolve-layout-did-not-converge-warnings/719 (whole-document re-layout to a fixed point in at most five passes; dependency chains of state and position as the cause).
+- [[[typst-scale]]] Typst Forum and reports on compile scale: _How to improve performance when using context in header / footer on large docs_, https://forum.typst.app/t/how-to-improve-performance-when-using-context-in-header-footer-on-large-docs/5780; _Why does Typst crash with large amounts of content?_, https://forum.typst.app/t/why-does-typst-crash-with-large-amounts-of-content/3708; _Stack overflow caused by multiple headers?_, https://forum.typst.app/t/stackover-flow-caused-by-multiple-headers/8852; a 2000-plus-page table-heavy book in about a minute against eighteen with LuaLaTeX, https://news.ycombinator.com/item?id=45394479; the 0.15 "analyze introspections" regression (typst/typst issue 8611).
+- [[[asciidoctor-typst]]] Jassiel, O. F. _asciidoctor-typst_. https://github.com/jassielof/asciidoctor-typst (TypeScript over `@asciidoctor/core`; unpublished).
+- [[[adoc2typ]]] Sitaram, D. _adoc2typ: script for converting simple AsciiDoc files to Typst_. https://github.com/ds26gte/adoc2typ (Asciidoctor to DocBook, Pandoc to Typst).
+- [[[pdf-continuous]]] Adobe. _Page display modes_, Acrobat Reader help: Single Page view against the continuous "Enable Scrolling" view, which displays pages in a continuous vertical column. https://helpx.adobe.com/acrobat/using/displaying-pdfs-viewing-preferences.html
+- [[[apple-hig-segmented]]] Apple. _Segmented controls_, Human Interface Guidelines: a linear set of two or more segments, each functioning as a button, where selecting one deselects the others (a radio group in one control). https://developer.apple.com/design/human-interface-guidelines/segmented-controls
+- [[[evrete]]] Evrete. _Evrete: a Java rule engine_. https://www.evrete.org/ (forward-chaining rules over Java facts; the engine `komet/rules` is built on, `org.evrete:evrete-core`).
+- [[[typst-styling]]] Typst. _Styling_, reference: `set` rules and `show` rules. https://typst.app/docs/reference/styling/
+- [[[kl-area]]] IKM. _Package `dev.ikm.komet.layout.area`_, package documentation and `AreaGridSettings` (column and row index, spans, grow and alignment); `KlSupplementalArea` as a `KlArea` that is also a `KlParent`. `ike-komet-wsr/komet/knowledge-layout`.

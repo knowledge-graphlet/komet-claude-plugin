@@ -1,0 +1,107 @@
+/*
+ * Copyright © 2026 Knowledge Graphlet / IKE Network
+ *
+ * Licensed under the Apache License, Version 2.0. See the LICENSE header in the Java sources.
+ *
+ * The Stamped Document card: the segmented view control (one pill of joined toggle segments,
+ * exactly one selected, in the look of Komet's toggle buttons), the page stack and the graph.
+ */
+
+/* The segmented control: segments joined into one pill; the selected segment filled. */
+.segmented > .segment {
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+    -fx-background-insets: 0;
+    -fx-border-color: rgba(255, 255, 255, 0.55);
+    -fx-border-width: 1 0 1 1;
+    -fx-background-color: rgba(255, 255, 255, 0.14);
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+    -fx-padding: 3 10;
+}
+
+.segmented > .segment.first {
+    -fx-background-radius: 5 0 0 5;
+    -fx-border-radius: 5 0 0 5;
+}
+
+.segmented > .segment.last {
+    -fx-background-radius: 0 5 5 0;
+    -fx-border-radius: 0 5 5 0;
+    -fx-border-width: 1 1 1 1;
+}
+
+.segmented > .segment:hover {
+    -fx-background-color: rgba(255, 255, 255, 0.26);
+}
+
+.segmented > .segment:selected {
+    -fx-background-color: white;
+    -fx-text-fill: #34465f;
+}
+
+.segmented > .segment:focused {
+    -fx-border-color: #FFE082;
+}
+
+/* The page stack: a reader's grey ground, white pages with a gap between them. */
+.stamped-page-stack {
+    -fx-background-color: #6f6f6f;
+}
+
+.stamped-page-stack > .viewport {
+    -fx-background-color: #6f6f6f;
+}
+
+.stamped-page {
+    -fx-background-color: white;
+}
+
+.stamped-page-placeholder {
+    -fx-background-color: #f4f4f4;
+}
+
+/* A dialog's segmented control sits on a light ground. */
+.dialog-pane .segmented > .segment {
+    -fx-border-color: #9a9a9a;
+    -fx-background-color: #f0f0f0;
+    -fx-text-fill: #222222;
+}
+
+.dialog-pane .segmented > .segment:selected {
+    -fx-background-color: #34465f;
+    -fx-text-fill: white;
+}
+
+/* The graph: a reader's white ground, rows at the document's line height, the selection in the surface's blue. */
+.stamped-document-graph {
+    -fx-background-color: white;
+}
+
+.stamped-document-graph .stamped-document-graph-cell {
+    -fx-padding: 2 6 2 2;
+}
+
+.stamped-document-graph .stamped-document-graph-cell:selected {
+    -fx-background-color: #cfe2f8;
+    -fx-text-fill: #1b2a3f;
+}
+
+.stamped-document-graph .stamped-document-graph-cell:selected .label {
+    -fx-text-fill: #1b2a3f;
+}
+
+/* History mode: a retired line struck through, a version's text set off from the lines. */
+.stamped-document-graph .stamped-document-graph-cell.retired .text {
+    -fx-strikethrough: true;
+}
+
+.stamped-document-graph .stamped-document-graph-cell.version {
+    -fx-font-style: italic;
+}
+
+/* Property-graph rows: a property or an edge sits under its node, smaller and quieter. */
+.stamped-document-graph .stamped-document-graph-cell.property,
+.stamped-document-graph .stamped-document-graph-cell.edge {
+    -fx-padding: 1 6 1 2;
+}

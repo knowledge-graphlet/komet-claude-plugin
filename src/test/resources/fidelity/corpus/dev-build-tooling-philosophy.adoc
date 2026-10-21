@@ -1,0 +1,80 @@
+// dev-build-tooling-philosophy
+// Topic: IKE Build-Tooling Design Philosophy
+// Type: concept
+// Status: proposed
+:topic-id: dev-build-tooling-philosophy
+:topic-type: concept
+:topic-status: proposed
+:topic-keywords: self-describing, derive-not-declare, artifact-uniformity, compiler-visible, terminology-separation
+:topic-scope-note: Reusable statement of the principles behind IKE build and release tooling. \
+  Applied throughout the release cascade; see dev-release-cascade-overview.
+
+[[dev-build-tooling-philosophy]]
+= IKE Build-Tooling Design Philosophy
+
+IKE's build and release tooling is shaped by a small set of principles.
+They are stated here once,
+reusably, because they recur across the version convention,
+the release cascade,
+the workspace plugin,
+and the build extension.
+
+== Self-describing coordinates
+
+indexterm:[design philosophy, self-describing coordinates]
+A name should *be* the thing it identifies.
+A `${G·A}` version-property name is the Maven coordinate it pins,
+so tooling reads the name and knows the artifact —
+it is never *told* by a side file.
+Identity carried in the name cannot drift from what it names.
+
+== Derive, don't declare
+
+indexterm:[design philosophy, derive not declare]
+If a fact can be computed from the Maven model,
+it is not declared by hand.
+A hand-maintained restatement of a derivable fact drifts —
+the alias manifest,
+stale within a release of being shipped,
+is the standing proof.
+The release graph is read from POMs,
+not written into `release-cascade.yaml`.
+
+== The Maven way — artifact uniformity
+
+indexterm:[design philosophy, artifact uniformity]
+There is no "code versus non-code."
+AsciiDoc is source a processor compiles to a rendered artifact,
+exactly as `javac` compiles Java to bytecode.
+Every artifact —
+jar, rendered document,
+BOM, fonts zip —
+goes through one Maven lifecycle,
+signed and published the same way.
+Tooling operates on the Maven model and never inspects what a
+module produces.
+
+== Compiler-visible
+
+indexterm:[design philosophy, compiler-visible]
+Make drift a compile error.
+Closed vocabularies are enums,
+not strings;
+dispatch is an exhaustive `switch` with no `default`,
+so an unhandled case fails compilation.
+What the compiler can check,
+the compiler should check —
+and what it cannot,
+a build extension checks at model-transformation time.
+
+== Separate terminology from implementation
+
+indexterm:[design philosophy, terminology and implementation]
+A user-facing terminology stays flat and named —
+one term, one choice.
+The concerns inside it are separated in the *code* —
+staged pipelines,
+composed types —
+not multiplied back into the terminology.
+The `ReleasePolicy` ladder is one named rung;
+the orchestrator runs it as `adopt` → `build` → `dispose`.

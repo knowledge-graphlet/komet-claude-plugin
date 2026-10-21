@@ -1,0 +1,223 @@
+// dev-cascade-pattern
+// Topic: The Checkpoint Cascade Pattern
+// Type: concept
+// Status: draft
+:topic-id: dev-cascade-pattern
+:topic-type: concept
+:topic-status: draft
+:topic-keywords: checkpoint, cascade, Maven-plugin, immutable-snapshot, BOM, dependency-tracking, Nexus
+
+[[dev-cascade-pattern]]
+= The Checkpoint Cascade Pattern
+
+indexterm:[checkpoint cascade, pattern]
+indexterm:[separation of concerns, checkpoint cascade]
+The principle of ((separation of concerns)) enables novel
+capability development to achieve the coordination benefits of
+trunk-based development without its constraints.
+The checkpoint cascade pattern is implemented as a Maven plugin.
+
+== Core Concepts
+
+The cascade pattern relies on three primitives:
+checkpoints, cascades, and checkpoint resolution.
+
+=== Checkpoints
+
+indexterm:[checkpoint, definition]
+((Checkpoints)) are immutable,
+dated snapshots of project state (e.g.,
+`1.2.3-checkpoint.20250110.1`).
+
+* Created daily or on-demand from develop branch
+* Tagged in git and deployed to Nexus checkpoint repository
+* Include complete provenance (commit hash, timestamp, dependency versions)
+* Reproducible from git tag independent of CI state
+
+=== Declarative Dependency Tracking
+
+indexterm:[dependency tracking, declarative]
+Projects declare upstream dependencies in POM configuration.
+The Maven plugin queries Nexus for latest upstream checkpoints.
+Automatic POM updates occur when new checkpoints are available.
+
+=== Cascade Propagation
+
+indexterm:[checkpoint cascade, propagation]
+Upstream checkpoint creation triggers downstream integration builds.
+Successful integration creates a downstream checkpoint.
+The process continues transitively through the dependency graph.
+
+The propagation flow proceeds through distinct stages.
+
+.Checkpoint cascade propagation flow
+[plantuml]
+----
+@startuml
+!theme plain
+start
+:Developer commits to
+upstream develop branch;
+:Daily checkpoint created
+from develop;
+:Checkpoint deployed to Nexus
+and tagged in git;
+:Downstream project detects
+new upstream checkpoint;
+:Update dependency version
+to upstream checkpoint;
+:Build and run
+integration tests;
+if (Integration\ntests pass?) then (yes)
+  :Create downstream
+  checkpoint;
+  :Cascade continues to
+  next dependency tier;
+else (no)
+  :Notify team of
+  integration failure;
+  :Cascade halts;
+endif
+stop
+@enduml
+----
+
+First, a developer commits to the develop branch of an upstream project.
+A daily checkpoint is created from that commit and deployed to
+the Nexus checkpoint repository.
+The checkpoint is also tagged in git.
+Downstream projects detect the new upstream checkpoint.
+Each downstream project updates its dependency version,
+then builds and tests the integration.
+On success,
+a downstream checkpoint is created and the cascade continues to
+the next level of the dependency graph.
+On failure,
+the team is notified and the cascade halts at that point.
+
+== Implementation: maven-cascade-plugin
+
+indexterm:[maven-cascade-plugin, goals]
+The checkpoint cascade pattern is implemented as
+maven-cascade-plugin with five goals.
+
+.maven-cascade-plugin Goals
+[cols="1,3"]
+|===
+|Goal |Description
+
+|`cascade:create`
+|Create checkpoint tag, build with checkpoint version, deploy to Nexus
+
+|`cascade:check-upstream`
+|Query Nexus for latest upstream checkpoints
+
+|`cascade:update`
+|Update POM dependencies to latest checkpoints
+
+|`cascade:propagate`
+|Full workflow: check, update, test, create checkpoint if successful
+
+|`cascade:status`
+|Report current vs available checkpoint versions
+|===
+
+== Maven 4 Features: Natural Synergies
+
+indexterm:[Maven 4, BOM]
+indexterm:[Maven 4, version inference]
+Maven 4 introduces capabilities that significantly simplify
+checkpoint cascade implementation.
+
+=== BOM-Based Checkpoint Version Management
+
+Maven 4's enhanced Bill of Materials (BOM) support provides an
+elegant solution.
+Instead of updating individual project POMs,
+checkpoint versions can be managed through a central BOM.
+
+*Traditional approach (without BOM):*
+
+* Upstream checkpoint created: `tinkar-core 2.0.0-checkpoint.20250110.1`
+* Plugin must update dependency version in each downstream project's POM
+* N projects = N POM updates, N git commits
+
+*BOM-based approach (Maven 4):*
+
+* Create checkpoint-versions BOM
+* Projects import BOM in `<dependencyManagement>` section
+* When upstream checkpoint created, update only the BOM
+* All projects importing BOM automatically see new checkpoint version
+
+*Benefits:*
+
+. Single update point--only BOM changes
+. No POM churn in individual projects
+. Consistent versions across all projects
+. Simpler plugin implementation
+
+=== Version Inference and Build/Consumer POM Separation
+
+Maven 4's version inference allows projects to inherit
+checkpoint versions from parent POMs.
+Build vs Consumer POM separation means the checkpoint
+generation mechanism stays internal while published artifacts
+have concrete versions.
+
+URL: https://maven.apache.org/docs/4.0.0/release-notes.html
+
+== Design for Audit
+
+indexterm:[checkpoint, regulatory audit]
+indexterm:[design for audit]
+indexterm:[loss-driven design, audit]
+Checkpoint metadata is not incidental build output.
+In any system where loss analysis reveals significant downstream consequences,
+checkpoint records serve as the evidence base
+for demonstrating that dependency coordination failures
+are systematically prevented.
+In regulated contexts,
+these same records become part of regulatory submissions.
+
+* *PCCP evidence (FDA):* Checkpoint versions,
+  cascade propagation logs,
+  and integration test results
+  constitute the planned modification records,
+  validation methodology evidence,
+  and impact assessments that FDA's Predetermined Change Control Plan
+  guidance requires.
+* *EU conformity documentation (MDR/IVDR, AI Act):* The technical documentation
+  required for CE marking and high-risk AI conformity assessment
+  demands the same provenance, reproducibility, and change management
+  that cascades produce as engineering byproducts.
+* *MDDT qualification (FDA):* The checkpoint infrastructure itself -- immutable
+  versioning,
+  transitive propagation,
+  reproducible builds -- is part of the qualification argument
+  for the IKE knowledge infrastructure as a Medical Device Development Tool.
+* *IEC 62304 configuration management:* Checkpoint identification,
+  cascade propagation as change control,
+  and cascade status reports as configuration status accounting
+  satisfy §8.1–8.3 of the software lifecycle standard.
+  IEC 62304 is recognized by both FDA and EU notified bodies.
+* *Unregulated systems with significant loss potential:*
+  Even absent regulatory requirements,
+  the same checkpoint records support internal audit,
+  root cause analysis after patient safety events,
+  and the institutional accountability
+  that a principled loss analysis demands.
+
+This has a design implication:
+checkpoint metadata formats,
+cascade status report schemas,
+and propagation log structures should be designed
+with audit consumption in mind from the outset -- not
+retrofitted after the fact.
+The audit consumer may be an FDA reviewer, an EU notified body,
+an internal safety committee, or an engineering team
+conducting root cause analysis.
+The metadata requirements are the same
+because the questions are the same:
+_what changed, what was affected, and was it validated?_
+See xref:dev-cascade-regulatory-motivation[]
+for the full loss-driven motivation.

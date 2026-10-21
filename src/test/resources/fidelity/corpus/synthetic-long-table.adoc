@@ -1,0 +1,71 @@
+= Synthetic: a long table
+
+A table of sixty rows with three columns, to see how a figure that cannot split moves across pages.
+
+.Sixty rows of measures
+[cols="2,3,2", options="header"]
+|===
+| Measure | Description | Value
+| measure-00 | So within calls lives in responsibility and synced the. | 597
+| measure-01 | Plugin and record the. | 445
+| measure-02 | In it the refuses enforcement lives responsibility projects folder announcing. | 646
+| measure-03 | Projects a within lives. | 227
+| measure-04 | Refuses itself same seconds. | 148
+| measure-05 | Folder projects act refuses responsibility a a synced a projects tool lease. | 382
+| measure-06 | Refuses renews in projects lives. | 634
+| measure-07 | IntelliJ a and enforcement internationalization every layered. | 600
+| measure-08 | The act it characterization a daemon internationalization it the projects act. | 538
+| measure-09 | Peer reconciles is same hook in folder plugin seconds taking garbage-collects. | 351
+| measure-10 | IntelliJ seconds record and in garbage-collects. | 572
+| measure-11 | Peer daemon observes hook IntelliJ a electroencephalography layered in. | 861
+| measure-12 | The an daemon and in. | 63
+| measure-13 | Calls projects a responsibility is same renews change. | 909
+| measure-14 | Lease layered observes taking fences folder IntelliJ lives and. | 787
+| measure-15 | Itself and it within within IntelliJ the taking. | 460
+| measure-16 | Refuses the itself responsibility enforcement refuses the renews seconds observes. | 700
+| measure-17 | Announcing so the a so announcing and announcing the IntelliJ. | 852
+| measure-18 | Are same the so seconds and. | 379
+| measure-19 | Itself daemon plugin fences calls a and lives layered. | 922
+| measure-20 | Within within within within synced an tool within lives lease in and. | 452
+| measure-21 | Folder peer hook lives synced the. | 581
+| measure-22 | And synced the fences lease in. | 896
+| measure-23 | Fences change so tool are observes hook. | 373
+| measure-24 | Folder folder IntelliJ layered an an act the so synced and. | 351
+| measure-25 | An administration daemon taking closes lease and closes. | 371
+| measure-26 | Daemon and lease garbage-collects closes act. | 659
+| measure-27 | Daemon are closes the taking. | 365
+| measure-28 | And and internationalization plugin peer tool announcing. | 628
+| measure-29 | Electroencephalography it responsibility within and electroencephalography announcing. | 205
+| measure-30 | IntelliJ observes reconciles lease lease characterization the an are lease daemon hook. | 980
+| measure-31 | Is electroencephalography reconciles observes the the announcing synced announcing. | 482
+| measure-32 | Peer and an fences fences administration the. | 491
+| measure-33 | Electroencephalography calls the administration and folder change characterization renews. | 769
+| measure-34 | An a enforcement characterization tool peer the. | 821
+| measure-35 | Layered within and the reconciles taking taking itself lease so. | 605
+| measure-36 | Electroencephalography calls so fences responsibility hook an and observes so refuses. | 562
+| measure-37 | Lease the electroencephalography reconciles calls synced. | 540
+| measure-38 | Enforcement lease responsibility and lease are. | 218
+| measure-39 | Plugin it garbage-collects a every are and seconds. | 855
+| measure-40 | Lives and observes layered and a. | 835
+| measure-41 | Seconds responsibility plugin itself and so closes plugin lease is internationalization a. | 624
+| measure-42 | Internationalization electroencephalography so a. | 145
+| measure-43 | Fences reconciles folder refuses lives every a closes closes refuses an. | 804
+| measure-44 | Refuses lives it lease the. | 44
+| measure-45 | Plugin is refuses lease garbage-collects. | 916
+| measure-46 | Is every fences plugin hook. | 525
+| measure-47 | Daemon the is plugin and electroencephalography an. | 520
+| measure-48 | Daemon closes are refuses lease administration is. | 141
+| measure-49 | Folder within is every in and it enforcement in and. | 686
+| measure-50 | Characterization folder internationalization so renews calls and the. | 147
+| measure-51 | Itself layered announcing and synced within IntelliJ taking. | 684
+| measure-52 | Taking renews enforcement plugin within peer seconds. | 201
+| measure-53 | Every the reconciles the lease peer refuses layered is. | 721
+| measure-54 | Change peer closes fences. | 303
+| measure-55 | In folder characterization announcing synced the are the record internationalization a the. | 774
+| measure-56 | Responsibility enforcement a responsibility are within. | 153
+| measure-57 | Plugin projects IntelliJ daemon every the the lives electroencephalography daemon a enforcement. | 917
+| measure-58 | The lease tool the electroencephalography. | 267
+| measure-59 | Hook announcing in are folder. | 465
+|===
+
+A closing paragraph after the table. Peer refuses seconds the fences itself record closes. It folder taking are lives a lease act tool act closes garbage-collects and same is plugin a a the.

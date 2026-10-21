@@ -91,7 +91,9 @@ public final class EditDocumentBlock implements KometAction {
         }
         long block = input.subject().nid();
         Entity<?> entity = EntityHandle.get(block).orNull();
-        if (!(entity instanceof SemanticEntity<?> semantic) || semantic.patternNid() != IkePattern.DOCUMENT_BLOCK_PATTERN.nid()) {
+        // A block of the prose-element model, or a block vertex of a document stored as vertices (#1313).
+        if (!(entity instanceof SemanticEntity<?> semantic) || (semantic.patternNid() != IkePattern.DOCUMENT_BLOCK_PATTERN.nid()
+                && !(VertexReader.isDocumentPattern(semantic.patternNid()) && semantic.referencedComponentNid() != semantic.patternNid()))) {
             return KometActionResult.refused(input, "The subject is not a block of a document.");
         }
         PublicId anchor = PrimitiveData.publicId(semantic.referencedComponentNid());

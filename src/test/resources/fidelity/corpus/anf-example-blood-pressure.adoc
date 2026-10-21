@@ -1,0 +1,392 @@
+// anf-example-blood-pressure
+// Topic: Blood Pressure Clinical Narrative -- ANF Worked Example
+// Type: reference
+// Status: draft
+:topic-id: anf-example-blood-pressure
+:topic-type: reference
+:topic-status: draft
+:topic-keywords: blood-pressure, systolic, diastolic, sitting-position, micturition, home-monitoring, request
+
+[[anf-example-blood-pressure]]
+= Blood Pressure Clinical Narrative -- ANF Worked Example
+
+indexterm:[ANF, blood pressure example]
+This reference provides a complete worked example of building
+ANF statements from a blood pressure clinical narrative.
+Seven ANF statements are derived from a single encounter,
+covering demographics (gender and age),
+vital sign measurements (systolic and diastolic blood pressure),
+associated circumstantial statements (sitting position and
+micturition finding),
+and a request for home blood pressure monitoring.
+Each statement is presented in compact form showing only the
+populated attributes.
+
+== Clinical Narrative
+
+indexterm:[clinical narrative, blood pressure]
+The following clinical narrative serves as the source for all
+seven ANF statements in this example.
+
+[example]
+====
+*Blood Pressure* +
+Patient Name:
+James Doe +
+Patient Identifier:
+6594-86214 +
+Date of Encounter:
+August 15,
+2024 +
+Clinician:
+Dr. Hannah Smith (ID# 47-3659)
+
+A 62-year-old man presented to his doctor's office for routine checkup.
+He had a Systolic Blood Pressure of 120 mmHg,
+and a Diastolic Blood Pressure of 85 mmHg,
+taken on Right Brachial Artery,
+using BP cuff adult size.
+Patient in sitting position for at least 5 minutes,
+urinated not more than 30 minutes prior to measurement.
+The patient was asked to take his blood pressure weekly at home
+for 4 weeks using home blood pressure cuff.
+====
+
+== Isolation of Clinical Elements
+
+indexterm:[clinical element isolation, blood pressure]
+The first step is to identify the key clinical elements from
+which the ANF statements will be created.
+Seven ANF statements result from this narrative.
+The final two statements regarding sitting and urination are
+associated statements linked to the blood pressure measurements,
+as they do not stand alone clinically.
+
+.Clinical Elements for Blood Pressure Use Case
+[cols="2,2", options="header"]
+|===
+| Clinical Element | ANF Statement Topic
+
+| Gender (male)
+| Male
+
+| 62 years old
+| Chronological Age
+
+| Systolic BP
+| Systolic BP
+
+| Diastolic BP
+| Diastolic BP
+
+| Sitting for 5 minutes
+| Sitting Position
+
+| Urinated, 30 min ago
+| Micturition Finding
+
+| Blood Pressure Request
+| Blood Pressure Procedure
+|===
+
+For each statement below,
+SNOMED CT codes are used when available.
+Codes are accurate as of July 31,
+2025. When no appropriate SNOMED CT code exists,
+a generated public identifier is used.
+
+== Statement 1: Male
+
+indexterm:[ANF, gender statement]
+This statement captures the patient's gender as a demographic finding.
+
+.Context -- Male
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Male (finding) -- SCTID: 248153007
+
+| subjectOfRecord
+| Patient 6594-86214 -- SCTID: 116154003
+
+| author
+| Practitioner 47-3659
+
+| subjectOfInformation
+| Patient -- SCTID: 116154003
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Male
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [1, INF] Countable Quantity -- 053d3845-e2f7-503c-8a39-e93a8db78224
+
+| participant
+| Patient 6594-86214 -- SCTID: 116154003
+|===
+
+== Statement 2: Chronological Age
+
+indexterm:[ANF, chronological age]
+This statement records the patient's age at the time of the encounter.
+
+.Context -- Chronological Age
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Current Chronological Age -- SCTID: 424144002
+
+| subjectOfRecord
+| Patient 6594-86214 -- SCTID: 116154003
+
+| author
+| Practitioner 47-3659
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Chronological Age
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [62, 62] year -- SCTID: 258707000
+
+| participant
+| Patient 6594-86214 -- SCTID: 116154003
+|===
+
+== Statement 3: Systolic BP
+
+indexterm:[ANF, systolic blood pressure]
+This statement captures the ((systolic blood pressure)) measurement.
+The systolic and diastolic readings are recorded as separate
+ANF statements,
+each with its own result,
+following the principle of clinical element isolation.
+
+.Context -- Systolic BP
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Systolic BP -- SCTID: 271649006
+
+| subjectOfRecord
+| Patient 6594-86214 -- SCTID: 116154003
+
+| author
+| Practitioner 47-3659
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Systolic BP
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [120, 120] mmHg -- SCTID: 259018001
+
+| participant (practitioner)
+| 47-3659 -- SCTID: 158965000
+
+| participant (patient)
+| 6594-86214 -- SCTID: 116154003
+|===
+
+.Associated Statements -- Systolic BP
+[cols="2,3", options="header"]
+|===
+| Association | Value
+
+| Sitting Position
+| SCTID: 33586001
+
+| Micturition Finding
+| SCTID: 252041008
+|===
+
+== Statement 4: Diastolic BP
+
+indexterm:[ANF, diastolic blood pressure]
+This statement captures the ((diastolic blood pressure)) measurement.
+
+.Context -- Diastolic BP
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Diastolic BP -- SCTID: 271650006
+
+| subjectOfRecord
+| Patient 6594-86214 -- SCTID: 116154003
+
+| author
+| Practitioner 47-3659
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Diastolic BP
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [85, 85] mmHg -- SCTID: 259018001
+
+| participant (practitioner)
+| 47-3659 -- SCTID: 158965000
+
+| participant (patient)
+| 6594-86214 -- SCTID: 116154003
+|===
+
+.Associated Statements -- Diastolic BP
+[cols="2,3", options="header"]
+|===
+| Association | Value
+
+| Sitting Position
+| SCTID: 33586001
+
+| Micturition Finding
+| SCTID: 252041008
+|===
+
+== Statement 5: Sitting Position
+
+indexterm:[ANF, associated statement, sitting position]
+This is an ((associated statement)) linked to the systolic and
+diastolic BP statements.
+It records that the patient was in a sitting position for at
+least 5 minutes prior to measurement.
+
+.Context -- Sitting Position
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Sitting Position -- SCTID: 33586001
+
+| subjectOfRecord
+| Patient 6594-86214 -- SCTID: 116154003
+
+| author
+| Practitioner 47-3659
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Sitting Position
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [5, INF) Minute -- SCTID: 1156209001 (at least 5 minutes sitting)
+
+| participant
+| Practitioner 47-3659 -- SCTID: 158965000
+|===
+
+== Statement 6: Micturition Finding
+
+indexterm:[ANF, associated statement, micturition]
+This associated statement records that the patient urinated not
+more than 30 minutes prior to the blood pressure measurement.
+Like the sitting position statement,
+this provides contextual information relevant to interpreting
+the blood pressure results.
+
+NOTE: The Micturition Finding statement follows the same structural pattern as the Sitting Position statement.
+It is linked to both the Systolic BP and Diastolic BP statements through the associated statement mechanism.
+
+== Statement 7: Blood Pressure Procedure (Request)
+
+indexterm:[ANF, request circumstance, blood pressure]
+indexterm:[request circumstance, home monitoring]
+This statement uses a ((Request Circumstance)) rather than a
+Performance Circumstance.
+It captures the clinician's request for the patient to take
+blood pressure measurements at home weekly for four weeks.
+
+.Context -- Blood Pressure Procedure
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Blood pressure taking -- SCTID: 46973005
+
+| subjectOfRecord
+| Patient 6594-86214 -- SCTID: 116154003
+
+| author
+| Practitioner 47-3659
+
+| type
+| Request -- 2d2a72b5-a882-5ea0-9135-e23d5c7b0020
+|===
+
+.Request Circumstance -- Blood Pressure Procedure
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| requestedParticipant
+| Patient 6594-86214 -- SCTID: 116154003
+
+| priority
+| Routine -- SCTID: 50811001
+
+| repetition: periodStart
+| 1 Week -- SCTID: 258705008
+
+| repetition: periodDuration
+| 4 Weeks -- SCTID: 258705008
+
+| repetition: eventSeparation
+| 1 Week -- SCTID: 258705008
+
+| repetition: eventFrequency
+| [0, INF) per Week -- SCTID: 258705008
+
+| method
+| Blood pressure recorded by patient at home (procedure)
+|===

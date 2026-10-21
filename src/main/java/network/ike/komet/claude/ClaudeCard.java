@@ -357,7 +357,46 @@ public final class ClaudeCard extends AbstractHostCard {
         init();
     }
 
+    /** Live assistant cards, most recently realized last, so UI automation can find the one in use. */
+    private static final java.util.List<java.lang.ref.WeakReference<ClaudeCard>> OPEN = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    /** @return the most recently realized assistant card still alive, or {@code null}; for UI automation */
+    public static ClaudeCard mostRecent() {
+        ClaudeCard found = null;
+        for (java.lang.ref.WeakReference<ClaudeCard> ref : OPEN) {
+            ClaudeCard card = ref.get();
+            if (card == null) {
+                OPEN.remove(ref);
+            } else {
+                found = card;
+            }
+        }
+        return found;
+    }
+
+    /**
+     * Sends a message in the active conversation as if the person typed it and pressed Send; for
+     * UI automation. Must be called on the JavaFX application thread.
+     *
+     * @param text the message
+     */
+    public void ask(String text) {
+        input.replaceText(TextPos.ZERO, input.getDocumentEnd(), text);
+        onSend();
+    }
+
+    /** @return whether the active conversation is waiting for the assistant; for UI automation */
+    public boolean busy() {
+        return active != null && active.busy;
+    }
+
+    /** @return the active conversation's transcript as Markdown; for UI automation */
+    public String transcript() {
+        return active == null ? "" : active.markdown.toString();
+    }
+
     private void init() {
+        OPEN.add(new java.lang.ref.WeakReference<>(this));
         this.promptCore = loadPromptResource("system-prompt-core.md",
                 "You are a read-only terminology assistant embedded in Komet. "
                         + "Always use the provided tools to resolve concepts, identifiers, and "
@@ -367,9 +406,13 @@ public final class ClaudeCard extends AbstractHostCard {
         // journal's current coordinate (after bind).
         java.util.List<AnthropicTool> all = new java.util.ArrayList<>(new GraphTools(this::viewCalculator).tools());
         // Provenance tools (ike-issues#468): who introduced or affirmed a committed file's lines, and a
-        // concurrence prepared for the person to sign in the STAMP Provenance card — never signed here.
+        // concurrence prepared for the person to sign in the Stamped Document card — never signed here.
         all.addAll(network.ike.komet.claude.stamp.StampTools.tools(
-                network.ike.komet.claude.stamp.StampProvenanceCard::mostRecent));
+                network.ike.komet.claude.stamp.StampedDocumentCard::mostRecent));
+        // The document graph (KEC 2026-10-20): read a STAMPed document's blocks, lines and provenance from the store,
+        // with no working tree, and propose a block's new text as the assistant's own uncommitted edit.
+        all.addAll(network.ike.komet.claude.stamp.DocumentGraphTools.tools(
+                network.ike.komet.claude.stamp.StampedDocumentCard::mostRecent, this::safeViewCalculator));
         // Authoring hand-off (ike-issues#1292): a proposed concept written uncommitted and opened in a KL
         // window of this journal for the person to publish — never committed here.
         all.addAll(new network.ike.komet.claude.authoring.ConceptProposalTools(

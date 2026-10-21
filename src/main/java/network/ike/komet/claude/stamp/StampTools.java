@@ -42,13 +42,16 @@ import java.util.function.Supplier;
  * graph tools. {@code stamp_lines} answers who introduced the lines of a committed file and
  * who has affirmed, refuted or commented on them; {@code propose_annotation} prepares an
  * annotation — the hashed {@code Annotation:} trailers and the text — and hands it to the
- * STAMP Provenance card for the person to confirm with a signed commit
+ * Stamped Document card for the person to confirm with a signed commit
  * (IKE-Network/ike-issues#1300). The assistant never writes the commit itself: an affirmation
  * or refutation is a person's non-repudiable statement, signed with their key, and a tool
  * signing it on their behalf would record an act they did not perform.
  *
- * <p>Both tools default to the file open in the most recent STAMP Provenance card and accept
- * an explicit {@code file}, absolute or relative to that card's repository root.
+ * <p>Both tools default to the file shown in the most recent Stamped Document card and accept
+ * an explicit {@code file}, absolute or relative to that card's repository root. The card's
+ * selection is their default subject (ike-lab-documents topic
+ * {@code dev-stamped-document-surface}): {@code stamp_lines} without a range reads the selected
+ * lines, and {@code propose_annotation} without ranges proposes for them.
  */
 public final class StampTools {
 
@@ -58,10 +61,10 @@ public final class StampTools {
     private StampTools() { }
 
     /** Where the tools find the open card, if any; the supplier may return {@code null}. */
-    public interface CardLocator extends Supplier<StampProvenanceCard> { }
+    public interface CardLocator extends Supplier<StampedDocumentCard> { }
 
     /**
-     * @param card locates the STAMP Provenance card the tools default to and hand proposals to
+     * @param card locates the Stamped Document card the tools default to and hand proposals to
      * @return the two provenance tools
      */
     public static List<AnthropicTool> tools(CardLocator card) {
@@ -79,14 +82,16 @@ public final class StampTools {
 
             @Override
             public String description() {
-                return "Read the STAMP provenance of a committed file in a git repository: for each line, the commit "
-                        + "(STAMP) that introduced it — short SHA, date, author — and whether anyone has affirmed, "
-                        + "refuted or commented on it, plus the file's STAMP list, the lines still in the review queue "
-                        + "(introduced but affirmed by no one; refuted lines stay in it), and any annotation that no "
-                        + "longer matches its lines. Call this before answering who wrote, changed, reviewed, disputed "
-                        + "or concurred with a passage, or what remains to review. Defaults "
-                        + "to the file open in the STAMP Provenance card; pass file to read another. Pass from/to "
-                        + "to see a range; without them the first " + DEFAULT_LINE_LIMIT + " lines are listed.";
+                return "Read the STAMP provenance of a STAMPed document's lines: for each line, the commit (STAMP) "
+                        + "that introduced it — short SHA, date, author — and whether anyone has affirmed, refuted or "
+                        + "commented on it, plus the STAMP list and the lines still in the review queue (introduced but "
+                        + "affirmed by no one). Call this before answering who wrote, changed, reviewed, disputed or "
+                        + "concurred with a passage, or what remains to review. Defaults to the document shown in the "
+                        + "Stamped Document card. When the card has a working tree the provenance is read from git, with "
+                        + "stale annotations named; when it has none it is read from the store's per-line STAMPs, which "
+                        + "is just as current for what was materialized. Pass file to read a file of a working tree "
+                        + "instead. Pass from/to to see a range; without them the lines selected in the card are listed, "
+                        + "or the first " + DEFAULT_LINE_LIMIT + " when nothing is selected.";
             }
 
             @Override
@@ -102,10 +107,21 @@ public final class StampTools {
             @Override
             public String execute(Map<String, Object> input) {
                 try {
-                    Target target = Target.resolve(card.get(), str(input, "file"));
+                    StampedDocumentCard open = card.get();
+                    if (str(input, "file") == null && open != null && !hasWorkingTree(open) && open.shown().isPresent()) {
+                        return fromStore(open, integer(input, "from"), integer(input, "to"));
+                    }
+                    Target target = Target.resolve(open, str(input, "file"));
                     Report report = Report.read(target);
                     Integer from = integer(input, "from");
                     Integer to = integer(input, "to");
+                    if (from == null && to == null && str(input, "file") == null && open != null) {
+                        List<int[]> selected = open.selectedLineNumbers();        // the selection is the default subject
+                        if (!selected.isEmpty()) {
+                            from = selected.getFirst()[0];
+                            to = selected.getLast()[1];
+                        }
+                    }
                     return report.render(from, to);
                 } catch (IllegalArgumentException | IOException e) {
                     return "Error: " + e.getMessage();
@@ -130,12 +146,15 @@ public final class StampTools {
                 return "Prepare an annotation of specific lines of a committed file — an affirmation (the person has "
                         + "reviewed the lines and stands behind them), a refutation (they dispute them, with the reason "
                         + "as text), or a comment (no stance) — compute the Annotation: trailers (kind, path, line "
-                        + "range, anchoring revision, content hash) and hand them with the text to the STAMP Provenance "
+                        + "range, anchoring revision, content hash) and hand them with the text to the Stamped Document "
                         + "card, which asks the person to confirm with a signed commit. Nothing is recorded until they "
                         + "confirm; you cannot and must not annotate on their behalf, because an annotation is their "
                         + "signed statement. Use it only when the person asks to affirm, concur with, sign off, "
                         + "dispute, refute or comment on lines they have reviewed, after showing them what the lines "
-                        + "say. Ranges are 1-based and inclusive; lines must be committed (the card shows HEAD).";
+                        + "say. Ranges are 1-based and inclusive; omit them to propose for the lines selected in the "
+                        + "card. An annotation is a signed git commit in the file's repository, so the card needs a "
+                        + "working tree for the document (its Repository panel shows one); without one, say so and point "
+                        + "the person at Open file… or Clone… in the card.";
             }
 
             @Override
@@ -146,12 +165,12 @@ public final class StampTools {
                                 "kind", obj("type", "string", "enum", List.of("affirm", "refute", "comment"),
                                         "description", "affirm: the person stands behind the lines; refute: they dispute them; comment: no stance."),
                                 "ranges", obj("type", "array",
-                                        "description", "The line ranges the person reviewed.",
+                                        "description", "The line ranges the person reviewed. Omit to use the card's selection.",
                                         "items", obj("type", "object",
                                                 "properties", obj("from", intProp("First line, 1-based."), "to", intProp("Last line, inclusive.")),
                                                 "required", List.of("from", "to"))),
                                 "text", strProp("The annotation text in the person's words, which becomes the commit body; required to refute. They can edit it in the confirmation.")),
-                        "required", List.of("kind", "ranges"));
+                        "required", List.of("kind"));
             }
 
             @Override
@@ -162,9 +181,19 @@ public final class StampTools {
                     if (kind == AnnotationKind.REFUTATION && (text == null || text.isBlank())) {
                         throw new IllegalArgumentException("a refutation needs text: the person's reason for disputing the lines");
                     }
-                    StampProvenanceCard open = card.get();
+                    StampedDocumentCard open = card.get();
+                    if (str(input, "file") == null && open != null && !hasWorkingTree(open) && open.shown().isPresent()) {
+                        throw new IllegalArgumentException(noWorkingTree(open)
+                                + " An annotation is a signed git commit in the document's repository, so it needs that working tree: "
+                                + "ask the person to choose Open file… (a clone they already have) or Clone… in the card's Repository "
+                                + "panel, then propose again.");
+                    }
                     Target target = Target.resolve(open, str(input, "file"));
-                    List<int[]> ranges = ranges(input);
+                    List<int[]> ranges = input.get("ranges") == null && open != null && str(input, "file") == null
+                            ? open.selectedLineNumbers() : ranges(input);
+                    if (ranges.isEmpty()) {
+                        throw new IllegalArgumentException("no ranges given and no lines are selected in the Stamped Document card");
+                    }
                     List<Annotation> annotations = new ArrayList<>();
                     try (GitRepo repo = GitRepo.open(target.root())) {
                         String head = repo.headRevision();
@@ -180,13 +209,13 @@ public final class StampTools {
                     }
                     return "Prepared " + annotations.size() + " trailer(s) for " + AnnotationCommit.subject(annotations) + ":\n" + trailers
                             + (handedOff
-                                ? "\n\nThe STAMP Provenance card has ticked these lines and is asking the person to confirm the "
-                                  + StampProvenanceCard.displayName(kind).toLowerCase() + " with a signed commit. Nothing is recorded until they do; tell "
+                                ? "\n\nThe Stamped Document card has selected these lines and is asking the person to confirm the "
+                                  + StampedDocumentCard.displayName(kind).toLowerCase() + " with a signed commit. Nothing is recorded until they do; tell "
                                   + "them the confirmation is waiting in the card."
-                                : "\n\nNo STAMP Provenance card shows this file, so nothing was handed off. Ask the person to open "
-                                  + target.relative() + " in a STAMP Provenance card, tick lines "
+                                : "\n\nNo Stamped Document card shows this file, so nothing was handed off. Ask the person to open "
+                                  + target.relative() + " in a Stamped Document card, select lines "
                                   + ranges.stream().map(r -> r[0] + "-" + r[1]).reduce((a, b) -> a + ", " + b).orElse("")
-                                  + ", and choose " + (kind == AnnotationKind.COMMENT ? "Comment" : kind.verb()) + ".");
+                                  + ", and choose " + (kind == AnnotationKind.COMMENT ? "Comment" : kind.verb()) + " from their menu.");
                 } catch (IllegalArgumentException | IOException e) {
                     return "Error: " + e.getMessage();
                 } catch (RuntimeException e) {
@@ -206,22 +235,59 @@ public final class StampTools {
         };
     }
 
+    /** @return whether the card knows a working tree that holds the shown document's file */
+    static boolean hasWorkingTree(StampedDocumentCard card) {
+        return card.currentFile().map(f -> card.repoRoot() != null && Files.isRegularFile(card.repoRoot().resolve(f))).orElse(false);
+    }
+
+    /** What to say when the card shows a document but knows no working tree for it. */
+    static String noWorkingTree(StampedDocumentCard card) {
+        return "The Stamped Document card shows " + card.currentDocument().orElse("a document")
+                + " from the store but has no working tree for it (its Repository panel says no working tree holds the "
+                + "document's file); the document itself is fully in the store.";
+    }
+
+    /** stamp_lines without a working tree: the store's per-line STAMPs for the card's document. */
+    static String fromStore(StampedDocumentCard card, Integer from, Integer to) {
+        GitDocumentMaterializer.StoredDocument document = GitDocumentMaterializer.load(card.shown().get().anchor(), true)
+                .orElse(card.shown().get());
+        DocumentOutline outline = new DocumentOutline(document);
+        if (from == null && to == null) {
+            List<int[]> selected = card.selectedLineNumbers();
+            if (!selected.isEmpty()) {
+                from = selected.getFirst()[0];
+                to = selected.getLast()[1];
+            }
+        }
+        int first = from == null ? 1 : from;
+        int last = to == null ? (from == null ? Math.min(document.lines().size(), DEFAULT_LINE_LIMIT) : document.lines().size()) : to;
+        return card.currentDocument().orElse("The document") + " — provenance read from the store's per-line STAMPs (the card "
+                + "has no working tree for this document, so commit records and stale annotations from git are not shown; "
+                + "annotating needs a working tree: Open file… or Clone… in the card).\n"
+                + outline.provenance(first, last, DocumentGraphTools.describe(card.view(), card.summaries()));
+    }
+
     // ── target resolution ─────────────────────────────────────────────────────
 
     /** The repository root and the file within it that a tool call addresses. */
     record Target(Path root, Path relative) {
 
-        static Target resolve(StampProvenanceCard card, String file) {
+        static Target resolve(StampedDocumentCard card, String file) {
             if (file == null || file.isBlank()) {
-                if (card == null || card.currentFile().isEmpty()) {
-                    throw new IllegalArgumentException("no file given and no STAMP Provenance card has a file open; pass file");
+                if (card == null || card.shown().isEmpty()) {
+                    throw new IllegalArgumentException("no Stamped Document card shows a document and no file was given; read a stored "
+                            + "document with read_document (document=<name>), or pass file, a path in a git working tree");
+                }
+                if (!hasWorkingTree(card)) {
+                    throw new IllegalArgumentException(noWorkingTree(card) + " Pass file, a path in a git working tree, or ask the "
+                            + "person to choose Open file… or Clone… in the card.");
                 }
                 return new Target(card.repoRoot(), card.currentFile().get());
             }
             Path given = Path.of(file);
             if (!given.isAbsolute()) {
                 if (card == null || card.repoRoot() == null) {
-                    throw new IllegalArgumentException("relative path " + file + " needs an open STAMP Provenance card to resolve against; pass an absolute path");
+                    throw new IllegalArgumentException("relative path " + file + " needs a Stamped Document card with a working tree to resolve against; pass an absolute path");
                 }
                 given = card.repoRoot().resolve(given);
             }

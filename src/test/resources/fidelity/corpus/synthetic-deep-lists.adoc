@@ -1,0 +1,108 @@
+= Synthetic: deep lists
+
+Nested lists four levels deep, with continuation paragraphs and a description list.
+
+* Level one item 0: Observes electroencephalography lease are record the lease reconciles plugin refuses.
+** Level two item 0.0: Lease plugin an it is synced and responsibility calls enforcement and IntelliJ and administration.
+*** Level three 0.0.0: Within plugin act daemon and announcing peer lease administration.
+**** Level four 0.0.0: Renews reconciles tool itself within observes lives administration itself the in tool and are enforcement taking.
+*** Level three 0.0.1: Lives the and administration change plugin and same hook.
+**** Level four 0.0.1: It daemon same record layered a taking the is the are the peer refuses every it.
+** Level two item 0.1: Record act and observes a the peer change the an the plugin calls lease.
+*** Level three 0.1.0: It plugin internationalization the the are responsibility the so.
+**** Level four 0.1.0: Within a record within lease act act tool announcing the a closes garbage-collects so and renews.
+*** Level three 0.1.1: Characterization hook change garbage-collects every reconciles IntelliJ so same.
+**** Level four 0.1.1: Reconciles fences calls so record responsibility administration renews plugin tool enforcement reconciles daemon electroencephalography plugin itself.
+** Level two item 0.2: Closes garbage-collects plugin projects administration responsibility electroencephalography lease responsibility a a electroencephalography renews a.
+*** Level three 0.2.0: Daemon calls announcing the lease record itself tool the.
+**** Level four 0.2.0: Synced change administration is refuses lives tool lease tool and a it IntelliJ are the layered.
+*** Level three 0.2.1: Electroencephalography in and plugin and the and closes in.
+**** Level four 0.2.1: And and an are electroencephalography in are it reconciles garbage-collects and announcing and calls layered IntelliJ.
+* Level one item 1: Change in an a same internationalization record fences tool calls.
+** Level two item 1.0: Lease in hook so peer are calls and daemon act fences projects itself the.
+*** Level three 1.0.0: An lives IntelliJ the a synced daemon and a.
+**** Level four 1.0.0: IntelliJ same renews closes same layered layered layered internationalization folder refuses lease act the an lease.
+*** Level three 1.0.1: Same layered in responsibility plugin is the change and.
+**** Level four 1.0.1: And in a the so and closes are the itself hook responsibility tool plugin the folder.
+** Level two item 1.1: Renews the announcing IntelliJ IntelliJ within lease taking the IntelliJ a is within act.
+*** Level three 1.1.0: Reconciles so seconds observes change every folder administration peer.
+**** Level four 1.1.0: The every garbage-collects peer administration within folder lease renews the and same are the in within.
+*** Level three 1.1.1: Change a in the enforcement garbage-collects the lives the.
+**** Level four 1.1.1: Synced lives administration and same tool so it the enforcement plugin every lease internationalization the characterization.
+** Level two item 1.2: Enforcement lease electroencephalography garbage-collects tool within refuses refuses and reconciles the lives reconciles seconds.
+*** Level three 1.2.0: Is fences garbage-collects itself calls same IntelliJ lives refuses.
+**** Level four 1.2.0: Itself taking an seconds peer same act are and and calls are within calls it act.
+*** Level three 1.2.1: An refuses and within folder taking calls taking in.
+**** Level four 1.2.1: And plugin electroencephalography IntelliJ refuses announcing is peer garbage-collects is enforcement itself refuses lease it the.
+* Level one item 2: A peer refuses the every it the are electroencephalography projects.
+** Level two item 2.0: Lease lease and seconds change seconds and closes and change the peer garbage-collects lives.
+*** Level three 2.0.0: IntelliJ the projects the itself a plugin closes tool.
+**** Level four 2.0.0: Characterization and the the it change within calls is enforcement act responsibility lease itself record enforcement.
+*** Level three 2.0.1: Renews garbage-collects electroencephalography an a IntelliJ the in within.
+**** Level four 2.0.1: Responsibility closes layered is it characterization synced announcing so so closes a synced responsibility reconciles daemon.
+** Level two item 2.1: Calls garbage-collects layered the refuses internationalization record the characterization itself announcing projects record calls.
+*** Level three 2.1.0: Renews act itself tool are closes tool enforcement daemon.
+**** Level four 2.1.0: Garbage-collects folder synced in act closes a lease change are announcing characterization hook the the and.
+*** Level three 2.1.1: Act layered the every calls administration it an closes.
+**** Level four 2.1.1: It refuses it lease seconds renews calls act lives lease lease IntelliJ a calls seconds the.
+** Level two item 2.2: Are announcing and enforcement the announcing IntelliJ record daemon peer renews seconds the a.
+*** Level three 2.2.0: Within lease the electroencephalography same and plugin in and.
+**** Level four 2.2.0: IntelliJ lease act internationalization responsibility lease announcing layered announcing are garbage-collects same synced fences IntelliJ fences.
+*** Level three 2.2.1: A announcing IntelliJ seconds and lives hook so within.
+**** Level four 2.2.1: Lives and lease hook so seconds lives renews lives a within is renews every reconciles folder.
+* Level one item 3: The taking peer lease a calls closes and layered record.
+** Level two item 3.0: Act and reconciles change administration the peer is taking synced the the the the.
+*** Level three 3.0.0: Observes seconds folder refuses garbage-collects and change observes internationalization.
+**** Level four 3.0.0: Responsibility act responsibility electroencephalography enforcement the lives renews an lease the and is lease every the.
+*** Level three 3.0.1: And an lease tool seconds it electroencephalography tool internationalization.
+**** Level four 3.0.1: Within record change record layered in electroencephalography lives are lease and in hook peer the the.
+** Level two item 3.1: Peer fences record are and renews daemon every the act the reconciles garbage-collects hook.
+*** Level three 3.1.0: Electroencephalography tool in lease responsibility announcing synced an renews.
+**** Level four 3.1.0: Layered internationalization change characterization are enforcement responsibility IntelliJ itself IntelliJ a the electroencephalography and act responsibility.
+*** Level three 3.1.1: Daemon internationalization so hook it every every layered the.
+**** Level four 3.1.1: Characterization characterization hook the plugin lease within garbage-collects taking it seconds in calls record an refuses.
+** Level two item 3.2: And every taking enforcement synced in are fences the and synced seconds IntelliJ renews.
+*** Level three 3.2.0: Is a announcing itself seconds layered fences a it.
+**** Level four 3.2.0: And and internationalization and garbage-collects folder internationalization administration same same the projects the the are and.
+*** Level three 3.2.1: Are lease is it a it it so same.
+**** Level four 3.2.1: A lease every in within are it plugin closes announcing calls electroencephalography synced calls layered record.
+* Level one item 4: Synced the an responsibility announcing administration is the record same.
+** Level two item 4.0: Announcing folder lives lease hook responsibility a lease in the plugin a is hook.
+*** Level three 4.0.0: Are internationalization internationalization and the synced tool hook renews.
+**** Level four 4.0.0: Fences observes and record the peer so record and are record hook reconciles calls and responsibility.
+*** Level three 4.0.1: The responsibility every seconds a the a fences act.
+**** Level four 4.0.1: In and record characterization IntelliJ refuses an in seconds synced characterization within and refuses so tool.
+** Level two item 4.1: And the calls taking within daemon the seconds same and act seconds lives act.
+*** Level three 4.1.0: And projects observes seconds seconds lease internationalization electroencephalography the.
+**** Level four 4.1.0: Calls lease within reconciles within and the enforcement taking enforcement folder responsibility the within projects the.
+*** Level three 4.1.1: Layered internationalization taking itself the lives refuses so calls.
+**** Level four 4.1.1: Electroencephalography within the projects fences the and plugin taking so observes same taking closes taking in.
+** Level two item 4.2: Synced change IntelliJ garbage-collects electroencephalography characterization electroencephalography lease act itself administration record an every.
+*** Level three 4.2.0: Lives hook tool change the renews fences daemon responsibility.
+**** Level four 4.2.0: Taking tool characterization announcing fences within fences lease administration an a projects and record within closes.
+*** Level three 4.2.1: Taking change observes folder so it reconciles responsibility lease.
+**** Level four 4.2.1: Record refuses administration garbage-collects a record and administration every folder change hook layered refuses tool internationalization.
+* Level one item 5: Act calls seconds act a it enforcement change and the.
+** Level two item 5.0: Is plugin is a lease the fences IntelliJ layered it is garbage-collects fences internationalization.
+*** Level three 5.0.0: Responsibility layered administration a electroencephalography an within synced in.
+**** Level four 5.0.0: Itself observes enforcement the the electroencephalography is plugin plugin and record record tool itself the reconciles.
+*** Level three 5.0.1: Every internationalization reconciles plugin the lives garbage-collects plugin change.
+**** Level four 5.0.1: Calls characterization itself lease in fences reconciles daemon responsibility folder lease itself IntelliJ same electroencephalography characterization.
+** Level two item 5.1: Taking a characterization reconciles announcing in administration observes fences garbage-collects are taking every fences.
+*** Level three 5.1.0: The responsibility layered so are plugin an and a.
+**** Level four 5.1.0: Are fences plugin it every the record lease a within taking tool the a every change.
+*** Level three 5.1.1: Taking characterization characterization are folder internationalization closes lives tool.
+**** Level four 5.1.1: The is refuses closes a daemon synced are and tool within and electroencephalography the are change.
+** Level two item 5.2: The projects so the peer garbage-collects the is announcing a fences and lives same.
+*** Level three 5.2.0: Responsibility closes are act tool a and every reconciles.
+**** Level four 5.2.0: The and record announcing so same fences tool enforcement seconds plugin the lives itself IntelliJ announcing.
+*** Level three 5.2.1: Fences calls record lease lives the projects observes act.
+**** Level four 5.2.1: Synced closes observes and announcing seconds a act a itself and the fences administration an taking.
+
+Term one:: Itself the electroencephalography it renews so is synced in tool so and characterization the within electroencephalography are the.
+Term two:: Lives calls responsibility refuses observes hook calls a is hook closes reconciles.
+A longer term with several words:: IntelliJ it taking the record lives and lease within a it taking lives internationalization synced the fences refuses and lease so seconds lease closes hook.
+
+. First ordered step Calls plugin calls calls seconds responsibility fences a.
+. Second ordered step Plugin act in act tool lives reconciles characterization an renews and the change enforcement and layered the and calls is.
+. Third ordered step A announcing synced are announcing calls.

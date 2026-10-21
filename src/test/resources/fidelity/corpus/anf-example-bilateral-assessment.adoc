@@ -1,0 +1,421 @@
+// anf-example-bilateral-assessment
+// Topic: Bilateral and Comparative Assessment -- ANF Worked Examples
+// Type: reference
+// Status: draft
+:topic-id: anf-example-bilateral-assessment
+:topic-type: reference
+:topic-status: draft
+:topic-keywords: PERRLA, pupil-diameter, leg-length, grip-strength, bilateral, asymmetry, worked-example
+
+[[anf-example-bilateral-assessment]]
+= Bilateral and Comparative Assessment -- ANF Worked Examples
+
+indexterm:[ANF, bilateral assessment example]
+indexterm:[relative measurement, worked example]
+This reference provides worked examples of building ANF
+statements from clinical narratives that involve comparative
+and relative measurements.
+Each example demonstrates the use of comparative unit concepts
+with intrinsic `measurementBasis` properties as described in
+xref:anf-relative-measurements[] and defined in
+xref:anf-measurement-basis-units[].
+The examples follow the same tabular format used in the
+xref:anf-example-blood-pressure[blood pressure] and
+xref:anf-example-medication[medication history] worked examples.
+
+== Example 1: PERRLA -- Pupils Equal (Qualitative)
+
+indexterm:[PERRLA, qualitative assessment]
+indexterm:[bilateral symmetry assessment, pupil example]
+
+[example]
+====
+*Neurological Examination* +
+Clinical narrative:
+"PERRLA" +
+Element isolated:
+"Pupils equal" (assessed without measurement)
+====
+
+This statement captures the bilateral symmetry assessment
+performed by visual inspection.
+No absolute pupil diameter is recorded;
+the result is a qualitative comparison.
+
+.Context -- Pupil Bilateral Symmetry (Qualitative)
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Pupil diameter -- SCTID: 363926002
+
+| subjectOfRecord
+| Patient identifier
+
+| author
+| Practitioner identifier
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Pupil Bilateral Symmetry (Qualitative)
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [1, INF) Bilateral symmetry assessment = True (symmetric)
+
+| semantic
+| Bilateral symmetry assessment (measurementBasis: Contralateral anatomical structure — inherent in unit)
+
+| method
+| Visual inspection
+|===
+
+NOTE: The reference frame (contralateral anatomical structure) is carried by the unit definition, not repeated in the statement.
+Any statement using "Bilateral symmetry assessment" as its semantic inherits the comparative reference frame automatically.
+
+== Example 2: PERRLA -- Pupils Equal (Quantitative)
+
+indexterm:[PERRLA, quantitative assessment]
+
+[example]
+====
+*Neurological Examination* +
+Clinical narrative:
+"Pupils equal,
+both 4mm"
+====
+
+When actual measurements are taken,
+three ANF statements result:
+one absolute measurement per pupil plus a comparative statement.
+
+=== Statement 1: Right Pupil (Absolute)
+
+.Context -- Right Pupil Diameter
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Pupil diameter -- SCTID: 363926002
+
+| location
+| Right pupil structure -- SCTID: 726701002
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Right Pupil Diameter
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [4, 4] mm -- SCTID: 258673006
+
+| semantic
+| millimeter (measurementBasis: Absolute standard — inherent in unit)
+|===
+
+=== Statement 2: Left Pupil (Absolute)
+
+.Context -- Left Pupil Diameter
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Pupil diameter -- SCTID: 363926002
+
+| location
+| Left pupil structure -- SCTID: 726700001
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Left Pupil Diameter
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [4, 4] mm -- SCTID: 258673006
+
+| semantic
+| millimeter (measurementBasis: Absolute standard — inherent in unit)
+|===
+
+=== Statement 3: Bilateral Symmetry (Comparative)
+
+.Context -- Pupil Bilateral Symmetry
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Pupil diameter -- SCTID: 363926002
+
+| associatedStatements
+| Links to Statements 1 and 2
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Pupil Bilateral Symmetry
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [1, INF) Bilateral symmetry assessment = True (symmetric)
+
+| semantic
+| Bilateral symmetry assessment (measurementBasis: Contralateral anatomical structure — inherent in unit)
+|===
+
+== Example 3: Leg Length Discrepancy (Quantitative)
+
+indexterm:[leg length discrepancy, ANF example]
+
+[example]
+====
+*Orthopedic Examination* +
+Clinical narrative:
+"Left leg 2 cm shorter than right"
+====
+
+This scenario produces three statements:
+absolute measurements for each leg and a relative comparison.
+
+=== Statement 1: Right Leg Length (Absolute)
+
+.Context -- Right Leg Length
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Leg length -- SCTID: 249173003
+
+| location
+| Right lower limb structure -- SCTID: 62175007
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Right Leg Length
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [85, 85] cm -- SCTID: 258672001
+
+| semantic
+| centimeter (measurementBasis: Absolute standard — inherent in unit)
+|===
+
+=== Statement 2: Left Leg Length (Absolute)
+
+.Context -- Left Leg Length
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Leg length -- SCTID: 249173003
+
+| location
+| Left lower limb structure -- SCTID: 62174006
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Left Leg Length
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [83, 83] cm -- SCTID: 258672001
+
+| semantic
+| centimeter (measurementBasis: Absolute standard — inherent in unit)
+|===
+
+=== Statement 3: Leg Length Discrepancy (Relative)
+
+.Context -- Left Leg Relative Length
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Leg length -- SCTID: 249173003
+
+| location
+| Left lower limb structure -- SCTID: 62174006
+
+| associatedStatements
+| Links to Statements 1 and 2
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Left Leg Relative Length
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [-2, -2] centimeter difference from contralateral structure (2 cm shorter)
+
+| semantic
+| centimeter difference from contralateral structure (measurementBasis: Contralateral anatomical structure — inherent in unit)
+|===
+
+IMPORTANT: The negative value indicates the measured structure is smaller than its contralateral counterpart.
+The sign convention is carried by the result; the unit's `measurementBasis` tells systems how to interpret the comparison.
+
+== Example 4: Grip Strength Asymmetry
+
+indexterm:[grip strength, ANF example]
+
+[example]
+====
+*Neurological/Musculoskeletal Examination* +
+Clinical narrative:
+"Right hand grip strength 30 kg,
+left hand 25 kg"
+====
+
+=== Statement 1: Right Hand Grip Strength (Absolute)
+
+.Context -- Right Hand Grip Strength
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Grip strength -- SCTID: 366725004
+
+| location
+| Right hand structure -- SCTID: 78791008
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Right Hand Grip Strength
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [30, 30] kg -- SCTID: 258683005
+
+| semantic
+| kilogram (measurementBasis: Absolute standard — inherent in unit)
+|===
+
+=== Statement 2: Left Hand Grip Strength (Absolute)
+
+.Context -- Left Hand Grip Strength
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Grip strength -- SCTID: 366725004
+
+| location
+| Left hand structure -- SCTID: 85151006
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Left Hand Grip Strength
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [25, 25] kg -- SCTID: 258683005
+
+| semantic
+| kilogram (measurementBasis: Absolute standard — inherent in unit)
+|===
+
+=== Statement 3: Grip Strength Asymmetry (Relative)
+
+.Context -- Left Hand Relative Grip Strength
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| topic
+| Grip strength -- SCTID: 366725004
+
+| location
+| Left hand structure -- SCTID: 85151006
+
+| associatedStatements
+| Links to Statements 1 and 2
+
+| type
+| Performance -- 395cc864-7c51-4072-b3e7-f9195b40053a
+|===
+
+.Performance Circumstance -- Left Hand Relative Grip Strength
+[cols="2,3", options="header"]
+|===
+| Attribute | Value
+
+| disposition
+| Performed -- SCTID: 398166005
+
+| result
+| [-5, -5] kilogram difference from contralateral structure (5 kg weaker)
+
+| semantic
+| kilogram difference from contralateral structure (measurementBasis: Contralateral anatomical structure — inherent in unit)
+|===

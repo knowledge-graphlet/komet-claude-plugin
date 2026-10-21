@@ -45,6 +45,21 @@
     -fx-background-color: white;
 }
 
+.claude-doc-frame {
+    -fx-background-color: white;
+}
+
+.doc-header-region, .doc-footer-region {
+    -fx-background-color: #faf9f7;
+    -fx-border-color: transparent transparent #e4e1dc transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.doc-footer-region {
+    -fx-border-color: #e4e1dc transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+}
+
 .claude-doc-stack {
     -fx-background-color: white;
 }

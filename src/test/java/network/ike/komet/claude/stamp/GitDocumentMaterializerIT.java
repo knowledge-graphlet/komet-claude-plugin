@@ -65,8 +65,14 @@ class GitDocumentMaterializerIT {
     /** The last commit that changed the file (the affirmation after it is empty). */
     private String lastContentCommit;
 
+    /** The document model this class runs over: the prose-element model; a vertex subclass overrides it (IKE-Network/ike-issues#1313). */
+    String model() {
+        return "prose";
+    }
+
     @BeforeAll
     void setupDatabase() {
+        System.setProperty(VertexMaterializer.MODEL_PROPERTY, model());
         assertTrue(PB_STARTER_DATA.exists(), "Starter data must be present at " + PB_STARTER_DATA.getAbsolutePath());
         PrimitiveData.selectControllerByName("Load Ephemeral Store");
         PrimitiveData.start();
@@ -76,6 +82,7 @@ class GitDocumentMaterializerIT {
 
     @AfterAll
     void teardownDatabase() {
+        System.clearProperty(VertexMaterializer.MODEL_PROPERTY);
         PrimitiveData.stop();
     }
 
@@ -88,7 +95,7 @@ class GitDocumentMaterializerIT {
 
         assertEquals("anf-demo-topic", first.name(), "the anchor is named by the file's :topic-id:");
         assertEquals(3, first.commits());
-        assertEquals(5, first.lines(), "three lines at creation, then a title and an edited middle line");
+        assertEquals(4, first.lines(), "three lines at creation, then a title; the edited middle line is a revision of its line (#1313)");
         assertEquals(1, first.annotations());
         assertEquals(List.of(":topic-id: anf-demo-topic", "one", "two-b", "three"), stored.lines().stream().map(GitDocumentMaterializer.StoredLine::text).toList());
         assertEquals(2, stored.manifestVersions(), "one manifest version per commit that changed the file");
@@ -161,6 +168,47 @@ class GitDocumentMaterializerIT {
     }
 
     /** alice creates three lines; bob inserts a topic-id line and edits the middle; Rita affirms lines 2–3 of bob's version. */
+    /**
+     * A line keeps its identity when it is revised (#1313), so Rita's affirmation stays on the line
+     * in the store; it stands while the line says what she read, through a formatting-only reflow,
+     * and stops standing when a commit revises the words.
+     */
+    @Test
+    void anAnnotationStandsUntilTheLinesWordsChange() throws Exception {
+        Path repoRoot = java.nio.file.Files.createDirectories(root.resolve("standing"));
+        gitIn(repoRoot, "init", "-q", "-b", "main");
+        gitIn(repoRoot, "-c", "user.name=alice", "-c", "user.email=alice@example.test", "commit", "-q", "--no-gpg-sign", "--allow-empty",
+                "--date=2025-12-30T00:00:00Z", "-m", "start the standing repository");
+        Path file = seedRepository(repoRoot);                    // Rita affirms line 3, "two-b"
+
+        java.nio.file.Files.writeString(file, ":topic-id: anf-demo-topic\none\n  two-b\nthree\n");
+        gitIn(repoRoot, "add", "doc.adoc");
+        gitIn(repoRoot, "-c", "user.name=formatter", "-c", "user.email=formatter@example.test", "commit", "-q", "--no-gpg-sign",
+                "--date=2026-01-04T00:00:00Z", "-m", "reflow");
+        String reflow;
+        try (GitRepo repo = GitRepo.open(repoRoot)) {
+            reflow = repo.headRevision();
+        }
+        java.nio.file.Files.writeString(repoRoot.resolve(".git-blame-ignore-revs"), reflow + "\n");
+        GitDocumentMaterializer.Result afterReflow = GitDocumentMaterializer.materialize(repoRoot, file);
+        GitDocumentMaterializer.StoredLine reflowed = GitDocumentMaterializer.load(afterReflow.anchor()).orElseThrow().lines().get(2);
+        assertEquals("  two-b", reflowed.text());
+        assertEquals(1, reflowed.affirmers().size(), "a reflow leaves the line's words, and Rita's affirmation stands");
+
+        java.nio.file.Files.writeString(file, ":topic-id: anf-demo-topic\none\n  two-c\nthree\n");
+        gitIn(repoRoot, "add", "doc.adoc");
+        gitIn(repoRoot, "-c", "user.name=carol", "-c", "user.email=carol@example.test", "commit", "-q", "--no-gpg-sign",
+                "--date=2026-01-05T00:00:00Z", "-m", "revise two");
+        GitDocumentMaterializer.Result afterRevision = GitDocumentMaterializer.materialize(repoRoot, file);
+        GitDocumentMaterializer.StoredDocument revised = GitDocumentMaterializer.load(afterRevision.anchor()).orElseThrow();
+        GitDocumentMaterializer.StoredLine line = revised.lines().get(2);
+        assertEquals(reflowed.nid(), line.nid(), "the revised line is the same line");
+        assertEquals("  two-c", line.text());
+        assertTrue(line.affirmers().isEmpty(), "Rita read words the line no longer says: her affirmation no longer stands");
+        assertTrue(DocumentSurfaceView.queued(line), "the line is back in the review queue");
+        assertEquals(Instant.parse("2026-01-05T00:00:00Z").toEpochMilli(), line.introduced().time(), "carol wrote its words now");
+    }
+
     @Test
     void structureReferencesAndRetirementsAreMaterialized() throws Exception {
         Path dir = Files.createDirectories(root.resolve("structured"));
@@ -220,8 +268,10 @@ class GitDocumentMaterializerIT {
         assertEquals(Instant.parse("2026-02-02T00:00:00Z").toEpochMilli(), more.stamp().time(), "a block is STAMPed by the commit that introduced it");
         assertEquals(Instant.parse("2026-02-03T00:00:00Z").toEpochMilli(), sections.get(0).stamp().time(),
                 "a section whose members changed (the listing left it) is re-STAMPed by that commit");
-        assertEquals(Instant.parse("2026-02-02T00:00:00Z").toEpochMilli(), paragraph.stamp().time(),
-                "a revised line is a new line under git blame, so the paragraph's membership changed under the revising commit");
+        assertEquals(Instant.parse("2026-02-01T00:00:00Z").toEpochMilli(), paragraph.stamp().time(),
+                "a revised line keeps its identity (#1313), so the paragraph's membership did not change under the revising commit");
+        assertEquals(Instant.parse("2026-02-02T00:00:00Z").toEpochMilli(), stored.line(paragraph.members().get(1)).orElseThrow().introduced().time(),
+                "the revised line's words were written by the revising commit");
         assertEquals(Instant.parse("2026-02-01T00:00:00Z").toEpochMilli(), stored.line(paragraph.members().get(0)).orElseThrow().introduced().time(),
                 "the untouched first line keeps the introducing commit's STAMP");
 

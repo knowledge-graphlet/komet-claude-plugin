@@ -143,6 +143,9 @@ public final class GitDocumentMaterializer {
      * @throws IOException if the repository or the file cannot be read
      */
     public static Result materialize(Path repoRoot, Path file, boolean onlyNew) throws IOException {
+        if (VertexMaterializer.enabled()) {
+            return VertexMaterializer.materialize(repoRoot, file, onlyNew);     // IKE-Network/ike-issues#1313
+        }
         DocumentVocabulary.requirePresent();
         GitIdentityAdapter adapter = GitIdentityAdapter.fromMailmap(repoRoot);
         String component = repoRoot.toAbsolutePath().normalize().getFileName().toString();
@@ -414,7 +417,7 @@ public final class GitDocumentMaterializer {
      * in the history; when none matches — an anchor the walk could not place — the latest
      * source version stands in.
      */
-    private static long reviewedStampNid(Semantic source, String sha) {
+    static long reviewedStampNid(Semantic source, String sha) {
         Entity<? extends EntityVersion> entity = EntityHandle.get(source.nid()).expectEntity();
         SemanticEntityVersion latest = null;
         for (EntityVersion version : entity.versions()) {
@@ -564,7 +567,7 @@ public final class GitDocumentMaterializer {
         return Semantic.make(identity.name(), identity.uuid());
     }
 
-    private static Optional<String> topicId(GitRepo repo, Path relative) throws IOException {
+    static Optional<String> topicId(GitRepo repo, Path relative) throws IOException {
         for (String line : repo.headLines(relative).subList(0, Math.min(40, repo.headLines(relative).size()))) {
             Matcher m = TOPIC_ID.matcher(line);
             if (m.matches()) {
@@ -581,7 +584,8 @@ public final class GitDocumentMaterializer {
      *
      * @param nid        the line element's nid
      * @param text       the latest text
-     * @param introduced the STAMP of the element's first version
+     * @param introduced the STAMP of the version that wrote the line's current words: its first, or the
+     *                   latest committed one that changed its text beyond whitespace
      * @param latest     the STAMP of its latest version (differs after an ignored reflow)
      * @param annotations the annotations covering it in force: for each annotator, their latest
      *                    judgment (an affirmation or a refutation), and every comment
@@ -623,8 +627,18 @@ public final class GitDocumentMaterializer {
      * @param parameters the block attribute line as written
      * @param members    the nids of the lines and blocks it contains, in document order
      * @param stamp      the STAMP of the block's latest version
+     * @param tree       its members as the store's tree holds them, which the Graph view shows: for a
+     *                   document stored as vertices (IKE-Network/ike-issues#1313), {@code members} with
+     *                   the blank lines the tree places in the block; otherwise {@code members}
      */
-    public record StoredBlock(long nid, Block.Kind kind, int level, String title, String parameters, List<Long> members, StampEntity<?> stamp) { }
+    public record StoredBlock(long nid, Block.Kind kind, int level, String title, String parameters, List<Long> members, StampEntity<?> stamp,
+                              List<Long> tree) {
+
+        /** A block whose tree holds exactly its members: every block of the prose-element model. */
+        public StoredBlock(long nid, Block.Kind kind, int level, String title, String parameters, List<Long> members, StampEntity<?> stamp) {
+            this(nid, kind, level, title, parameters, members, stamp, members);
+        }
+    }
 
     /**
      * One inline reference as read from the store.
@@ -682,6 +696,9 @@ public final class GitDocumentMaterializer {
      * @return the document, or empty when the anchor has no manifest
      */
     public static Optional<StoredDocument> load(PublicId anchor, boolean pending) {
+        if (VertexReader.isVertexDocument(anchor)) {
+            return VertexReader.load(anchor, pending);                      // IKE-Network/ike-issues#1313
+        }
         long anchorNid = EntityService.get().nidForPublicId(anchor);
         List<SemanticEntity<SemanticEntityVersion>> manifests = EntityService.get()
                 .semanticsForComponentOfPattern(anchorNid, IkePattern.JOURNAL_MANIFEST_PATTERN.nid()).toList();
@@ -712,11 +729,13 @@ public final class GitDocumentMaterializer {
             Entity<? extends EntityVersion> element = held.get();
             SemanticEntityVersion first = null;
             SemanticEntityVersion last = null;
+            List<SemanticEntityVersion> versions = new ArrayList<>();
             for (EntityVersion version : element.versions()) {
                 SemanticEntityVersion v = (SemanticEntityVersion) version;
                 if (v.canceled() || (v.time() == Long.MAX_VALUE && !pending)) {
                     continue;
                 }
+                versions.add(v);
                 if (first == null || v.time() < first.time()) {
                     first = v;
                 }
@@ -727,8 +746,9 @@ public final class GitDocumentMaterializer {
             if (first == null) {
                 continue;
             }
-            lines.add(new StoredLine(nid, String.valueOf(last.fieldValues().get(0)), first.stamp(), last.stamp(),
-                    annotated.getOrDefault(nid, List.of())));
+            String text = String.valueOf(last.fieldValues().get(0));
+            lines.add(new StoredLine(nid, text, authored(versions, first).stamp(), last.stamp(),
+                    inForce(annotated.getOrDefault(nid, List.of()), versions, text)));
         }
         int versions = 0;
         for (SemanticEntityVersion v : manifest.versions()) {
@@ -795,19 +815,160 @@ public final class GitDocumentMaterializer {
         return Optional.of(new StoredDocument(anchor, commit, lines, versions, attributes, root, blocks, references));
     }
 
+    /**
+     * The anchor a file of a repository materializes under: a UUID5 of the repository folder's
+     * name and the repository-relative path, the identity {@link #materialize(Path, Path)}
+     * mints, so an included file's document is found without listing the store.
+     *
+     * @param repoRoot the working-tree root
+     * @param path     the file's repository-relative path
+     * @return the anchor id the file has, or would have, in the store
+     */
+    public static PublicId documentAnchor(Path repoRoot, String path) {
+        String component = repoRoot.toAbsolutePath().normalize().getFileName().toString();
+        String key = "document:" + component + "/" + path.replace('\\', '/');
+        PublicId root = PublicIds.of(Uuid5.of(GitIdentityAdapter.NAMESPACE, "vertex:" + key + ":document"));
+        if (VertexReader.isVertexDocument(root)) {
+            return root;                                                     // materialized as vertices (#1313)
+        }
+        return PublicIds.of(Uuid5.of(GitIdentityAdapter.NAMESPACE, key));
+    }
+
+    /**
+     * The repository-relative path the document's latest committed git-source version records.
+     *
+     * @param anchor the document anchor id
+     * @return the path, or empty when the store holds no git source for it
+     */
+    public static Optional<String> recordedPath(PublicId anchor) {
+        long anchorNid = EntityService.get().nidForPublicId(anchor);
+        String path = null;
+        for (SemanticEntity<SemanticEntityVersion> source : EntityService.get()
+                .semanticsForComponentOfPattern(anchorNid, IkePattern.GIT_SOURCE_PATTERN.nid()).toList()) {
+            SemanticEntityVersion latest = latest(source);
+            if (latest != null) {
+                path = String.valueOf(latest.fieldValues().get(0));
+            }
+        }
+        return Optional.ofNullable(path);
+    }
+
+    /**
+     * The anchors of every document the store holds, by recorded path: more than one when two
+     * repositories (a clone beside its origin) hold a file of one path.
+     *
+     * @return path to anchors, in store order
+     */
+    public static Map<String, List<PublicId>> storedDocumentsByPath() {
+        Map<String, List<PublicId>> found = new java.util.TreeMap<>();
+        for (Listed listed : listed()) {
+            found.computeIfAbsent(listed.path(), k -> new ArrayList<>()).add(listed.anchor());
+        }
+        return found;
+    }
+
     /** The anchors of every document the store holds, by name. */
     public static Map<String, PublicId> storedDocuments() {
         Map<String, PublicId> found = new java.util.TreeMap<>();
+        for (Listed listed : listed()) {
+            found.put(listed.name(), listed.anchor());
+        }
+        return found;
+    }
+
+    /** One document the store holds: its name, its recorded path, its anchor, and whether it is stored as vertices. */
+    /**
+     * One document the store holds.
+     *
+     * @param name         its name
+     * @param path         its recorded path
+     * @param anchor       its anchor
+     * @param vertex       whether it is stored as vertices
+     * @param supersededBy for a prose-element document, the root vertex its file materializes as
+     *                     in the same working tree, or {@code null} when that cannot be told
+     */
+    private record Listed(String name, String path, PublicId anchor, boolean vertex, PublicId supersededBy) { }
+
+    /**
+     * Every document the store holds, in store order, without the superseded: since documents are
+     * materialized as vertices by default (IKE-Network/ike-issues#1313), a store materialized
+     * before holds a file twice once it is opened again, as prose elements and as vertices. A
+     * prose-element document is superseded when the store holds the vertex document of the same
+     * working tree and path, and is left out, so a name or a path finds the document the card now
+     * shows; its entities stay in the store until its scope is deleted. A clone's document, from
+     * another working tree, is not superseded by its origin's.
+     */
+    private static List<Listed> listed() {
+        List<Listed> all = allListed();
+        Set<PublicId> vertices = new HashSet<>();
+        for (Listed listed : all) {
+            if (listed.vertex()) {
+                vertices.add(listed.anchor());
+            }
+        }
+        all.removeIf(listed -> listed.supersededBy() != null && vertices.contains(listed.supersededBy()));
+        return all;
+    }
+
+    /**
+     * The prose-element documents the vertex documents of the same working tree and path
+     * supersede, which the lists leave out and {@link DocumentScopes#deleteSuperseded()} deletes.
+     *
+     * @return their anchors
+     */
+    static List<PublicId> superseded() {
+        Set<PublicId> listed = new HashSet<>();
+        for (Listed l : listed()) {
+            listed.add(l.anchor());
+        }
+        List<PublicId> superseded = new ArrayList<>();
+        for (Listed l : allListed()) {
+            if (!l.vertex() && !listed.contains(l.anchor())) {
+                superseded.add(l.anchor());
+            }
+        }
+        return superseded;
+    }
+
+    /** Every document the store holds, superseded or not. */
+    private static List<Listed> allListed() {
+        List<Listed> all = new ArrayList<>();
         if (DocumentVocabulary.entityAbsent(IkePattern.GIT_SOURCE_PATTERN)) {
-            return found;
+            return all;
         }
         dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator view = dev.ikm.tinkar.coordinate.Calculators.View.Default();
         EntityService.get().semanticsOfPattern(IkePattern.GIT_SOURCE_PATTERN.nid()).forEach(s -> {
+            SemanticEntityVersion latest = latest(s);
+            if (latest == null) {
+                return;
+            }
             long anchorNid = s.referencedComponentNid();
-            EntityHandle.get(anchorNid).entity().ifPresent(anchor ->
-                    found.put(StampNames.name(view, anchorNid), anchor.publicId()));
+            String path = String.valueOf(latest.fieldValues().get(0));
+            EntityHandle.get(anchorNid).entity().ifPresent(anchor -> {
+                // a vertex document is named by its own pattern, its root vertex having no name of its own
+                boolean vertex = anchor instanceof SemanticEntity<?>;
+                String name = vertex ? StampNames.name(view, ((SemanticEntity<?>) anchor).patternNid()) : StampNames.name(view, anchorNid);
+                all.add(new Listed(name, path, anchor.publicId(), vertex,
+                        vertex ? null : supersededBy(anchor.publicId(), StampNames.name(view, latest.stamp().moduleNid()), path)));
+            });
         });
-        return found;
+        return all;
+    }
+
+    /**
+     * The root vertex a prose-element document's file materializes as: both identities are UUID5s
+     * of the working tree's name and the path, and the working tree's name is its git STAMP's
+     * module. {@code null} when the prose anchor is not the one that name and path give.
+     */
+    private static PublicId supersededBy(PublicId proseAnchor, String component, String path) {
+        if (component == null || component.isBlank()) {
+            return null;
+        }
+        String key = "document:" + component + "/" + path.replace('\\', '/');
+        if (!PublicIds.of(Uuid5.of(GitIdentityAdapter.NAMESPACE, key)).equals(proseAnchor)) {
+            return null;
+        }
+        return PublicIds.of(Uuid5.of(GitIdentityAdapter.NAMESPACE, "vertex:" + key + ":document"));
     }
 
     /**
@@ -815,7 +976,91 @@ public final class GitDocumentMaterializer {
      * annotator (the STAMP author), only their latest judgment, plus every comment, oldest
      * first. A kind the engine does not know is skipped.
      */
-    private static Map<Long, List<StoredAnnotation>> annotationsByElement(long anchorNid) {
+    /**
+     * The annotations still in force on a line: those made on the text it carries now. A line keeps
+     * its identity when it is revised (IKE-Network/ike-issues#1313), so an annotation on an earlier
+     * text stays on the line in the store but no longer stands: it judged words the line no longer
+     * says, and the line is back in the review queue. Text is compared up to whitespace, so a
+     * reflow from a formatting-only commit, which takes no authorship, leaves a judgment standing.
+     *
+     * @param annotations the annotations on the line, as the annotators made them
+     * @param versions    the line's versions
+     * @param current     the line's current text
+     * @return those made on the current text
+     */
+    static List<StoredAnnotation> inForce(List<StoredAnnotation> annotations, List<SemanticEntityVersion> versions, String current) {
+        if (annotations.isEmpty()) {
+            return annotations;
+        }
+        String now = normalized(current);
+        List<StoredAnnotation> standing = new ArrayList<>();
+        for (StoredAnnotation annotation : annotations) {
+            long reviewedTime = stampTime(annotation.reviewedStamp());
+            SemanticEntityVersion seen = null;
+            for (SemanticEntityVersion v : versions) {
+                if (v.time() <= reviewedTime && (seen == null || v.time() >= seen.time())) {
+                    seen = v;
+                }
+            }
+            if (annotation.reviewedStamp() == 0 || (seen != null && normalized(lineText(seen)).equals(now))) {
+                standing.add(annotation);
+            }
+        }
+        return standing;
+    }
+
+    /**
+     * The committed version that wrote a line's current words: its first version, or the latest
+     * committed one whose text differs from the version before it beyond whitespace. A line keeps
+     * its identity when it is revised (IKE-Network/ike-issues#1313), so its first version names who
+     * began it and this one who wrote what it says; a reflow from a formatting-only commit, which
+     * takes no authorship, changes nothing. An edit pending in Komet is not counted.
+     */
+    static SemanticEntityVersion authored(List<SemanticEntityVersion> versions, SemanticEntityVersion first) {
+        List<SemanticEntityVersion> committed = new ArrayList<>();
+        for (SemanticEntityVersion v : versions) {
+            if (v.time() != Long.MAX_VALUE) {
+                committed.add(v);
+            }
+        }
+        committed.sort(java.util.Comparator.comparingLong(SemanticEntityVersion::time));
+        SemanticEntityVersion authored = committed.isEmpty() ? first : committed.getFirst();
+        for (int i = 1; i < committed.size(); i++) {
+            if (!normalized(lineText(committed.get(i))).equals(normalized(lineText(committed.get(i - 1))))) {
+                authored = committed.get(i);
+            }
+        }
+        return authored;
+    }
+
+    /**
+     * A line version's text: a prose element's string, or a line vertex's Line source
+     * (IKE-Network/ike-issues#1313).
+     */
+    static String lineText(SemanticEntityVersion version) {
+        Object value = version.fieldValues().isEmpty() ? null : version.fieldValues().get(0);
+        if (value instanceof dev.ikm.tinkar.entity.graph.EntityVertex vertex) {
+            Object source = vertex.properties().get(network.ike.foundation.ike.bindings.IkeConcept.LINE_SOURCE.nid());
+            return source == null ? "" : String.valueOf(source);
+        }
+        return String.valueOf(value);
+    }
+
+    private static String normalized(String text) {
+        return text.strip().replaceAll("\\s+", " ");
+    }
+
+    private static long stampTime(long stampNid) {
+        if (stampNid == 0) {
+            return Long.MAX_VALUE;
+        }
+        return EntityHandle.get(stampNid).entity()
+                .filter(e -> e instanceof StampEntity<?>)
+                .map(e -> ((StampEntity<?>) e).lastVersion().time())
+                .orElse(Long.MAX_VALUE);
+    }
+
+    static Map<Long, List<StoredAnnotation>> annotationsByElement(long anchorNid) {
         record Seen(StoredAnnotation annotation, long element) { }
         List<Seen> seen = new ArrayList<>();
         for (SemanticEntity<SemanticEntityVersion> a : EntityService.get()

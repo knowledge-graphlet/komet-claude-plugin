@@ -102,6 +102,12 @@
         <!-- JUnit 5 for unit tests (e.g. the AnthropicClient retry policy). Versions managed by the
              parent; surefire patches the test classes into this JPMS module (no test module-info),
              matching the knowledge-layout pattern. -->
+        <!-- Headless JavaFX for the layout fidelity harness (LayoutFidelityIT): text layout without a display. -->
+        <dependency>
+            <groupId>one.jpro.platform.jpms</groupId>
+            <artifactId>openjfx-monocle</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-api</artifactId>

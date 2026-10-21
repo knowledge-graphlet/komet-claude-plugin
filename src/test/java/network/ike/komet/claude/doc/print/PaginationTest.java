@@ -105,4 +105,70 @@ class PaginationTest {
     void nonPositiveBandIsRejected() {
         assertThrows(IllegalArgumentException.class, () -> Pagination.plan(List.of(prose(10)), 0));
     }
+
+    private static Pagination.BlockBox heading(double h) {
+        return new Pagination.BlockBox(h, true, true);
+    }
+
+    @Test
+    void headingThatWouldEndAPageMovesWithItsText() {
+        // prose fills 0..70; the 20pt heading fits (70..90) but its companion (min(60, 2×20)=40pt) does
+        // not, so the heading is pushed to the next band and the text starts there with it.
+        Pagination.PagePlan plan = Pagination.plan(List.of(prose(70), heading(20), prose(60)), 100);
+        assertEquals(30.0, plan.leadingSpacer()[1], 0.001);
+        assertArrayEquals(new int[]{0, 1, 1}, plan.pageOfBlock());
+        assertEquals(2, plan.pageCount());
+    }
+
+    @Test
+    void headingWithRoomForItsCompanionStays() {
+        // prose fills 0..30; heading 30..50; companion 40pt fits to 90 → no push.
+        Pagination.PagePlan plan = Pagination.plan(List.of(prose(30), heading(20), prose(60)), 100);
+        assertEquals(0.0, plan.leadingSpacer()[1]);
+        assertArrayEquals(new int[]{0, 0, 0}, plan.pageOfBlock());
+    }
+
+    @Test
+    void lastHeadingHasNothingToKeepWith() {
+        Pagination.PagePlan plan = Pagination.plan(List.of(prose(70), heading(20)), 100);
+        assertEquals(0.0, plan.leadingSpacer()[1]);
+        assertEquals(1, plan.pageCount());
+    }
+
+    // ── widows and orphans (dev-document-surface-pages: Typst keeps two lines at each edge) ──
+
+    @Test
+    void anOrphanedFootIsPushedWholeToTheNextPage() {
+        // A 100pt band, a 12pt line; 92pt used, then a 60pt paragraph: 8pt (under a line) would stand at the foot.
+        Pagination.PagePlan plan = Pagination.plan(List.of(prose(92), prose(60)), 100, 12);
+        assertEquals(8.0, plan.leadingSpacer()[1], 0.001, "the paragraph starts on the next page instead");
+        assertEquals(1, plan.pageOfBlock()[1]);
+        assertEquals(2, plan.pageCount());
+    }
+
+    @Test
+    void aWidowedHeadIsAvoidedByMovingTheParagraphDown() {
+        // 50pt used, then a 60pt paragraph: 50pt fits, 10pt (under two 12pt lines) would spill. Shift by the lines lacking.
+        Pagination.PagePlan plan = Pagination.plan(List.of(prose(50), prose(60)), 100, 12);
+        assertEquals(24.0, plan.leadingSpacer()[1], 0.001, "two 12pt lines of shift: the page runs short so two lines spill");
+        assertEquals(0, plan.pageOfBlock()[1], "the paragraph still starts on the first page");
+        assertEquals(2, plan.pageCount());
+    }
+
+    @Test
+    void shortParagraphsAndTheOldPlanAreUntouchedByTheRule() {
+        // Under four lines tall: no rule. And lineHeight 0 is the plain plan.
+        Pagination.PagePlan small = Pagination.plan(List.of(prose(92), prose(40)), 100, 12);
+        assertEquals(0.0, small.leadingSpacer()[1], 0.001);
+        Pagination.PagePlan plain = Pagination.plan(List.of(prose(92), prose(60)), 100, 0);
+        assertEquals(0.0, plain.leadingSpacer()[1], 0.001);
+        assertEquals(Pagination.plan(List.of(prose(92), prose(60)), 100).pageCount(), plain.pageCount());
+    }
+
+    @Test
+    void aParagraphThatFitsExactlyIsNotShifted() {
+        Pagination.PagePlan plan = Pagination.plan(List.of(prose(40), prose(60)), 100, 12);
+        assertEquals(0.0, plan.leadingSpacer()[1], 0.001);
+        assertEquals(1, plan.pageCount());
+    }
 }

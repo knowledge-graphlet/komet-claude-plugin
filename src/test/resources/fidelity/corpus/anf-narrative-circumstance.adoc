@@ -1,0 +1,65 @@
+// anf-narrative-circumstance
+// Topic: Narrative Circumstance
+// Type: concept
+// Status: draft
+:topic-id: anf-narrative-circumstance
+:topic-type: concept
+:topic-status: draft
+:topic-keywords: narrative, free-text, unstructured, BRCA1, patient-reported, historical
+
+[[anf-narrative-circumstance]]
+= Narrative Circumstance
+
+indexterm:[ANF, narrative circumstance]
+The ((Narrative Circumstance)) is a fallback mechanism within
+ANF for clinical information that cannot be captured in the
+structured Performance or Request data elements.
+It preserves clinically relevant detail as free text (String)
+when the structured model lacks the expressiveness to encode
+the information without losing nuance.
+The Narrative Circumstance is intentionally not meant to be
+used frequently --
+the vast majority of clinical statements should use Performance
+or Request Circumstances.
+
+Three categories of clinical information commonly require the
+Narrative Circumstance:
+
+indexterm:[narrative circumstance, contextual detail]
+*Contextual detail not tied to a codable act.* Some clinical
+detail is important but does not fit into a standard code.
+For example,
+ANF statements may capture that a patient has a high fever,
+severe headaches,
+and nausea,
+but they cannot capture the fact that the patient recently
+traveled to a region with a high incidence of Dengue Fever.
+This travel context can be preserved in an associated Narrative
+Circumstance statement.
+
+indexterm:[narrative circumstance, patient-reported description]
+*Patient-reported descriptions.* Vague or subjective patient
+descriptions are common in clinical encounters.
+Although imprecise,
+these descriptions may be critical for understanding symptoms
+or guiding differential diagnosis.
+For example,
+a patient may describe feeling like "something is crawling
+under their skin," or describe a headache as "different from
+their usual headaches."
+Such descriptions are captured as narrative text.
+
+indexterm:[narrative circumstance, historical timeline]
+*Historical narratives or complex timelines.* Some clinically
+relevant detail involves timelines that are difficult to
+represent fully in the structured ANF model without losing nuance.
+For example,
+a patient may report episodes of palpitations that began
+shortly after taking on caregiving responsibilities for her mother --
+a temporal correlation that may be important for differential
+diagnosis to rule out cardiac issues,
+but that does not reduce cleanly to structured Circumstance attributes.
+
+NOTE: The Narrative Circumstance is not a general-purpose comment field.
+It should be used only when the clinical information genuinely cannot be expressed through the structured Performance or Request models.
+An ANF statement with a ((BRCA1)) gene mutation as its Topic, for instance, might use a Narrative Circumstance to record the exact mutation detail that falls outside the codable structure.

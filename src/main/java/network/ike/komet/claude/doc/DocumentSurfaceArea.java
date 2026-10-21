@@ -49,9 +49,9 @@ import java.util.function.Supplier;
  *
  * <p>The area hosts the surface control and owns the print settings; the enclosing card keeps the
  * conversation (rail, input, dispatch) and drives the surface through {@link #surface()}. It is
- * card-internal (created and lifecycle-driven by {@code ClaudeCard}) rather than a palette-placeable
- * area, since a Claude document with no conversation behind it would be empty. Must be used on the
- * JavaFX application thread.
+ * card-internal (created and lifecycle-driven by {@code ClaudeCard}, and by the Stamped Document
+ * card for a document materialized from git) rather than a palette-placeable area, since a
+ * document with nothing behind it would be empty. Must be used on the JavaFX application thread.
  */
 public final class DocumentSurfaceArea extends SupplementalAreaBlueprint
         implements KlExpandable, KlPreferenceEditable<PrintSettings> {
@@ -149,7 +149,7 @@ public final class DocumentSurfaceArea extends SupplementalAreaBlueprint
 
     @Override
     public Region expandedView() {
-        return new PagedPreviewView(surface.turns(), viewCalculator(), runningHead.get(), printSettings);
+        return new PagedPreviewView(surface.printSource(), viewCalculator(), runningHead.get(), printSettings);
     }
 
     /** A paged document is worth reading full screen, so this figure may step beyond the window rung. */

@@ -56,7 +56,9 @@ public final class MarkdownRichText {
     public enum Role {
         USER("You", Color.web("#1a56db")),
         ASSISTANT("Komet Assistant", Color.web("#b15c00")),
-        ERROR("Error", Color.web("#b00020"));
+        ERROR("Error", Color.web("#b00020")),
+        /** A document that is no one's turn — a page rendered from a store — with no role label at all. */
+        DOCUMENT("", Color.BLACK);
 
         final String label;
         final Color color;
@@ -205,12 +207,14 @@ public final class MarkdownRichText {
         List<RichParagraph> paragraphs = new ArrayList<>();
         List<String> plain = new ArrayList<>();
         for (Entry e : entries) {
-            // Coloured, bold role label on its own line.
-            RichParagraph.Builder label = RichParagraph.builder();
-            label.addSegment(e.role().label, StyleAttributeMap.builder()
-                    .setBold(true).setFontSize(base).setTextColor(e.role().color).build());
-            paragraphs.add(label.build());
-            plain.add(e.role().label);
+            if (!e.role().label.isBlank()) {
+                // Coloured, bold role label on its own line.
+                RichParagraph.Builder label = RichParagraph.builder();
+                label.addSegment(e.role().label, StyleAttributeMap.builder()
+                        .setBold(true).setFontSize(base).setTextColor(e.role().color).build());
+                paragraphs.add(label.build());
+                plain.add(e.role().label);
+            }
 
             if (e.markdown()) {
                 renderer.render(e.content(), baseStyle(e.role()), paragraphs, plain);

@@ -1,0 +1,108 @@
+// dev-clause-semantics
+// Topic: Clause Semantics — Identity, Pattern, and Vertex Model
+// Type: concept
+// Status: draft
+:topic-id: dev-clause-semantics
+:topic-type: concept
+:topic-status: draft
+:topic-keywords: clause pattern, vertex model, ditree field, operand property, \
+  single semantic, value-set reference, second pattern
+:topic-scope-note: How a complex concept clause is identified and stored — \
+  the Complex Concept Clause Pattern, its single DiTree field, and the \
+  vertex/operand model. For the typed API over this graph, see \
+  dev-clause-expression-adaptors.
+
+[[dev-clause-semantics]]
+= Clause Semantics — Identity, Pattern, and Vertex Model
+
+indexterm:[process modeling, process definition pattern]
+
+A complex concept clause is a semantic *on the concept it constrains*. It conforms
+to the *Complex Concept Clause Pattern*, referencing the Complex Concept — the same
+concept-to-definition relationship the EL{plus}{plus} stated and inferred axioms
+use. A concept therefore carries two definitional facets side by side: the axioms
+for what it _is_, and the clause for the criterion that must _hold_. One concept,
+two patterns, per xref:anf-complex-concept-architecture[the complex concept
+architecture].
+
+The pattern, defined per xref:ikm-pattern-creation[pattern creation] practice, has
+a single field:
+
+* meaning: _Complex concept clause_ (new `ComplexClauseTerms` concept)
+* purpose: _Computable logic_ (new `ComplexClauseTerms` concept)
+* field 0: data type `DiTree field`, meaning _clause definition graph_
+
+Versioning, authorship, and branching come from STAMP as with any semantic: editing
+a clause writes a new semantic version, so a criterion's evolution — every threshold
+change, every added comorbidity — is first-class, auditable history.
+
+indexterm:[Complex Concepts, single semantic]
+
+*One clause per concept.* The clause semantic is keyed by a stable
+single-semantic id derived from the pattern and the referenced concept, so
+re-authoring updates the clause in place rather than accumulating parallel
+semantics — the editor's load/save round trip
+(xref:dev-clause-editor[the editor plugin]) reads and rewrites that one semantic.
+
+== Vertex model
+
+Each vertex's meaning is an ELMfootnote:[HL7's ELM, the Expression Logical Model of the Clinical Quality Language specification, and not Elm, the programming language for browser user interfaces.]-operator concept, and its concept-keyed property
+map carries the operator's data — the same vertex contract the axiom stack uses
+(xref:ikm-logical-expression-stack[the logical expression stack]).
+
+indexterm:[process modeling, concept grounding]
+
+.A clause graph — "morbid obesity" worked as an expression tree
+[plantuml]
+----
+@startuml
+!theme plain
+top to bottom direction
+object "Clause root" as root
+object "Or" as or
+object "GreaterOrEqual" as ge40
+object "Property" as p40
+p40 : path = "value"
+p40 : source label = "BMI determination"
+object "Quantity" as q40
+q40 : value = 40
+q40 : unit = "kg/m2"
+object "And" as and
+object "GreaterOrEqual" as ge35
+object "Exists" as ex
+object "Retrieve" as rc
+rc : resource type = Condition
+rc : value set = Obesity-related comorbidity
+root --> or
+or --> ge40
+ge40 --> p40
+ge40 --> q40
+or --> and
+and --> ge35
+and --> ex
+ex --> rc
+@enduml
+----
+
+indexterm:[architecture, adaptor layer]
+
+*Operands live in properties and ordered children.* A literal's value and unit, a
+value-set reference's Layer-1 class, a property's path and named source, and a
+retrieve's resource type and code filter are all vertex properties — the same idiom
+EL{plus}{plus} uses for a `Feature` literal or an `IntervalRole` bound.
+Sub-expressions are child vertices, read in edge order so a comparison's left and
+right stay distinct.
+
+indexterm:[interoperability, CQL]
+
+*Terminology is referenced, never restated.* A _value-set reference_ vertex points
+at a Layer-1 EL{plus}{plus} class; the classifiable definition stays in the stated
+axioms, and the clause holds only the residual. This is what lets
+xref:dev-clause-cql-projection[explication] join the inferred classification with
+the clause without duplicating either.
+
+*Numeric bounds may reuse existing terminology.* A pure interval constraint can bind
+the existing Value Constraint pattern — source, min/max operators, bounds, UCUM
+units — instead of a hand-built comparison subtree, mapping an ANF Measure
+(xref:anf-obesity-severity-complex-concepts[obesity severity]) onto the clause
+directly.

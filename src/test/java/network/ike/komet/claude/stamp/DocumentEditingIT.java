@@ -81,10 +81,16 @@ class DocumentEditingIT {
     @TempDir
     Path root;
 
-    private EditCoordinateRecord edit;
+    EditCoordinateRecord edit;
+
+    /** The document model this class runs over: the prose-element model; a vertex subclass overrides it (IKE-Network/ike-issues#1313). */
+    String model() {
+        return "prose";
+    }
 
     @BeforeAll
     void setupDatabase() {
+        System.setProperty(VertexMaterializer.MODEL_PROPERTY, model());
         assertTrue(PB_STARTER_DATA.exists(), "Starter data must be present at " + PB_STARTER_DATA.getAbsolutePath());
         PrimitiveData.selectControllerByName("Load Ephemeral Store");
         PrimitiveData.start();
@@ -94,6 +100,7 @@ class DocumentEditingIT {
 
     @AfterAll
     void teardownDatabase() {
+        System.clearProperty(VertexMaterializer.MODEL_PROPERTY);
         PrimitiveData.stop();
     }
 
@@ -115,7 +122,7 @@ class DocumentEditingIT {
         String edited = ORIGINAL.replace("The second line.\n", "The second line.\nA third line.\n")
                 .replace("The first line.", "The first line, revised again.");
         assertEquals(edited, export(anchor, true), "the pending document carries the latest edit");
-        assertEquals(1, uncommittedVersions(manifestOf(anchor)), "editing again replaces the pending manifest version");
+        assertEquals(1, pendingVersionsPerElement(anchor), "editing again replaces the pending manifest version");
 
         DocumentEditor.Settlement settlement = commitAndSettle(dir, anchor, export(anchor, true), "bob");
 
@@ -200,7 +207,7 @@ class DocumentEditingIT {
         String rebased = foreign.replace("The first line.", "The first line, being edited.")
                 .replace("The second line.\n", "The second line.\nA line added in Komet.\n");
         assertEquals(rebased, export(anchor, true), "the edit carried forward onto the foreign commit");
-        assertEquals(1, uncommittedVersions(manifestOf(anchor)), "one pending manifest version, on the new base");
+        assertEquals(1, pendingVersionsPerElement(anchor), "one pending manifest version, on the new base");
 
         DocumentEditor.Settlement later = commitAndSettle(dir, anchor, export(anchor, true), "bob");
         assertTrue(later.settled() && later.carried(), later.toString());
@@ -231,16 +238,14 @@ class DocumentEditingIT {
         List<DocumentEditor.Restorable> restorable = DocumentEditor.restorable(anchor);
         assertEquals(1, restorable.size(), restorable.toString());
         DocumentEditor.Restorable kept = restorable.getFirst();
-        assertEquals(DocumentEditor.Match.CONFIRM, kept.match(), "the commit rewrote the line the block took its identity from");
-        assertEquals(byHand, kept.target(), "the one paragraph where the edited one was");
+        assertEquals(DocumentEditor.Match.EXACT, kept.match(), "the commit revised the line the block took its identity from, which keeps it (#1313)");
+        assertEquals(byHand, kept.target(), "the same paragraph, revised by hand");
         assertEquals("Another paragraph, edited in Komet.\nA second line from Komet.", kept.text(committed));
-        assertEquals(0, DocumentEditor.restore(anchor), "nothing is written before the person confirms the block");
-        assertTrue(DocumentEditor.pending(anchor).isEmpty());
 
-        assertEquals(1, DocumentEditor.restore(anchor, java.util.Map.of(kept.index(), kept.target())));
+        assertEquals(1, DocumentEditor.restore(anchor), "an exact match is restored without asking");
 
         assertTrue(DocumentEditor.pending(anchor).isPresent(), "the edit is pending again");
-        assertEquals(1, uncommittedVersions(manifestOf(anchor)), "exactly one pending version of the manifest");
+        assertEquals(1, pendingVersionsPerElement(anchor), "exactly one pending version of the manifest");
         assertEquals(foreign, export(anchor, false), "the committed document is still the commit");
         assertEquals(foreign.replace("Another paragraph, by hand.", "Another paragraph, edited in Komet.\nA second line from Komet."),
                 export(anchor, true), "the edit over the foreign text, the pull's own change kept elsewhere");
@@ -268,15 +273,36 @@ class DocumentEditingIT {
         assertEquals(foreign.replace("The second line, by hand.", "The second line, edited in Komet."), export(anchor, true));
     }
 
+    /** One paragraph where the edited one was, its identifying line deleted: offered for confirmation. */
+    @Test
+    void aBlockWhoseIdentifyingLineWasDeletedIsOfferedForConfirmation() throws Exception {
+        String original = ":topic-id: anf-confirm\n= Confirm\n\nIntro.\n\nTarget paragraph.\nIts second line.\n";
+        Path dir = repository("confirm", original);
+        PublicId anchor = GitDocumentMaterializer.materialize(dir, dir.resolve("editing.adoc")).anchor();
+        DocumentEditor.editBlock(anchor, blockStartingWith(anchor, Block.Kind.PARAGRAPH, "Target paragraph."),
+                "Target paragraph, edited in Komet.\nIts second line.\n", edit);
+        String foreign = original.replace("Target paragraph.\n", "");                // the identifying line deleted outright
+        assertTrue(commitAndSettle(dir, anchor, foreign, "erin").settled());
+
+        List<DocumentEditor.Restorable> restorable = DocumentEditor.restorable(anchor);
+        assertEquals(1, restorable.size(), restorable.toString());
+        DocumentEditor.Restorable kept = restorable.getFirst();
+        assertEquals(DocumentEditor.Match.CONFIRM, kept.match(), "the block's identifying line is gone; one paragraph stands where it was");
+        assertEquals(blockStartingWith(anchor, Block.Kind.PARAGRAPH, "Its second line."), kept.target());
+        assertEquals(0, DocumentEditor.restore(anchor), "nothing is written before the person confirms the block");
+        assertEquals(1, DocumentEditor.restore(anchor, java.util.Map.of(kept.index(), kept.target())));
+    }
+
     /** Two paragraphs where the edited one was: nothing is written until the person picks one. */
     @Test
     void severalCandidatesWaitForThePersonToPick() throws Exception {
-        String original = ":topic-id: anf-pick\n= Pick\n\nIntro.\n\nTarget paragraph.\n";
+        String original = ":topic-id: anf-pick\n= Pick\n\nIntro.\n\nTarget paragraph.\nTarget rewritten by hand.\n";
         Path dir = repository("several", original);
         PublicId anchor = GitDocumentMaterializer.materialize(dir, dir.resolve("editing.adoc")).anchor();
         DocumentEditor.editBlock(anchor, blockStartingWith(anchor, Block.Kind.PARAGRAPH, "Target paragraph."),
-                "Target paragraph, edited in Komet.\n", edit);
-        String foreign = original.replace("Target paragraph.", "Target rewritten by hand.\n\nAppended paragraph.");
+                "Target paragraph, edited in Komet.\nTarget rewritten by hand.\n", edit);
+        // The identifying line deleted outright and a paragraph appended: two paragraphs where the edited one was.
+        String foreign = original.replace("Target paragraph.\n", "") + "\nAppended paragraph.\n";
         assertTrue(commitAndSettle(dir, anchor, foreign, "erin").settled());
 
         List<DocumentEditor.Restorable> restorable = DocumentEditor.restorable(anchor);
@@ -298,7 +324,8 @@ class DocumentEditingIT {
         }
 
         assertEquals(1, DocumentEditor.restore(anchor, java.util.Map.of(kept.index(), rewritten)));
-        assertEquals(foreign.replace("Target rewritten by hand.", "Target paragraph, edited in Komet."), export(anchor, true));
+        assertEquals(foreign.replace("Target rewritten by hand.", "Target paragraph, edited in Komet.\nTarget rewritten by hand."), export(anchor, true),
+                "the line the edit wrote from the edit, the line it left alone from the commit");
         assertEquals(List.of(), DocumentEditor.restorable(anchor));
     }
 
@@ -428,7 +455,7 @@ class DocumentEditingIT {
         assertEquals(ORIGINAL, export(anchor, false), "the edit is uncommitted");
         long stamp = result.writtenVersion().orElseThrow().nid();
         assertEquals(Long.MAX_VALUE, EntityService.get().getStampFast(stamp).time(), "the version written is uncommitted");
-        assertEquals(1, uncommittedVersions(manifestOf(anchor)));
+        assertEquals(1, pendingVersionsPerElement(anchor));
 
         KometActionResult same = action.perform(EditDocumentBlock.input(block, "The first line, by action.\nThe second line.\n"),
                 Calculators.View.Default(), edit);
@@ -485,7 +512,7 @@ class DocumentEditingIT {
         return repository(name, ORIGINAL);
     }
 
-    private Path repository(String name, String text) throws Exception {
+    Path repository(String name, String text) throws Exception {
         Path dir = Files.createDirectories(root.resolve(name));
         git(dir, "init", "-q", "-b", "main");
         Files.writeString(dir.resolve("editing.adoc"), text);
@@ -511,7 +538,7 @@ class DocumentEditingIT {
                 .filter(b -> b.kind() == kind).toList();
     }
 
-    private static long blockStartingWith(PublicId anchor, Block.Kind kind, String text) {
+    static long blockStartingWith(PublicId anchor, Block.Kind kind, String text) {
         GitDocumentMaterializer.StoredDocument document = GitDocumentMaterializer.load(anchor, true).orElseThrow();
         return document.blocks().values().stream()
                 .filter(b -> b.kind() == kind)
@@ -534,9 +561,25 @@ class DocumentEditingIT {
         assertEquals(committed, Files.readString(dir.resolve("editing.adoc")));
         assertEquals(committed, export(anchor, false), "the committed document is the commit");
         assertEquals(committed, export(anchor, true), "no provisional line or pending version remains");
-        assertEquals(0, uncommittedVersions(manifestOf(anchor)));
+        assertEquals(0, pendingVersionsPerElement(anchor));
         assertEquals(GitDocumentExporter.Relation.IDENTICAL_TO_HEAD,
                 GitDocumentExporter.compare(GitDocumentExporter.export(anchor).orElseThrow(), dir).relation());
+    }
+
+    /**
+     * The most uncommitted versions any one element of the document holds: 1 while an edit is
+     * pending, since editing again replaces its versions rather than stacking them, 0 once settled.
+     * The prose-element model's edits all pass through the manifest; a document stored as vertices
+     * (IKE-Network/ike-issues#1313) has none, so its own pattern's semantics are counted.
+     */
+    static int pendingVersionsPerElement(PublicId anchor) {
+        if (!VertexReader.isVertexDocument(anchor)) {
+            return uncommittedVersions(manifestOf(anchor));
+        }
+        long patternNid = dev.ikm.tinkar.entity.EntityHandle.get(EntityService.get().nidForPublicId(anchor)).expectSemantic().patternNid();
+        int[] most = {0};
+        EntityService.get().forEachSemanticOfPattern(patternNid, s -> most[0] = Math.max(most[0], uncommittedVersions(s.nid())));
+        return most[0];
     }
 
     private static SemanticEntity<SemanticEntityVersion> manifestOf(PublicId anchor) {
@@ -546,7 +589,11 @@ class DocumentEditingIT {
     }
 
     private static int uncommittedVersions(SemanticEntity<SemanticEntityVersion> semantic) {
-        SemanticEntity<?> fresh = (SemanticEntity<?>) dev.ikm.tinkar.entity.EntityHandle.get(semantic.nid()).orNull();
+        return uncommittedVersions(semantic.nid());
+    }
+
+    private static int uncommittedVersions(long nid) {
+        SemanticEntity<?> fresh = (SemanticEntity<?>) dev.ikm.tinkar.entity.EntityHandle.get(nid).orNull();
         int count = 0;
         for (var v : fresh.versions()) {
             if (v.uncommitted() && !v.canceled()) {

@@ -36,6 +36,10 @@ import dev.ikm.tinkar.terms.KernelConcept;
 import dev.ikm.tinkar.terms.State;
 import network.ike.foundation.ike.bindings.IkeConcept;
 import network.ike.foundation.ike.bindings.IkePattern;
+import dev.ikm.tinkar.common.id.LongIds;
+import dev.ikm.tinkar.entity.graph.EntityVertex;
+import network.ike.komet.claude.stamp.VertexMaterializer;
+import network.ike.komet.claude.stamp.VertexReader;
 import network.ike.komet.claude.doc.MarkdownStructure.Child;
 import network.ike.komet.claude.doc.MarkdownStructure.Element;
 import network.ike.komet.claude.doc.MarkdownStructure.Line;
@@ -44,7 +48,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.regex.Pattern;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
@@ -144,6 +151,13 @@ public final class JournalStore {
     public PublicId appendExchange(PublicId anchor, String conversationName,
                                    String userMarkdown, String assistantMarkdown) {
         DocumentVocabulary.requirePresent();
+        // A journal keeps the model it was begun in; a new one is begun as vertices, the default
+        // document model (IKE-Network/ike-issues#1313).
+        boolean vertexJournal = anchor != null && VertexReader.isVertexDocument(anchor);
+        boolean newJournal = anchor == null || DocumentVocabulary.entityAbsent(Concept.make(anchor)) && !vertexJournal;
+        if (vertexJournal || (newJournal && VertexMaterializer.enabled())) {
+            return appendVertices(anchor != null ? anchor : PublicIds.newRandom(), conversationName, userMarkdown, assistantMarkdown);
+        }
         PublicId anchorId = anchor != null ? anchor : PublicIds.newRandom();
         // The anchor is "new" only when no chronology exists — a nid mapping alone (minted by an
         // earlier failed append) must not skip the anchor concept's creation. An unknown anchor id
@@ -232,6 +246,154 @@ public final class JournalStore {
                     anchorId.idString(), turns.length, newLines.size());
             return anchorId;
         }
+    }
+
+    // ── Append, as vertices ──────────────────────────────────────────────
+
+    /** Name key of a vertex journal's own pattern, derived from its root's UUID. */
+    private static final String PATTERN_KEY = "conversation-journal-pattern";
+
+    /**
+     * A vertex journal's own pattern: derived from its root, so a journal has exactly one.
+     *
+     * @param anchor the journal's root vertex
+     * @return the pattern's public id
+     */
+    static PublicId journalPatternId(PublicId anchor) {
+        return PublicIds.of(UuidT5Generator.get(anchor.asUuidArray()[0], PATTERN_KEY));
+    }
+
+    /**
+     * Appends an exchange to a journal stored as semantic vertices (IKE-Network/ike-issues#1313).
+     * The journal is instance data: its own pattern, derived from the Document vertex template and
+     * named for the conversation, is written under {@link IkeConcept#CONVERSATION_JOURNAL_MODULE},
+     * a kind of Instance module, and so is every vertex. The anchor is the root vertex, of meaning
+     * {@link IkeConcept#CONVERSATION_JOURNAL}, whose Members are the turns; a turn's Members are its
+     * blocks and its blank lines, a block's its lines and child blocks, as {@link MarkdownStructure}
+     * splits them; every line is a line vertex whose Line source is the line as written. Every vertex
+     * references the root, the root its pattern. An append writes the new turns and a new version of
+     * the root; there is no manifest, the order being the tree's.
+     */
+    private PublicId appendVertices(PublicId anchorId, String conversationName, String userMarkdown, String assistantMarkdown) {
+        String name = (conversationName == null || conversationName.isBlank()) ? "Conversation journal" : conversationName;
+        PublicId patternId = journalPatternId(anchorId);
+        boolean journalNew = !VertexReader.isVertexDocument(anchorId);
+        long[] priorTurns = new long[0];
+        if (!journalNew) {
+            // The append base is the root's raw head, never the card's view: see appendExchange.
+            SemanticEntityVersion rootHead = rawHead(EntityHandle.get(EntityService.get().nidForPublicId(anchorId)).expectSemantic());
+            if (rootHead == null || !(rootHead.fieldValues().get(0) instanceof EntityVertex rootVertex)) {
+                throw new IllegalStateException("Journal " + anchorId.idString()
+                        + " has no committed root; refusing an append that would orphan prior turns");
+            }
+            priorTurns = VertexReader.members(rootVertex);
+            seedClockPast(rootHead);
+        }
+        long userTime = nextStampTime();
+        long assistantTime = nextStampTime();
+        try (StampedWriter writer = StampedWriter.open("conversation-journal-append", State.ACTIVE, userTime,
+                userAuthor(), IkeConcept.CONVERSATION_JOURNAL_MODULE, KernelConcept.DEVELOPMENT_PATH)) {
+            if (journalNew) {
+                writer.pattern(patternId, IkeConcept.DOCUMENT_VERTEX, IkeConcept.DOCUMENT_STRUCTURE,
+                        StampedWriter.field(IkeConcept.DOCUMENT_VERTEX_VALUE, IkeConcept.DOCUMENT_STRUCTURE, KernelConcept.VERTEX_FIELD));
+                writer.fullyQualifiedName(patternId, name);
+                EntityService.get().nidForSemantic(patternId, anchorId);   // the root's nid, so its members can reference it
+            }
+            long userTurn = writeTurnVertices(writer, patternId, anchorId, userMarkdown);
+            writer.restamp(State.ACTIVE, assistantTime, IkeConcept.KOMET_ASSISTANT,
+                    IkeConcept.CONVERSATION_JOURNAL_MODULE, KernelConcept.DEVELOPMENT_PATH);
+            long assistantTurn = writeTurnVertices(writer, patternId, anchorId, assistantMarkdown);
+
+            long[] turns = java.util.Arrays.copyOf(priorTurns, priorTurns.length + 2);
+            turns[turns.length - 2] = userTurn;
+            turns[turns.length - 1] = assistantTurn;
+            Map<ConceptFacade, Object> properties = new LinkedHashMap<>();
+            properties.put(IkeConcept.DOCUMENT_ELEMENT_TITLE, name);
+            properties.put(IkeConcept.DOCUMENT_ELEMENT_MEMBERS, LongIds.list.of(turns));
+            writer.semantic(anchorId, patternId, patternId,
+                    VertexMaterializer.value(anchorId.asUuidArray()[0], IkeConcept.CONVERSATION_JOURNAL, properties));
+            writer.commit();
+            LOG.info("Appended exchange to vertex journal {} ({} turns)", anchorId.idString(), turns.length);
+            return anchorId;
+        }
+    }
+
+    /** Writes one turn as vertices at the writer's current stamp: its lines, then its blocks from the innermost out. */
+    private static long writeTurnVertices(StampedWriter writer, PublicId patternId, PublicId root, String markdown) {
+        MarkdownStructure.Turn turn = MarkdownStructure.parse(markdown);
+        long[] lineNids = new long[turn.lines().size()];
+        writeLineVertices(writer, patternId, root, turn.turn(), turn.lines(), lineNids);
+        return writeElementVertex(writer, patternId, root, turn.turn(), lineNids);
+    }
+
+    /** Writes the line vertices an element owns directly, and those of its children, each classified by its owner. */
+    private static void writeLineVertices(StampedWriter writer, PublicId patternId, PublicId root, Element element,
+                                          List<String> lines, long[] lineNids) {
+        int position = 0;
+        for (Member member : element.members()) {
+            switch (member) {
+                case Line line -> {
+                    String text = lines.get(line.index());
+                    Map<ConceptFacade, Object> properties = new LinkedHashMap<>();
+                    properties.put(IkeConcept.LINE_SOURCE, text);
+                    ConceptFacade meaning = lineMeaning(element, position, text, properties);
+                    PublicId id = PublicIds.newRandom();
+                    lineNids[line.index()] = writer.semantic(id, patternId, root,
+                            VertexMaterializer.value(id.asUuidArray()[0], meaning, properties));
+                }
+                case Child child -> writeLineVertices(writer, patternId, root, child.element(), lines, lineNids);
+            }
+            position++;
+        }
+    }
+
+    private static long writeElementVertex(StampedWriter writer, PublicId patternId, PublicId root, Element element, long[] lineNids) {
+        long[] members = new long[element.members().size()];
+        for (int i = 0; i < members.length; i++) {
+            members[i] = switch (element.members().get(i)) {
+                case Line line -> lineNids[line.index()];
+                case Child child -> writeElementVertex(writer, patternId, root, child.element(), lineNids);
+            };
+        }
+        Map<ConceptFacade, Object> properties = new LinkedHashMap<>();
+        if (element.level() != 0) {
+            properties.put(IkeConcept.DOCUMENT_ELEMENT_LEVEL, element.level());
+        }
+        if (!element.title().isEmpty()) {
+            properties.put(IkeConcept.DOCUMENT_ELEMENT_TITLE, element.title());
+        }
+        if (!element.parameters().isEmpty()) {
+            properties.put(IkeConcept.DOCUMENT_ELEMENT_PARAMETERS, element.parameters());
+        }
+        properties.put(IkeConcept.DOCUMENT_ELEMENT_MEMBERS, LongIds.list.of(members));
+        PublicId id = PublicIds.newRandom();
+        return writer.semantic(id, patternId, root, VertexMaterializer.value(id.asUuidArray()[0], element.kind(), properties));
+    }
+
+    private static final Pattern FENCE = Pattern.compile("^\\s{0,3}(`{3,}|~{3,}).*$");
+    private static final Pattern ITEM = Pattern.compile("^\\s*([-*+]|\\d+[.)])\\s+.*$");
+
+    /**
+     * A Markdown line's meaning, the line concepts the AsciiDoc lines take: blank, a section's
+     * heading (its title a property), a listing's fences and verbatim body, a list item's marker
+     * line, and prose otherwise.
+     */
+    private static ConceptFacade lineMeaning(Element owner, int position, String text, Map<ConceptFacade, Object> properties) {
+        if (text.isBlank()) {
+            return IkeConcept.BLANK_LINE;
+        }
+        long kind = owner.kind().nid();
+        if (kind == IkeConcept.DOCUMENT_SECTION.nid() && position == 0) {
+            properties.put(IkeConcept.DOCUMENT_ELEMENT_TITLE, owner.title());
+            return IkeConcept.HEADING_LINE;
+        }
+        if (kind == IkeConcept.DOCUMENT_LISTING.nid()) {
+            return FENCE.matcher(text).matches() ? IkeConcept.DELIMITER_LINE : IkeConcept.VERBATIM_LINE;
+        }
+        if (kind == IkeConcept.DOCUMENT_LIST_ITEM.nid() && ITEM.matcher(text).matches()) {
+            return IkeConcept.ITEM_LINE;
+        }
+        return IkeConcept.PROSE_LINE;
     }
 
     /**
@@ -327,6 +489,9 @@ public final class JournalStore {
         if (calculator == null) {
             return Optional.empty();
         }
+        if (VertexReader.isVertexDocument(anchor)) {
+            return Optional.of(loadVertices(anchor, calculator.stampCalculator()));
+        }
         Semantic root = Semantic.make(rootBlockId(anchor));
         if (DocumentVocabulary.entityAbsent(root)) {
             // A journal written before the shared block model, or none: the JSON copy is the record.
@@ -353,6 +518,42 @@ public final class JournalStore {
             turns.add(new TurnRecord(String.join("\n", lines), turn.get().authorNid() == assistantNid));
         }
         return Optional.of(turns);
+    }
+
+    /** A vertex journal's turns: the root's Members, each turn's lines in order, its author the turn version's. */
+    private static List<TurnRecord> loadVertices(PublicId anchor, StampCalculator stamps) {
+        List<TurnRecord> turns = new ArrayList<>();
+        Latest<SemanticEntityVersion> root = stamps.latestSemanticVersion(EntityService.get().nidForPublicId(anchor));
+        if (!root.isPresent() || !(root.get().fieldValues().get(0) instanceof EntityVertex rootVertex)) {
+            return turns;
+        }
+        for (long turnNid : VertexReader.members(rootVertex)) {
+            Latest<SemanticEntityVersion> turn = stamps.latestSemanticVersion(turnNid);
+            if (!turn.isPresent() || !(turn.get().fieldValues().get(0) instanceof EntityVertex turnVertex)) {
+                LOG.warn("Journal turn {} has no version on the current coordinate; skipping", turnNid);
+                continue;
+            }
+            List<String> lines = new ArrayList<>();
+            appendVertexLines(stamps, turnVertex, lines);
+            turns.add(new TurnRecord(String.join("\n", lines), turn.get().authorNid() == IkeConcept.KOMET_ASSISTANT.nid()));
+        }
+        return turns;
+    }
+
+    private static void appendVertexLines(StampCalculator stamps, EntityVertex element, List<String> lines) {
+        for (long memberNid : VertexReader.members(element)) {
+            Latest<SemanticEntityVersion> member = stamps.latestSemanticVersion(memberNid);
+            if (!member.isPresent() || !(member.get().fieldValues().get(0) instanceof EntityVertex vertex)) {
+                LOG.warn("Journal member {} has no version on the current coordinate; skipping", memberNid);
+                continue;
+            }
+            Object source = vertex.properties().get(IkeConcept.LINE_SOURCE.nid());
+            if (source != null) {
+                lines.add(String.valueOf(source));
+            } else {
+                appendVertexLines(stamps, vertex, lines);
+            }
+        }
     }
 
     /** Appends an element's lines in order, descending into its child elements. */

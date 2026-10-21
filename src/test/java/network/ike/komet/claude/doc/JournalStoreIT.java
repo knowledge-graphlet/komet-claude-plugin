@@ -60,11 +60,17 @@ class JournalStoreIT {
     private static final File PB_STARTER_DATA =
             new File("target/data/ike-starter-set-reasoned-pb.zip");
 
-    private ViewCalculator view;
-    private JournalStore store;
+    ViewCalculator view;
+    JournalStore store;
+
+    /** The document model this class runs over: the prose-element model; a vertex subclass overrides it (IKE-Network/ike-issues#1313). */
+    String model() {
+        return "prose";
+    }
 
     @BeforeAll
     void setupDatabase() {
+        System.setProperty(network.ike.komet.claude.stamp.VertexMaterializer.MODEL_PROPERTY, model());
         assertTrue(PB_STARTER_DATA.exists(),
                 "Starter data must be present at " + PB_STARTER_DATA.getAbsolutePath()
                         + " (copied by maven-dependency-plugin in process-test-resources).");
@@ -78,6 +84,10 @@ class JournalStoreIT {
 
     @AfterAll
     void teardownDatabase() {
+        System.clearProperty(network.ike.komet.claude.stamp.VertexMaterializer.MODEL_PROPERTY);
+        System.clearProperty(dev.ikm.tinkar.entity.boundary.CommitBoundary.MODE_PROPERTY);
+        dev.ikm.tinkar.entity.boundary.ModuleKinds.clear();
+        dev.ikm.tinkar.entity.boundary.EntityBoundaries.clear();
         PrimitiveData.stop();
     }
 
@@ -205,7 +215,7 @@ class JournalStoreIT {
                 "unknown anchor loads nothing");
     }
 
-    private static SemanticEntityVersion rawLatest(long nid) {
+    static SemanticEntityVersion rawLatest(long nid) {
         SemanticEntity<SemanticEntityVersion> entity = EntityHandle.get(nid).expectSemantic();
         SemanticEntityVersion head = null;
         for (SemanticEntityVersion v : entity.versions()) {

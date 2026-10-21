@@ -33,7 +33,12 @@ import dev.ikm.tinkar.entity.SemanticVersionRecordBuilder;
 import dev.ikm.tinkar.entity.StampEntity;
 import dev.ikm.tinkar.entity.transaction.Transaction;
 import dev.ikm.tinkar.terms.State;
+import network.ike.foundation.ike.bindings.IkeConcept;
 import network.ike.foundation.ike.bindings.IkePattern;
+import design.knowledge.stamp.adoc.dialect.IkeDialectParser;
+import dev.ikm.tinkar.entity.graph.EntityVertex;
+import dev.ikm.tinkar.terms.ConceptFacade;
+import dev.ikm.tinkar.terms.EntityProxy;
 import dev.ikm.komet.preferences.KometPreferences;
 import dev.ikm.komet.preferences.KometPreferencesImpl;
 import network.ike.komet.claude.doc.DocumentVocabulary;
@@ -138,10 +143,15 @@ public final class DocumentEditor {
             made.externalBasis(GIT_BASIS + document.commit());     // kept in the transaction's record (#1308)
             return made;
         });
-        long manifestNid = manifestNid(anchor);
-        SemanticEntityVersion manifestHead = GitDocumentMaterializer.latest(semantic(manifestNid), true);
-        StampEntity<?> stamp = transaction.getStamp(State.ACTIVE, Long.MAX_VALUE, authorNid, manifestHead.moduleNid(), pathNid);
         long anchorNid = EntityService.get().nidForPublicId(anchor);
+        boolean vertices = VertexReader.isVertexDocument(anchor);
+        long manifestNid = vertices ? 0 : manifestNid(anchor);
+        // The edit is written in the document's own module: the manifest's, or the root vertex's.
+        SemanticEntityVersion head = GitDocumentMaterializer.latest(semantic(vertices ? anchorNid : manifestNid), true);
+        StampEntity<?> stamp = transaction.getStamp(State.ACTIVE, Long.MAX_VALUE, authorNid, head.moduleNid(), pathNid);
+        if (vertices) {
+            return editVertices(transaction, stamp, document, block, start, steps, newLines, anchorNid);
+        }
         List<Long> newNids = new ArrayList<>();
         int changed = 0;
         int added = 0;
@@ -175,26 +185,114 @@ public final class DocumentEditor {
     }
 
     /**
+     * The edit of a document stored as semantic vertices (IKE-Network/ike-issues#1313): a revised
+     * line is a new version of the same line vertex, an inserted line a new vertex of the
+     * document's own pattern, and the block a new version whose Members are its lines in their
+     * new order. A removed line just leaves the block's Members; the commit that carries the edit
+     * retires it. Each written line's meaning and properties are those its text has in the edited
+     * file, classified as the materializer classifies them; a revised line keeps the references
+     * hanging from it, which stay as committed, as they do in the prose-element model.
+     */
+    private static Edit editVertices(Transaction transaction, StampEntity<?> stamp, GitDocumentMaterializer.StoredDocument document,
+                                     long block, int start, List<Step> steps, List<String> newLines, long anchorNid) {
+        GitDocumentMaterializer.StoredBlock stored = document.blocks().get(block);
+        List<Long> oldNids = stored.members();
+        List<String> file = new ArrayList<>(document.lines().stream().map(GitDocumentMaterializer.StoredLine::text).toList());
+        List<String> edited = new ArrayList<>(file.subList(0, start));
+        edited.addAll(newLines);
+        edited.addAll(file.subList(start + oldNids.size(), file.size()));
+        List<LineRoles.Role> roles = LineRoles.of(IkeDialectParser.parse(edited));
+        long patternNid = semantic(anchorNid).patternNid();
+        PublicId pattern = EntityHandle.get(patternNid).expectEntity().publicId();
+        List<Long> newNids = new ArrayList<>();
+        int changed = 0;
+        int added = 0;
+        int removed = 0;
+        for (Step step : steps) {
+            switch (step.kind) {
+                case KEEP -> newNids.add(oldNids.get(step.oldIndex));
+                case RETEXT -> {
+                    long nid = oldNids.get(step.oldIndex);
+                    LineRoles.Role role = roles.get(start + step.newIndex);
+                    Map<ConceptFacade, Object> properties = new java.util.LinkedHashMap<>(role.properties());
+                    if (vertexOf(GitDocumentMaterializer.latest(semantic(nid), true)) instanceof EntityVertex before
+                            && before.properties().get(IkeConcept.DOCUMENT_ELEMENT_MEMBERS.nid()) instanceof dev.ikm.tinkar.common.id.LongIdList references) {
+                        properties.put(IkeConcept.DOCUMENT_ELEMENT_MEMBERS, references);
+                    }
+                    PublicId id = EntityHandle.get(nid).expectEntity().publicId();
+                    writeVersion(transaction, nid, stamp, Lists.immutable.of(VertexMaterializer.value(id.asUuidArray()[0], role.meaning(), properties)));
+                    newNids.add(nid);
+                    changed++;
+                }
+                case INSERT -> {
+                    LineRoles.Role role = roles.get(start + step.newIndex);
+                    PublicId id = PublicIds.newRandom();
+                    newNids.add(writeNew(transaction, id, pattern, anchorNid, stamp,
+                            Lists.immutable.of(VertexMaterializer.value(id.asUuidArray()[0], role.meaning(), role.properties()))));
+                    added++;
+                }
+                case REMOVE -> removed++;
+            }
+        }
+        EntityVertex blockVertex = vertexOf(GitDocumentMaterializer.latest(semantic(block), true));
+        Map<ConceptFacade, Object> properties = new java.util.LinkedHashMap<>();
+        blockVertex.properties().forEachKeyValue((key, value) -> properties.put(EntityProxy.Concept.make(key), value));
+        properties.put(IkeConcept.DOCUMENT_ELEMENT_MEMBERS, LongIds.list.of(newNids.stream().mapToLong(Long::longValue).toArray()));
+        PublicId blockId = EntityHandle.get(block).expectEntity().publicId();
+        writeVersion(transaction, block, stamp, Lists.immutable.of(VertexMaterializer.value(blockId.asUuidArray()[0],
+                EntityProxy.Concept.make(blockVertex.getMeaningNid()), properties)));
+        return new Edit(block, changed, added, removed);
+    }
+
+    private static EntityVertex vertexOf(SemanticEntityVersion version) {
+        return version != null && !version.fieldValues().isEmpty() && version.fieldValues().get(0) instanceof EntityVertex v ? v : null;
+    }
+
+    /**
      * @param anchor the document anchor's id
      * @return the transaction holding the document's pending edit, if any
      */
     public static Optional<Transaction> pending(PublicId anchor) {
-        if (!PrimitiveData.get().hasPublicId(anchor)) {
-            return Optional.empty();
-        }
-        long manifestNid = manifestNid(anchor);
-        if (manifestNid == 0) {
-            return Optional.empty();
-        }
-        for (SemanticEntityVersion version : semantic(manifestNid).versions()) {
-            if (version.uncommitted() && !version.canceled()) {
-                Optional<Transaction> transaction = Transaction.forVersion(version);
-                if (transaction.isPresent()) {
-                    return transaction;
-                }
+        for (SemanticEntityVersion version : pendingVersions(anchor)) {
+            Optional<Transaction> transaction = Transaction.forVersion(version);
+            if (transaction.isPresent()) {
+                return transaction;
             }
         }
         return Optional.empty();
+    }
+
+    /**
+     * The uncommitted versions a pending edit wrote, one transaction's under one STAMP: the
+     * manifest's, or, for a document stored as vertices, those of its own pattern's semantics,
+     * which hold that document's vertices and nothing else (IKE-Network/ike-issues#1313).
+     */
+    private static List<SemanticEntityVersion> pendingVersions(PublicId anchor) {
+        List<SemanticEntityVersion> found = new ArrayList<>();
+        if (anchor == null || !PrimitiveData.get().hasPublicId(anchor)) {
+            return found;
+        }
+        if (VertexReader.isVertexDocument(anchor)) {
+            long patternNid = semantic(EntityService.get().nidForPublicId(anchor)).patternNid();
+            EntityService.get().forEachSemanticOfPattern(patternNid, s -> {
+                for (Object o : s.versions()) {
+                    if (o instanceof SemanticEntityVersion v && v.uncommitted() && !v.canceled()) {
+                        found.add(v);
+                    }
+                }
+            });
+            return found;
+        }
+        long manifestNid = manifestNid(anchor);
+        if (manifestNid == 0) {
+            return found;
+        }
+        for (SemanticEntityVersion version : semantic(manifestNid).versions()) {
+            if (version.uncommitted() && !version.canceled()) {
+                found.add(version);
+            }
+        }
+        return found;
     }
 
     /**
@@ -205,8 +303,8 @@ public final class DocumentEditor {
         if (pending(anchor).isEmpty()) {
             return OptionalLong.empty();
         }
-        SemanticEntityVersion pendingManifest = pendingManifestVersion(anchor);
-        return pendingManifest == null ? OptionalLong.empty() : OptionalLong.of(pendingManifest.stamp().authorNid());
+        SemanticEntityVersion pendingVersion = pendingVersion(anchor);
+        return pendingVersion == null ? OptionalLong.empty() : OptionalLong.of(pendingVersion.stamp().authorNid());
     }
 
     /**
@@ -280,7 +378,12 @@ public final class DocumentEditor {
             return rebase(anchor, transaction.get(), pending, edited);
         }
         List<String> committedLines = committed.lines().stream().map(GitDocumentMaterializer.StoredLine::text).toList();
-        List<String> pendingLines = pending.lines().stream().map(GitDocumentMaterializer.StoredLine::text).toList();
+        // The edit as the person made it: each line they edited as they wrote it, every other line as
+        // it stood at the edit's base. A line keeps its identity when a commit revises it
+        // (IKE-Network/ike-issues#1313), so its latest committed text may be the commit's, not theirs.
+        List<String> pendingLines = pending.lines().stream()
+                .map(line -> line.latest().time() == Long.MAX_VALUE || baseTime == Long.MIN_VALUE ? line.text() : textAt(line.nid(), baseTime, line.text()))
+                .toList();
         boolean[][] matched = matchInOrder(pendingLines, committedLines);
         List<String> notCarried = new ArrayList<>();
         for (int i = 0; i < pendingLines.size(); i++) {
@@ -300,6 +403,18 @@ public final class DocumentEditor {
     }
 
     /** How a kept edit's block is found in the document as now committed. */
+    /** A line's text as of a time: its latest committed version no later than then, else its current text. */
+    private static String textAt(long lineNid, long time, String current) {
+        SemanticEntityVersion at = null;
+        for (Object o : EntityHandle.get(lineNid).expectSemantic().versions()) {
+            SemanticEntityVersion v = (SemanticEntityVersion) o;
+            if (!v.canceled() && v.time() != Long.MAX_VALUE && v.time() <= time && (at == null || v.time() >= at.time())) {
+                at = v;
+            }
+        }
+        return at == null ? current : GitDocumentMaterializer.lineText(at);
+    }
+
     public enum Match {
         /** The block it edited still exists under its identity; it is restored there without asking. */
         EXACT,
@@ -482,7 +597,7 @@ public final class DocumentEditor {
     /** Keeps what the pending edit wrote, block by block, before its transaction is cancelled. */
     private static void keep(PublicId anchor, GitDocumentMaterializer.StoredDocument pending) {
         List<Long> edited = editedBlocks(pending);
-        SemanticEntityVersion manifest = pendingManifestVersion(anchor);
+        SemanticEntityVersion manifest = pendingVersion(anchor);
         KometPreferences kept = keptEdits(anchor);
         clear(kept, anchor);
         if (manifest == null) {
@@ -601,14 +716,27 @@ public final class DocumentEditor {
         return PrimitiveData.get().hasPublicId(id) ? OptionalLong.of(PrimitiveData.nid(id)) : OptionalLong.empty();
     }
 
-    private static SemanticEntityVersion pendingManifestVersion(PublicId anchor) {
-        SemanticEntityVersion pendingManifest = null;
-        for (SemanticEntityVersion version : semantic(manifestNid(anchor)).versions()) {
-            if (version.uncommitted() && !version.canceled()) {
-                pendingManifest = version;
-            }
+    /**
+     * The time of the commit the document's pending edit was made against, which a pending read of
+     * a document stored as vertices reads the unedited tree at; {@link Long#MAX_VALUE} when no edit
+     * is pending or its base is not in the store.
+     *
+     * @param anchor the document anchor's id
+     * @return the base time
+     */
+    static long pendingBase(PublicId anchor) {
+        Optional<Transaction> transaction = pending(anchor);
+        if (transaction.isEmpty()) {
+            return Long.MAX_VALUE;
         }
-        return pendingManifest;
+        long time = baseTime(EntityService.get().nidForPublicId(anchor), baseCommit(transaction.get()));
+        return time == Long.MIN_VALUE ? Long.MAX_VALUE : time;
+    }
+
+    /** A version the pending edit wrote, whose STAMP names the edit's author and path; {@code null} when none is pending. */
+    private static SemanticEntityVersion pendingVersion(PublicId anchor) {
+        List<SemanticEntityVersion> versions = pendingVersions(anchor);
+        return versions.isEmpty() ? null : versions.getLast();
     }
 
     /**
@@ -623,9 +751,9 @@ public final class DocumentEditor {
                     .map(nid -> pending.line(nid).map(GitDocumentMaterializer.StoredLine::text).orElse(""))
                     .collect(java.util.stream.Collectors.joining("\n")));
         }
-        SemanticEntityVersion pendingManifest = pendingManifestVersion(anchor);
-        long author = pendingManifest.stamp().authorNid();
-        long path = pendingManifest.stamp().pathNid();
+        SemanticEntityVersion pendingVersion = pendingVersion(anchor);
+        long author = pendingVersion.stamp().authorNid();
+        long path = pendingVersion.stamp().pathNid();
         old.cancel();
         for (int i = 0; i < edited.size(); i++) {
             editBlock(anchor, edited.get(i), texts.get(i), author, path);
@@ -666,7 +794,9 @@ public final class DocumentEditor {
         if (atBase == null) {
             return true;
         }
-        for (long line : ((dev.ikm.tinkar.common.id.LongIdList) atBase.fieldValues().get(4)).toArray()) {
+        long[] heldAtBase = vertexOf(atBase) instanceof EntityVertex vertex ? VertexReader.members(vertex)
+                : ((dev.ikm.tinkar.common.id.LongIdList) atBase.fieldValues().get(4)).toArray();
+        for (long line : heldAtBase) {
             for (SemanticEntityVersion version : semantic(line).versions()) {
                 if (!version.canceled() && version.time() != Long.MAX_VALUE && version.time() > baseTime) {
                     return true;

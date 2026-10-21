@@ -21,17 +21,25 @@ import javafx.application.Platform;
 import javafx.geometry.Bounds;
 import javafx.geometry.Insets;
 import javafx.scene.Node;
+import javafx.beans.property.ReadOnlyDoubleProperty;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.ColumnConstraints;
+import javafx.scene.layout.GridPane;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import jfx.incubator.scene.control.richtext.RichTextArea;
 import jfx.incubator.scene.control.richtext.SelectionSegment;
 import jfx.incubator.scene.control.richtext.TextPos;
+import network.ike.komet.claude.doc.print.PrintSource;
 import network.ike.komet.claude.ui.MarkdownRichText;
 import network.ike.komet.claude.ui.RichTextViewpoint;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Supplier;
 
 /**
  * The v1 Document surface ({@code IKE-Network/ike-issues#808}): a single-column, read-only
@@ -53,16 +61,34 @@ import java.util.Locale;
  * #596} interchange context menu) and a koncept-tree's chips drag. A surface-level
  * copy-turn/copy-document affordance is future work on the projection-flip slice.
  *
+ * <p>The surface is the Document surface of the family: a twelve-track grid whose named regions
+ * are a <em>header</em> and a <em>footer</em> that stay put while the body scrolls, a
+ * <em>left margin</em> and a <em>right margin</em> that share each block's row and scroll with
+ * it (marginalia), and the <em>body</em> holding the block stack. The regions are off by default
+ * — a conversation is body alone — and a host turns them on with {@link #setHeader},
+ * {@link #setFooter} and {@link #setMarginTracks}; a document materialized from git puts its
+ * title and section in the header, its status in the footer, dates in the left margin and
+ * identicons and marks in the right ({@code dev-stamped-document-surface}).
+ *
  * <p>All methods must be called on the JavaFX application thread.
  */
-public final class DocumentSurface extends ScrollPane {
+public final class DocumentSurface extends BorderPane {
+
+    /** The grid's track count: margins and body are expressed as tracks of it. */
+    public static final int TRACKS = 12;
 
     /** Vertical gap between stacked blocks, px. */
     private static final double BLOCK_SPACING = 6;
     /** Extra gap above a turn header, px (separates turns more strongly than blocks). */
     private static final double TURN_SPACING = 10;
 
+    private final ScrollPane scroll = new ScrollPane();
     private final VBox stack = new VBox(BLOCK_SPACING);
+    private final StackPane header = new StackPane();
+    private final StackPane footer = new StackPane();
+    private int leftTracks;
+    private int rightTracks;
+    private Supplier<PrintSource> printSource;
     private final List<MarkdownRichText.Entry> turns = new ArrayList<>();
     /** Per-turn: index (into {@link #blocks}) of the turn's first block (its header). */
     private final List<Integer> turnStarts = new ArrayList<>();
@@ -82,10 +108,185 @@ public final class DocumentSurface extends ScrollPane {
         stack.getStyleClass().add("claude-doc-stack");
         stack.setPadding(new Insets(8, 10, 8, 10));
         stack.setFillWidth(true);
-        setContent(stack);
-        setFitToWidth(true);
-        setHbarPolicy(ScrollBarPolicy.NEVER);
-        getStyleClass().add("claude-doc-surface");
+        scroll.setContent(stack);
+        scroll.setFitToWidth(true);
+        scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        scroll.getStyleClass().add("claude-doc-surface");
+        header.getStyleClass().add("doc-header-region");
+        footer.getStyleClass().add("doc-footer-region");
+        header.setVisible(false);
+        header.setManaged(false);
+        footer.setVisible(false);
+        footer.setManaged(false);
+        getStyleClass().add("claude-doc-frame");
+        setTop(header);
+        setCenter(scroll);
+        setBottom(footer);
+    }
+
+    // ── Regions (dev-interaction-surface-family) ──────────────────────────
+
+    /**
+     * Sets the header region, which stays put while the body scrolls; {@code null} removes it.
+     *
+     * @param node the header's content, or {@code null}
+     */
+    public void setHeader(Node node) {
+        header.getChildren().setAll(node == null ? List.of() : List.of(node));
+        header.setVisible(node != null);
+        header.setManaged(node != null);
+    }
+
+    /**
+     * Sets the footer region, which stays put while the body scrolls; {@code null} removes it.
+     *
+     * @param node the footer's content, or {@code null}
+     */
+    public void setFooter(Node node) {
+        footer.getChildren().setAll(node == null ? List.of() : List.of(node));
+        footer.setVisible(node != null);
+        footer.setManaged(node != null);
+    }
+
+    /**
+     * Sets the margin regions' widths in tracks of the twelve-track grid: {@code 2, 2} gives the
+     * family's left-margin 2 | body 8 | right-margin 2; {@code 0, 0} (the default) is body alone,
+     * with no row wrapping at all. Takes effect on the next rebuild of the blocks.
+     *
+     * @param left  the left margin's tracks, 0 for none
+     * @param right the right margin's tracks, 0 for none
+     */
+    public void setMarginTracks(int left, int right) {
+        this.leftTracks = Math.clamp(left, 0, TRACKS - 1);
+        this.rightTracks = Math.clamp(right, 0, TRACKS - 1 - leftTracks);
+    }
+
+    /**
+     * The vertical scroll position of the body, 0 at the top and 1 at the end; a host that keeps
+     * a running head current listens to it.
+     *
+     * @return the scroll position property
+     */
+    public ReadOnlyDoubleProperty scrollPositionProperty() {
+        return scroll.vvalueProperty();
+    }
+
+    // ── Turn-less documents ───────────────────────────────────────────────
+
+    /**
+     * Replaces the document with blocks a host built itself — a document that is not a
+     * conversation, such as one materialized from git. The turns are cleared; the blocks are
+     * stacked in order, each with its marginalia when the margin regions are on.
+     *
+     * @param document the blocks in order
+     */
+    public void setBlocks(List<DocumentBlock> document) {
+        clearSelection();
+        stack.getChildren().clear();
+        blocks.clear();
+        turns.clear();
+        turnStarts.clear();
+        exchangeHeaders.clear();
+        exchangeTitles.clear();
+        for (DocumentBlock block : document) {
+            blocks.add(block);
+            stack.getChildren().add(stackNode(block));
+        }
+    }
+
+    /** @return how many blocks the surface holds */
+    public int blockCount() {
+        return blocks.size();
+    }
+
+    /**
+     * @param index a block index
+     * @return the block
+     */
+    public DocumentBlock block(int index) {
+        return blocks.get(index);
+    }
+
+    /**
+     * The block at the top of the viewport, or -1 for an empty surface.
+     *
+     * @return the block index
+     */
+    public int topBlockIndex() {
+        Viewpoint viewpoint = viewpoint();
+        return viewpoint == null ? -1 : viewpoint.blockIndex();
+    }
+
+    /**
+     * Scrolls so the block sits at the viewport top, keeping {@code margin} pixels above it.
+     *
+     * @param blockIndex the block to reveal
+     */
+    public void revealBlock(int blockIndex) {
+        scrollToBlock(blockIndex);
+    }
+
+    /**
+     * Sets what a paged rendering of this surface prints when the surface holds no turns — a
+     * host that stacks its own blocks says what the pages carry.
+     *
+     * @param source supplies the print source when a paged view is built, or {@code null} to print the turns
+     */
+    public void setPrintSource(Supplier<PrintSource> source) {
+        this.printSource = source;
+    }
+
+    /**
+     * What a paged rendering prints: the print source when one is set and the surface holds no
+     * turns, else the turns.
+     *
+     * @return the source to paginate
+     */
+    public PrintSource printSource() {
+        if (turns.isEmpty() && printSource != null) {
+            PrintSource source = printSource.get();
+            return source == null ? PrintSource.EMPTY : source;
+        }
+        return PrintSource.ofTurns(turns());
+    }
+
+    /**
+     * The node stacked for a block: its body alone with the margin regions off, else a row of
+     * the grid with the body in the body tracks and the marginalia in the margins, so every
+     * block's body aligns whether or not it has marginalia.
+     */
+    private Node stackNode(DocumentBlock block) {
+        if (leftTracks == 0 && rightTracks == 0) {
+            block.setRow(null);
+            return block.node();
+        }
+        GridPane row = new GridPane();
+        row.getStyleClass().add("doc-block-row");
+        row.setHgap(8);
+        ColumnConstraints left = new ColumnConstraints();
+        left.setPercentWidth(100.0 * leftTracks / TRACKS);
+        ColumnConstraints body = new ColumnConstraints();
+        body.setPercentWidth(100.0 * (TRACKS - leftTracks - rightTracks) / TRACKS);
+        body.setHgrow(Priority.ALWAYS);
+        ColumnConstraints right = new ColumnConstraints();
+        right.setPercentWidth(100.0 * rightTracks / TRACKS);
+        row.getColumnConstraints().addAll(left, body, right);
+        if (block.leftMarginalia() != null) {
+            row.add(block.leftMarginalia(), 0, 0);
+            GridPane.setValignment(block.leftMarginalia(), javafx.geometry.VPos.TOP);
+        }
+        row.add(block.node(), 1, 0);
+        GridPane.setValignment(block.node(), javafx.geometry.VPos.TOP);
+        GridPane.setHgrow(block.node(), Priority.ALWAYS);
+        if (block.node() instanceof javafx.scene.layout.Region region) {
+            region.setMaxWidth(Double.MAX_VALUE);
+        }
+        if (block.rightMarginalia() != null) {
+            row.add(block.rightMarginalia(), 2, 0);
+            GridPane.setValignment(block.rightMarginalia(), javafx.geometry.VPos.TOP);
+        }
+        block.setRow(row);
+        return row;
     }
 
     /**
@@ -281,12 +482,12 @@ public final class DocumentSurface extends ScrollPane {
             return null;
         }
         double contentHeight = stack.getBoundsInLocal().getHeight();
-        double range = Math.max(0, contentHeight - getViewportBounds().getHeight());
-        double y = getVvalue() * range;
+        double range = Math.max(0, contentHeight - scroll.getViewportBounds().getHeight());
+        double y = scroll.getVvalue() * range;
         int blockIndex = 0;
         double fraction = 0;
         for (int i = 0; i < blocks.size(); i++) {
-            Bounds bounds = blocks.get(i).node().getBoundsInParent();
+            Bounds bounds = blocks.get(i).stackNode().getBoundsInParent();
             if (bounds.getMinY() > y) {
                 break;
             }
@@ -374,7 +575,7 @@ public final class DocumentSurface extends ScrollPane {
             stack.layout();
             double height = stack.getBoundsInLocal().getHeight();
             boolean settled = attempt >= 2 && height > 0 && height == lastHeight
-                    && getViewportBounds().getHeight() > 0;
+                    && scroll.getViewportBounds().getHeight() > 0;
             if (settled || attempt >= MAX_SETTLE_PULSES) {
                 action.run();
                 if (attempt < MAX_SETTLE_PULSES) {
@@ -525,10 +726,13 @@ public final class DocumentSurface extends ScrollPane {
             if (!blocks.isEmpty()) {
                 VBox.setMargin(header, new Insets(TURN_SPACING, 0, 0, 0));
             }
-            blocks.add(DocumentBlock.of(header, ""));
-            stack.getChildren().add(header);
+            DocumentBlock headerBlock = DocumentBlock.of(header, "");
+            blocks.add(headerBlock);
+            stack.getChildren().add(stackNode(headerBlock));
         }
         List<DocumentBlock> turnBlocks = blockFactory.turnBlocks(turn);
+        // Blocks of a conversation lay out as the surface's body alone; a row wraps them only
+        // when a host has turned the margin regions on.
         if (headered && turnBlocks.size() > 1) {
             // The exchange header owns the question identity; the "You"
             // role heading underneath it was pure redundancy (KEC review).
@@ -543,7 +747,7 @@ public final class DocumentSurface extends ScrollPane {
                 VBox.setMargin(node, new Insets(TURN_SPACING, 0, 0, 0));
             }
             blocks.add(block);
-            stack.getChildren().add(node);
+            stack.getChildren().add(stackNode(block));
             first = false;
         }
     }
@@ -644,7 +848,7 @@ public final class DocumentSurface extends ScrollPane {
                                       boolean collapsed) {
         arrow.setText(collapsed ? "▸" : "▾");
         for (int i = headerIndex + 1; i < exchangeEnd(headerIndex); i++) {
-            Node node = blocks.get(i).node();
+            Node node = blocks.get(i).stackNode();
             node.setVisible(!collapsed);
             node.setManaged(!collapsed);
         }
@@ -684,12 +888,12 @@ public final class DocumentSurface extends ScrollPane {
         }
         stack.applyCss();
         stack.layout();
-        Node node = blocks.get(blockIndex).node();
+        Node node = blocks.get(blockIndex).stackNode();
         double y = node.getBoundsInParent().getMinY()
                 + fraction * node.getBoundsInParent().getHeight();
         double contentHeight = stack.getBoundsInLocal().getHeight();
-        double viewportHeight = getViewportBounds().getHeight();
+        double viewportHeight = scroll.getViewportBounds().getHeight();
         double range = contentHeight - viewportHeight;
-        setVvalue(range <= 0 ? 0 : Math.clamp(y / range, 0, 1));
+        scroll.setVvalue(range <= 0 ? 0 : Math.clamp(y / range, 0, 1));
     }
 }
