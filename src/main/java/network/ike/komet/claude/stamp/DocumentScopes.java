@@ -66,6 +66,42 @@ public final class DocumentScopes {
     }
 
     /**
+     * Drops a document from the store so it can be materialized again from git
+     * (IKE-Network/ike-issues#1313): allowed only for ephemeral data, whose record is the
+     * repository, never for instance data, whose only record is the store.
+     *
+     * @param anchor the document's anchor
+     * @return what was erased
+     * @throws IllegalStateException when the document is not ephemeral, an edit of it is pending in
+     *                               Komet, or something outside it cites into it
+     */
+    public static ScopeOperations.Deleted dropForRebuild(PublicId anchor) {
+        Scope scope = of(anchor);
+        if (scope.kind() != dev.ikm.tinkar.entity.boundary.DataKind.EPHEMERAL) {
+            throw new IllegalStateException("The document is " + scope.kind().word()
+                    + " data: git is not its record, so it is not rebuilt from git");
+        }
+        return delete(anchor);
+    }
+
+    /**
+     * Rebuilds a document from git: drops it, then materializes its file again. Every identity is a
+     * UUID5 of the working tree, the path and the commit, so the document comes back under the same
+     * public ids, with its annotations from the commits' trailers.
+     *
+     * @param anchor   the document's anchor
+     * @param repoRoot the working tree holding its file
+     * @param file     the file
+     * @return what the materialization wrote
+     * @throws java.io.IOException when the repository cannot be read
+     */
+    public static GitDocumentMaterializer.Result rebuild(PublicId anchor, java.nio.file.Path repoRoot, java.nio.file.Path file)
+            throws java.io.IOException {
+        dropForRebuild(anchor);
+        return GitDocumentMaterializer.materialize(repoRoot, file, false);
+    }
+
+    /**
      * What deleting the superseded documents did.
      *
      * @param deleted    the documents deleted

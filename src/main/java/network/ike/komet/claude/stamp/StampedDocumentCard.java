@@ -480,6 +480,8 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
                 new SeparatorMenuItem(),
                 item("Materialize", "stampedDocumentMaterialize", "Write the commits of this file the knowledge base lacks", () -> materialize(false)),
                 item("Materialize All", "stampedDocumentMaterializeAll", "Write this file and every file it includes, each as its own document", () -> materialize(true)),
+                item("Rebuild from Git", "stampedDocumentRebuild", "Drop this document from the knowledge base and materialize it again from git, which holds all an ephemeral document is", this::rebuildFromGit),
+                item("Remove Superseded Documents", "stampedDocumentRemoveSuperseded", "Delete the prose-element documents that vertex documents of the same working tree and path replace", this::removeSuperseded),
                 new SeparatorMenuItem(),
                 item("Show history", "stampedDocumentHistory", "The STAMPs of the selected lines, or of the whole document, in order", this::showHistory),
                 new SeparatorMenuItem(),
@@ -1414,6 +1416,82 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
                     reportAfterOpen = report;
                     documents.setValue(materialized.name());         // the chooser's listener opens it with the report
                 }
+            }));
+        }));
+    }
+
+    // ── ephemeral documents: rebuilt from git (IKE-Network/ike-issues#1313) ─────
+
+    /**
+     * Drops the shown document from the knowledge base and materializes its file again. Only an
+     * ephemeral document is rebuilt: the repository holds its lines, their authors and the
+     * annotations signed into commits, so nothing is lost; an edit pending in Komet refuses it.
+     */
+    private void rebuildFromGit() {
+        if (shown == null) {
+            statusLine.setText("Choose a document first.");
+            return;
+        }
+        Optional<Path> file = currentFile();
+        if (file.isEmpty() || !Files.isRegularFile(repoRoot.resolve(file.get()))) {
+            statusLine.setText("No working tree holds the shown document's file; Open file… names one.");
+            return;
+        }
+        PublicId anchor = shown.anchor();
+        Path root = repoRoot;
+        Path relative = file.get();
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+        confirm.setTitle("Rebuild from Git");
+        confirm.setHeaderText("Rebuild " + relative + " from git?");
+        confirm.setContentText("The document is dropped from the knowledge base and its file's history materialized again. "
+                + "Git holds everything an ephemeral document is: its lines, who wrote them, and the annotations signed into commits.");
+        ButtonType rebuild = new ButtonType("Rebuild");
+        confirm.getButtonTypes().setAll(rebuild, ButtonType.CANCEL);
+        confirm.initOwner(window());
+        if (confirm.showAndWait().filter(b -> b == rebuild).isEmpty()) {
+            return;
+        }
+        statusLine.setText("Dropping " + relative + " from the knowledge base …");
+        CompletableFuture.supplyAsync(() -> DocumentScopes.dropForRebuild(anchor)).whenComplete((dropped, failure) -> Platform.runLater(() -> {
+            if (failure != null) {
+                Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
+                statusLine.setText("Not rebuilt: " + cause.getMessage());
+                return;
+            }
+            materialize(root, relative, false);
+        }));
+    }
+
+    /** Deletes the prose-element documents that vertex documents of the same working tree and path replace. */
+    private void removeSuperseded() {
+        CompletableFuture.supplyAsync(GitDocumentMaterializer::superseded).whenComplete((superseded, failure) -> Platform.runLater(() -> {
+            if (failure != null || superseded.isEmpty()) {
+                statusLine.setText(failure != null ? "Could not list superseded documents: " + failure.getMessage()
+                        : "No document is superseded: every prose-element document is the only one of its working tree and path.");
+                return;
+            }
+            Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+            confirm.setTitle("Remove Superseded Documents");
+            confirm.setHeaderText("Delete " + superseded.size() + " superseded document" + (superseded.size() == 1 ? "" : "s") + "?");
+            confirm.setContentText("Each was materialized as prose elements and has since been materialized as vertices from the same "
+                    + "working tree and path. The lists already show the vertex document; git holds what both were.");
+            ButtonType delete = new ButtonType("Delete");
+            confirm.getButtonTypes().setAll(delete, ButtonType.CANCEL);
+            confirm.initOwner(window());
+            if (confirm.showAndWait().filter(b -> b == delete).isEmpty()) {
+                return;
+            }
+            statusLine.setText("Deleting " + superseded.size() + " superseded document(s) …");
+            CompletableFuture.supplyAsync(DocumentScopes::deleteSuperseded).whenComplete((cleared, deleteFailure) -> Platform.runLater(() -> {
+                if (deleteFailure != null) {
+                    Throwable cause = deleteFailure.getCause() != null ? deleteFailure.getCause() : deleteFailure;
+                    statusLine.setText("Not deleted: " + cause.getMessage());
+                    return;
+                }
+                statusLine.setText("Deleted " + cleared.deleted() + " superseded document(s): " + cleared.components() + " entities, "
+                        + cleared.stamps() + " STAMPs." + (cleared.skipped().isEmpty() ? "" : " Left " + cleared.skipped().size() + ": "
+                        + cleared.skipped().getFirst()));
+                refresh();
             }));
         }));
     }

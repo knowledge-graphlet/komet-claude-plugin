@@ -194,6 +194,41 @@ class VertexReaderIT {
         assertTrue(byPath.contains(origin) && byPath.contains(clone), "both are listed under the path: " + byPath);
     }
 
+    /**
+     * An ephemeral document is rebuilt from git under the same public ids, reading as before, its
+     * annotations back from the trailers; a conversation journal, instance data with no other
+     * record, is refused.
+     */
+    @Test
+    void anEphemeralDocumentIsRebuiltFromGitAndAJournalIsNot() throws Exception {
+        Path dir = Files.createDirectories(root.resolve("rebuild"));
+        git(dir, "init", "-q", "-b", "main");
+        Path file = dir.resolve("rebuild.adoc");
+        String v1 = ":topic-id: dev-vertex-rebuild\n\n= Rebuild\n\nA claim to affirm.\nAnother line.\n";
+        commit(dir, file, v1, "alice", "2026-03-07T00:00:00Z", "rebuild");
+        affirm(dir, "rebuild.adoc", v1, List.of("A claim to affirm."), "2026-03-08T00:00:00Z");
+        commit(dir, file, v1.replace("Another line.", "Another line, revised."), "bob", "2026-03-09T00:00:00Z", "revise");
+        PublicId anchor = GitDocumentMaterializer.materialize(dir, file).anchor();
+        StoredDocument before = GitDocumentMaterializer.load(anchor).orElseThrow();
+        assertEquals(1, line(before, "A claim to affirm.").affirmers().size(), "affirmed before the rebuild");
+        String historyBefore = history(before);                  // read now: the rebuild mints new nids for the same public ids
+
+        GitDocumentMaterializer.Result rebuilt = DocumentScopes.rebuild(anchor, dir, file);
+        assertEquals(anchor, rebuilt.anchor(), "the same root vertex");
+        StoredDocument after = GitDocumentMaterializer.load(anchor).orElseThrow();
+        assertEquals(lines(before), lines(after), "the same lines, authors and annotations in force");
+        assertEquals(historyBefore, history(after));
+        assertTrue(historyBefore.contains("retexted"), "the history is not empty: " + historyBefore);
+        assertEquals(1, line(after, "A claim to affirm.").affirmers().size(), "the affirmation is back from its trailer");
+
+        PublicId journal = new network.ike.komet.claude.doc.JournalStore(dev.ikm.tinkar.coordinate.Calculators.View::Default)
+                .appendExchange(null, "A journal", "a question", "an answer");
+        IllegalStateException refused = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> DocumentScopes.dropForRebuild(journal));
+        assertTrue(refused.getMessage().contains("instance"), refused.getMessage());
+        assertTrue(dev.ikm.tinkar.common.service.PrimitiveData.get().hasPublicId(journal), "a refused rebuild drops nothing");
+    }
+
     // ── comparable renderings ─────────────────────────────────────────────────
 
     private static List<String> lines(StoredDocument document) {
@@ -257,6 +292,10 @@ class VertexReaderIT {
     // ── git ───────────────────────────────────────────────────────────────────
 
     private void affirm(Path dir, String content, List<String> texts, String date) throws Exception {
+        affirm(dir, "topic.adoc", content, texts, date);
+    }
+
+    private void affirm(Path dir, String fileName, String content, List<String> texts, String date) throws Exception {
         String head;
         try (GitRepo repo = GitRepo.open(dir)) {
             head = repo.headRevision();
@@ -268,7 +307,7 @@ class VertexReaderIT {
             int line = lines.indexOf(text) + 1;
             assertTrue(line > 0, "no line " + text);
             trailers.add("--trailer");
-            trailers.add(Annotation.of(AnnotationKind.AFFIRMATION, LineRange.of(Path.of("topic.adoc"), line, line, head, lines)).trailer());
+            trailers.add(Annotation.of(AnnotationKind.AFFIRMATION, LineRange.of(Path.of(fileName), line, line, head, lines)).trailer());
         }
         git(dir, trailers.toArray(String[]::new));
     }
