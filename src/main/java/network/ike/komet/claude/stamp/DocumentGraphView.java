@@ -187,6 +187,8 @@ final class DocumentGraphView {
     private static final int STRIP = 12;
     /** How many characters of a property the node's row previews. */
     private static final int PREVIEW = 96;
+    /** How many lines of a verbatim body a row shows before it says how many more there are. */
+    static final int VERBATIM_LINES = 16;
 
     private final Host host;
     private final TreeView<Row> tree = new TreeView<>();
@@ -635,6 +637,19 @@ final class DocumentGraphView {
                 KonceptIdenticon.png(PublicIds.of(id.asUuidArray()[0]).idString(), KonceptIdenticon.DISPLAY_MODULE_SIZE))));
     }
 
+    /**
+     * A verbatim body's text as a row shows it: its lines as written, blank ones included, the
+     * first {@value #VERBATIM_LINES} of them and then how many more there are.
+     */
+    static String verbatim(String body) {
+        List<String> lines = body.lines().toList();
+        if (lines.size() <= VERBATIM_LINES) {
+            return String.join("\n", lines);
+        }
+        int more = lines.size() - VERBATIM_LINES;
+        return String.join("\n", lines.subList(0, VERBATIM_LINES)) + "\n… " + more + (more == 1 ? " more line" : " more lines");
+    }
+
     private static String abbreviate(String text) {
         String one = text.replace('\n', ' ');
         return one.length() <= PREVIEW ? one : one.substring(0, PREVIEW - 1).stripTrailing() + "…";
@@ -780,7 +795,15 @@ final class DocumentGraphView {
                 badge.setFitHeight(IDENTICON);
                 box.getChildren().add(badge);
             }
-            if (node.kind() == Kind.TEXT) {
+            if (node.kind() == Kind.TEXT && markup.text().indexOf('\n') >= 0) {
+                // A verbatim body, the only text the projection keeps line breaks in: shown as its lines,
+                // as a DocBook editor shows a program listing.
+                Label text = new Label(verbatim(markup.text()));
+                text.setFont(Font.font("Menlo", 12));
+                text.setStyle("-fx-text-fill: #2f2f2f;");
+                text.setWrapText(false);
+                box.getChildren().add(text);
+            } else if (node.kind() == Kind.TEXT) {
                 Label text = new Label(abbreviate(markup.text().strip()));
                 text.setFont(Font.font("System", 12));
                 text.setStyle("-fx-text-fill: #2f2f2f;");

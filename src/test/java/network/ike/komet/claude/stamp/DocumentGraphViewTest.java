@@ -250,6 +250,20 @@ class DocumentGraphViewTest {
         return item.getChildren().stream().filter(i -> i.getValue() instanceof NodeRow).toList();
     }
 
+    /** A verbatim body keeps its lines, blank ones included, and says how many it leaves out. */
+    @Test
+    void aVerbatimBodyKeepsItsLines() {
+        assertEquals("Review of the attribution section\n\nThe second passage", DocumentGraphView.verbatim(
+                "Review of the attribution section\n\nThe second passage"));
+        StringBuilder long_ = new StringBuilder();
+        for (int i = 1; i <= DocumentGraphView.VERBATIM_LINES + 3; i++) {
+            long_.append("line ").append(i).append('\n');
+        }
+        String shown = DocumentGraphView.verbatim(long_.toString());
+        assertEquals(DocumentGraphView.VERBATIM_LINES + 1, shown.lines().count());
+        assertTrue(shown.endsWith("… 3 more lines"), shown);
+    }
+
     @Test
     void theStoresFactsBecomeTheNodeAndItsPropertyAndEdgeRows() throws Exception {
         StoredDocument document = DocumentGraphTest.stored(TEXT);
