@@ -143,8 +143,11 @@ public final class GitDocumentMaterializer {
      * @throws IOException if the repository or the file cannot be read
      */
     public static Result materialize(Path repoRoot, Path file, boolean onlyNew) throws IOException {
-        if (VertexMaterializer.enabled()) {
+        if (VertexMaterializer.available()) {
             return VertexMaterializer.materialize(repoRoot, file, onlyNew);     // IKE-Network/ike-issues#1313
+        }
+        if (VertexMaterializer.enabled()) {
+            LOG.warn("Materializing {} as prose elements:{}", file, VertexMaterializer.fallbackNote());
         }
         DocumentVocabulary.requirePresent();
         GitIdentityAdapter adapter = GitIdentityAdapter.fromMailmap(repoRoot);

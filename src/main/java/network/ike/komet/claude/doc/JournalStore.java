@@ -155,7 +155,7 @@ public final class JournalStore {
         // document model (IKE-Network/ike-issues#1313).
         boolean vertexJournal = anchor != null && VertexReader.isVertexDocument(anchor);
         boolean newJournal = anchor == null || DocumentVocabulary.entityAbsent(Concept.make(anchor)) && !vertexJournal;
-        if (vertexJournal || (newJournal && VertexMaterializer.enabled())) {
+        if (vertexJournal || (newJournal && VertexMaterializer.available())) {
             return appendVertices(anchor != null ? anchor : PublicIds.newRandom(), conversationName, userMarkdown, assistantMarkdown);
         }
         PublicId anchorId = anchor != null ? anchor : PublicIds.newRandom();

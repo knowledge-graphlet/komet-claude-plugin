@@ -1379,6 +1379,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
                     for (GitDocumentMaterializer.Unresolved u : result.unresolved()) {
                         report.append("\nNot resolved: ").append(u);
                     }
+                    report.append(VertexMaterializer.fallbackNote());
                     return new Materialized(result.assembly().name(), result.assembly().anchor(), report.toString());
                 }
                 GitDocumentMaterializer.Result result = GitDocumentMaterializer.materialize(root, root.resolve(relative), true);
@@ -1386,7 +1387,8 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
                 return new Materialized(result.name(), result.anchor(), "Materialized '" + result.name() + "': " + result.commits() + " commit(s) written, " + result.lines()
                         + " line(s), " + result.blocks() + " block version(s), " + result.references() + " reference(s), "
                         + result.annotations() + " annotation(s)."
-                        + (settlement.settled() || settlement.rebased() ? " Edit in Komet: " + describe(settlement) : ""));
+                        + (settlement.settled() || settlement.rebased() ? " Edit in Komet: " + describe(settlement) : "")
+                        + VertexMaterializer.fallbackNote());
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }

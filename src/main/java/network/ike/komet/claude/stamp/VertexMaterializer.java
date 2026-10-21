@@ -107,6 +107,48 @@ public final class VertexMaterializer {
         return !"prose".equalsIgnoreCase(System.getProperty(MODEL_PROPERTY, "vertex").strip());
     }
 
+    /** The terms the vertex model writes with, which a store built from an older starter set lacks. */
+    private static final List<EntityFacade> TERMS = List.of(IkeConcept.DOCUMENT_VERTEX, IkeConcept.DOCUMENT_VERTEX_VALUE,
+            IkeConcept.LINE_SOURCE, IkeConcept.DOCUMENT_STRUCTURE, KernelConcept.VERTEX_FIELD, KernelConcept.EPHEMERAL_MODULE);
+
+    /**
+     * The vertex model's terms the open store lacks: none in a store built from the current IKE
+     * starter set, some in one built before 2026-10-21.
+     *
+     * @return their names, empty when the store holds them all
+     */
+    public static List<String> missingTerms() {
+        List<String> absent = new ArrayList<>();
+        for (EntityFacade term : TERMS) {
+            if (GitStampVocabulary.entityAbsent(term)) {
+                absent.add(term.description());
+            }
+        }
+        return absent;
+    }
+
+    /**
+     * Whether new documents and journals are written as vertices in the open store: the model is
+     * vertex and the store holds its terms. A store built from an older starter set keeps working,
+     * in the prose-element model, until the current starter set is loaded into it.
+     *
+     * @return whether to write vertices
+     */
+    public static boolean available() {
+        return enabled() && missingTerms().isEmpty();
+    }
+
+    /** What a person is told when the store's lack of the terms put a document in the prose-element model; empty otherwise. */
+    public static String fallbackNote() {
+        if (!enabled()) {
+            return "";
+        }
+        List<String> absent = missingTerms();
+        return absent.isEmpty() ? "" : " Stored as prose elements: this knowledge base lacks the document vertex terminology ("
+                + String.join(", ", absent) + "); load the current IKE starter set into it (File › Import Dataset, its reasoned pb zip) "
+                + "to store documents as vertices, then Rebuild from Git or Remove Superseded Documents.";
+    }
+
     /** One vertex ready to write: its identity, what it references, its value and a comparable signature. */
     record Written(Semantic proxy, PublicId referenced, EntityVertex value, String signature, Kind kind) { }
 
@@ -123,8 +165,7 @@ public final class VertexMaterializer {
      * @throws IOException if the repository or the file cannot be read
      */
     public static GitDocumentMaterializer.Result materialize(Path repoRoot, Path file, boolean onlyNew) throws IOException {
-        requirePresent(List.of(IkeConcept.DOCUMENT_VERTEX, IkeConcept.DOCUMENT_VERTEX_VALUE, IkeConcept.LINE_SOURCE,
-                IkeConcept.DOCUMENT_STRUCTURE, KernelConcept.VERTEX_FIELD, KernelConcept.EPHEMERAL_MODULE));
+        requirePresent(TERMS);
         GitIdentityAdapter adapter = GitIdentityAdapter.fromMailmap(repoRoot);
         String component = repoRoot.toAbsolutePath().normalize().getFileName().toString();
         try (GitRepo repo = GitRepo.open(repoRoot)) {
