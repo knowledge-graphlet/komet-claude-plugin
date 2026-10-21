@@ -143,6 +143,10 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     private static final String PREF_WORKING_TREE = "network.ike.komet.claude.stamp.workingTree";
     private static final String PREF_VIEW = "network.ike.komet.claude.stamp.view";
     private static final String PREF_GRAPH_MODE = "network.ike.komet.claude.stamp.graphMode";
+    /** Whether the Graph view's DocBook mode shows stored sentences as nodes (IKE-Network/ike-issues#1313). */
+    private static final String PREF_GRAPH_SENTENCES = "network.ike.komet.claude.stamp.graphSentences";
+    /** In the Layer menu: sentences as nodes in DocBook mode, or flattened into mixed content. */
+    private final CheckMenuItem sentencesItem = new CheckMenuItem("Sentences in DocBook mode");
     private static final String PREF_LAYER = "network.ike.komet.claude.stamp.layer.";
 
     /** Live cards, most recently realized last, so tools and automation can find the one in use. */
@@ -469,6 +473,16 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
             layerItems.put(layer, item);
             layerMenu.getItems().add(item);
         }
+        sentencesItem.setId("stampedDocumentGraphSentences");
+        sentencesItem.setSelected(preferences().getBoolean(PREF_GRAPH_SENTENCES, true));
+        sentencesItem.selectedProperty().addListener((obs, was, is) -> {
+            preferences().putBoolean(PREF_GRAPH_SENTENCES, is);
+            syncPreferences();
+            if (graph != null) {
+                graph.setSentences(is);
+            }
+        });
+        layerMenu.getItems().addAll(new SeparatorMenuItem(), sentencesItem);
         overflow.setId("stampedDocumentOverflow");
         overflow.setTooltip(new Tooltip("Verbs that act on the whole document"));
         overflow.getStyleClass().add("claude-card-toolbar-button");
@@ -562,6 +576,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
                 modes.select(candidate);
             }
         }
+        graph.setSentences(sentencesItem.isSelected());
         graph.setMode(modes.getValue());
         statusLine.setId("stampedDocumentStatus");
         statusLine.setWrapText(true);
@@ -971,6 +986,11 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
             @Override
             public void editSelectedBlock() {
                 surface.editSelectedBlock();
+            }
+
+            @Override
+            public void editSentence(long sentence, String text) {
+                StampedDocumentCard.this.askToEditSentence(sentence, text);
             }
 
             @Override
@@ -1639,6 +1659,35 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     }
 
     /**
+     * Prepares the annotation of one sentence (IKE-Network/ike-issues#1313): a column-qualified
+     * range naming exactly the sentence's characters in the committed file at HEAD, which the walk
+     * lands on the sentence itself and on the lines it holds whole.
+     *
+     * @param kind      the kind
+     * @param sentence  the sentence's text as stored, whitespace normalized
+     * @param ranges    the committed lines the sentence spans, 1-based inclusive
+     * @param root      the working tree
+     * @param file      the file within it
+     * @param committed the document's committed lines as the store holds them
+     * @return the proposal
+     * @throws IllegalStateException when the trailer cannot be anchored
+     */
+    static Proposal prepareSentence(AnnotationKind kind, String sentence, List<int[]> ranges, Path root, Path file, List<String> committed) {
+        Proposal lines = prepare(kind, ranges, root, file, committed);
+        int first = ranges.stream().mapToInt(r -> r[0]).min().orElse(1);
+        int last = ranges.stream().mapToInt(r -> r[1]).max().orElse(1);
+        for (design.knowledge.stamp.adoc.dialect.Segmenter.Sentence found : design.knowledge.stamp.adoc.dialect.Segmenter
+                .of(design.knowledge.stamp.adoc.dialect.IkeDialectParser.parse(committed)).sentences()) {
+            if (found.text().equals(sentence) && found.lines().getFirst() >= first && found.lines().getLast() <= last) {
+                LineRange range = LineRange.of(file, found.lines().getFirst(), found.flow().columnAt(found.start()) + 1,
+                        found.lines().getLast(), found.flow().columnAt(found.end() - 1) + 1, lines.head(), committed);
+                return new Proposal(List.of(Annotation.of(kind, range)), found.lines().size(), lines.root(), lines.head());
+            }
+        }
+        throw new IllegalStateException("The sentence is not in the committed text of " + file + "; Materialize first.");
+    }
+
+    /**
      * Annotates the selected lines with {@code kind}: folds them into committed ranges, hashes
      * them over the committed text, asks for the annotation text and the signing choice, writes
      * the empty commit through the person's own git, and re-reads the commit into the store.
@@ -1674,14 +1723,21 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
             }
         }
         Path memberFile = loaded == null || loaded.path() == null ? null : Path.of(loaded.path());
+        // a sentence chosen in the Graph view's DocBook mode is annotated as that sentence (#1313)
+        Optional<DocumentGraph.Node> sentence = graph != null && surface.view() == DocumentSurfaceView.View.GRAPH
+                ? graph.selectedSentence() : Optional.empty();
         Proposal proposal;
         try {
-            proposal = prepare(kind, ranges, repoRoot, memberFile, loaded == null ? List.of() : loaded.committedLines());
+            proposal = sentence.isPresent()
+                    ? prepareSentence(kind, sentence.get().markup().text(), ranges, repoRoot, memberFile,
+                            loaded == null ? List.of() : loaded.committedLines())
+                    : prepare(kind, ranges, repoRoot, memberFile, loaded == null ? List.of() : loaded.committedLines());
         } catch (IllegalStateException refused) {
             statusLine.setText(refused.getMessage());
             return;
         }
-        String noun = proposal.lines() + " line" + (proposal.lines() == 1 ? "" : "s") + " of " + memberFile;
+        String noun = sentence.isPresent() ? "the sentence on " + proposal.lines() + " line" + (proposal.lines() == 1 ? "" : "s") + " of " + memberFile
+                : proposal.lines() + " line" + (proposal.lines() == 1 ? "" : "s") + " of " + memberFile;
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
         confirm.setTitle(kind.verb() + " Lines");
         confirm.getDialogPane().setId("stampedDocumentAnnotationDialog");
@@ -1957,6 +2013,44 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
                     }
                     surface.cancelEdit();
                     open(anchor);
+                }));
+    }
+
+    /** Asks for a sentence's new text, then saves it as {@link #saveSentence} does. */
+    private void askToEditSentence(long sentence, String text) {
+        TextInputDialog dialog = new TextInputDialog(text);
+        dialog.setTitle("Edit sentence");
+        dialog.setHeaderText("The sentence's new text. Only the lines it changes are rewritten; it stays uncommitted until you commit in git.");
+        dialog.getEditor().setPrefColumnCount(72);
+        dialog.showAndWait().filter(t -> !t.isBlank() && !t.equals(text)).ifPresent(t -> saveSentence(sentence, t));
+    }
+
+    /**
+     * Saves an edit of one sentence as uncommitted versions by performing the starter set's
+     * {@code Edit document sentence} action, off the FX thread, and re-reads the document
+     * (IKE-Network/ike-issues#1313).
+     *
+     * @param sentence the sentence's vertex nid
+     * @param text     its new text
+     */
+    public void saveSentence(long sentence, String text) {
+        PublicId anchor = shown.anchor();
+        EditCoordinateRecord edit = editCoordinate();
+        ViewCalculator view = view();
+        statusLine.setText("Saving the edit …");
+        CompletableFuture.supplyAsync(() -> KometActions.expect(KometConcept.EDIT_DOCUMENT_SENTENCE)
+                        .perform(EditDocumentSentence.input(sentence, text), view, edit))
+                .whenComplete((result, failure) -> Platform.runLater(() -> {
+                    if (failure != null) {
+                        Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
+                        statusLine.setText("Edit not saved: " + cause.getMessage());
+                        LOG.warn("Editing sentence {} of {} failed", sentence, anchor, cause);
+                        return;
+                    }
+                    statusLine.setText(result.completed() ? result.message() : "Edit not saved: " + result.message());
+                    if (result.completed()) {
+                        open(anchor);
+                    }
                 }));
     }
 

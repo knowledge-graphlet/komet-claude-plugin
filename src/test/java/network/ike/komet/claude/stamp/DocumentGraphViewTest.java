@@ -145,6 +145,11 @@ class DocumentGraphViewTest {
         }
 
         @Override
+        public void editSentence(long sentence, String text) {
+            acts.add("edit sentence " + sentence);
+        }
+
+        @Override
         public void showingMember(DocumentAssembly.Member member) {
             shown.add(member);
         }

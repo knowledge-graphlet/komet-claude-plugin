@@ -88,6 +88,39 @@ class VertexDocumentEditingIT extends DocumentEditingIT {
         assertTrue(DocumentEditor.cancel(anchor));
     }
 
+    /**
+     * An edit of one sentence (design-2026-10-21-stored-text-segments, decision 6): the author's own
+     * line breaks inside the sentence are kept and only the changed clause is rewritten; the
+     * sentence gets a pending version under its own identity, its neighbour none.
+     */
+    @Test
+    void anEditOfOneSentenceRecomposesOnlyItsChangedFragment() throws Exception {
+        Path dir = repository("vertex-sentence", ":topic-id: anf-vertex-sentence\n= Sentences\n\nThe lease is a loan.\nA machine takes it,\n"
+                + "renews it while working,\nand returns it when done.\n");
+        PublicId anchor = GitDocumentMaterializer.materialize(dir, dir.resolve("editing.adoc")).anchor();
+        long paragraph = blockStartingWith(anchor, Block.Kind.PARAGRAPH, "The lease is a loan.");
+        GitDocumentMaterializer.StoredDocument before = GitDocumentMaterializer.load(anchor).orElseThrow();
+        List<GitDocumentMaterializer.StoredSentence> sentences = before.sentences().get(paragraph);
+        assertEquals(List.of("The lease is a loan.", "A machine takes it, renews it while working, and returns it when done."),
+                sentences.stream().map(GitDocumentMaterializer.StoredSentence::text).toList());
+
+        DocumentEditor.Edit done = DocumentEditor.editSentence(anchor, sentences.get(1).nid(),
+                "A machine takes it, renews it while working, and returns it when the work is done.", edit);
+        assertEquals(new DocumentEditor.Edit(paragraph, 1, 0, 0), done, "one line changed: the fragment whose words changed");
+
+        GitDocumentMaterializer.StoredDocument pending = GitDocumentMaterializer.load(anchor, true).orElseThrow();
+        assertEquals(List.of("The lease is a loan.", "A machine takes it,", "renews it while working,", "and returns it when the work is done."),
+                pending.lines().stream().map(GitDocumentMaterializer.StoredLine::text).filter(t -> !t.isBlank()).skip(2).toList());
+        List<GitDocumentMaterializer.StoredSentence> after = pending.sentences().get(paragraph);
+        assertEquals(sentences.get(1).nid(), after.get(1).nid(), "the sentence keeps its identity");
+        assertEquals("A machine takes it, renews it while working, and returns it when the work is done.",
+                pendingVertex(after.get(1).nid()).properties().get(IkeConcept.SEGMENT_TEXT.nid()));
+        assertEquals(sentences.get(0).nid(), after.get(0).nid());
+        assertTrue(EntityHandle.get(sentences.get(0).nid()).expectSemantic().versions().stream()
+                .noneMatch(v -> ((SemanticEntityVersion) v).uncommitted()), "the unchanged sentence gets no version");
+        assertTrue(DocumentEditor.cancel(anchor));
+    }
+
     private static EntityVertex pendingVertex(long nid) {
         for (Object o : EntityHandle.get(nid).expectSemantic().versions()) {
             if (o instanceof SemanticEntityVersion v && v.uncommitted() && !v.canceled()) {

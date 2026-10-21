@@ -159,7 +159,8 @@ module komet.claude {
     // The plugin's Komet actions, found through PluggableService like Komet's own. Class-path
     // tests find them through META-INF/services, which lists the same classes.
     provides dev.ikm.komet.actions.KometAction
-            with network.ike.komet.claude.stamp.EditDocumentBlock;
+            with network.ike.komet.claude.stamp.EditDocumentBlock,
+                 network.ike.komet.claude.stamp.EditDocumentSentence;
 
     // Headless commit narrator: started once at app startup (after datastore load) by the
     // ServiceLifecycle machinery, regardless of whether the assistant UI is opened.

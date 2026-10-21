@@ -17,6 +17,7 @@ package network.ike.komet.claude.stamp;
 
 import design.knowledge.stamp.adoc.dialect.Block;
 import design.knowledge.stamp.adoc.dialect.IkeDialectParser;
+import design.knowledge.stamp.adoc.dialect.Segmenter;
 import dev.ikm.tinkar.entity.StampEntity;
 import dev.ikm.tinkar.terms.ConceptFacade;
 import network.ike.foundation.ike.bindings.IkeConcept;
@@ -25,8 +26,11 @@ import network.ike.komet.claude.stamp.DocumentGraph.Markup;
 import network.ike.komet.claude.stamp.DocumentGraph.Node;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredBlock;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredDocument;
+import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredInline;
+import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredSentence;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredLine;
-import network.ike.komet.claude.stamp.InlineMarkup.Span;
+import design.knowledge.stamp.adoc.dialect.InlineMarkup;
+import design.knowledge.stamp.adoc.dialect.InlineMarkup.Span;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -60,6 +64,15 @@ import java.util.regex.Pattern;
  * {@code Include} element.</li>
  * </ul>
  *
+ * <p>Where the store holds a block's sentences (IKE-Network/ike-issues#1313;
+ * {@code design-2026-10-21-stored-text-segments}), mixed content is read through them: each
+ * sentence is a {@code Sentence} node with its own entity and STAMP, the version that wrote its
+ * words, and the STAMPs of the lines it spans as its strip, so who wrote which clause shows here
+ * too; its inline elements are bound to their own entities. DocBook has no sentence element, so
+ * the sentences can be flattened into the paragraph's mixed content, each run keeping its
+ * sentence's STAMP. A flow whose sentences the store does not hold, or holds stale, is projected
+ * as read, as it always was.
+ *
  * <p>No line is a node. Every node keeps the lines it came from in its {@link Markup}, and the
  * surface ordinals they span, so selecting a text run or an emphasis selects its lines on the
  * other views. What each line is comes from {@link LineRoles} over the member's text, the
@@ -80,11 +93,20 @@ final class DocBookProjection {
     private static final int LABEL_CHARS = 72;
 
     private final DocumentAssembly assembly;
+    /** Whether stored sentences show as nodes; when not, their content is spliced into the paragraph. */
+    private final boolean sentences;
+    /** The stored sentences a flow has matched, so each is shown once. */
+    private final Set<Long> consumed = new HashSet<>();
     private final Map<DocumentAssembly.Member, Map<Long, LineRoles.Role>> roles = new IdentityHashMap<>();
     private final Map<DocumentAssembly.Member, Map<Long, StoredLine>> lines = new IdentityHashMap<>();
 
     private DocBookProjection(DocumentAssembly assembly) {
+        this(assembly, true);
+    }
+
+    private DocBookProjection(DocumentAssembly assembly, boolean sentences) {
         this.assembly = assembly;
+        this.sentences = sentences;
     }
 
     /**
@@ -94,7 +116,18 @@ final class DocBookProjection {
      * @return the root: the host's document element
      */
     static Node of(DocumentAssembly assembly) {
-        return new DocBookProjection(assembly).document(assembly.host(), null, "");
+        return of(assembly, true);
+    }
+
+    /**
+     * The projection of an assembly, with its stored sentences as nodes or flattened.
+     *
+     * @param assembly  the assembly
+     * @param sentences whether a stored sentence is a node of its own
+     * @return the root: the host's document element
+     */
+    static Node of(DocumentAssembly assembly, boolean sentences) {
+        return new DocBookProjection(assembly, sentences).document(assembly.host(), null, "");
     }
 
     // ── documents and blocks ──────────────────────────────────────────────────
@@ -196,7 +229,7 @@ final class DocBookProjection {
      */
     private Element content(DocumentAssembly.Member member, StoredBlock block, List<StoredLine> leading, Set<Long> carried) {
         Element element = new Element(DocumentGraph.kindName(block.kind()));
-        Flow flow = new Flow(member);
+        Flow flow = new Flow(member, block.nid());
         List<StoredLine> comment = new ArrayList<>();
         List<StoredLine> verbatim = new ArrayList<>();
         boolean fenced = false;
@@ -249,7 +282,7 @@ final class DocBookProjection {
             } else if (meaning == IkeConcept.HEADING_LINE || meaning == IkeConcept.BLOCK_TITLE_LINE) {
                 flow.flush(element.children);
                 String title = String.valueOf(role.properties().getOrDefault(IkeConcept.DOCUMENT_ELEMENT_TITLE, text));
-                element.title = title(member, line, title, "Title");
+                element.title = title(member, line, title, "Title", block.nid());
             } else if (meaning == IkeConcept.ANCHOR_LINE) {
                 element.attributes.put("id", String.valueOf(role.properties().get(IkeConcept.ANCHOR_ID)));
             } else if (meaning == IkeConcept.BLOCK_ATTRIBUTE_LINE) {
@@ -389,7 +422,7 @@ final class DocBookProjection {
         if (role.properties().containsKey(IkeConcept.ASCIIDOC_TERM_TEXT)) {
             Matcher description = DESCRIPTION.matcher(text);
             if (description.matches()) {
-                element.children.add(title(member, line, description.group(1).strip(), "Term"));
+                element.children.add(title(member, line, description.group(1).strip(), "Term", flow.blockNid));
                 if (description.group(3) != null) {
                     flow.add(line, description.start(3));
                 }
@@ -600,7 +633,8 @@ final class DocBookProjection {
         List<Node> children = new ArrayList<>();
         List<StoredLine> lines = new ArrayList<>();
         for (Cell cell : cells) {
-            Flow flow = new Flow(member);
+            StoredBlock owner = cell.lines.isEmpty() ? null : rowOf.get(cell.lines.getFirst().nid());
+            Flow flow = new Flow(member, owner == null ? 0 : owner.nid());
             for (int i = 0; i < cell.lines.size(); i++) {
                 flow.add(cell.lines.get(i), cell.offsets.get(i), cell.ends.get(i));
             }
@@ -769,13 +803,15 @@ final class DocBookProjection {
      */
     private final class Flow {
         private final DocumentAssembly.Member member;
+        private final long blockNid;
         private final List<StoredLine> parts = new ArrayList<>();
         private final List<Integer> starts = new ArrayList<>();
         private final StringBuilder text = new StringBuilder();
         List<Span> spans = List.of();
 
-        Flow(DocumentAssembly.Member member) {
+        Flow(DocumentAssembly.Member member, long blockNid) {
             this.member = member;
+            this.blockNid = blockNid;
         }
 
         boolean isEmpty() {
@@ -800,15 +836,68 @@ final class DocBookProjection {
                 return;
             }
             spans = InlineMarkup.parse(text.toString());
-            for (Span span : spans) {
-                Node node = node(span);
-                if (node != null) {
-                    into.add(node);
+            List<StoredSentence> stored = member.document().sentences().getOrDefault(blockNid, List.of());
+            if (stored.isEmpty()) {
+                for (Span span : spans) {
+                    Node node = node(span);
+                    if (node != null) {
+                        into.add(node);
+                    }
+                }
+            } else {
+                for (int[] range : Segmenter.sentences(text.toString())) {
+                    sentence(range, stored, into);
                 }
             }
             parts.clear();
             starts.clear();
             text.setLength(0);
+        }
+
+        /**
+         * One sentence's nodes: its runs and elements, clipped to its characters; bound to the
+         * stored sentence with the same text, as a {@code Sentence} node or spliced in, else as read.
+         */
+        private void sentence(int[] range, List<StoredSentence> stored, List<Node> into) {
+            String flowText = text.toString();
+            String normalized = Segmenter.normalize(flowText.substring(range[0], range[1]));
+            StoredSentence match = null;
+            for (StoredSentence candidate : stored) {
+                if (!consumed.contains(candidate.nid()) && candidate.text().equals(normalized)) {
+                    match = candidate;
+                    break;
+                }
+            }
+            List<Node> children = new ArrayList<>();
+            for (Span span : spans) {
+                if (span.end() <= range[0] || span.start() >= range[1]) {
+                    continue;
+                }
+                Span clipped = span;
+                if (span.isText() && (span.start() < range[0] || span.end() > range[1])) {
+                    int from = Math.max(span.start(), range[0]);
+                    int to = Math.min(span.end(), range[1]);
+                    clipped = new Span(InlineMarkup.Element.TEXT, from, to, flowText.substring(from, to), Map.of(), List.of());
+                }
+                Node node = node(clipped);
+                if (node != null) {
+                    children.add(node);
+                }
+            }
+            if (match == null) {
+                into.addAll(children);                       // stale or absent: as read
+                return;
+            }
+            consumed.add(match.nid());
+            List<StampEntity<?>> lineStamps = lineStamps(lines(range[0], range[1]));
+            children = bindInlines(children, match.inlines(), match.introduced());
+            if (!sentences) {
+                into.addAll(children);
+                return;
+            }
+            Node node = projected(Kind.ELEMENT, member, "Sentence", Map.of(), normalized, lines(range[0], range[1]), children);
+            into.add(new Node(node.kind(), match.nid(), node.label(), node.detail(), node.member(), node.first(), node.last(),
+                    match.introduced(), null, null, null, null, null, lineStamps, node.markup(), node.children(), match.annotations()));
         }
 
         /** A span's node: a run as text, an element with its attributes and content; a run of whitespace is no node. */
@@ -847,8 +936,8 @@ final class DocBookProjection {
     }
 
     /** A title or term: its text parsed into mixed content, every node of it on the line it is written on. */
-    private Node title(DocumentAssembly.Member member, StoredLine line, String title, String name) {
-        Flow flow = new Flow(member);
+    private Node title(DocumentAssembly.Member member, StoredLine line, String title, String name, long blockNid) {
+        Flow flow = new Flow(member, blockNid);
         int at = Math.max(0, line.text().indexOf(title));
         flow.add(line, at, Math.min(line.text().length(), at + title.length()));
         List<Node> content = new ArrayList<>();
@@ -857,6 +946,45 @@ final class DocBookProjection {
     }
 
     // ── nodes ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Binds a sentence's nodes to its stored elements, in order: an element node takes its
+     * element's entity and STAMP, its nested elements likewise; a run takes the sentence's STAMP.
+     * When the elements and the nodes disagree in number, the elements stay unbound.
+     */
+    private static List<Node> bindInlines(List<Node> nodes, List<StoredInline> inlines, StampEntity<?> sentenceStamp) {
+        long elements = nodes.stream().filter(n -> n.kind() == Kind.INLINE).count();
+        boolean bind = elements == inlines.size();
+        List<Node> out = new ArrayList<>(nodes.size());
+        int next = 0;
+        for (Node node : nodes) {
+            if (node.kind() == Kind.INLINE && bind) {
+                StoredInline inline = inlines.get(next++);
+                List<Node> children = bindInlines(node.children(), inline.children(), inline.introduced());
+                out.add(new Node(node.kind(), inline.nid(), node.label(), node.detail(), node.member(), node.first(), node.last(),
+                        inline.introduced(), null, null, null, null, null, List.of(), node.markup(), children));
+            } else if (node.kind() == Kind.TEXT) {
+                out.add(new Node(node.kind(), node.nid(), node.label(), node.detail(), node.member(), node.first(), node.last(),
+                        sentenceStamp, null, null, null, null, null, List.of(), node.markup(), node.children()));
+            } else {
+                out.add(node);
+            }
+        }
+        return out;
+    }
+
+    /** The STAMPs that wrote the lines a sentence spans, distinct, oldest first: who wrote which fragment. */
+    private static List<StampEntity<?>> lineStamps(List<StoredLine> lines) {
+        List<StampEntity<?>> stamps = new ArrayList<>();
+        Set<Long> seen = new HashSet<>();
+        for (StoredLine line : lines) {
+            if (line.introduced() != null && seen.add(line.introduced().nid())) {
+                stamps.add(line.introduced());
+            }
+        }
+        stamps.sort(java.util.Comparator.comparingLong(StampEntity::time));
+        return List.copyOf(stamps);
+    }
 
     private Node text(DocumentAssembly.Member member, List<StoredLine> lines, String text) {
         return projected(Kind.TEXT, member, "text", Map.of(), text, lines, List.of());
@@ -965,6 +1093,8 @@ final class DocBookProjection {
         for (Node node : nodes) {
             if (node.kind() == Kind.TEXT) {
                 text.append(node.markup().text());
+            } else if (node.kind() == Kind.ELEMENT && node.markup() != null && node.markup().element().equals("Sentence")) {
+                text.append(content(node.children())).append(' ');
             } else if (node.kind() == Kind.INLINE && !node.children().isEmpty()) {
                 text.append(content(node.children()));
             }

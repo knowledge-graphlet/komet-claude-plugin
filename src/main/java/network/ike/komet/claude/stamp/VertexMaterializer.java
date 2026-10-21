@@ -18,13 +18,16 @@ package network.ike.komet.claude.stamp;
 import design.knowledge.stamp.adoc.dialect.Block;
 import design.knowledge.stamp.adoc.dialect.Document;
 import design.knowledge.stamp.adoc.dialect.IkeDialectParser;
+import design.knowledge.stamp.adoc.dialect.InlineMarkup;
 import design.knowledge.stamp.adoc.dialect.Reference;
+import design.knowledge.stamp.adoc.dialect.Segmenter;
 import design.knowledge.stamp.adoc.git.GitRepo;
 import design.knowledge.stamp.adoc.identity.GitIdentityAdapter;
 import design.knowledge.stamp.adoc.identity.Identity;
 import design.knowledge.stamp.adoc.identity.Uuid5;
 import design.knowledge.stamp.adoc.model.CommitEvent;
 import design.knowledge.stamp.adoc.model.LineId;
+import design.knowledge.stamp.adoc.model.SegmentId;
 import design.knowledge.stamp.adoc.model.StampHistory;
 import dev.ikm.tinkar.common.id.LongIdList;
 import dev.ikm.tinkar.common.id.LongIds;
@@ -72,7 +75,11 @@ import java.util.TreeMap;
  * pattern of its own, derived from the starter set's Document vertex template, whose elements
  * are the document's vertices. Every line and every block is a semantic whose one field is a
  * vertex carrying its meaning concept and its properties keyed by concept; the inline references
- * of a line are vertices too. Parentage and order are each parent's versioned Members property,
+ * of a line are vertices too. Below the line, every sentence and every inline element is a vertex
+ * with its own identity and versions (design {@code design-2026-10-21-stored-text-segments}): a
+ * block's Content lists its sentences, a sentence's Members its inline elements, and a reflow,
+ * which changes lines, writes no sentence version. Sentences never author a byte: the lines'
+ * Line source is the file. Parentage and order are each parent's versioned Members property,
  * since a semantic's referenced component is fixed on its chronology: every vertex references the
  * document's root vertex, and the root references the document's pattern.
  *
@@ -153,7 +160,16 @@ public final class VertexMaterializer {
     record Written(Semantic proxy, PublicId referenced, EntityVertex value, String signature, Kind kind) { }
 
     /** What a vertex stands for, for the counts a run reports. */
-    enum Kind { ROOT, BLOCK, LINE, REFERENCE }
+    enum Kind { ROOT, BLOCK, LINE, REFERENCE, SENTENCE, INLINE }
+
+    /** The terms sentences and inline elements are written with; a store without them gets lines and blocks only. */
+    private static final List<EntityFacade> SEGMENT_TERMS = List.of(IkeConcept.SENTENCE, IkeConcept.BLOCK_CONTENT, IkeConcept.SEGMENT_TEXT,
+            IkeConcept.EMPHASIS, IkeConcept.INLINE_ROLE);
+
+    /** @return whether the open store holds the terms for sentences and inline elements */
+    public static boolean segmentsAvailable() {
+        return SEGMENT_TERMS.stream().noneMatch(GitStampVocabulary::entityAbsent);
+    }
 
     /**
      * Materialize a file's first-parent history as semantic vertices.
@@ -186,7 +202,9 @@ public final class VertexMaterializer {
             int lines = 0;
             int blocks = 0;
             int references = 0;
+            int sentences = 0;
             int annotations = 0;
+            boolean segments = segmentsAvailable();
             int skipped = 0;
             for (CommitEvent event : history.events()) {
                 boolean contentRecorded = !event.touchesFile() || recorded.contains(event.commit().sha());
@@ -204,7 +222,7 @@ public final class VertexMaterializer {
                 }
                 if (contentRecorded && pendingAnnotations.stream().allMatch(java.util.Objects::isNull)) {
                     if (event.touchesFile() && patternWritten) {
-                        adopt(last, snapshot(key, patternId, root, event.manifest(), lastText));
+                        adopt(last, snapshot(key, patternId, root, event.manifest(), lastText, segments ? event.segments() : null));
                     }
                     skipped++;
                     continue;                                    // already in the store
@@ -220,7 +238,7 @@ public final class VertexMaterializer {
                         patternWritten = true;
                     }
                     if (event.touchesFile() && !contentRecorded) {
-                        now = snapshot(key, patternId, root, event.manifest(), lastText);
+                        now = snapshot(key, patternId, root, event.manifest(), lastText, segments ? event.segments() : null);
                         for (Map.Entry<String, Written> e : now.entrySet()) {
                             Written before = last.get(e.getKey());
                             Written vertex = e.getValue();
@@ -230,6 +248,8 @@ public final class VertexMaterializer {
                                     case LINE -> lines += before == null ? 1 : 0;
                                     case BLOCK, ROOT -> blocks++;
                                     case REFERENCE -> references++;
+                                    case SENTENCE -> sentences++;
+                                    case INLINE -> { }
                                 }
                             }
                         }
@@ -242,9 +262,14 @@ public final class VertexMaterializer {
                             continue;                            // already in the store
                         }
                         CommitEvent.AnnotationEvent a = event.annotations().get(i);
-                        long[] nids = new long[a.lines().size()];
-                        for (int j = 0; j < nids.length; j++) {
+                        // the annotated lines, and the sentences the range covers whole (#1313)
+                        List<SegmentId> judged = segments ? a.sentences() : List.of();
+                        long[] nids = new long[a.lines().size() + judged.size()];
+                        for (int j = 0; j < a.lines().size(); j++) {
                             nids[j] = EntityService.get().nidForSemantic(patternId, lineProxy(a.lines().get(j)).publicId());
+                        }
+                        for (int j = 0; j < judged.size(); j++) {
+                            nids[a.lines().size() + j] = EntityService.get().nidForSemantic(patternId, semantic(segmentKey(judged.get(j))).publicId());
                         }
                         writer.semantic(proxy.publicId(), IkePattern.ANNOTATION_PATTERN.publicId(), root.publicId(),
                                 StampedDocumentTerms.kind(a.kind()), EntityProxy.make(GitDocumentMaterializer.reviewedStampNid(source, a.reviewedSha())),
@@ -275,8 +300,8 @@ public final class VertexMaterializer {
                 }
             }
             LOG.info("Materialized {} as vertices of '{}': {} commit(s) written, {} already recorded, {} line(s), {} block version(s), "
-                    + "{} reference version(s), {} annotation(s)", path, name, history.events().size() - skipped, skipped, lines, blocks,
-                    references, annotations);
+                    + "{} reference version(s), {} sentence version(s), {} annotation(s)", path, name, history.events().size() - skipped,
+                    skipped, lines, blocks, references, sentences, annotations);
             return new GitDocumentMaterializer.Result(root.publicId(), name, history.events().size() - skipped, lines, annotations,
                     blocks, references, repo.headRevision());
         }
@@ -291,10 +316,12 @@ public final class VertexMaterializer {
 
     /**
      * The vertices one commit's text implies, keyed by identity key: the root, a vertex per block,
-     * per line and per inline reference, with their parentage as Members in document order.
+     * per line and per inline reference, with their parentage as Members in document order; and,
+     * when {@code segments} is given, a vertex per sentence and per inline element, the walk's
+     * identities matched in order to the sentences {@link Segmenter} finds in the same text.
      */
     static Map<String, Written> snapshot(String documentKey, PublicId patternId, Semantic root, List<LineId> manifest,
-                                         Map<LineId, String> text) {
+                                         Map<LineId, String> text, CommitEvent.Segments segments) {
         List<String> lines = new ArrayList<>(manifest.size());
         for (LineId id : manifest) {
             lines.add(text.getOrDefault(id, ""));
@@ -356,6 +383,7 @@ public final class VertexMaterializer {
             referencesByLine.computeIfAbsent(reference.line(), l -> new ArrayList<>()).add(reference);
         }
 
+        SegmentPlan plan = segments == null ? null : SegmentPlan.of(documentKey, doc, segments, nid);
         Map<String, Written> vertices = new LinkedHashMap<>();
         // The root, then the blocks, then the lines and their references: parents before children.
         for (Block block : doc.blocks()) {
@@ -384,6 +412,9 @@ public final class VertexMaterializer {
                 }
             }
             properties.put(IkeConcept.DOCUMENT_ELEMENT_MEMBERS, ordered(members.get(block)));
+            if (plan != null && plan.content().containsKey(block)) {
+                properties.put(IkeConcept.BLOCK_CONTENT, ordered(plan.content().get(block)));
+            }
             boolean isRoot = block.kind() == Block.Kind.DOCUMENT;
             vertices.put(key, vertex(key, isRoot ? patternId : root.publicId(), AsciiDocModelTerms.kind(block.kind()), properties,
                     isRoot ? Kind.ROOT : Kind.BLOCK));
@@ -415,7 +446,131 @@ public final class VertexMaterializer {
                         Kind.REFERENCE));
             }
         }
+        if (plan != null) {
+            plan.write(root, vertices);
+        }
         return vertices;
+    }
+
+    // ── sentences and inline elements ─────────────────────────────────────────
+
+    /**
+     * The sentences and inline elements of one commit's text: the walk numbered them in the order
+     * {@link Segmenter} lists them, so its identities are matched by position. A count that
+     * disagrees means the two read different text, and the sentences are left out rather than
+     * misnamed.
+     *
+     * @param found        the sentences and inline elements found in the text
+     * @param sentenceKeys each sentence's vertex key
+     * @param inlineKeys   each inline element's vertex key
+     * @param content      each block's sentences, as Members-style position and nid pairs
+     * @param notes        each footnote's sentences, by the footnote's index
+     * @param nested       each sentence's top-level elements (keyed {@code -1 - sentence}) and each element's nested ones
+     */
+    private record SegmentPlan(Segmenter.Segmentation found, List<String> sentenceKeys, List<String> inlineKeys,
+                               Map<Block, List<long[]>> content, Map<Integer, List<long[]>> notes, Map<Integer, List<long[]>> nested) {
+
+        static SegmentPlan of(String documentKey, Document doc, CommitEvent.Segments segments, java.util.function.Function<String, Long> nid) {
+            Segmenter.Segmentation found = Segmenter.of(doc);
+            if (found.sentences().size() != segments.manifest().size() || found.inlines().size() != segments.inlineManifest().size()) {
+                LOG.warn("{}: {} sentence(s) and {} inline element(s) found, the walk named {} and {}; sentences not written", documentKey,
+                        found.sentences().size(), found.inlines().size(), segments.manifest().size(), segments.inlineManifest().size());
+                return null;
+            }
+            List<String> sentenceKeys = segments.manifest().stream().map(VertexMaterializer::segmentKey).toList();
+            List<String> inlineKeys = segments.inlineManifest().stream().map(VertexMaterializer::segmentKey).toList();
+            Map<Block, List<long[]>> content = new HashMap<>();
+            Map<Integer, List<long[]>> notes = new HashMap<>();
+            for (int s = 0; s < found.sentences().size(); s++) {
+                Segmenter.Sentence sentence = found.sentences().get(s);
+                long[] member = {s, nid.apply(sentenceKeys.get(s))};
+                if (sentence.note() >= 0) {
+                    notes.computeIfAbsent(sentence.note(), k -> new ArrayList<>()).add(member);
+                } else {
+                    content.computeIfAbsent(sentence.flow().block(), k -> new ArrayList<>()).add(member);
+                }
+            }
+            Map<Integer, List<long[]>> nested = new HashMap<>();
+            for (int i = 0; i < found.inlines().size(); i++) {
+                Segmenter.Inline inline = found.inlines().get(i);
+                int owner = inline.parent() >= 0 ? inline.parent() : -1 - inline.sentence();
+                nested.computeIfAbsent(owner, k -> new ArrayList<>()).add(new long[] {i, nid.apply(inlineKeys.get(i))});
+            }
+            return new SegmentPlan(found, sentenceKeys, inlineKeys, content, notes, nested);
+        }
+
+        /** Adds a vertex per sentence and per inline element, after the lines: parents before children. */
+        void write(Semantic root, Map<String, Written> vertices) {
+            for (int s = 0; s < found.sentences().size(); s++) {
+                Map<ConceptFacade, Object> properties = new LinkedHashMap<>();
+                properties.put(IkeConcept.SEGMENT_TEXT, found.sentences().get(s).text());
+                List<long[]> members = nested.get(-1 - s);
+                if (members != null) {
+                    properties.put(IkeConcept.DOCUMENT_ELEMENT_MEMBERS, ordered(members));
+                }
+                vertices.put(sentenceKeys.get(s), vertex(sentenceKeys.get(s), root.publicId(), IkeConcept.SENTENCE, properties, Kind.SENTENCE));
+            }
+            for (int i = 0; i < found.inlines().size(); i++) {
+                Segmenter.Inline inline = found.inlines().get(i);
+                Map<ConceptFacade, Object> properties = inlineProperties(inline);
+                if (nested.containsKey(i)) {
+                    properties.put(IkeConcept.DOCUMENT_ELEMENT_MEMBERS, ordered(nested.get(i)));
+                }
+                if (notes.containsKey(i)) {
+                    properties.put(IkeConcept.BLOCK_CONTENT, ordered(notes.get(i)));
+                }
+                vertices.put(inlineKeys.get(i), vertex(inlineKeys.get(i), root.publicId(), inlineMeaning(inline.element()), properties,
+                        Kind.INLINE));
+            }
+        }
+    }
+
+    /** The vertex key of a sentence or an inline element. */
+    static String segmentKey(SegmentId id) {
+        return "vertex:" + id.key();
+    }
+
+    /** An inline element's meaning: the inline references reuse the AsciiDoc reference concepts. */
+    static ConceptFacade inlineMeaning(InlineMarkup.Element element) {
+        return switch (element) {
+            case EMPHASIS -> IkeConcept.EMPHASIS;
+            case STRONG -> IkeConcept.STRONG;
+            case MONOSPACE -> IkeConcept.MONOSPACE;
+            case HIGHLIGHT -> IkeConcept.HIGHLIGHT;
+            case SUPERSCRIPT -> IkeConcept.SUPERSCRIPT;
+            case SUBSCRIPT -> IkeConcept.SUBSCRIPT;
+            case QUOTATION -> IkeConcept.QUOTATION;
+            case PHRASE -> IkeConcept.PHRASE;
+            case LINE_BREAK -> IkeConcept.LINE_BREAK;
+            case ANCHOR -> IkeConcept.INLINE_ANCHOR;
+            case ATTRIBUTE_REFERENCE -> IkeConcept.ATTRIBUTE_REFERENCE;
+            case CROSS_REFERENCE -> IkeConcept.ASCIIDOC_CROSS_REFERENCE;
+            case LINK -> IkeConcept.ASCIIDOC_LINK;
+            case INDEX_TERM -> IkeConcept.ASCIIDOC_INDEX_TERM_REFERENCE;
+            case FOOTNOTE -> IkeConcept.ASCIIDOC_FOOTNOTE;
+            case TEXT -> IkeConcept.INLINE_ELEMENT;
+        };
+    }
+
+    /** An inline element's Text and the attributes its kind carries, keyed by concept. */
+    static Map<ConceptFacade, Object> inlineProperties(Segmenter.Inline inline) {
+        Map<ConceptFacade, Object> properties = new LinkedHashMap<>();
+        properties.put(IkeConcept.SEGMENT_TEXT, inline.text());
+        Map<String, String> attributes = inline.span().attributes();
+        putIfPresent(properties, IkeConcept.ASCIIDOC_REFERENCE_TARGET, attributes.getOrDefault("linkend", attributes.get("href")));
+        putIfPresent(properties, IkeConcept.ASCIIDOC_TERM_TEXT, attributes.get("primary"));
+        putIfPresent(properties, IkeConcept.SECONDARY_TERM, attributes.get("secondary"));
+        putIfPresent(properties, IkeConcept.TERTIARY_TERM, attributes.get("tertiary"));
+        putIfPresent(properties, IkeConcept.ANCHOR_ID, attributes.get("id"));
+        putIfPresent(properties, IkeConcept.ASCIIDOC_ATTRIBUTE_NAME, attributes.get("name"));
+        putIfPresent(properties, IkeConcept.INLINE_ROLE, attributes.get("role"));
+        return properties;
+    }
+
+    private static void putIfPresent(Map<ConceptFacade, Object> properties, ConceptFacade key, String value) {
+        if (value != null && !value.isEmpty()) {
+            properties.put(key, value);
+        }
     }
 
     private static String lineKey(List<LineId> manifest, int line) {

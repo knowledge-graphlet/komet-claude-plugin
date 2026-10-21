@@ -92,11 +92,21 @@ public final class DocumentGraph {
      * @param commits   for a block or document with history, the STAMPs of the commits that touched its lines, oldest first; else empty
      * @param markup    in the DocBook projection, the node as an element; else {@code null}
      * @param children  the nodes beneath, in document order
+     * @param annotations in the DocBook projection, a stored sentence's annotations in force (IKE-Network/ike-issues#1313); else empty
      */
     public record Node(Kind kind, long nid, String label, String detail, DocumentAssembly.Member member, int first, int last,
                        StampEntity<?> stamp, StoredBlock block, StoredLine line, StoredReference reference,
                        DocumentHistory.Version version, DocumentHistory.RetiredLine retired, List<StampEntity<?>> commits, Markup markup,
-                       List<Node> children) {
+                       List<Node> children, List<GitDocumentMaterializer.StoredAnnotation> annotations) {
+
+        /** A node with no annotations of its own beyond its line's. */
+        public Node(Kind kind, long nid, String label, String detail, DocumentAssembly.Member member, int first, int last,
+                    StampEntity<?> stamp, StoredBlock block, StoredLine line, StoredReference reference,
+                    DocumentHistory.Version version, DocumentHistory.RetiredLine retired, List<StampEntity<?>> commits, Markup markup,
+                    List<Node> children) {
+            this(kind, nid, label, detail, member, first, last, stamp, block, line, reference, version, retired, commits, markup, children,
+                    List.of());
+        }
 
         /** @return whether the node spans at least one line */
         public boolean spansLines() {
@@ -183,6 +193,18 @@ public final class DocumentGraph {
      */
     public static Node docbook(DocumentAssembly assembly) {
         return DocBookProjection.of(assembly);
+    }
+
+    /**
+     * The DocBook projection with stored sentences as nodes of their own, or flattened into their
+     * paragraph's mixed content (IKE-Network/ike-issues#1313).
+     *
+     * @param assembly  the assembly
+     * @param sentences whether a stored sentence is a node
+     * @return the root: the host's document element
+     */
+    public static Node docbook(DocumentAssembly assembly, boolean sentences) {
+        return DocBookProjection.of(assembly, sentences);
     }
 
     private DocumentHistory history(DocumentAssembly.Member member) {

@@ -38,6 +38,8 @@ import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredBlock;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredDocument;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredLine;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredReference;
+import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredInline;
+import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredSentence;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -150,8 +152,18 @@ public final class VertexReader {
                 commit = String.valueOf(latest.fieldValues().get(1));
             }
         }
+        Map<Long, List<StoredSentence>> sentences = new LinkedHashMap<>();
+        for (long blockNid : blocks.keySet()) {
+            SemanticEntityVersion version = latestOf(versions(blockNid, pending, base));
+            if (version != null && version.fieldValues().get(0) instanceof EntityVertex vertex) {
+                List<StoredSentence> content = sentences(vertex, pending, base, annotated);
+                if (!content.isEmpty()) {
+                    sentences.put(blockNid, content);
+                }
+            }
+        }
         return Optional.of(new StoredDocument(anchor, commit, List.copyOf(lines), commits, List.copyOf(attributes), rootBlock,
-                blocks, references));
+                blocks, references, sentences));
     }
 
     /**
@@ -214,6 +226,65 @@ public final class VertexReader {
             }
         }
         return present;
+    }
+
+    // ── sentences and inline elements ─────────────────────────────────────────
+
+    /**
+     * A block's or footnote's sentences, its Content in order, each with its inline elements; a
+     * sentence whose latest version is inactive was removed and is skipped.
+     */
+    private static List<StoredSentence> sentences(EntityVertex parent, boolean pending, long base, Map<Long, List<StoredAnnotation>> annotated) {
+        List<StoredSentence> out = new ArrayList<>();
+        for (long nid : ids(parent, IkeConcept.BLOCK_CONTENT)) {
+            List<SemanticEntityVersion> versions = versions(nid, pending, base);
+            SemanticEntityVersion latest = latestOf(versions);
+            if (latest == null || latest.state() != State.ACTIVE || !(latest.fieldValues().get(0) instanceof EntityVertex vertex)) {
+                continue;
+            }
+            String text = text(vertex, IkeConcept.SEGMENT_TEXT);
+            out.add(new StoredSentence(nid, text, wrote(versions, latest).stamp(), latest.stamp(), inlines(vertex, pending, base, annotated),
+                    GitDocumentMaterializer.inForce(annotated.getOrDefault(nid, List.of()), versions, text)));
+        }
+        return out;
+    }
+
+    private static List<StoredInline> inlines(EntityVertex parent, boolean pending, long base, Map<Long, List<StoredAnnotation>> annotated) {
+        List<StoredInline> out = new ArrayList<>();
+        for (long nid : members(parent)) {
+            List<SemanticEntityVersion> versions = versions(nid, pending, base);
+            SemanticEntityVersion latest = latestOf(versions);
+            if (latest == null || latest.state() != State.ACTIVE || !(latest.fieldValues().get(0) instanceof EntityVertex vertex)) {
+                continue;
+            }
+            out.add(new StoredInline(nid, vertex.getMeaningNid(), text(vertex, IkeConcept.SEGMENT_TEXT), wrote(versions, latest).stamp(),
+                    latest.stamp(), inlines(vertex, pending, base, annotated), sentences(vertex, pending, base, annotated)));
+        }
+        return out;
+    }
+
+    /** The version that wrote a segment's current text: the earliest of the latest run of versions with that text. */
+    private static SemanticEntityVersion wrote(List<SemanticEntityVersion> versions, SemanticEntityVersion latest) {
+        List<SemanticEntityVersion> sorted = new ArrayList<>(versions);
+        sorted.sort(Comparator.comparingLong(SemanticEntityVersion::time));
+        String now = segmentText(latest);
+        SemanticEntityVersion wrote = latest;
+        for (int i = sorted.size() - 1; i >= 0; i--) {
+            SemanticEntityVersion v = sorted.get(i);
+            if (v.state() != State.ACTIVE || !segmentText(v).equals(now)) {
+                break;
+            }
+            wrote = v;
+        }
+        return wrote;
+    }
+
+    private static String segmentText(SemanticEntityVersion version) {
+        return version.fieldValues().get(0) instanceof EntityVertex vertex ? text(vertex, IkeConcept.SEGMENT_TEXT) : "";
+    }
+
+    private static long[] ids(EntityVertex vertex, dev.ikm.tinkar.terms.ConceptFacade key) {
+        return vertex.properties().get(key.nid()) instanceof LongIdList ids ? ids.toArray() : new long[0];
     }
 
     private static StoredBlock withMembers(StoredBlock block, List<Long> members, List<Long> tree) {

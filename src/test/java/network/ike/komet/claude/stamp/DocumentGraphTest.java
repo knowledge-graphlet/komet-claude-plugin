@@ -503,6 +503,51 @@ class DocumentGraphTest {
     }
 
     @Test
+    void storedSentencesAreNodesBoundToTheirEntities() {
+        StoredDocument plain = stored("""
+                = Sentences
+
+                The lease is a loan. A machine *takes* it, renews
+                it while working, and returns it.
+                """);
+        StoredBlock paragraph = plain.blocks().values().stream().filter(b -> b.kind() == Block.Kind.PARAGRAPH).findFirst().orElseThrow();
+        GitDocumentMaterializer.StoredInline strong = new GitDocumentMaterializer.StoredInline(901, 0, "*takes*", null, null, List.of(), List.of());
+        List<GitDocumentMaterializer.StoredSentence> sentences = List.of(
+                new GitDocumentMaterializer.StoredSentence(801, "The lease is a loan.", null, null, List.of()),
+                new GitDocumentMaterializer.StoredSentence(802, "A machine *takes* it, renews it while working, and returns it.", null, null,
+                        List.of(strong)));
+        StoredDocument document = new StoredDocument(plain.anchor(), plain.commit(), plain.lines(), 1, plain.attributes(), plain.root(),
+                plain.blocks(), plain.references(), Map.of(paragraph.nid(), sentences));
+        DocumentAssembly assembly = DocumentAssembly.of(document, "docs/a.adoc", path -> Optional.empty());
+
+        Node root = DocumentGraph.docbook(assembly, true);
+        Node para = all(root).stream().filter(n -> n.blockKind() == Block.Kind.PARAGRAPH).findFirst().orElseThrow();
+        List<Node> nodes = para.children().stream().filter(n -> n.markup() != null && n.markup().element().equals("Sentence")).toList();
+        assertEquals(2, nodes.size(), "each stored sentence is a node");
+        assertEquals(801, nodes.get(0).nid());
+        assertEquals(802, nodes.get(1).nid());
+        int line3 = assembly.ordinal(document.lines().get(2).nid());
+        assertEquals(line3, nodes.get(1).first(), "the second sentence starts on the line the first ends on");
+        assertEquals(line3 + 1, nodes.get(1).last());
+        Node takes = element(nodes.get(1), "Strong");
+        assertEquals(901, takes.nid(), "an inline element is bound to its own entity");
+        assertTrue(para.label().startsWith("Paragraph: The lease is a loan. A machine takes it"), para.label());
+
+        Node flat = all(DocumentGraph.docbook(assembly, false)).stream().filter(n -> n.blockKind() == Block.Kind.PARAGRAPH).findFirst().orElseThrow();
+        assertTrue(flat.children().stream().noneMatch(n -> n.markup() != null && n.markup().element().equals("Sentence")), "flattened");
+        assertEquals(901, element(flat, "Strong").nid(), "flattened, an element keeps its entity");
+
+        StoredDocument stale = new StoredDocument(plain.anchor(), plain.commit(), plain.lines(), 1, plain.attributes(), plain.root(),
+                plain.blocks(), plain.references(), Map.of(paragraph.nid(),
+                        List.of(new GitDocumentMaterializer.StoredSentence(803, "Words the lines no longer say.", null, null, List.of()))));
+        Node asRead = all(DocumentGraph.docbook(DocumentAssembly.of(stale, "docs/a.adoc", path -> Optional.empty()), true)).stream()
+                .filter(n -> n.blockKind() == Block.Kind.PARAGRAPH).findFirst().orElseThrow();
+        assertTrue(asRead.children().stream().noneMatch(n -> n.markup() != null && n.markup().element().equals("Sentence")),
+                "a sentence the lines no longer say is not shown; the flow is projected as read");
+        assertEquals("Strong", element(asRead, "Strong").markup().element());
+    }
+
+    @Test
     void theDocBookProjectionCarriesAnIncludedDocumentInPlace() {
         StoredDocument child = stored("""
                 = Child

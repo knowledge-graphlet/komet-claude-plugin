@@ -655,6 +655,41 @@ public final class GitDocumentMaterializer {
     public record StoredReference(long nid, Reference.Kind kind, String target, String text, long lineNid) { }
 
     /**
+     * One sentence as read from the store (IKE-Network/ike-issues#1313;
+     * {@code design-2026-10-21-stored-text-segments}): its own identity and versions below the line.
+     *
+     * @param nid        the sentence vertex's nid
+     * @param text       its source, whitespace normalized
+     * @param introduced the STAMP of the version that wrote its current words
+     * @param latest     the STAMP of its latest version
+     * @param inlines    its top-level inline elements, in order
+     * @param annotations the annotations on it in force: each annotator's latest judgment, and every comment, while
+     *                    its text is what they reviewed
+     */
+    public record StoredSentence(long nid, String text, StampEntity<?> introduced, StampEntity<?> latest, List<StoredInline> inlines,
+                                 List<StoredAnnotation> annotations) {
+
+        /** A sentence with no annotations. */
+        public StoredSentence(long nid, String text, StampEntity<?> introduced, StampEntity<?> latest, List<StoredInline> inlines) {
+            this(nid, text, introduced, latest, inlines, List.of());
+        }
+    }
+
+    /**
+     * One inline element as read from the store.
+     *
+     * @param nid        the element vertex's nid
+     * @param meaningNid its meaning: Emphasis, Cross reference…
+     * @param text       its source, whitespace normalized
+     * @param introduced the STAMP of the version that wrote its current text
+     * @param latest     the STAMP of its latest version
+     * @param children   the elements nested in it, in order
+     * @param notes      a footnote's own sentences; empty otherwise
+     */
+    public record StoredInline(long nid, long meaningNid, String text, StampEntity<?> introduced, StampEntity<?> latest,
+                               List<StoredInline> children, List<StoredSentence> notes) { }
+
+    /**
      * The document as the store holds it at the latest manifest version.
      *
      * @param anchor           the anchor id
@@ -665,10 +700,18 @@ public final class GitDocumentMaterializer {
      * @param root             the document block, or {@code null} when the store holds no structure for it
      * @param blocks           every active block by nid
      * @param references       the active references by the nid of the line they occur on
+     * @param sentences        each block's sentences in order, by the block's nid: a vertex document's Content
+     *                         (IKE-Network/ike-issues#1313); empty for the prose-element model or a store without them
      */
     public record StoredDocument(PublicId anchor, String commit, List<StoredLine> lines, int manifestVersions,
                                  List<String> attributes, StoredBlock root, Map<Long, StoredBlock> blocks,
-                                 Map<Long, List<StoredReference>> references) {
+                                 Map<Long, List<StoredReference>> references, Map<Long, List<StoredSentence>> sentences) {
+
+        /** A document with no stored sentences: the prose-element model, or a store that predates them. */
+        public StoredDocument(PublicId anchor, String commit, List<StoredLine> lines, int manifestVersions, List<String> attributes,
+                              StoredBlock root, Map<Long, StoredBlock> blocks, Map<Long, List<StoredReference>> references) {
+            this(anchor, commit, lines, manifestVersions, attributes, root, blocks, references, Map.of());
+        }
 
         /** @return the line with that nid, if the manifest holds it */
         public Optional<StoredLine> line(long nid) {
@@ -1044,6 +1087,9 @@ public final class GitDocumentMaterializer {
         Object value = version.fieldValues().isEmpty() ? null : version.fieldValues().get(0);
         if (value instanceof dev.ikm.tinkar.entity.graph.EntityVertex vertex) {
             Object source = vertex.properties().get(network.ike.foundation.ike.bindings.IkeConcept.LINE_SOURCE.nid());
+            if (source == null) {                                // a sentence or an inline element: its Text (#1313)
+                source = vertex.properties().get(network.ike.foundation.ike.bindings.IkeConcept.SEGMENT_TEXT.nid());
+            }
             return source == null ? "" : String.valueOf(source);
         }
         return String.valueOf(value);

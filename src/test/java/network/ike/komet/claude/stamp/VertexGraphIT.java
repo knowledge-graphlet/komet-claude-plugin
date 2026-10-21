@@ -168,13 +168,44 @@ class VertexGraphIT {
         assertEquals("dev-vertex-docbook", graph.markup().attributes().get("topic-id"));
         DocumentGraph.Node paragraph = find(graph, n -> n.blockKind() == design.knowledge.stamp.adoc.dialect.Block.Kind.PARAGRAPH);
         assertEquals(name(IkeConcept.DOCUMENT_PARAGRAPH), facts(paragraph).meaning(), "a block is still its vertex");
+        assertEquals(List.of("Sentence"), paragraph.children().stream().map(n -> n.markup().element()).toList(),
+                "the paragraph's one stored sentence is a node of its own");
+        DocumentGraph.Node sentence = paragraph.children().getFirst();
+        assertEquals(name(IkeConcept.SENTENCE), facts(sentence).meaning(), "and is its vertex");
         assertEquals(List.of("text", "Cross reference", "text", "Strong", "text"),
-                paragraph.children().stream().map(n -> n.markup().element()).toList());
-        assertEquals("other-topic", paragraph.children().get(1).markup().attributes().get("linkend"));
+                sentence.children().stream().map(n -> n.markup().element()).toList());
+        assertEquals("other-topic", sentence.children().get(1).markup().attributes().get("linkend"));
+        assertEquals(name(IkeConcept.ASCIIDOC_CROSS_REFERENCE), facts(sentence.children().get(1)).meaning(), "an inline element is its vertex");
+        DocumentGraph.Node flat = find(DocumentGraph.docbook(DocumentAssembly.single(document, "topic.adoc"), false),
+                n -> n.blockKind() == design.knowledge.stamp.adoc.dialect.Block.Kind.PARAGRAPH);
+        assertEquals(List.of("text", "Cross reference", "text", "Strong", "text"), flat.children().stream().map(n -> n.markup().element()).toList(),
+                "flattened, the paragraph holds the sentence's mixed content");
         DocumentGraph.Node listing = find(graph, n -> n.blockKind() == design.knowledge.stamp.adoc.dialect.Block.Kind.LISTING);
         assertEquals("text", listing.markup().attributes().get("language"));
         assertEquals(List.of("x\n\ny"), listing.children().stream().map(n -> n.markup().text()).toList(),
                 "the body, the blank line the vertex tree holds in it kept");
+    }
+
+    /**
+     * A sentence two people wrote parts of (refinement (b) of design-2026-10-21-stored-text-segments):
+     * its node carries its own STAMP, the version that wrote its words, and the STAMPs of the lines it
+     * spans, so who wrote which clause shows in DocBook mode.
+     */
+    @Test
+    void aSentenceShowsTheStampsOfTheLinesItSpans() throws Exception {
+        Path dir = Files.createDirectories(root.resolve("fragments"));
+        git(dir, "init", "-q", "-b", "main");
+        Path file = dir.resolve("topic.adoc");
+        Files.writeString(file, "= Fragments\n\nA machine takes it,\nrenews it while working,\nand returns it.\n");
+        commitAs(dir, "topic.adoc", "alice", "2026-04-01T00:00:00Z");
+        Files.writeString(file, "= Fragments\n\nA machine takes it,\nrenews it while working,\nand returns it when done.\n");
+        commitAs(dir, "topic.adoc", "bob", "2026-04-02T00:00:00Z");
+        GitDocumentMaterializer.StoredDocument document = GitDocumentMaterializer.load(GitDocumentMaterializer.materialize(dir, file).anchor()).orElseThrow();
+        DocumentGraph.Node graph = DocumentGraph.docbook(DocumentAssembly.single(document, "topic.adoc"));
+        DocumentGraph.Node sentence = find(graph, n -> n.markup() != null && "Sentence".equals(n.markup().element()));
+        assertEquals(2, sentence.commits().size(), "alice's two lines and bob's one: two STAMPs");
+        assertTrue(sentence.commits().get(0).time() < sentence.commits().get(1).time(), "oldest first");
+        assertEquals(sentence.commits().get(1).nid(), sentence.stamp().nid(), "bob's revision wrote the sentence's current words");
     }
 
     @Test
@@ -194,6 +225,12 @@ class VertexGraphIT {
             assertTrue(DocumentGraphTest.all(graph).stream().anyMatch(n -> n.blockKind() == design.knowledge.stamp.adoc.dialect.Block.Kind.SECTION),
                     source + ": its sections");
         }
+    }
+
+    private static void commitAs(Path dir, String path, String author, String date) throws Exception {
+        git(dir, "add", path);
+        git(dir, "-c", "user.name=" + author, "-c", "user.email=" + author + "@example.test", "commit", "-q", "--no-gpg-sign",
+                "--date=" + date, "-m", path);
     }
 
     private static void commit(Path dir, String path) throws Exception {

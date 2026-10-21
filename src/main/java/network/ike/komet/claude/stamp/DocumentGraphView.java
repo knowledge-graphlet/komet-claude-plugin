@@ -154,6 +154,14 @@ final class DocumentGraphView {
         /** Opens the block the selection starts in for editing, in the Reading view. */
         void editSelectedBlock();
 
+        /**
+         * Asks for a sentence's new text and edits it (IKE-Network/ike-issues#1313).
+         *
+         * @param sentence the sentence's vertex nid
+         * @param text     its text as stored
+         */
+        void editSentence(long sentence, String text);
+
         /** The member of the assembly the person is looking at. */
         void showingMember(DocumentAssembly.Member member);
     }
@@ -194,6 +202,7 @@ final class DocumentGraphView {
     private final TreeView<Row> tree = new TreeView<>();
     private final ContextMenu menu = new ContextMenu();
     private final MenuItem editItem = new MenuItem("Edit block");
+    private final MenuItem editSentenceItem = new MenuItem("Edit sentence…");
     private final MenuItem copyId = new MenuItem("Copy public id");
     private final Popup popover = new Popup();
     private final PauseTransition hoverDelay = new PauseTransition(Duration.millis(350));
@@ -221,6 +230,7 @@ final class DocumentGraphView {
         menu.setOnShowing(e -> {
             hidePopover();
             editItem.setDisable(editableSelection().isEmpty());
+            editSentenceItem.setDisable(selectedSentence().isEmpty());
             copyId.setDisable(selectedFacts().isEmpty());
         });
         popover.setAutoHide(false);
@@ -247,6 +257,25 @@ final class DocumentGraphView {
     /** @return the mode shown */
     Mode mode() {
         return mode;
+    }
+
+    /** Whether DocBook mode shows stored sentences as nodes. */
+    private boolean sentences = true;
+
+    /**
+     * Shows stored sentences as nodes of their own in DocBook mode, or flattens them into their
+     * paragraph's mixed content (IKE-Network/ike-issues#1313).
+     *
+     * @param shown whether a sentence is a node
+     */
+    void setSentences(boolean shown) {
+        if (shown == sentences) {
+            return;
+        }
+        sentences = shown;
+        if (assembly != null && mode == Mode.DOCBOOK) {
+            show(assembly);
+        }
     }
 
     /** Switches between the document as it stands and its history; the tree is rebuilt and the selection shown again. */
@@ -282,7 +311,7 @@ final class DocumentGraphView {
             root = switch (mode) {
                 case LATEST -> DocumentGraph.of(assembly);
                 case HISTORY -> DocumentGraph.of(assembly, host::history);
-                case DOCBOOK -> DocumentGraph.docbook(assembly);
+                case DOCBOOK -> DocumentGraph.docbook(assembly, sentences);
             };
             tree.setRoot(item(root, "", null));
         } finally {
@@ -538,6 +567,16 @@ final class DocumentGraphView {
     }
 
     /** The selected node a block edit can start from: a line of a block, or a block, with lines. */
+    /** The selected node when it is a stored sentence of DocBook mode. */
+    Optional<DocumentGraph.Node> selectedSentence() {
+        TreeItem<Row> item = tree.getSelectionModel().getSelectedItem();
+        if (item == null || !(item.getValue() instanceof NodeRow row)) {
+            return Optional.empty();
+        }
+        DocumentGraph.Node node = row.node();
+        return node.nid() != 0 && node.markup() != null && "Sentence".equals(node.markup().element()) ? Optional.of(node) : Optional.empty();
+    }
+
     private Optional<DocumentGraph.Node> editableSelection() {
         TreeItem<Row> item = tree.getSelectionModel().getSelectedItem();
         if (item == null) {
@@ -574,6 +613,8 @@ final class DocumentGraphView {
         comment.setOnAction(e -> host.annotate(AnnotationKind.COMMENT));
         editItem.setId("stampedDocumentGraphEditBlock");
         editItem.setOnAction(e -> host.editSelectedBlock());
+        editSentenceItem.setId("stampedDocumentGraphEditSentence");
+        editSentenceItem.setOnAction(e -> selectedSentence().ifPresent(n -> host.editSentence(n.nid(), n.markup().text())));
         MenuItem history = new MenuItem("Show history");
         history.setId("stampedDocumentGraphShowHistory");
         history.setOnAction(e -> host.showHistory());
@@ -584,7 +625,7 @@ final class DocumentGraphView {
             Clipboard.getSystemClipboard().setContent(content);
             host.status("Copied " + facts.publicId().idString());
         }));
-        menu.getItems().addAll(affirm, refute, comment, new SeparatorMenuItem(), editItem, history, new SeparatorMenuItem(), copyId);
+        menu.getItems().addAll(affirm, refute, comment, new SeparatorMenuItem(), editItem, editSentenceItem, history, new SeparatorMenuItem(), copyId);
     }
 
     // ── provenance on hover ───────────────────────────────────────────────────
@@ -926,6 +967,13 @@ final class DocumentGraphView {
                 Label mark = new Label(DocumentSurfaceView.mark(node.line()));
                 mark.setFont(SMALL);
                 mark.setStyle(DocumentSurfaceView.markStyle(node.line()));
+                box.getChildren().add(mark);
+            } else if (host.layer(Layer.ANNOTATION_MARKS) && !node.annotations().isEmpty()) {
+                // a stored sentence's own judgments (IKE-Network/ike-issues#1313), marked as a line's are
+                GitDocumentMaterializer.StoredLine judged = new GitDocumentMaterializer.StoredLine(node.nid(), "", null, null, node.annotations());
+                Label mark = new Label(DocumentSurfaceView.mark(judged));
+                mark.setFont(SMALL);
+                mark.setStyle(DocumentSurfaceView.markStyle(judged));
                 box.getChildren().add(mark);
             }
             return box.getChildren().isEmpty() ? null : box;

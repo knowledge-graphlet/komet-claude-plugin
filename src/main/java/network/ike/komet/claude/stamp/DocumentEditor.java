@@ -35,7 +35,12 @@ import dev.ikm.tinkar.entity.transaction.Transaction;
 import dev.ikm.tinkar.terms.State;
 import network.ike.foundation.ike.bindings.IkeConcept;
 import network.ike.foundation.ike.bindings.IkePattern;
+import design.knowledge.stamp.adoc.dialect.Block;
+import design.knowledge.stamp.adoc.dialect.Document;
 import design.knowledge.stamp.adoc.dialect.IkeDialectParser;
+import design.knowledge.stamp.adoc.dialect.Recomposer;
+import design.knowledge.stamp.adoc.dialect.Segmenter;
+import design.knowledge.stamp.adoc.dialect.TextPairing;
 import dev.ikm.tinkar.entity.graph.EntityVertex;
 import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityProxy;
@@ -105,6 +110,76 @@ public final class DocumentEditor {
      */
     public static synchronized Edit editBlock(PublicId anchor, long block, String text, EditCoordinate edit) {
         return editBlock(anchor, block, text, edit.getAuthorNidForChanges(), edit.getDefaultPathNid());
+    }
+
+    /**
+     * Replaces the text of one sentence of a document stored as vertices (IKE-Network/ike-issues#1313;
+     * decision 6 of {@code design-2026-10-21-stored-text-segments}). The block's lines are
+     * recomposed by {@link Recomposer}: the sentence goes on a line of its own, a fragment whose
+     * text survives keeps its line, only changed text is broken anew; then the block is edited as
+     * text, so the lines' versions are written as any block edit writes them, and the sentence, paired
+     * with its new text, gets a new version under its own identity. Sentences never author a byte:
+     * what a commit carries is the lines.
+     *
+     * @param anchor   the document anchor's id
+     * @param sentence the nid of the sentence's vertex
+     * @param text     the sentence's new text
+     * @param edit     the edit coordinate whose author and path the edit is written under
+     * @return what the edit did to the block's lines
+     * @throws IllegalArgumentException when the sentence is not one of the document's, the new text is
+     *                                  empty, or the recomposed lines would change the document's structure
+     */
+    public static synchronized Edit editSentence(PublicId anchor, long sentence, String text, EditCoordinate edit) {
+        GitDocumentMaterializer.StoredDocument document = GitDocumentMaterializer.load(anchor, true)
+                .orElseThrow(() -> new IllegalArgumentException("The store holds no document " + anchor.idString()));
+        if (text == null || text.isBlank()) {
+            throw new IllegalArgumentException("A sentence keeps some text; removing a sentence is an edit of its block");
+        }
+        long block = 0;
+        int index = -1;
+        for (Map.Entry<Long, List<GitDocumentMaterializer.StoredSentence>> e : document.sentences().entrySet()) {
+            for (int i = 0; i < e.getValue().size(); i++) {
+                if (e.getValue().get(i).nid() == sentence) {
+                    block = e.getKey();
+                    index = i;
+                }
+            }
+        }
+        if (index < 0) {
+            throw new IllegalArgumentException("Sentence " + sentence + " is not a sentence of " + anchor.idString());
+        }
+        GitDocumentMaterializer.StoredBlock stored = document.blocks().get(block);
+        List<Long> manifest = document.lines().stream().map(GitDocumentMaterializer.StoredLine::nid).toList();
+        int start = manifest.indexOf(stored.members().getFirst());
+        int end = manifest.indexOf(stored.members().getLast());
+        List<String> file = document.lines().stream().map(GitDocumentMaterializer.StoredLine::text).toList();
+        Document parsed = IkeDialectParser.parse(file);
+        // the sentence as the text has it: the block's sentences in order, matched to the stored ones by text
+        List<Segmenter.Sentence> found = Segmenter.of(parsed).sentences().stream()
+                .filter(s -> s.note() < 0 && s.lines().getFirst() >= start + 1 && s.lines().getLast() <= end + 1).toList();
+        String wanted = document.sentences().get(block).get(index).text();
+        Segmenter.Sentence target = null;
+        int seen = 0;
+        for (Segmenter.Sentence candidate : found) {
+            if (candidate.text().equals(wanted)) {
+                long before = document.sentences().get(block).subList(0, index).stream().filter(x -> x.text().equals(wanted)).count();
+                if (seen++ == before) {
+                    target = candidate;
+                    break;
+                }
+            }
+        }
+        if (target == null) {
+            throw new IllegalArgumentException("The stored sentence no longer matches the document's text; rebuild it from git");
+        }
+        List<String> recomposed = Recomposer.replace(file, target.flow(), target.start(), target.end(), text);
+        List<Block.Kind> structure = parsed.blocks().stream().map(Block::kind).toList();
+        if (!IkeDialectParser.parse(recomposed).blocks().stream().map(Block::kind).toList().equals(structure)) {
+            throw new IllegalArgumentException("The new text would change the document's structure");
+        }
+        int grown = recomposed.size() - file.size();
+        String blockText = String.join("\n", recomposed.subList(start, end + 1 + grown));
+        return editBlock(anchor, block, blockText, edit.getAuthorNidForChanges(), edit.getDefaultPathNid());
     }
 
     /** The edit under an author and path given directly: the edit coordinate's, or, on a rebase, the edit's own. */
@@ -238,10 +313,112 @@ public final class DocumentEditor {
         Map<ConceptFacade, Object> properties = new java.util.LinkedHashMap<>();
         blockVertex.properties().forEachKeyValue((key, value) -> properties.put(EntityProxy.Concept.make(key), value));
         properties.put(IkeConcept.DOCUMENT_ELEMENT_MEMBERS, LongIds.list.of(newNids.stream().mapToLong(Long::longValue).toArray()));
+        if (VertexMaterializer.segmentsAvailable()) {
+            long[] content = editSentences(transaction, stamp, document.sentences().getOrDefault(block, List.of()), edited, start,
+                    newLines.size(), pattern, anchorNid);
+            if (content.length > 0 || properties.containsKey(IkeConcept.BLOCK_CONTENT)) {
+                properties.put(IkeConcept.BLOCK_CONTENT, LongIds.list.of(content));
+            }
+        }
         PublicId blockId = EntityHandle.get(block).expectEntity().publicId();
         writeVersion(transaction, block, stamp, Lists.immutable.of(VertexMaterializer.value(blockId.asUuidArray()[0],
                 EntityProxy.Concept.make(blockVertex.getMeaningNid()), properties)));
         return new Edit(block, changed, added, removed);
+    }
+
+    /**
+     * The edited block's sentences, paired with those it had by {@link TextPairing}, as a commit of
+     * the file will pair them: a sentence whose text changed gets a pending version under its own
+     * identity, a new one a provisional vertex until a commit names it, and one the edit removed
+     * just leaves the block's Content. A sentence's inline elements are kept where their kind and
+     * text are unchanged, in order; others are written new, provisional like the sentence.
+     *
+     * @return the block's Content: its sentences' nids in order
+     */
+    private static long[] editSentences(Transaction transaction, StampEntity<?> stamp, List<GitDocumentMaterializer.StoredSentence> before,
+                                        List<String> edited, int start, int count, PublicId pattern, long anchorNid) {
+        Segmenter.Segmentation found = Segmenter.of(IkeDialectParser.parse(edited));
+        List<Integer> mine = new ArrayList<>();
+        for (int i = 0; i < found.sentences().size(); i++) {
+            Segmenter.Sentence sentence = found.sentences().get(i);
+            if (sentence.note() < 0 && sentence.lines().getFirst() >= start + 1 && sentence.lines().getLast() <= start + count) {
+                mine.add(i);
+            }
+        }
+        List<String> texts = mine.stream().map(i -> found.sentences().get(i).text()).toList();
+        int[] map = TextPairing.pair(before.stream().map(GitDocumentMaterializer.StoredSentence::text).toList(), texts);
+        long[] content = new long[texts.size()];
+        for (int j = 0; j < texts.size(); j++) {
+            Segmenter.Sentence sentence = found.sentences().get(mine.get(j));
+            GitDocumentMaterializer.StoredSentence old = map[j] >= 0 ? before.get(map[j]) : null;
+            if (old != null && old.text().equals(sentence.text())) {
+                content[j] = old.nid();                          // unchanged, however its lines moved
+                continue;
+            }
+            long[] members = inlineMembers(transaction, stamp, found, sentence, old == null ? List.of() : old.inlines(), pattern, anchorNid);
+            Map<ConceptFacade, Object> properties = new java.util.LinkedHashMap<>();
+            properties.put(IkeConcept.SEGMENT_TEXT, sentence.text());
+            if (members.length > 0) {
+                properties.put(IkeConcept.DOCUMENT_ELEMENT_MEMBERS, LongIds.list.of(members));
+            }
+            if (old != null) {
+                PublicId id = EntityHandle.get(old.nid()).expectEntity().publicId();
+                writeVersion(transaction, old.nid(), stamp, Lists.immutable.of(VertexMaterializer.value(id.asUuidArray()[0], IkeConcept.SENTENCE, properties)));
+                content[j] = old.nid();
+            } else {
+                PublicId id = PublicIds.newRandom();
+                content[j] = writeNew(transaction, id, pattern, anchorNid, stamp,
+                        Lists.immutable.of(VertexMaterializer.value(id.asUuidArray()[0], IkeConcept.SENTENCE, properties)));
+            }
+        }
+        return content;
+    }
+
+    /** A revised or new sentence's top-level inline elements: an old one kept where kind and text match in order, else a new vertex. */
+    private static long[] inlineMembers(Transaction transaction, StampEntity<?> stamp, Segmenter.Segmentation found, Segmenter.Sentence sentence,
+                                        List<GitDocumentMaterializer.StoredInline> before, PublicId pattern, long anchorNid) {
+        List<Long> members = new ArrayList<>();
+        int next = 0;
+        for (int index : sentence.inlines()) {
+            Segmenter.Inline inline = found.inlines().get(index);
+            if (inline.parent() >= 0) {
+                continue;                                        // nested: written with its parent
+            }
+            long meaning = VertexMaterializer.inlineMeaning(inline.element()).nid();
+            int match = -1;
+            for (int k = next; k < before.size(); k++) {
+                if (before.get(k).meaningNid() == meaning && before.get(k).text().equals(inline.text())) {
+                    match = k;
+                    break;
+                }
+            }
+            if (match >= 0) {
+                members.add(before.get(match).nid());
+                next = match + 1;
+                continue;
+            }
+            members.add(writeInline(transaction, stamp, found, index, pattern, anchorNid));
+        }
+        return members.stream().mapToLong(Long::longValue).toArray();
+    }
+
+    /** A new inline element vertex, provisional until a commit names it, with its nested elements. */
+    private static long writeInline(Transaction transaction, StampEntity<?> stamp, Segmenter.Segmentation found, int index, PublicId pattern,
+                                    long anchorNid) {
+        Segmenter.Inline inline = found.inlines().get(index);
+        List<Long> nested = new ArrayList<>();
+        for (int i = index + 1; i < found.inlines().size(); i++) {
+            if (found.inlines().get(i).parent() == index) {
+                nested.add(writeInline(transaction, stamp, found, i, pattern, anchorNid));
+            }
+        }
+        Map<ConceptFacade, Object> properties = VertexMaterializer.inlineProperties(inline);
+        if (!nested.isEmpty()) {
+            properties.put(IkeConcept.DOCUMENT_ELEMENT_MEMBERS, LongIds.list.of(nested.stream().mapToLong(Long::longValue).toArray()));
+        }
+        PublicId id = PublicIds.newRandom();
+        return writeNew(transaction, id, pattern, anchorNid, stamp,
+                Lists.immutable.of(VertexMaterializer.value(id.asUuidArray()[0], VertexMaterializer.inlineMeaning(inline.element()), properties)));
     }
 
     private static EntityVertex vertexOf(SemanticEntityVersion version) {

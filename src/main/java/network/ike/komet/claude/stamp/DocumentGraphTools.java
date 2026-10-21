@@ -71,7 +71,8 @@ public final class DocumentGraphTools {
      * @return the four tools
      */
     public static List<AnthropicTool> tools(StampTools.CardLocator card, Supplier<ViewCalculator> view) {
-        return List.of(readDocument(card, view), readBlock(card, view), findInDocument(card, view), proposeBlockEdit(card, view));
+        return List.of(readDocument(card, view), readBlock(card, view), findInDocument(card, view), proposeBlockEdit(card, view),
+                proposeSentenceEdit(card, view));
     }
 
     // ── the document addressed ────────────────────────────────────────────────
@@ -370,6 +371,61 @@ public final class DocumentGraphTools {
                             + ". It is pending under " + StampNames.name(v, edit.getAuthorNidForChanges())
                             + (opened.card() != null ? "; the card shows it with the edited badge" : "; open the document in a Stamped Document card to see it")
                             + ". Nothing is in git until the person commits it (Commit…); Discard edit withdraws it.";
+                });
+    }
+
+    // ── propose_sentence_edit ─────────────────────────────────────────────────
+
+    static AnthropicTool proposeSentenceEdit(StampTools.CardLocator card, Supplier<ViewCalculator> view) {
+        return new Tool("propose_sentence_edit",
+                "Propose new text for one sentence of a STAMPed document stored as semantic vertices (IKE-Network/ike-issues#1313): "
+                        + "only the lines the sentence changes are rewritten — the sentence goes on a line of its own, a part of it "
+                        + "on one line whose words survive keeps that line, and changed text breaks after a clause or comma — and "
+                        + "the sentence keeps its identity, with a new uncommitted version under the Komet assistant's name. Nothing "
+                        + "reaches git until the person commits; say so. Name the sentence by its exact current text, whitespace "
+                        + "collapsed, as read_block shows it. Refused when the new text would change the document's structure, or "
+                        + "when another author's edit of the document is pending.",
+                obj("type", "object", "properties", obj(
+                        "sentence", strProp("The sentence's current text, exactly, whitespace collapsed to single spaces."),
+                        "text", strProp("The sentence's new text."),
+                        "document", strProp("The document's name or recorded path. Omit for the card's document.")),
+                        "required", List.of("sentence", "text")),
+                input -> {
+                    String current = str(input, "sentence");
+                    String text = str(input, "text");
+                    if (current == null || current.isBlank() || text == null || text.isBlank()) {
+                        throw new IllegalArgumentException("sentence and text are both required");
+                    }
+                    StampedDocumentCard c = card.get();
+                    Opened opened = open(c, str(input, "document"));
+                    ViewCalculator v = viewOf(view, c);
+                    String wanted = design.knowledge.stamp.adoc.dialect.Segmenter.normalize(current);
+                    List<GitDocumentMaterializer.StoredSentence> matches = opened.document().sentences().values().stream()
+                            .flatMap(List::stream).filter(s -> s.text().equals(wanted)).toList();
+                    if (matches.isEmpty()) {
+                        throw new IllegalArgumentException(opened.document().sentences().isEmpty()
+                                ? opened.name() + " has no stored sentences; rebuild it from git, or propose a block edit"
+                                : "no sentence of " + opened.name() + " reads \"" + wanted + "\"");
+                    }
+                    if (matches.size() > 1) {
+                        throw new IllegalArgumentException(matches.size() + " sentences of " + opened.name() + " read so; propose a block edit");
+                    }
+                    EditCoordinateRecord edit = assistantCoordinate(c);
+                    OptionalLong pending = DocumentEditor.pendingAuthor(opened.anchor());
+                    if (pending.isPresent() && pending.getAsLong() != edit.getAuthorNidForChanges()) {
+                        return "Not proposed: an edit of " + opened.name() + " by " + StampNames.name(v, pending.getAsLong())
+                                + " is pending in the card; it is committed in git or discarded first.";
+                    }
+                    KometActionResult result = KometActions.expect(KometConcept.EDIT_DOCUMENT_SENTENCE)
+                            .perform(EditDocumentSentence.input(matches.getFirst().nid(), text), v, edit);
+                    if (!result.completed()) {
+                        return "Not proposed: " + result.message();
+                    }
+                    if (c != null && opened.card() != null) {
+                        reopen(c, opened.anchor());
+                    }
+                    return "Proposed for " + opened.name() + ": " + result.message() + ". It is pending under "
+                            + StampNames.name(v, edit.getAuthorNidForChanges()) + "; nothing is in git until the person commits it.";
                 });
     }
 

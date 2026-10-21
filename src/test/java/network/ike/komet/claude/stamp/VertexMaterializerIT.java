@@ -185,6 +185,93 @@ class VertexMaterializerIT {
                 dev.ikm.tinkar.terms.KernelPattern.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN.nid()).count(), "once");
     }
 
+    /**
+     * Sentences below the line (design-2026-10-21-stored-text-segments): alice wraps a paragraph,
+     * bob reflows it to a sentence per line, carol revises one sentence. The reflow writes new line
+     * versions and no sentence version; the revision is a second version of the same sentence; the
+     * paragraph's Content lists its sentences and a sentence's Members its inline elements.
+     */
+    @Test
+    void sentencesHaveIdentitiesALineReflowDoesNotDisturb() throws Exception {
+        Path dir = Files.createDirectories(root.resolve("sentences"));
+        git(dir, "init", "-q", "-b", "main");
+        Path file = dir.resolve("topic.adoc");
+        String v1 = """
+                = Sentences
+
+                The lease is a loan of a working set. A machine *takes* it, renews
+                it while working, and returns it when done.
+                """;
+        commit(dir, file, v1, "alice", "2026-03-01T00:00:00Z", "wrapped");
+        String v2 = """
+                = Sentences
+
+                The lease is a loan of a working set.
+                A machine *takes* it, renews it while working, and returns it when done.
+                """;
+        commit(dir, file, v2, "bob", "2026-03-02T00:00:00Z", "reflow");
+        commit(dir, file, v2.replace("and returns it when done.", "and returns it when the work is done."), "carol",
+                "2026-03-03T00:00:00Z", "revise");
+
+        GitDocumentMaterializer.Result result = GitDocumentMaterializer.materialize(dir, file);
+        assertEquals(3, result.commits());
+        EntityVertex rootVertex = latest(result.anchor().asUuidArray()[0]);
+        long paragraph = parentOf(rootVertex, findLine(rootVertex, "The lease is a loan of a working set."));
+        Object content = property(latest(paragraph), IkeConcept.BLOCK_CONTENT);
+        assertTrue(content instanceof LongIdList, "the paragraph lists its sentences as Content");
+        long[] sentences = ((LongIdList) content).toArray();
+        assertEquals(2, sentences.length);
+
+        EntityVertex first = latest(sentences[0]);
+        assertEquals(IkeConcept.SENTENCE.nid(), first.getMeaningNid());
+        assertEquals("The lease is a loan of a working set.", property(first, IkeConcept.SEGMENT_TEXT));
+        assertEquals(1, activeVersions(sentences[0]), "the reflow wrote no version of an unchanged sentence");
+
+        EntityVertex second = latest(sentences[1]);
+        assertEquals("A machine *takes* it, renews it while working, and returns it when the work is done.",
+                property(second, IkeConcept.SEGMENT_TEXT));
+        assertEquals(2, activeVersions(sentences[1]), "the revision is a new version of the same sentence");
+        long[] inline = members(second);
+        assertEquals(1, inline.length);
+        EntityVertex strong = latest(inline[0]);
+        assertEquals(IkeConcept.STRONG.nid(), strong.getMeaningNid());
+        assertEquals("*takes*", property(strong, IkeConcept.SEGMENT_TEXT));
+        assertEquals(1, activeVersions(inline[0]), "an element whose text did not change keeps its one version");
+    }
+
+    /**
+     * A judgment on one sentence (design-2026-10-21-stored-text-segments, decision 9): the card names
+     * the sentence's characters in a column-qualified trailer; the store lands it on the sentence and
+     * on the line it holds whole, not on the line it shares with the sentence before.
+     */
+    @Test
+    void aSentenceJudgmentLandsOnTheSentence() throws Exception {
+        Path dir = Files.createDirectories(root.resolve("judged"));
+        git(dir, "init", "-q", "-b", "main");
+        Path file = dir.resolve("topic.adoc");
+        commit(dir, file, "= Judged\n\nThe lease is a loan. A machine takes it,\nrenews it while working.\n", "alice", "2026-05-01T00:00:00Z", "topic");
+        GitDocumentMaterializer.materialize(dir, file);
+        List<String> committed = Files.readAllLines(file);
+        StampedDocumentCard.Proposal proposal = StampedDocumentCard.prepareSentence(design.knowledge.stamp.adoc.model.AnnotationKind.AFFIRMATION,
+                "A machine takes it, renews it while working.", List.of(new int[] {3, 4}), dir, Path.of("topic.adoc"), committed);
+        String trailer = proposal.annotations().getFirst().trailer();
+        assertTrue(trailer.contains("topic.adoc:3.22-4.24@"), trailer);
+        git(dir, "-c", "user.name=bob", "-c", "user.email=bob@example.test", "commit", "-q", "--allow-empty", "--no-gpg-sign",
+                "--date=2026-05-02T00:00:00Z", "-m", "Affirm a sentence\n\n" + trailer);
+        GitDocumentMaterializer.Result result = GitDocumentMaterializer.materialize(dir, file);
+
+        GitDocumentMaterializer.StoredDocument document = GitDocumentMaterializer.load(result.anchor()).orElseThrow();
+        List<GitDocumentMaterializer.StoredSentence> sentences = document.sentences().values().stream().flatMap(List::stream)
+                .filter(x -> x.text().startsWith("The lease") || x.text().startsWith("A machine")).toList();
+        assertEquals(0, sentences.get(0).annotations().size(), "the sentence before is not judged");
+        assertEquals(1, sentences.get(1).annotations().size(), "the judged sentence carries the affirmation");
+        assertEquals(design.knowledge.stamp.adoc.model.AnnotationKind.AFFIRMATION, sentences.get(1).annotations().getFirst().kind());
+        GitDocumentMaterializer.StoredLine shared = document.lines().stream().filter(l -> l.text().startsWith("The lease")).findFirst().orElseThrow();
+        GitDocumentMaterializer.StoredLine whole = document.lines().stream().filter(l -> l.text().startsWith("renews")).findFirst().orElseThrow();
+        assertTrue(shared.annotations().isEmpty(), "the shared line keeps its own judgments");
+        assertEquals(1, whole.annotations().size(), "the line the sentence holds whole is judged too");
+    }
+
     // ── helpers ───────────────────────────────────────────────────────────────
 
     private void commit(Path dir, Path file, String text, String author, String date, String message) throws Exception {
