@@ -163,6 +163,16 @@
             <groupId>dev.ikm.komet</groupId>
             <artifactId>framework</artifactId>
         </dependency>
+        <!-- Toolbar glyphs (FontIcon) and the Material Design 2 pack they name; both already in
+             the Komet runtime, versions managed by komet-bom. -->
+        <dependency>
+            <groupId>org.kordamp.ikonli</groupId>
+            <artifactId>ikonli-javafx</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.kordamp.ikonli</groupId>
+            <artifactId>ikonli-materialdesign2-pack</artifactId>
+        </dependency>
 
         <!-- Komet kview: the KL axiom control (KLReadOnlyDiTreeControl) a proposed
              koncept-definition renders in (ike-issues#1292). Already in the Komet runtime;

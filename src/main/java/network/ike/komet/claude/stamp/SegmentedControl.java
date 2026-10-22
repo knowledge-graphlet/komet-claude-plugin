@@ -18,6 +18,7 @@ package network.ike.komet.claude.stamp;
 import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.ReadOnlyObjectWrapper;
 import javafx.scene.AccessibleRole;
+import javafx.scene.control.ContentDisplay;
 import javafx.scene.control.Toggle;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
@@ -55,6 +56,22 @@ final class SegmentedControl<T> extends HBox {
      * @param id       the id of a value's segment
      */
     SegmentedControl(List<T> options, Function<T, String> label, Function<T, String> tooltip, Function<T, String> id) {
+        this(options, label, tooltip, id, null);
+    }
+
+    /**
+     * A segmented control whose segments show an icon in place of their label, which the
+     * tooltip then leads with: a narrow card truncated the labels past reading. The label stays
+     * the segment's text, for assistive technology and for lookups by text.
+     *
+     * @param options  the values in order
+     * @param label    the name of a value's segment
+     * @param tooltip  the description of a value's segment, or {@code null} for none
+     * @param id       the id of a value's segment
+     * @param icon     the Ikonli icon code of a value's segment, or {@code null} to show labels
+     */
+    SegmentedControl(List<T> options, Function<T, String> label, Function<T, String> tooltip, Function<T, String> id,
+                     Function<T, String> icon) {
         setSpacing(0);
         getStyleClass().add("segmented");
         setAccessibleRole(AccessibleRole.RADIO_BUTTON);          // the group's role: a set of radio items (see each segment)
@@ -67,8 +84,14 @@ final class SegmentedControl<T> extends HBox {
             segment.getStyleClass().addAll("segment", i == 0 ? "first" : i == options.size() - 1 ? "last" : "middle");
             segment.setAccessibleRole(AccessibleRole.RADIO_BUTTON);
             segment.setAccessibleRoleDescription("radio item");
-            if (tooltip != null && tooltip.apply(option) != null) {
-                segment.setTooltip(new Tooltip(tooltip.apply(option)));
+            String description = tooltip == null ? null : tooltip.apply(option);
+            if (icon != null) {
+                segment.setGraphic(Icons.of(icon.apply(option)));
+                segment.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
+                segment.setAccessibleText(label.apply(option));
+                segment.setTooltip(new Tooltip(description == null ? label.apply(option) : label.apply(option) + " — " + description));
+            } else if (description != null) {
+                segment.setTooltip(new Tooltip(description));
             }
             segment.setOnKeyPressed(e -> {
                 if (e.getCode() == KeyCode.LEFT || e.getCode() == KeyCode.RIGHT) {

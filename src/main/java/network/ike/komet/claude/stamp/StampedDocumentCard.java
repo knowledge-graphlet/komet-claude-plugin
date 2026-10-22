@@ -201,6 +201,12 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
                 case READING -> "stampedDocumentReadingView";
                 case PAGE_LAYOUT -> "stampedDocumentPageLayoutView";
                 case GRAPH -> "stampedDocumentGraphView";
+            },
+            v -> switch (v) {
+                case SOURCE -> "mdi2c-code-tags";
+                case READING -> "mdi2b-book-open-outline";
+                case PAGE_LAYOUT -> "mdi2f-file-document-outline";
+                case GRAPH -> "mdi2f-file-tree-outline";
             });
     private PageStackView pageStack;
     /** The Graph view: a tree over the shown assembly, in the surface's place while it is chosen. */
@@ -222,6 +228,11 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
                 case LATEST -> "stampedDocumentGraphLatest";
                 case HISTORY -> "stampedDocumentGraphHistory";
                 case DOCBOOK -> "stampedDocumentGraphDocBook";
+            },
+            m -> switch (m) {
+                case LATEST -> "mdi2c-clock-check-outline";
+                case HISTORY -> "mdi2h-history";
+                case DOCBOOK -> "mdi2f-format-section";
             });
     /** Each member's history, read once per open while the History mode asks for it. */
     private final Map<String, DocumentHistory> histories = new HashMap<>();
@@ -238,7 +249,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     private final Label settling = new Label("settling…");
     private final Label pageIndicator = new Label();
     private final MenuButton layerMenu = new MenuButton("Layer");
-    private final MenuButton overflow = new MenuButton("⋯");
+    private final MenuButton overflow = new MenuButton("More");
     private final Label editedBadge = new Label("edited");
     private final Button commit = new Button("Commit…");
     private final Button discard = new Button("Discard edit");
@@ -449,7 +460,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
             }
         });
         layerMenu.setId("stampedDocumentLayerMenu");
-        layerMenu.setTooltip(new Tooltip("What the Provenance layer draws over the document"));
+        Icons.iconOnly(layerMenu, "mdi2l-layers-outline", "What the Provenance layer draws over the document");
         layerMenu.getStyleClass().add("claude-card-toolbar-button");
         for (DocumentSurfaceView.Layer layer : DocumentSurfaceView.Layer.values()) {
             CheckMenuItem item = new CheckMenuItem(switch (layer) {
@@ -484,7 +495,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         });
         layerMenu.getItems().addAll(new SeparatorMenuItem(), sentencesItem);
         overflow.setId("stampedDocumentOverflow");
-        overflow.setTooltip(new Tooltip("Verbs that act on the whole document"));
+        Icons.iconOnly(overflow, "mdi2d-dots-horizontal", "Verbs that act on the whole document");
         overflow.getStyleClass().add("claude-card-toolbar-button");
         overflow.getItems().addAll(
                 item("Open file…", "stampedDocumentOpenFile", "Choose a committed .adoc file in a git repository; it is materialized if the store lacks it", this::chooseFile),

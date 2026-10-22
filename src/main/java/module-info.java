@@ -64,6 +64,8 @@ module komet.claude {
     // JavaFX UI: controls/layout (transitively graphics+base for Platform, Color)
     // and the incubator RichTextArea chat transcript.
     requires javafx.controls;
+    // Toolbar glyphs; Ikonli and its packs are in the Komet runtime already (komet framework requires them).
+    requires org.kordamp.ikonli.javafx;
     requires jfx.incubator.richtext;
 
     // Shared Markdown → RichTextArea renderer (#585): MarkdownRichTextRenderer +
