@@ -811,7 +811,10 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         if (surface.view() == DocumentSurfaceView.View.PAGE_LAYOUT) {
             buildPages();                                              // the pages follow the document
         } else if (surface.view() == DocumentSurfaceView.View.GRAPH) {
-            graph.show(assembly);                                      // as does the graph
+            // As does the graph, with its modes and the centre: a load that ends after the person
+            // chose Graph found no document then, so showCenter left the surface in place; a store
+            // slower to read, as Rocks is, made that the usual case (IKE-Network/ike-issues#1313).
+            showCenter(DocumentSurfaceView.View.GRAPH);
         }
         showPending(pendingEdit, loaded.restorable());
         int affirmed = (int) assembly.lines().stream().filter(l -> !l.affirmers().isEmpty()).count();
