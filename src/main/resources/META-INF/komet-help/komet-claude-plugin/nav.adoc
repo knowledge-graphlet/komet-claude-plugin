@@ -1,0 +1,4 @@
+* xref:stamped-document.adoc[]
+** xref:opening-a-document.adoc[]
+** xref:kinds-of-data.adoc[]
+** xref:stores.adoc[]

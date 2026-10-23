@@ -1,0 +1,26 @@
+= Persistent and memory-only stores
+
+When Komet starts, it asks which store to open.
+The choice decides whether what you write is still there the next time Komet starts.
+
+== Persistent stores
+
+A persistent store is a folder under `~/Solor` that Komet writes to and opens again.
+Documents you open, edits, annotations and journals are all there after a restart.
+
+Open 64-bit SpinedArrayStore:: Opens an existing store held in memory while Komet runs and saved to its folder.
+New 64-bit SpinedArrayStore:: Makes a new store of that kind from a knowledge base export, such as one fetched from Maven.
+Open Rocks KB and New Rocks KB:: The same for a store kept in RocksDB, which reads from disk as it goes and suits knowledge bases too large for memory.
+
+The SpinedArrayStore choices without "64-bit" are the older form, offered so an existing store can be opened and moved to the new one.
+
+== The memory-only store
+
+Load Memory-Only 64-bit Store:: Loads a knowledge base export into memory and writes nothing to disk.
+
+It is the right choice for trying something without leaving a trace: a demonstration, a training session, or a look at a document you do not mean to keep.
+Everything written while it is open, of every kind, is gone when Komet quits.
+
+A document opened from git into a memory-only store is still ephemeral data, so nothing is lost when Komet quits: open the file again next time and the document is rebuilt from the repository.
+Instance data, such as a conversation journal, has no other record, so in a memory-only store it is lost.
+See xref:kinds-of-data.adoc[Kinds of data].

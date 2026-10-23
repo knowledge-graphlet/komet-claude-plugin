@@ -1,0 +1,42 @@
+= Kinds of data: knowledge, instance and ephemeral
+
+A store holds three kinds of data side by side.
+The kind decides who shares the data, whether it can be deleted, and where its lasting record is.
+You do not choose the kind each time you write: it is fixed by the module of the STAMP the data is first written under.
+
+== Knowledge
+
+Knowledge is the terminology: concepts, their descriptions, definitions and patterns.
+It is shared with everyone who uses the knowledge base, kept forever, and only ever added to; a change is a new version, never an erasure.
+Knowledge is written under every module that is not a kind of _Instance module_ or _Ephemeral module_.
+
+== Instance
+
+Instance data is about particular things, and the store is its only record.
+A conversation journal is instance data, and so is a document whose only copy is in the store.
+It is kept apart from knowledge: it is not shared through the knowledge change sets, and it can be deleted as a whole.
+Because nothing else holds a copy, deleting it loses it.
+
+== Ephemeral
+
+Ephemeral data is a copy of a record kept somewhere else.
+A document opened from git is ephemeral: the repository holds its lines, who wrote them, and the annotations signed into its commits.
+The knowledge base holds a copy so that Komet can show, search and connect it, and the copy can be dropped at any time and rebuilt from the repository with *More › Rebuild from Git*.
+Every document the STAMPed Document card opens from git is ephemeral data.
+
+== How the kinds stay apart
+
+Knowledge never refers to instance or ephemeral data.
+A commit that would make knowledge depend on a document or a journal is refused, so the terminology stays sharable and a document can be dropped without breaking it.
+Instance and ephemeral data may refer to knowledge, which is how a document names the concepts it is about.
+
+Each document, with its lines and the annotations on them, is a _scope_: it is exported, deleted or rebuilt as one unit.
+Each kind is also written to its own change-set folder, so documents and journals never travel with the knowledge change sets.
+
+== Ephemeral is not the same as memory-only
+
+The kind of data says where its lasting record is.
+The store you open says whether the store itself is kept.
+An ephemeral document in a persistent store survives a restart, and can still be rebuilt from git.
+Any data in a memory-only store, of any kind, is gone when Komet quits.
+See xref:stores.adoc[Persistent and memory-only stores].

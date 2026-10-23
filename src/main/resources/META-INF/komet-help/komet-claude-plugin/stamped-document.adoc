@@ -1,0 +1,42 @@
+= The STAMPed Document card
+
+The STAMPed Document card shows an AsciiDoc document that is kept in git, as the knowledge base holds it.
+Every line carries the STAMP of the commit that wrote it: who wrote it, when, and on which path.
+You can read the document, see where each line came from, review lines, and edit it.
+
+To show your first document, see xref:opening-a-document.adoc[Opening an AsciiDoc document].
+
+== The toolbar
+
+From left to right:
+
+Document chooser:: The documents the knowledge base holds. Choose one to show it. It says _No documents_ until a document has been opened.
+Views:: How the document is shown. _Source_ shows it as lines, each with its number, the STAMP that introduced it and any annotation mark. _Reading_ shows it as a document. _Page layout_ shows it on pages, as Print to PDF makes them. _Graph_ shows it as the knowledge base holds it: its sections and blocks, their lines and the references in them, each with its STAMP.
+Modes:: Shown with the Graph view only. _Latest_ shows the document as it stands. _History_ adds each line's earlier versions and the lines later commits retired. _DocBook_ shows it as DocBook elements.
+Layer:: What is drawn over the text: marginalia, commit tints, the review queue and annotation marks.
+More:: The verbs that act on the whole document, described below.
+
+When the card is wide, each control shows its name beside its icon. When it is narrow, only the icon shows; hover over it to see its name.
+
+== The More menu
+
+Open file…:: Chooses a committed `.adoc` file and shows it, materializing it first if the knowledge base lacks it.
+Refresh:: Reads the list of documents and the shown document again.
+Export…:: Writes the document from the knowledge base back into a working tree at its recorded path, and compares it with HEAD.
+Print to PDF…:: Typesets the document, with the documents it includes, through your installed Typst.
+Materialize:: Writes the commits of the shown file that the knowledge base lacks.
+Materialize All:: Does the same for the file and every file it includes.
+Rebuild from Git:: Drops the document from the knowledge base and materializes it again. Only ephemeral documents can be rebuilt; see xref:kinds-of-data.adoc[Kinds of data].
+Remove Superseded Documents:: Deletes older copies of documents that were materialized again in the current form.
+Show history:: Lists the STAMPs of the selected lines, or of the whole document, in order.
+Go to page…:: Scrolls the Page layout to a page.
+
+== Reviewing and editing
+
+Select lines by clicking, or by dragging across them, then right-click.
+_Affirm…_, _Refute…_ and _Comment…_ record your judgment of the lines as a commit in the document's repository, signed or unsigned.
+The judgment stays with the lines until the text they judge changes.
+
+To edit, right-click a block in the Reading view and choose _Edit block_.
+Your edit is pending until you choose _Commit…_, which writes the document into its working tree and records the change there as your own commit.
+_Discard edit_ cancels a pending edit.

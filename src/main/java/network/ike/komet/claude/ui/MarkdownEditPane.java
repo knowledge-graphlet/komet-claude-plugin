@@ -181,6 +181,20 @@ public final class MarkdownEditPane extends BorderPane {
     }
 
     /**
+     * Replaces the raw Markdown source with different text, shown from its start: unlike
+     * {@link #setText(String)}, which re-renders the same document and keeps the reader's place,
+     * this is a new document, as when a help viewer moves to another topic.
+     *
+     * @param markdown the new source; {@code null} is treated as empty
+     */
+    public void showText(String markdown) {
+        editor.setText(markdown == null ? "" : markdown);
+        if (editSegment == null || !editSegment.isSelected()) {
+            applyMode();
+        }
+    }
+
+    /**
      * The raw-editor half of the toggle — the seam for host-installed input behaviors such as
      * the Koncept token drop ({@link KonceptTokenDrop}); the buffer stays managed by this pane.
      *
@@ -188,6 +202,17 @@ public final class MarkdownEditPane extends BorderPane {
      */
     public TextArea rawEditor() {
         return editor;
+    }
+
+    /**
+     * The rendered half of the pane — the seam for hosts that act on the rendered text, such as a
+     * help viewer following the link under a click or selecting a search match; the model stays
+     * managed by this pane.
+     *
+     * @return the rendered view (never {@code null})
+     */
+    public RichTextArea renderedView() {
+        return view;
     }
 
     /**

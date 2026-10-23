@@ -164,6 +164,13 @@ module komet.claude {
             with network.ike.komet.claude.stamp.EditDocumentBlock,
                  network.ike.komet.claude.stamp.EditDocumentSentence;
 
+    // The plugin's help book (AsciiDoc in this jar, under META-INF/komet-help) and the viewer that
+    // renders help in a card's help drawer, found by the card through PluggableService.
+    provides dev.ikm.komet.layout.help.KlHelpProvider
+            with network.ike.komet.claude.help.PluginHelp;
+    provides dev.ikm.komet.layout.help.KlHelpViewer.Factory
+            with network.ike.komet.claude.help.AsciiDocHelpViewerFactory;
+
     // Headless commit narrator: started once at app startup (after datastore load) by the
     // ServiceLifecycle machinery, regardless of whether the assistant UI is opened.
     provides dev.ikm.tinkar.common.service.ServiceLifecycle

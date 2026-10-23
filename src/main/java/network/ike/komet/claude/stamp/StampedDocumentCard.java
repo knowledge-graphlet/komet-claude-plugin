@@ -23,6 +23,7 @@ import design.knowledge.stamp.adoc.model.LineRange;
 import dev.ikm.komet.actions.KometActions;
 import dev.ikm.komet.layout.KlArea;
 import dev.ikm.komet.layout.area.AreaGridSettings;
+import dev.ikm.komet.layout.help.KlHelpTopic;
 import dev.ikm.komet.layout.preferences.KlPreferencesFactory;
 import dev.ikm.komet.layout_engine.blueprint.CardBlueprint;
 import dev.ikm.komet.layout_engine.host.AbstractHostCard;
@@ -58,12 +59,14 @@ import javafx.scene.control.TreeView;
 import javafx.scene.image.Image;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import javafx.stage.Modality;
 import javafx.stage.Window;
 import network.ike.komet.claude.doc.DocumentSurfaceArea;
+import network.ike.komet.claude.help.PluginHelp;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredBlock;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredDocument;
 import network.ike.komet.claude.stamp.print.DocumentFonts;
@@ -180,6 +183,13 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     }
 
     private final BorderPane host = new BorderPane();
+    /**
+     * The host's center: the document area, which never leaves it, under the Graph view or the
+     * pages while either shows. A layout area forgets itself, erasing its preferences node, when
+     * its node leaves the scene, so swapping it out lost the print settings and failed every
+     * later save of the card.
+     */
+    private final StackPane center = new StackPane();
     private final Label statusLine = new Label("Choose a document the store holds, or open a committed .adoc file.");
     /** The documents the store holds; a combo box so an empty one can say so rather than show a blank. */
     private final ComboBox<String> documents = new ComboBox<>();
@@ -295,6 +305,11 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     @Override
     protected String cardTitle() {
         return CARD_NAME;
+    }
+
+    @Override
+    protected Optional<KlHelpTopic> helpTopic() {
+        return Optional.of(PluginHelp.STAMPED_DOCUMENT);
     }
 
     /** @return the name of the document shown, if one is */
@@ -643,7 +658,8 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         documentArea.surface().setFooter(footer);
         repositoryPanel = new RepositoryPanel(this);
         host.setTop(repositoryPanel);
-        host.setCenter(documentArea.fxObject());
+        center.getChildren().setAll(documentArea.fxObject());
+        host.setCenter(center);
         host.setBottom(null);
         // On the card's root, not its body: the toolbar is part of the card's chrome, outside the
         // body, and was left in JavaFX's default look while the sheets sat on the body alone.
@@ -963,13 +979,29 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         modes.setManaged(graphShown);
         if (graphShown) {
             graph.show(assembly);
-            host.setCenter(graph.node());
+            showOverArea(graph.node());
             host.setBottom(footer);                                    // the footer stays with the surface, which is not in the scene now
             return;
         }
         graph.show(null);
-        host.setCenter(documentArea.fxObject());
+        showOverArea(null);
         host.setBottom(null);
+    }
+
+    /**
+     * Shows a view in the document area's place, or the area again: the area stays in the scene,
+     * hidden, so it is never detached.
+     *
+     * @param view the Graph view's or the pages' node, or {@code null} for the document area
+     */
+    private void showOverArea(Node view) {
+        Node area = documentArea.fxObject();
+        center.getChildren().removeIf(child -> child != area);
+        if (view != null) {
+            center.getChildren().add(view);
+        }
+        area.setVisible(view == null);
+        area.setManaged(view == null);
     }
 
     /** What the Graph view asks of the card: the surface's selection and layer, the card's acts. */
@@ -1096,7 +1128,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         pageStack = new PageStackView(settings, dims[0], dims[1], runningHead());
         pageStack.currentPageProperty().addListener((obs, was, is) -> showPageIndicator());
         pageStack.show(content());
-        host.setCenter(pageStack);
+        showOverArea(pageStack);
         // The footer stays with the document area's surface, which is not in the scene now: show it under the stack.
         host.setBottom(footer);
         pageIndicator.setVisible(true);

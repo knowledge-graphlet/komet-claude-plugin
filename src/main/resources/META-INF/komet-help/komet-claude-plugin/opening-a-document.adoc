@@ -1,0 +1,38 @@
+= Opening an AsciiDoc document
+
+The card reads documents from git.
+Opening a file materializes its history: each commit that touched the file is written into the knowledge base, so every line can name the commit that introduced it.
+
+== Before you start
+
+* Komet has a store open. A memory-only store works, but forgets the document when Komet quits; see xref:stores.adoc[Persistent and memory-only stores].
+* The file is an `.adoc` file inside a git working tree, and it is committed. The card reads the file as it is at HEAD. Changes you have not committed do not show.
+
+== Open the file
+
+. In the card's toolbar, open the *More* menu and choose *Open file…*.
+. Choose the `.adoc` file. The chooser starts in the working tree you used last.
+. If the file includes other files, the card asks what to materialize. *Materialize All* writes this file and every file it includes, each as its own document, in include order. *This File Only* writes just this file, and its include lines stay lines.
+. Wait while the status line at the bottom of the card says _Materializing_. A long history takes a while the first time; opening the file again writes only the commits the knowledge base lacks.
+. The document appears in the document chooser and on the card.
+
+The first time a working tree is materialized, the card names a module for it.
+That module is a kind of _Ephemeral module_, so the document is ephemeral data: git holds all of it, and the knowledge base holds a copy that can be dropped and rebuilt.
+xref:kinds-of-data.adoc[Kinds of data] explains what that means and how it differs from knowledge and instance data.
+
+== Open it again later
+
+A document stays in the knowledge base of a persistent store.
+Choose it in the document chooser; there is no need to open the file again.
+When new commits have reached the file, choose *More › Materialize* to write them.
+
+== Choose how to read it
+
+Use the views in the toolbar: *Reading* for the document as written, *Source* for its lines and their STAMPs, *Page layout* for its pages, and *Graph* for how the knowledge base holds it.
+The xref:stamped-document.adoc[card overview] describes each control.
+
+== If something goes wrong
+
+_The file is not inside a git working tree_:: Choose a file in a folder that git tracks, or clone the repository first.
+_Cannot read the file at HEAD_:: The file has not been committed yet. Commit it, then open it again.
+_The document classifies as knowledge_:: The store was made before the Ephemeral module existed. Load the current starter set into the store, then materialize the file again.
