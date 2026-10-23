@@ -163,14 +163,20 @@ public final class MarkdownEditPane extends BorderPane {
     }
 
     /**
-     * Replaces the raw Markdown source, re-rendering if the view is at rest.
+     * Replaces the raw Markdown source, re-rendering if the view is at rest. A re-render keeps the
+     * reader's place ({@link RichTextViewpoint}).
      *
      * @param markdown the new source; {@code null} is treated as empty
      */
     public void setText(String markdown) {
         editor.setText(markdown == null ? "" : markdown);
         if (editSegment == null || !editSegment.isSelected()) {
+            RichTextViewpoint viewpoint = getCenter() == view && view.getSkin() != null
+                    ? RichTextViewpoint.capture(view) : null;
             applyMode();
+            if (viewpoint != null) {
+                viewpoint.restore(view);
+            }
         }
     }
 

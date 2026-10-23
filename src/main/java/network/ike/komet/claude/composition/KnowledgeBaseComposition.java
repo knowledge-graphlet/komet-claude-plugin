@@ -29,6 +29,7 @@ import dev.ikm.tinkar.terms.KernelPattern;
 import network.ike.komet.claude.doc.DocumentVocabulary;
 import network.ike.komet.claude.stamp.StampNames;
 
+import java.text.NumberFormat;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -436,71 +437,138 @@ public final class KnowledgeBaseComposition {
     }
 
     /**
-     * The composition as plain text, for pasting into an issue or a note.
+     * The composition as Markdown: what the card shows, what Copy summary copies, and what the
+     * assistant's tool answers, so every reader of the composition reads the same words. Field names
+     * are the registration patterns' own, as the view names them.
      *
      * @param view        the view that names components
      * @param composition what the store holds
-     * @return the text
+     * @return the Markdown
      */
-    public static String text(ViewCalculator view, Composition composition) {
+    public static String markdown(ViewCalculator view, Composition composition) {
         if (composition.recorded() == Recorded.REGISTRY_ABSENT) {
-            return "This knowledge base's starter set has no registry patterns; it cannot record what it is made of.\n";
+            return "This knowledge base's starter set has no registry patterns, so it cannot record what it is made"
+                    + " of. Knowledge bases built on a starter set with the release, assembly and export registrations"
+                    + " (IKE-Network/ike-issues#1304) can.\n";
         }
         if (composition.recorded() == Recorded.NOT_RECORDED) {
-            return "This knowledge base holds no registrations: nothing that built it registered what it loaded.\n";
+            return "This knowledge base holds no registrations. It declares the registry, but nothing that built or"
+                    + " loaded it registered what it read.\n";
         }
+        NumberFormat counts = NumberFormat.getIntegerInstance();
         StringBuilder out = new StringBuilder();
-        composition.latest().ifPresent(a -> {
-            out.append("Assembled ").append(MOMENT.format(a.assembled()));
-            if (!a.classifier().isBlank()) {
-                out.append(", classified by ").append(a.classifier());
+        composition.latest().ifPresent(a -> out.append("**Assembled ").append(MOMENT.format(a.assembled()))
+                .append(a.classifier().isBlank() ? ", not classified" : ", classified by " + a.classifier())
+                .append("** — ").append(a.inputs().size()).append(" input(s), ")
+                .append(composition.releases().size()).append(" release(s)\n\n"));
+
+        out.append("## Releases\n\n");
+        if (composition.releases().isEmpty()) {
+            out.append("No release registrations.\n\n");
+        }
+        List<String> labels = fieldLabels(view, KernelPattern.RELEASE_REGISTRATION_PATTERN);
+        for (Release release : composition.releases()) {
+            ReleaseVersion now = release.latest();
+            out.append("### ").append(now.importerName()).append(" — ").append(now.releaseName())
+                    .append(" (").append(DAY.format(now.releaseDate())).append(")\n\n");
+            field(out, label(labels, 2, "Release artifact"), code(now.artifact()));
+            if (!now.resolvedBeyondArtifact().isEmpty()) {
+                field(out, label(labels, 3, "Resolved version"), code(now.resolvedBeyondArtifact()));
+            }
+            field(out, label(labels, 4, "Origin checksum"), code(now.checksum()));
+            field(out, label(labels, 5, "Importer"), now.importer());
+            if (!now.options().isEmpty()) {
+                field(out, label(labels, 6, "Importer options"), now.options().lines()
+                        .map(KnowledgeBaseComposition::code).collect(Collectors.joining(", ")));
+            }
+            field(out, "Modules written", names(view, modules(now.stampsWritten())) + " (" + now.stampsWritten().size()
+                    + " stamp" + (now.stampsWritten().size() == 1 ? "" : "s") + ")");
+            field(out, "Components", counts.format(now.written()) + " written, " + counts.format(now.versioned())
+                    + " versioned, " + counts.format(now.unchanged()) + " unchanged, " + counts.format(now.retired())
+                    + " retired");
+            field(out, label(labels, 12, "Base releases"),
+                    now.baseReleases().isEmpty() ? "none: the first release loaded" : names(view, now.baseReleases()));
+            field(out, "Read by", "");
+            for (ReleaseVersion version : release.versions().reversed()) {
+                // The first reading is stamped at the publisher's release date, a UTC midnight; a later
+                // importer's reading, when it ran.
+                Instant read = Instant.ofEpochMilli(version.stamp().time());
+                out.append("  - ").append(read.equals(version.releaseDate()) ? DAY.format(read) + " (release date)"
+                        : MOMENT.format(read)).append(" — ").append(version.importer()).append('\n');
+            }
+            out.append('\n');
+        }
+
+        composition.latest().ifPresent(latest -> {
+            out.append("## Assembly inputs\n\n");
+            for (Input input : latest.inputs()) {
+                out.append("- ").append(input.role()).append(' ').append(code(input.artifact()));
+                if (!input.resolvedBeyondArtifact().isEmpty()) {
+                    out.append(" → ").append(code(input.resolvedBeyondArtifact()));
+                }
+                if (!input.checksum().isEmpty()) {
+                    out.append(' ').append(code(input.checksum()));
+                }
+                out.append('\n');
+            }
+            out.append("\n## Assembly history\n\n");
+            List<Assembly> assemblies = composition.assemblies();
+            for (int i = 0; i < assemblies.size(); i++) {
+                Assembly assembly = assemblies.get(i);
+                out.append("- ").append(MOMENT.format(assembly.assembled())).append(" · ")
+                        .append(assembly.inputs().size()).append(" input(s)")
+                        .append(assembly.classifier().isBlank() ? "" : " · " + assembly.classifier()).append('\n');
+                if (i + 1 == assemblies.size()) {
+                    out.append("  - the first assembly registered\n");
+                    continue;
+                }
+                Changes changes = changes(assemblies.get(i + 1), assembly);
+                if (changes.none()) {
+                    out.append("  - a rebuild from the same inputs\n");
+                }
+                changes.added().forEach(in -> out.append("  - added ").append(in.role()).append(' ')
+                        .append(code(in.artifact())).append('\n'));
+                changes.removed().forEach(in -> out.append("  - removed ").append(in.role()).append(' ')
+                        .append(code(in.artifact())).append('\n'));
+                changes.changed().forEach(in -> out.append("  - new checksum for ").append(code(in.artifact()))
+                        .append(": ").append(code(in.checksum())).append('\n'));
+                if (!changes.releasesAdded().isEmpty()) {
+                    out.append("  - new releases: ").append(names(view, changes.releasesAdded())).append('\n');
+                }
             }
             out.append('\n');
         });
-        out.append("\nReleases (").append(composition.releases().size()).append("):\n");
-        for (Release release : composition.releases()) {
-            ReleaseVersion now = release.latest();
-            out.append("- ").append(now.releaseName()).append(" (").append(DAY.format(now.releaseDate())).append(")\n")
-                    .append("  ").append(now.artifact())
-                    .append(now.resolvedBeyondArtifact().isEmpty() ? "" : " → " + now.resolvedBeyondArtifact())
-                    .append(' ').append(now.checksum()).append('\n')
-                    .append("  importer ").append(now.importer())
-                    .append(now.options().isEmpty() ? "" : " (" + now.options().replace('\n', ' ') + ")").append('\n')
-                    .append("  written ").append(now.written()).append(", versioned ").append(now.versioned())
-                    .append(", unchanged ").append(now.unchanged()).append(", retired ").append(now.retired())
-                    .append('\n');
-            if (!now.baseReleases().isEmpty()) {
-                out.append("  on ").append(now.baseReleases().stream().map(nid -> name(view, nid))
-                        .collect(Collectors.joining(", "))).append('\n');
-            }
-            if (release.versions().size() > 1) {
-                out.append("  also read by: ").append(release.versions().subList(0, release.versions().size() - 1)
-                        .stream().map(ReleaseVersion::importer).collect(Collectors.joining(", "))).append('\n');
-            }
-        }
-        composition.latest().ifPresent(a -> {
-            out.append("\nAssembly inputs (").append(a.inputs().size()).append("):\n");
-            a.inputs().forEach(i -> out.append("- ").append(i.role()).append(' ').append(i.artifact())
-                    .append(i.resolvedBeyondArtifact().isEmpty() ? "" : " → " + i.resolvedBeyondArtifact())
-                    .append(i.checksum().isEmpty() ? "" : " " + i.checksum()).append('\n'));
-        });
-        if (composition.assemblies().size() > 1) {
-            out.append("\nAssembly history:\n");
-            for (Assembly a : composition.assemblies()) {
-                out.append("- ").append(MOMENT.format(a.assembled())).append(", ").append(a.inputs().size())
-                        .append(" inputs").append(a.classifier().isBlank() ? "" : ", " + a.classifier()).append('\n');
-            }
-        }
+
         if (!composition.exports().isEmpty()) {
-            out.append("\nExports:\n");
-            for (Export e : composition.exports()) {
-                out.append("- ").append(MOMENT.format(Instant.ofEpochMilli(e.stamp().time()))).append(' ')
-                        .append(e.file()).append(", ").append(e.components()).append(" components")
-                        .append(e.selection().isBlank() ? "" : ", " + e.selection()).append(' ').append(e.checksum())
-                        .append('\n');
+            out.append("## Exports\n\n");
+            for (Export export : composition.exports()) {
+                out.append("- ").append(MOMENT.format(Instant.ofEpochMilli(export.stamp().time()))).append(" · ")
+                        .append(code(export.file())).append(" · ").append(counts.format(export.components()))
+                        .append(" components\n");
+                if (!export.selection().isBlank()) {
+                    out.append("  - ").append(export.selection()).append('\n');
+                }
+                out.append("  - ").append(code(export.checksum())).append('\n');
             }
         }
         return out.toString();
+    }
+
+    private static void field(StringBuilder out, String name, String value) {
+        out.append("- **").append(name).append(":**").append(value.isEmpty() ? "" : " " + value).append('\n');
+    }
+
+    private static String label(List<String> labels, int index, String fallback) {
+        return index < labels.size() ? labels.get(index) : fallback;
+    }
+
+    private static String names(ViewCalculator view, List<Long> nids) {
+        return nids.stream().map(nid -> name(view, nid)).collect(Collectors.joining(", "));
+    }
+
+    /** A code span: artifacts, checksums and options read as typed, and copy as typed. */
+    private static String code(String text) {
+        return "`" + text.replace("`", "'") + "`";
     }
 
     private static String text(List<Object> fields, int index) {

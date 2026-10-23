@@ -79,7 +79,7 @@ public final class KnowledgeBaseCompositionTools {
                     if (v == null) {
                         return NO_VIEW;
                     }
-                    return KnowledgeBaseComposition.text(v, KnowledgeBaseComposition.read());
+                    return KnowledgeBaseComposition.markdown(v, KnowledgeBaseComposition.read());
                 } catch (RuntimeException e) {
                     return "Error: " + (e.getMessage() == null ? e.toString() : e.getMessage());
                 }

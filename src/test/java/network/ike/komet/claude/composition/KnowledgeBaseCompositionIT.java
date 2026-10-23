@@ -132,12 +132,14 @@ class KnowledgeBaseCompositionIT {
         assertEquals(1, composition.exports().size());
         assertEquals(42L, composition.exports().getFirst().components());
 
-        String text = KnowledgeBaseComposition.text(Calculators.View.Default(), composition);
-        assertTrue(text.contains("First 2026-03-01"), text);
-        assertTrue(text.contains("also read by: first 1"), text);
+        String text = KnowledgeBaseComposition.markdown(Calculators.View.Default(), composition);
+        assertTrue(text.contains("### first — First 2026-03-01"), text);
+        assertTrue(text.contains("— first 1\n"), "every importer that read a release: " + text);
         assertTrue(text.contains("classified by ElkSnomed"), text);
-        assertTrue(text.contains("on first First 2026-01-01"), text);
-        assertTrue(text.contains("kb-reasoned-pb.zip, 42 components"), text);
+        assertTrue(text.contains(":** first First 2026-01-01\n"), "the second release's base releases: " + text);
+        assertTrue(text.contains("`edition=full`"), "options read as typed: " + text);
+        assertTrue(text.contains("new checksum for `g:starter:zip:1-SNAPSHOT`: `sha256:01`"), text);
+        assertTrue(text.contains("`kb-reasoned-pb.zip` · 42 components"), text);
         assertEquals("first First 2026-01-01", KnowledgeBaseComposition.name(Calculators.View.Default(), first),
                 "a release registration is named by its importer and release");
 
