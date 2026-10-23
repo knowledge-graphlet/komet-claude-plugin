@@ -17,6 +17,7 @@ package network.ike.komet.claude.composition;
 
 import dev.ikm.komet.layout.KlArea;
 import dev.ikm.komet.layout.area.AreaGridSettings;
+import dev.ikm.komet.layout.help.KlHelpTopic;
 import dev.ikm.komet.layout.preferences.KlPreferencesFactory;
 import dev.ikm.komet.layout_engine.blueprint.CardBlueprint;
 import dev.ikm.komet.layout_engine.host.AbstractHostCard;
@@ -34,6 +35,7 @@ import javafx.scene.input.ClipboardContent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import network.ike.komet.claude.composition.KnowledgeBaseComposition.Composition;
+import network.ike.komet.claude.help.PluginHelp;
 import network.ike.komet.claude.ui.MarkdownEditPane;
 import network.ike.komet.claude.ui.MarkdownRichText;
 import org.slf4j.Logger;
@@ -105,6 +107,11 @@ public final class KnowledgeBaseCompositionCard extends AbstractHostCard {
     @Override
     protected String cardTitle() {
         return CARD_NAME;
+    }
+
+    @Override
+    protected Optional<KlHelpTopic> helpTopic() {
+        return Optional.of(PluginHelp.KNOWLEDGE_BASE_COMPOSITION);
     }
 
     /** @return the composition shown, once one is read */

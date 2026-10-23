@@ -31,6 +31,15 @@ public final class PluginHelp extends KlResourceHelpProvider {
     /** The STAMPed Document card's topic. */
     public static final KlHelpTopic STAMPED_DOCUMENT = new KlHelpTopic(BOOK_ID, "stamped-document");
 
+    /** The Komet Assistant card's topic. */
+    public static final KlHelpTopic KOMET_ASSISTANT = new KlHelpTopic(BOOK_ID, "komet-assistant");
+
+    /** The Instruction Editor card's topic. */
+    public static final KlHelpTopic INSTRUCTION_EDITOR = new KlHelpTopic(BOOK_ID, "instruction-editor");
+
+    /** The Knowledge Base Composition card's topic. */
+    public static final KlHelpTopic KNOWLEDGE_BASE_COMPOSITION = new KlHelpTopic(BOOK_ID, "knowledge-base-composition");
+
     /** Creates the book; called by the service loader. */
     public PluginHelp() {
         super(BOOK_ID, "IKE plugin for Komet");

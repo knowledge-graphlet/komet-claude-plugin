@@ -22,6 +22,7 @@ import dev.ikm.komet.layout_engine.blueprint.CardBlueprint;
 import dev.ikm.komet.layout_engine.host.AbstractHostCard;
 import dev.ikm.komet.layout_engine.host.KlCardProvider;
 import dev.ikm.komet.layout.controls.KlDrawer;
+import dev.ikm.komet.layout.help.KlHelpTopic;
 import dev.ikm.komet.preferences.KometPreferences;
 import dev.ikm.komet.preferences.PreferencesService;
 import javafx.application.Platform;
@@ -54,6 +55,7 @@ import javafx.stage.FileChooser;
 import network.ike.komet.claude.ClaudeCard;
 import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.anthropic.AnthropicTool;
+import network.ike.komet.claude.help.PluginHelp;
 import network.ike.komet.claude.instructions.InstructionSets.Frontmatter;
 import network.ike.komet.claude.instructions.InstructionSets.InstructionSet;
 import network.ike.komet.claude.ui.MarkdownDiff;
@@ -206,6 +208,11 @@ public final class InstructionEditorCard extends AbstractHostCard {
     @Override
     protected String cardTitle() {
         return CARD_NAME;
+    }
+
+    @Override
+    protected Optional<KlHelpTopic> helpTopic() {
+        return Optional.of(PluginHelp.INSTRUCTION_EDITOR);
     }
 
     /** Card-node preference for the editor's base font size (the settings pane's section). */
@@ -372,7 +379,7 @@ public final class InstructionEditorCard extends AbstractHostCard {
             }
         } else {
             // Generation 2: a default for the remaining categories — the assistant's tool
-            // contract, and the drafting persona behind this editor's own Ask Claude area.
+            // contract, and the drafting persona behind this editor's own Assistant drawer.
             store.create("Komet tool contract",
                     "System default — the assistant's fixed tool-use mechanics: graph-tool calling "
                             + "discipline, grounding labels, identifier-column rules. Select as a "
@@ -380,8 +387,8 @@ public final class InstructionEditorCard extends AbstractHostCard {
                     InstructionCategory.TOOL_CONTRACT, true,
                     bundledResource("system-prompt-core.md"));
             store.create("Instruction Editor default",
-                    "System default — the drafting persona behind the Instruction Editor's Ask "
-                            + "Claude area. It writes and revises titled instruction sets in the "
+                    "System default — the drafting persona behind the Instruction Editor's "
+                            + "Assistant drawer. It writes and revises titled instruction sets in the "
                             + "portable form; Save as… to tune how drafting behaves.",
                     InstructionCategory.SYSTEM_PROMPT, true,
                     bundledResource("instruction-editor-prompt.md"));
@@ -873,7 +880,7 @@ public final class InstructionEditorCard extends AbstractHostCard {
             selector.getSelectionModel().select(choices.get(0));
             pane.refreshSummaries();
         });
-        Label hint = new Label("Steers the Ask Claude area below the document. Save as… a "
+        Label hint = new Label("Steers the Assistant drawer beside the document. Save as… a "
                 + "copy of the Instruction Editor default to tune how drafting behaves.");
         hint.setWrapText(true);
         return new VBox(6, selector, revertDefault, hint);

@@ -26,6 +26,7 @@ import dev.ikm.komet.layout.area.AreaGridSettings;
 import dev.ikm.komet.layout.controls.FilterOptionsPopup;
 import dev.ikm.komet.layout.controls.SettingsPanePopup;
 import dev.ikm.komet.layout.controls.ViewOptionsPopupHelper;
+import dev.ikm.komet.layout.help.KlHelpTopic;
 import dev.ikm.komet.layout.preferences.KlPreferencesFactory;
 import dev.ikm.komet.layout_engine.blueprint.CardBlueprint;
 import dev.ikm.komet.layout_engine.host.AbstractHostCard;
@@ -91,6 +92,7 @@ import network.ike.komet.claude.doc.BlockFactory;
 import network.ike.komet.claude.doc.DocumentSurface;
 import network.ike.komet.claude.doc.DocumentSurfaceArea;
 import network.ike.komet.claude.doc.JournalStore;
+import network.ike.komet.claude.help.PluginHelp;
 import network.ike.komet.claude.json.Json;
 import network.ike.komet.claude.tools.GraphTools;
 import jfx.incubator.scene.control.richtext.RichTextArea;
@@ -460,6 +462,11 @@ public final class ClaudeCard extends AbstractHostCard {
     @Override
     protected String cardTitle() {
         return CARD_NAME;
+    }
+
+    @Override
+    protected Optional<KlHelpTopic> helpTopic() {
+        return Optional.of(PluginHelp.KOMET_ASSISTANT);
     }
 
     /** The assistant controls live in the card toolbar (the close is in the base chrome). */
@@ -1908,11 +1915,12 @@ public final class ClaudeCard extends AbstractHostCard {
         Conversation conv = new Conversation(UUID.randomUUID().toString(), "New conversation");
         conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT,
                 "Ask about the concepts in your open knowledge base. "
-                        + "I answer by running read-only queries against the active view — "
-                        + "I won't invent codes or relationships. "
+                        + "I answer by running queries against the active view — "
+                        + "I won't invent codes or relationships — and what I propose to change "
+                        + "waits for you to publish or commit it. "
                         + (hasApiKey()
                                 ? "Type a question below to begin."
-                                : "Set your Anthropic API key (the \"API key…\" button) to begin."),
+                                : "Set your Anthropic API key in Assistant settings (the sliders button) to begin."),
                 false));
         conversations.add(conv);
         activate(conv);

@@ -1,0 +1,58 @@
+= The Instruction Editor card
+
+The Instruction Editor card is where you write the instructions the Komet Assistant works from.
+Each instruction set has a name, a description and a Markdown body, kept in the portable SKILL.md form: the name, description and category as frontmatter above the body, so a set can be shared with other tools.
+
+== Categories
+
+Each set is intended as one of three things, chosen in the category list beside the body:
+
+System Prompt:: Instructions an assistant card works from. An Assistant card's *System prompt* setting offers these.
+Skill:: A focused set of instructions for one kind of task. New and imported sets start as skills. Assistant cards do not yet include skills.
+Tool Contract:: How the assistant should use Komet's tools. The System prompt setting offers these too; choosing one there makes it the card's instructions.
+
+== The sets in a card
+
+The list on the left shows the card's sets by name, each with its category and description; hover over one for its whole description.
+Choose a set to open it. The *☰* button on the toolbar shows or hides the list.
+
+Every card starts with four read-only system defaults: _Komet Assistant default_, _Terminology answer style_, _Komet tool contract_ and _Instruction Editor default_.
+A default cannot be saved over; *Save as…* makes your own copy to change.
+
+Each Instruction Editor card keeps its own sets, as Markdown files in the card's own settings folder. There is no delete yet.
+
+== Writing a set
+
+. Choose *+ New*. A set named _Untitled instruction set_ is made and saved, with a scaffold to fill in. To start from a file instead, choose *Import…* and pick a `.md` file in SKILL.md form.
+. Give it a name, and a description of what it does and when to use it: a sentence or two.
+. Choose its category.
+. Write the body. *Edit* shows the Markdown to type in; *View* shows it rendered. To name a concept, drag it from anywhere in Komet into the body in Edit mode; View shows it as a concept badge.
+. Choose *Save*. The status line says _Unsaved changes_ until you do, and View marks your changes against the saved text.
+
+*Revert* discards your unsaved changes. *Save as…* saves a copy under a new title, which is how a system default becomes yours to change.
+
+== Drafting with the assistant
+
+The *Assistant* toggle on the toolbar opens a drawer beside the set, to discuss and revise it with Claude.
+Type a request and press Enter (Shift+Enter starts a new line).
+Claude sees the set as it stands, unsaved changes included, and the conversation so far.
+
+When Claude proposes a revision, it is put into the set as unsaved changes: View marks what changed, and *Revert draft* puts back the text from before the draft.
+Nothing is saved until you choose *Save* or *Save as…*.
+
+Each set has its own conversation, kept until Komet quits.
+The drawer uses the Anthropic API key and model from an Assistant card's settings, so set those first.
+How the drafting behaves comes from *Settings › Drafting prompt*: the bundled _Instruction Editor default_, or a System Prompt set of your own.
+
+== Using a set
+
+To have an assistant work from a set, open the Komet Assistant card's settings and choose the set under *System prompt*.
+Its body becomes the card's instructions; sets from every Instruction Editor card in the journal are offered.
+See xref:komet-assistant.adoc[The Komet Assistant card].
+
+== Settings
+
+The sliders button on the toolbar opens the card's settings:
+
+Text size:: *A−* and *A+* change the size of the text, from 9 to 28 pixels.
+Drafting prompt:: The instructions the Assistant drawer drafts with. *Revert to default* returns to the bundled one.

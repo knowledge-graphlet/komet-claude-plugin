@@ -1,0 +1,80 @@
+= The Komet Assistant card
+
+The Komet Assistant card is a conversation with Claude about the knowledge base you have open.
+The assistant answers by running queries against the card's own view, and shows the concepts it finds as concept chips you can read, drag and open.
+It can also propose changes, a new concept or an edit to a STAMPed document, but nothing it proposes takes effect until you publish or commit it.
+
+Add the card from the journal's *+* menu.
+
+== Before you start
+
+The assistant needs an Anthropic API key.
+Open the settings with the sliders button on the toolbar, choose *API key*, paste the key and choose *Save*; or just send a message, and the card asks for the key.
+The key is kept in your own Komet preferences on this computer, never in the knowledge base, and every assistant card uses the same one.
+
+== Asking a question
+
+. Type in the box at the bottom of the card.
+. To name a concept, drag it from anywhere in Komet into the box; it lands as a chip. Drag several at once to name them all.
+. Press Enter or choose *Send*. Shift+Enter starts a new line.
+
+While the assistant works, the status line above the box shows how long it has taken and which query it is running; *Stop* cancels the request and *Retry* sends it again.
+Other conversations can be asked at the same time.
+
+The status line ends with _Replied in_ and the time taken, or with the reason the request failed.
+When Anthropic's service is busy the card retries by itself and says so.
+
+== Reading the answer
+
+Each question starts an exchange, headed by its number and a short title the assistant gives it.
+Click the heading to fold the exchange away; *⊞* and *⊟* above the transcript open or fold them all.
+
+Concept chips:: Every concept the assistant reports is shown as a chip: its identicon and the name your view prefers. A retired concept's chip is struck through. Right-click a chip to copy its name or its _k:_ token; its link opens the concept's definition.
+Concept trees:: A hierarchy is drawn as a tree of chips you can open and fold.
+Proposed definitions:: A definition the assistant proposes is drawn as a definition, with any modelling gaps listed beneath it.
+Tables:: Columns can be resized, and the widths are kept with the conversation. Right-click a table to copy it.
+
+Choose *🔍*, or press Cmd-F, to find text in the conversation.
+*Save…* writes the conversation to a Markdown file.
+
+== The view the assistant reads
+
+The crosshair button on the toolbar sets the card's view: the coordinate the assistant's queries run against.
+It turns orange when the card's view differs from the journal's.
+
+== Conversations
+
+The *☰* button shows or hides the conversations list.
+*+ New* starts a conversation; a conversation is named from its first message until you rename it.
+Double-click a conversation, or right-click it, to rename it; right-click and choose *Delete* to remove it from the list.
+
+Each assistant card keeps its own conversations, and reopens on the last one, where you left it.
+The list at the top of the rail shows the other assistant cards in the journal; choose one to read its conversations, and send in one to carry it over to this card.
+
+Each exchange is also recorded in the knowledge base, as a conversation journal: instance data, which the store alone holds.
+See xref:kinds-of-data.adoc[Kinds of data].
+
+== Changes the assistant proposes
+
+The assistant can propose changes, and each waits for you:
+
+A new concept:: The assistant writes it uncommitted and opens it in a concept window in the journal. Review it there; it becomes part of the knowledge base only when you choose *Publish*. The assistant can revise the proposal or withdraw it.
+An edit to a STAMPed document:: The assistant writes the edit uncommitted, under its own name, and the STAMPed Document card shows it as a pending edit. *Commit…* there records it in git as your commit; *Discard edit* drops it.
+An annotation:: The assistant prepares an affirmation, refutation or comment on document lines, and the STAMPed Document card asks you to confirm it as a git commit.
+
+See xref:stamped-document.adoc[The STAMPed Document card].
+
+== Settings
+
+The sliders button opens the assistant's settings:
+
+Text size:: *A−* and *A+* change the size of the transcript and the box you type in.
+Chip labels:: Whether concept chips use small capitals, and bold.
+System prompt:: The instructions the card works from: the bundled default, or an instruction set written in an Instruction Editor card. A preview shows the instructions in force. *Open in Instruction Editor…* opens the editor; *Revert to default* returns to the bundled instructions. See xref:instruction-editor.adoc[The Instruction Editor card].
+API key:: The Anthropic API key every assistant card uses.
+
+Text size, chip labels and the key are yours and apply to every assistant card; the system prompt and the conversations belong to the card.
+
+== Printing a conversation
+
+Hover over the transcript and choose the expand icon in its corner to see the conversation on pages, ready to print, with its page size, margins, theme, running head and page numbers.

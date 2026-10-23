@@ -1,0 +1,38 @@
+= The Knowledge Base Composition card
+
+The Knowledge Base Composition card shows what the open knowledge base is made of: the releases loaded into it, the inputs of its latest assembly, every assembly build with what changed from the one before, and the exports taken from it.
+It reads the registration records the IKE Registrar writes into the store whenever a release is imported, the knowledge base is assembled, or an export runs.
+
+The card describes the whole store, not a concept, so it does not follow the journal's focus.
+Add it from the journal's *+* menu.
+
+== What it shows
+
+The summary at the top gives when the knowledge base was last assembled, which classifier ran, and how many inputs and releases it holds.
+Times are shown in your computer's time zone.
+
+Releases:: One entry per release loaded, in the order the latest assembly loaded them. Each names the release and its date, the artifact it came from and its checksum, the importer that read it and the options it was given, and the modules the import wrote under. _Components_ counts what the import did: components written, components given a new version, components already as the release has them, and semantics retired. _Base releases_ names the releases this one was layered on. _Read by_ lists every reading of the release, newest first; the first is dated at the publisher's release date.
+Assembly inputs:: The inputs of the latest assembly, in load order: each one's role, artifact, resolved version and checksum.
+Assembly history:: Every assembly build, newest first, with what changed from the build before it: an input added or removed, a new checksum for an input, or new releases. A rebuild from the same inputs says so. A new release under a new coordinate shows as one input removed and one added; a snapshot that resolved to a newer build shows as a new checksum.
+Exports:: Each export taken from the knowledge base, newest first: when, the file, how many components, what it selected, and the file's checksum.
+
+The text is selectable and can be copied like any read-only text in Komet.
+
+== The toolbar
+
+Refresh:: Reads the composition records again. The card does not refresh by itself: an import, assembly or export made while it is open shows after a refresh.
+Copy summary:: Copies the whole composition as Markdown, ready to paste into an issue or a note.
+
+The status line beneath the body counts the releases, assembly builds and exports it read.
+
+== Asking the assistant
+
+The Komet Assistant answers the same question through its `kb_composition` tool, which returns the same text the card shows.
+Ask it which releases or versions the knowledge base contains, when it was built, or whether a given release is loaded, and it reads the composition without the card being open.
+See xref:komet-assistant.adoc[The Komet Assistant card].
+
+== When the card has nothing to show
+
+_This knowledge base's starter set has no registry patterns_:: The store was built on a starter set without the release, assembly and export registrations, so it cannot record what it is made of. A knowledge base built on a current starter set can.
+_This knowledge base holds no registrations_:: The store has the registry, but nothing that built or loaded it registered what it read.
+_Could not read the knowledge base's composition_:: Reading the records failed; the message that follows says why. The card keeps what it showed before.
