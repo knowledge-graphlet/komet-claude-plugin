@@ -241,7 +241,8 @@ final class ConceptChipInlineDecorator implements InlineDecorator {
             } else {
                 pid = null;
             }
-            if (pid != null && PrimitiveData.get().hasPublicId(pid)) {
+            // With no store running, nothing resolves: the text is decomposed, with no chips.
+            if (pid != null && PrimitiveData.running() && PrimitiveData.get().hasPublicId(pid)) {
                 return pid;
             }
         } catch (RuntimeException ignored) {
