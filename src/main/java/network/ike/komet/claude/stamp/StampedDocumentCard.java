@@ -44,6 +44,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckMenuItem;
 import javafx.scene.control.ChoiceBox;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuButton;
@@ -180,7 +181,14 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
 
     private final BorderPane host = new BorderPane();
     private final Label statusLine = new Label("Choose a document the store holds, or open a committed .adoc file.");
-    private final ChoiceBox<String> documents = new ChoiceBox<>();
+    /** The documents the store holds; a combo box so an empty one can say so rather than show a blank. */
+    private final ComboBox<String> documents = new ComboBox<>();
+    /** True while the chooser is being brought in line with a document already shown, so choosing it does not reopen it. */
+    private boolean listingShown;
+    /** Below this card width the toolbar's controls show their icons alone; above it, icon and name. */
+    private static final double LABELED_TOOLBAR_WIDTH = 860;
+    /** The same, while the Graph view's modes are on the toolbar too. */
+    private static final double LABELED_TOOLBAR_WIDTH_WITH_MODES = 1120;
     /** The three views as one segmented control: exactly one selected, arrow keys move it. */
     private final SegmentedControl<DocumentSurfaceView.View> views = new SegmentedControl<>(
             List.of(DocumentSurfaceView.View.SOURCE, DocumentSurfaceView.View.READING, DocumentSurfaceView.View.PAGE_LAYOUT, DocumentSurfaceView.View.GRAPH),
@@ -431,7 +439,14 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         documents.setId("stampedDocumentChooser");
         documents.setTooltip(new Tooltip("The documents the knowledge base holds"));
         documents.setMaxWidth(300);
+        documents.getStyleClass().add("stamped-toolbar-control");
+        documents.setPromptText("No documents");
+        documents.getItems().addListener((javafx.collections.ListChangeListener<String>) change ->
+                documents.setPromptText(documents.getItems().isEmpty() ? "No documents" : "Choose a document"));
         documents.getSelectionModel().selectedItemProperty().addListener((obs, was, is) -> {
+            if (listingShown) {
+                return;                                    // the chooser catching up with a document already shown
+            }
             if (is != null && anchors.containsKey(is)) {
                 preferences().put(PREF_DOCUMENT, is);
                 syncPreferences();
@@ -461,7 +476,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         });
         layerMenu.setId("stampedDocumentLayerMenu");
         Icons.iconOnly(layerMenu, "mdi2l-layers-outline", "What the Provenance layer draws over the document");
-        layerMenu.getStyleClass().add("claude-card-toolbar-button");
+        layerMenu.getStyleClass().add("stamped-toolbar-control");
         for (DocumentSurfaceView.Layer layer : DocumentSurfaceView.Layer.values()) {
             CheckMenuItem item = new CheckMenuItem(switch (layer) {
                 case MARGINALIA -> "Marginalia";
@@ -496,7 +511,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         layerMenu.getItems().addAll(new SeparatorMenuItem(), sentencesItem);
         overflow.setId("stampedDocumentOverflow");
         Icons.iconOnly(overflow, "mdi2d-dots-horizontal", "Verbs that act on the whole document");
-        overflow.getStyleClass().add("claude-card-toolbar-button");
+        overflow.getStyleClass().add("stamped-toolbar-control");
         overflow.getItems().addAll(
                 item("Open file…", "stampedDocumentOpenFile", "Choose a committed .adoc file in a git repository; it is materialized if the store lacks it", this::chooseFile),
                 item("Refresh", "stampedDocumentRefresh", "Re-read the documents the store holds, and the one shown", this::refresh),
@@ -531,6 +546,20 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         pendingGroup.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
         showPending(false, false);
         toolBar.getChildren().addAll(documents, views, modes, layerMenu, overflow, pendingGroup);
+        // Names beside the icons while the card is wide enough for them; icons alone when it is not.
+        fxObject().widthProperty().addListener((obs, was, is) -> labelToolbar());
+        modes.visibleProperty().addListener((obs, was, is) -> labelToolbar());
+        labelToolbar();
+    }
+
+    /** Shows each toolbar control's name beside its icon when the card is wide enough, its icon alone otherwise. */
+    private void labelToolbar() {
+        double needed = modes.isVisible() ? LABELED_TOOLBAR_WIDTH_WITH_MODES : LABELED_TOOLBAR_WIDTH;
+        boolean compact = fxObject().getWidth() < needed;
+        views.setCompact(compact);
+        modes.setCompact(compact);
+        Icons.compact(layerMenu, compact);
+        Icons.compact(overflow, compact);
     }
 
     private static MenuItem item(String text, String id, String tooltip, Runnable action) {
@@ -616,10 +645,12 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         host.setTop(repositoryPanel);
         host.setCenter(documentArea.fxObject());
         host.setBottom(null);
+        // On the card's root, not its body: the toolbar is part of the card's chrome, outside the
+        // body, and was left in JavaFX's default look while the sheets sat on the body alone.
         for (String sheet : List.of("/network/ike/komet/claude/claude-card.css", "/network/ike/komet/claude/stamp/stamped-document.css")) {
             URL css = StampedDocumentCard.class.getResource(sheet);
-            if (css != null) {
-                host.getStylesheets().add(css.toExternalForm());
+            if (css != null && !fxObject().getStylesheets().contains(css.toExternalForm())) {
+                fxObject().getStylesheets().add(css.toExternalForm());
             }
         }
         setCardContent(host);
@@ -702,6 +733,36 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
      */
     public void open(PublicId anchor) {
         open(anchor, null, null);
+        listShown(anchor);
+    }
+
+    /**
+     * Lists a document the card shows but its chooser does not, as one opened directly is: the
+     * store's documents are read again and the shown one chosen, without opening it a second time,
+     * so the chooser never says "No documents" over a document on the card.
+     */
+    private void listShown(PublicId anchor) {
+        if (anchors.values().stream().anyMatch(known -> PublicId.equals(known, anchor))) {
+            return;
+        }
+        CompletableFuture.supplyAsync(GitDocumentMaterializer::storedDocuments).whenComplete((found, failure) -> Platform.runLater(() -> {
+            if (failure != null) {
+                LOG.warn("Listing stored documents failed", failure);
+                return;
+            }
+            anchors = found;
+            listingShown = true;
+            try {
+                documents.getItems().setAll(found.keySet());
+                found.forEach((name, id) -> {
+                    if (PublicId.equals(id, anchor)) {
+                        documents.setValue(name);
+                    }
+                });
+            } finally {
+                listingShown = false;
+            }
+        }));
     }
 
     /**

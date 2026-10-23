@@ -44,6 +44,71 @@
     -fx-border-color: #FFE082;
 }
 
+/*
+ * The toolbar: every control the same height, padding and radius, in the segments' translucent
+ * white on the card's navy bar, with white glyphs; the selected segment filled white with a navy
+ * glyph. One look, so the chooser, the view and mode switches and the two menus line up.
+ */
+.segmented > .segment,
+.stamped-toolbar-control {
+    -fx-min-height: 28;
+    -fx-pref-height: 28;
+    -fx-max-height: 28;
+}
+
+.stamped-toolbar-control {
+    -fx-background-color: rgba(255, 255, 255, 0.14);
+    -fx-background-insets: 0;
+    -fx-background-radius: 5;
+    -fx-border-color: rgba(255, 255, 255, 0.55);
+    -fx-border-width: 1;
+    -fx-border-radius: 5;
+    -fx-padding: 0 6 0 6;
+    -fx-text-fill: white;
+    -fx-font-weight: bold;
+}
+
+.stamped-toolbar-control:hover {
+    -fx-background-color: rgba(255, 255, 255, 0.26);
+}
+
+.stamped-toolbar-control:focused {
+    -fx-border-color: #FFE082;
+}
+
+.stamped-toolbar-control > .label,
+.stamped-toolbar-control.combo-box > .list-cell {
+    -fx-text-fill: white;
+    -fx-background-color: transparent;
+    -fx-font-weight: bold;
+}
+
+.stamped-toolbar-control.combo-box > .list-cell {
+    -fx-padding: 0 4 0 4;
+}
+
+.stamped-toolbar-control.combo-box {
+    -fx-prompt-text-fill: rgba(255, 255, 255, 0.75);
+}
+
+.stamped-toolbar-control > .arrow-button {
+    -fx-background-color: transparent;
+    -fx-padding: 0 2 0 6;
+}
+
+.stamped-toolbar-control > .arrow-button > .arrow {
+    -fx-background-color: white;
+}
+
+.segmented > .segment .claude-card-toolbar-icon,
+.stamped-toolbar-control .claude-card-toolbar-icon {
+    -fx-icon-color: white;
+}
+
+.segmented > .segment:selected .claude-card-toolbar-icon {
+    -fx-icon-color: #34465f;
+}
+
 /* The page stack: a reader's grey ground, white pages with a gap between them. */
 .stamped-page-stack {
     -fx-background-color: #6f6f6f;

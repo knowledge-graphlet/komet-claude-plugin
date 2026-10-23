@@ -122,6 +122,20 @@ final class SegmentedControl<T> extends HBox {
         }
     }
 
+    /**
+     * Shows each segment's icon alone, or its icon with its name beside it. A segment without an
+     * icon always shows its name.
+     *
+     * @param compact true for icons alone
+     */
+    void setCompact(boolean compact) {
+        for (ToggleButton segment : segments) {
+            if (segment.getGraphic() != null) {
+                segment.setContentDisplay(compact ? ContentDisplay.GRAPHIC_ONLY : ContentDisplay.LEFT);
+            }
+        }
+    }
+
     /** @return the selected value, never null once built */
     ReadOnlyObjectProperty<T> valueProperty() {
         return value.getReadOnlyProperty();

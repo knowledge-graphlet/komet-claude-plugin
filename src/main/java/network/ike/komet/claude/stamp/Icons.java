@@ -47,6 +47,16 @@ final class Icons {
     }
 
     /**
+     * Shows a control's icon alone, or its icon with its name beside it.
+     *
+     * @param control the control
+     * @param compact true for the icon alone
+     */
+    static void compact(Labeled control, boolean compact) {
+        control.setContentDisplay(compact ? ContentDisplay.GRAPHIC_ONLY : ContentDisplay.LEFT);
+    }
+
+    /**
      * Shows a control by its icon alone; its text stays, for assistive technology and lookups by
      * text, and the tooltip leads with it.
      *
