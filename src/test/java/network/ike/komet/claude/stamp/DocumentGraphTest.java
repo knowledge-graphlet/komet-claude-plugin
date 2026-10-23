@@ -29,6 +29,7 @@ import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredReference;
 import dev.ikm.tinkar.terms.ConceptFacade;
 import network.ike.foundation.ike.bindings.IkeConcept;
 import org.junit.jupiter.api.Assumptions;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Files;
@@ -627,6 +628,7 @@ class DocumentGraphTest {
             Path.of(System.getProperty("user.home"), "ike-dev/anf/compendium/src/docs/asciidoc/compendium.adoc"));
 
     @Test
+    @Tag("external") // the lab and ANF checkouts beside this one; run with -Pexternal
     void theFiveRealDocumentsProjectWithNoMarkupLineLeft() throws Exception {
         Assumptions.assumeTrue(REAL_DOCUMENTS.stream().allMatch(Files::exists), "the lab and ANF checkouts are on this machine");
         for (Path file : REAL_DOCUMENTS) {

@@ -72,6 +72,10 @@
         <!-- stamp-adoc-core (ike-issues#468); komet-desktop stages the same version into plugins/. -->
         <stamp-adoc-core.version>1.0.0-SNAPSHOT</stamp-adoc-core.version>
         <test.excludedGroups>external</test.excludedGroups>
+        <!-- The unit tests' JVM options, which ike-parent's surefire argLine takes in: JavaFX logs
+             through JUL, which goes to stderr unless log4j's JUL manager takes it, as it does in
+             the integration tests; the core adapter honors the JUnit provider's setLevel call. -->
+        <argLine>-Djava.util.logging.manager=org.apache.logging.log4j.jul.LogManager -Dlog4j.jul.LoggerAdapter=org.apache.logging.log4j.jul.CoreLoggerAdapter</argLine>
         <!-- Main-line Komet BOM; manages komet module + tinkar versions.
              Matches ike-komet-wsr on main. -->
         <komet-bom.version>3.0.12-SNAPSHOT</komet-bom.version>
@@ -289,6 +293,15 @@
 
     <build>
         <plugins>
+            <!-- Unit tests tagged "external" need files or a service outside the build, as the
+                 integration tests do; -Pexternal runs them. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <excludedGroups>${test.excludedGroups}</excludedGroups>
+                </configuration>
+            </plugin>
             <!-- Evrete annotated rules bind facts to rule-method parameters by name,
                  so parameter names must be retained in the bytecode. -->
             <plugin>

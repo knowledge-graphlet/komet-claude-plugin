@@ -29,6 +29,7 @@ import network.ike.komet.claude.stamp.StoredNodeFacts.NodeFacts;
 import network.ike.komet.claude.stamp.StoredNodeFacts.Property;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.io.TempDir;
@@ -209,6 +210,7 @@ class VertexGraphIT {
     }
 
     @Test
+    @Tag("external") // the lab and ANF checkouts beside this one; run with -Pexternal
     void theFiveRealDocumentsProjectFromTheirVertices() throws Exception {
         org.junit.jupiter.api.Assumptions.assumeTrue(DocumentGraphTest.REAL_DOCUMENTS.stream().allMatch(Files::exists),
                 "the lab and ANF checkouts are on this machine");
