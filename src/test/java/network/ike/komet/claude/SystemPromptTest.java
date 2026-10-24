@@ -67,6 +67,20 @@ class SystemPromptTest {
     }
 
     @Test
+    void theToolContractNamesEveryToolTheCardOffers() throws IOException {
+        String core = resource("system-prompt-core.md");
+        java.util.List<String> names = ClaudeCard.assistantTools(() -> null, () -> null, () -> null, () -> null,
+                        java.util.List::of).stream()
+                .map(network.ike.komet.claude.anthropic.AnthropicTool::name)
+                .toList();
+        assertTrue(names.containsAll(java.util.List.of("search", "axioms", "read_block", "propose_concept",
+                "kb_composition", "load_skill")), "the card's tools, from graph reads to skills: " + names);
+        java.util.List<String> unnamed = names.stream().filter(name -> !core.contains("`" + name + "`")).toList();
+        assertEquals(java.util.List.of(), unnamed,
+                "the contract says what each tool is for, so a tool it never names is one the assistant misreads");
+    }
+
+    @Test
     void assemblyPutsInstructionsFirstAndTheContractLast() {
         assertEquals("persona\n\ncontract",
                 ClaudeCard.assembleSystemPrompt("persona\n", "\ncontract"));

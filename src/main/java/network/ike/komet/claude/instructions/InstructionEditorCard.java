@@ -321,7 +321,7 @@ public final class InstructionEditorCard extends AbstractHostCard {
     }
 
     /** The current seed generation — bump when a new system default joins the seed set. */
-    private static final int SEED_GENERATION = 4;
+    private static final int SEED_GENERATION = 5;
 
     /**
      * Seeds the read-only system defaults (KEC 2026-08-17, settled): real sets showing the form,
@@ -399,6 +399,18 @@ public final class InstructionEditorCard extends AbstractHostCard {
                 if (!present.contains(skill.name())) {
                     store.create(skill.name(), "System default — " + skill.description(),
                             InstructionCategory.SKILL, true, skill.body());
+                }
+            }
+        }
+        if (generation < 5) {
+            // Generation 5 rewrote the tool contract (every tool, reads and proposals) and the
+            // default instructions' proposals: refresh OUR read-only copies, so an editor shows
+            // what a card sends. User sets are untouched.
+            for (InstructionSet set : store.list()) {
+                if (set.readOnly() && "Komet tool contract".equals(set.name())) {
+                    store.refreshSystemDefault(set, bundledResource("system-prompt-core.md"));
+                } else if (set.readOnly() && "Komet Assistant default".equals(set.name())) {
+                    store.refreshSystemDefault(set, bundledResource("system-prompt-instructions.md"));
                 }
             }
         }

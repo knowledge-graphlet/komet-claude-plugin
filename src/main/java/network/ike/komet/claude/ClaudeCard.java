@@ -436,7 +436,32 @@ public final class ClaudeCard extends AbstractHostCard {
         refreshSystemPrompt();
         // Tools read the live card view each call via the method reference, so they always reflect the
         // journal's current coordinate (after bind).
-        java.util.List<AnthropicTool> all = new java.util.ArrayList<>(new GraphTools(this::viewCalculator).tools());
+        this.tools = assistantTools(this::viewCalculator, this::safeViewCalculator, this::safeViewProperties,
+                this::getJournalTopic, this::skills);
+        this.journalStore = new JournalStore(this::safeViewCalculator);
+        fxObject().getStyleClass().add("claude-card");
+        URL css = ClaudeCard.class.getResource("claude-card.css");
+        if (css != null) {
+            fxObject().getStylesheets().add(css.toExternalForm());
+        }
+    }
+
+    /**
+     * Every tool the assistant offers, in the order it offers them; the tool contract
+     * ({@code system-prompt-core.md}) names each one. The suppliers are read only when a tool runs.
+     *
+     * @param view           the card's view, null until bound
+     * @param safeView       the card's view, or the journal's until bound
+     * @param viewProperties the view properties proposals open with
+     * @param journalTopic   the journal a proposal's window opens in
+     * @param skills         the skills the card offers at the moment of a call
+     * @return the tools
+     */
+    static java.util.List<AnthropicTool> assistantTools(java.util.function.Supplier<ViewCalculator> view,
+            java.util.function.Supplier<ViewCalculator> safeView, java.util.function.Supplier<ViewProperties> viewProperties,
+            java.util.function.Supplier<java.util.UUID> journalTopic,
+            java.util.function.Supplier<java.util.List<network.ike.komet.claude.instructions.AssistantSkills.Skill>> skills) {
+        java.util.List<AnthropicTool> all = new java.util.ArrayList<>(new GraphTools(view).tools());
         // Provenance tools (ike-issues#468): who introduced or affirmed a committed file's lines, and a
         // concurrence prepared for the person to sign in the Stamped Document card — never signed here.
         all.addAll(network.ike.komet.claude.stamp.StampTools.tools(
@@ -444,23 +469,17 @@ public final class ClaudeCard extends AbstractHostCard {
         // The document graph (KEC 2026-10-20): read a STAMPed document's blocks, lines and provenance from the store,
         // with no working tree, and propose a block's new text as the assistant's own uncommitted edit.
         all.addAll(network.ike.komet.claude.stamp.DocumentGraphTools.tools(
-                network.ike.komet.claude.stamp.StampedDocumentCard::mostRecent, this::safeViewCalculator));
+                network.ike.komet.claude.stamp.StampedDocumentCard::mostRecent, safeView));
         // Authoring hand-off (ike-issues#1292): a proposed concept written uncommitted and opened in a KL
         // window of this journal for the person to publish — never committed here.
         all.addAll(new network.ike.komet.claude.authoring.ConceptProposalTools(
-                this::safeViewProperties, this::getJournalTopic).tools());
+                viewProperties, journalTopic).tools());
         // Composition (ike-issues#1304): what the open knowledge base is made of, read from the records
         // its build wrote into it — the Knowledge Base Composition card's text, without the card open.
-        all.addAll(network.ike.komet.claude.composition.KnowledgeBaseCompositionTools.tools(this::safeViewCalculator));
+        all.addAll(network.ike.komet.claude.composition.KnowledgeBaseCompositionTools.tools(safeView));
         // Skills (KEC 2026-10-23): the prompt lists each skill's name and use; this loads one's instructions.
-        all.add(network.ike.komet.claude.instructions.AssistantSkills.loadSkillTool(this::skills));
-        this.tools = java.util.List.copyOf(all);
-        this.journalStore = new JournalStore(this::safeViewCalculator);
-        fxObject().getStyleClass().add("claude-card");
-        URL css = ClaudeCard.class.getResource("claude-card.css");
-        if (css != null) {
-            fxObject().getStylesheets().add(css.toExternalForm());
-        }
+        all.add(network.ike.komet.claude.instructions.AssistantSkills.loadSkillTool(skills));
+        return java.util.List.copyOf(all);
     }
 
     /** Resolves the view calculator the tools query: this card's coordinate of record, once bound. */
