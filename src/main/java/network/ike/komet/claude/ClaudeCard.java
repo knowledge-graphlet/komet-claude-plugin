@@ -58,6 +58,7 @@ import javafx.scene.control.MenuButton;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.ProgressIndicator;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextField;
 import javafx.scene.control.TextInputDialog;
@@ -190,6 +191,20 @@ public final class ClaudeCard extends AbstractHostCard {
      */
     private static final String PREF_SYSTEM_PROMPT_SET =
             "network.ike.komet.claude.systemPromptSet";
+
+    /**
+     * Card-node preference holding the id of the Tool Contract set the card appends after its
+     * instructions (KEC 2026-10-23); blank means the bundled contract.
+     */
+    private static final String PREF_TOOL_CONTRACT_SET =
+            "network.ike.komet.claude.toolContractSet";
+
+    /**
+     * Card-node preference holding the keys of the skills the card leaves out, comma-separated;
+     * every other skill, bundled or written in an Instruction Editor, is offered (KEC 2026-10-23).
+     */
+    private static final String PREF_EXCLUDED_SKILLS =
+            "network.ike.komet.claude.excludedSkills";
 
     private static final int MAX_TOKENS = 8192;
 
@@ -437,6 +452,8 @@ public final class ClaudeCard extends AbstractHostCard {
         // Composition (ike-issues#1304): what the open knowledge base is made of, read from the records
         // its build wrote into it — the Knowledge Base Composition card's text, without the card open.
         all.addAll(network.ike.komet.claude.composition.KnowledgeBaseCompositionTools.tools(this::safeViewCalculator));
+        // Skills (KEC 2026-10-23): the prompt lists each skill's name and use; this loads one's instructions.
+        all.add(network.ike.komet.claude.instructions.AssistantSkills.loadSkillTool(this::skills));
         this.tools = java.util.List.copyOf(all);
         this.journalStore = new JournalStore(this::safeViewCalculator);
         fxObject().getStyleClass().add("claude-card");
@@ -547,6 +564,16 @@ public final class ClaudeCard extends AbstractHostCard {
                         () -> preferences().get(PREF_SYSTEM_INSTRUCTIONS_FILE, "").isBlank()
                                 ? "Default" : "Edited"),
                 () -> promptSettingsContent(pane));
+        pane.addSection("Tool contract",
+                () -> setName(preferences().get(PREF_TOOL_CONTRACT_SET, "")).orElse("Bundled"),
+                () -> toolContractSettingsContent(pane));
+        pane.addSection("Skills",
+                () -> {
+                    int all = allSkills().size();
+                    int offered = skills().size();
+                    return offered == all ? "All " + all : offered + " of " + all;
+                },
+                () -> skillsSettingsContent(pane));
         pane.addSection("Model",
                 this::currentModelLabel,
                 () -> modelSettingsContent(pane));
@@ -651,9 +678,10 @@ public final class ClaudeCard extends AbstractHostCard {
             for (network.ike.komet.claude.instructions.InstructionSets.InstructionSet set
                     : new network.ike.komet.claude.instructions.InstructionSets(tile).list()) {
                 // Category classifies intent: this selector offers sets intended as system
-                // prompts (and uncategorized ones); SKILL-only sets wait for the include
-                // selector (ike-issues#1042).
-                if (set.category() == network.ike.komet.claude.instructions.InstructionCategory.SKILL) {
+                // prompts; skills have the Skills section and tool contracts the Tool contract
+                // section, since a contract chosen here sent the contract twice and no
+                // instructions (KEC 2026-10-23).
+                if (set.category() != network.ike.komet.claude.instructions.InstructionCategory.SYSTEM_PROMPT) {
                     continue;
                 }
                 choices.add(new Choice(set.id(), set.name() + " — " + tileLabel));
@@ -1649,6 +1677,8 @@ public final class ClaudeCard extends AbstractHostCard {
      ******************************************************************************/
 
     private void onSend() {
+        // The skills and sets can change in an Instruction Editor at any time: each send reads them afresh.
+        refreshSystemPrompt();
         String text = composeMessage();
         if (text.isEmpty()) {
             return;
@@ -2958,6 +2988,195 @@ public final class ClaudeCard extends AbstractHostCard {
                 network.ike.komet.claude.instructions.InstructionEditorCard.CARD_TYPE_VALUE);
     }
 
+    /** A set's parsed document by id, resolved across the journal's editor tiles. */
+    private Optional<network.ike.komet.claude.instructions.InstructionSets.Frontmatter> resolveSet(String id) {
+        if (id == null || id.isBlank()) {
+            return Optional.empty();
+        }
+        for (KometPreferences tile : instructionEditorTiles()) {
+            network.ike.komet.claude.instructions.InstructionSets sets =
+                    new network.ike.komet.claude.instructions.InstructionSets(tile);
+            Optional<network.ike.komet.claude.instructions.InstructionSets.InstructionSet> match = sets.byId(id);
+            if (match.isPresent()) {
+                return sets.read(match.get());
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** A set's name by id, "Missing set" when no tile holds it, empty for a blank id. */
+    private Optional<String> setName(String id) {
+        if (id == null || id.isBlank()) {
+            return Optional.empty();
+        }
+        for (KometPreferences tile : instructionEditorTiles()) {
+            Optional<network.ike.komet.claude.instructions.InstructionSets.InstructionSet> match =
+                    new network.ike.komet.claude.instructions.InstructionSets(tile).byId(id);
+            if (match.isPresent()) {
+                return Optional.of(match.get().name());
+            }
+        }
+        return Optional.of("Missing set");
+    }
+
+    /**
+     * The tool contract the card appends after its instructions: the Tool Contract set the
+     * card names, or the bundled contract.
+     */
+    private String toolContractLayer() {
+        String id = preferences().get(PREF_TOOL_CONTRACT_SET, "");
+        if (id.isBlank()) {
+            return promptCore;
+        }
+        Optional<network.ike.komet.claude.instructions.InstructionSets.Frontmatter> chosen = resolveSet(id);
+        if (chosen.isEmpty()) {
+            LOG.warn("Selected tool-contract set {} not found in any Instruction Editor tile; using the bundled contract", id);
+            return promptCore;
+        }
+        return chosen.get().body();
+    }
+
+    /**
+     * Every skill there is for the card: the plugin's bundled skills, then the Skill sets
+     * written in the journal's Instruction Editors, leaving out their read-only copies of the
+     * bundled ones.
+     */
+    private List<network.ike.komet.claude.instructions.AssistantSkills.Skill> allSkills() {
+        List<network.ike.komet.claude.instructions.AssistantSkills.Skill> all =
+                new ArrayList<>(network.ike.komet.claude.instructions.AssistantSkills.bundled());
+        for (KometPreferences tile : instructionEditorTiles()) {
+            String tileLabel = tile.get(network.ike.komet.claude.instructions.InstructionEditorCard.TILE_LABEL_KEY,
+                    "Instruction Editor");
+            network.ike.komet.claude.instructions.InstructionSets sets =
+                    new network.ike.komet.claude.instructions.InstructionSets(tile);
+            for (network.ike.komet.claude.instructions.InstructionSets.InstructionSet set : sets.list()) {
+                if (set.category() != network.ike.komet.claude.instructions.InstructionCategory.SKILL || set.readOnly()) {
+                    continue;
+                }
+                sets.read(set).ifPresent(doc -> all.add(new network.ike.komet.claude.instructions.AssistantSkills.Skill(
+                        set.id(), set.name(), set.description(), doc.body(), tileLabel)));
+            }
+        }
+        return all;
+    }
+
+    /** The skills the card offers: every skill but those the card leaves out. */
+    private List<network.ike.komet.claude.instructions.AssistantSkills.Skill> skills() {
+        Set<String> excluded = excludedSkills();
+        return allSkills().stream().filter(skill -> !excluded.contains(skill.key())).toList();
+    }
+
+    private Set<String> excludedSkills() {
+        String stored = preferences().get(PREF_EXCLUDED_SKILLS, "");
+        return stored.isBlank() ? Set.of() : Set.of(stored.split(","));
+    }
+
+    /** The Tool contract section: the bundled contract, or a Tool Contract set from an Instruction Editor. */
+    private javafx.scene.Node toolContractSettingsContent(SettingsPanePopup pane) {
+        record Choice(String id, String label) {
+            @Override
+            public String toString() {
+                return label;
+            }
+        }
+        List<Choice> choices = new ArrayList<>();
+        choices.add(new Choice("", "Bundled (default)"));
+        for (KometPreferences tile : instructionEditorTiles()) {
+            String tileLabel = tile.get(network.ike.komet.claude.instructions.InstructionEditorCard.TILE_LABEL_KEY,
+                    "Instruction Editor");
+            for (network.ike.komet.claude.instructions.InstructionSets.InstructionSet set
+                    : new network.ike.komet.claude.instructions.InstructionSets(tile).list()) {
+                if (set.category() == network.ike.komet.claude.instructions.InstructionCategory.TOOL_CONTRACT
+                        && !set.readOnly()) {
+                    choices.add(new Choice(set.id(), set.name() + " — " + tileLabel));
+                }
+            }
+        }
+        MarkdownRichText renderer = new MarkdownRichText(safeViewProperties(), MarkdownRichText.DEFAULT_BASE);
+        MarkdownEditPane preview = new MarkdownEditPane(toolContractLayer(), false, renderer::renderMarkdown);
+        preview.setPrefSize(298, 300);
+        preview.setMaxWidth(Double.MAX_VALUE);
+        preview.setMaxHeight(Double.MAX_VALUE);
+        VBox.setVgrow(preview, Priority.ALWAYS);
+        javafx.scene.control.ComboBox<Choice> selector = new javafx.scene.control.ComboBox<>();
+        selector.setId("assistantToolContract");
+        selector.getItems().setAll(choices);
+        selector.setMaxWidth(Double.MAX_VALUE);
+        String current = preferences().get(PREF_TOOL_CONTRACT_SET, "");
+        selector.getSelectionModel().select(choices.stream()
+                .filter(choice -> choice.id().equals(current)).findFirst().orElse(choices.get(0)));
+        selector.valueProperty().addListener((obs, was, sel) -> {
+            if (sel == null) {
+                return;
+            }
+            preferences().put(PREF_TOOL_CONTRACT_SET, sel.id());
+            try {
+                preferences().sync();
+            } catch (BackingStoreException ex) {
+                LOG.warn("Could not sync the tool-contract selection", ex);
+            }
+            refreshSystemPrompt();
+            preview.showText(toolContractLayer());
+            pane.refreshSummaries();
+        });
+        Label hint = new Label("The tool contract follows the instructions in every request: how the assistant "
+                + "uses Komet's tools, grounds what it says, and draws concepts. To change it, Save as… the "
+                + "Komet tool contract in an Instruction Editor and choose your copy here.");
+        hint.setWrapText(true);
+        Button openEditor = new Button("Open in Instruction Editor…");
+        openEditor.setOnAction(e -> {
+            pane.hide();
+            openInInstructionEditor();
+        });
+        return new VBox(6, selector, preview, openEditor, hint);
+    }
+
+    /** The Skills section: every skill, bundled or written in an Instruction Editor, each on or off for this card. */
+    private javafx.scene.Node skillsSettingsContent(SettingsPanePopup pane) {
+        VBox list = new VBox(4);
+        Set<String> excluded = new java.util.HashSet<>(excludedSkills());
+        List<network.ike.komet.claude.instructions.AssistantSkills.Skill> all = allSkills();
+        StringBuilder uses = new StringBuilder();
+        for (network.ike.komet.claude.instructions.AssistantSkills.Skill skill : all) {
+            uses.append("**").append(skill.name()).append("** (").append(skill.source()).append("): ")
+                    .append(skill.description()).append("\n\n");
+            CheckBox include = new CheckBox(skill.name());
+            include.setSelected(!excluded.contains(skill.key()));
+            include.setTooltip(new Tooltip(skill.description()));
+            include.selectedProperty().addListener((obs, was, is) -> {
+                if (is) {
+                    excluded.remove(skill.key());
+                } else {
+                    excluded.add(skill.key());
+                }
+                preferences().put(PREF_EXCLUDED_SKILLS, String.join(",", excluded));
+                try {
+                    preferences().sync();
+                } catch (BackingStoreException ex) {
+                    LOG.warn("Could not sync the skills selection", ex);
+                }
+                refreshSystemPrompt();
+                pane.refreshSummaries();
+            });
+            list.getChildren().add(include);
+        }
+        ScrollPane scroll = new ScrollPane(list);
+        scroll.setFitToWidth(true);
+        scroll.setMaxHeight(170);
+        scroll.setStyle("-fx-background-color: transparent; -fx-background: transparent;");
+        // What each skill is for, as rich text the person can select and copy.
+        MarkdownRichText renderer = new MarkdownRichText(safeViewProperties(), MarkdownRichText.DEFAULT_BASE);
+        MarkdownEditPane descriptions = new MarkdownEditPane(uses.toString().strip(), false, renderer::renderMarkdown);
+        descriptions.setPrefSize(298, 280);
+        descriptions.setMaxWidth(Double.MAX_VALUE);
+        descriptions.setMaxHeight(Double.MAX_VALUE);
+        VBox.setVgrow(descriptions, Priority.ALWAYS);
+        Label hint = new Label("The assistant sees each skill's name and use, and loads a skill's instructions "
+                + "only when a request calls for it. Write more skills in an Instruction Editor as Skill sets.");
+        hint.setWrapText(true);
+        return new VBox(8, scroll, descriptions, hint);
+    }
+
     /** The selected titled set's parsed document, resolved across editor tiles; empty when none. */
     private Optional<network.ike.komet.claude.instructions.InstructionSets.Frontmatter> selectedTitledSet() {
         String id = preferences().get(PREF_SYSTEM_PROMPT_SET, "");
@@ -3016,7 +3235,10 @@ public final class ClaudeCard extends AbstractHostCard {
 
     /** Recomputes {@link #systemPrompt} from the current layers; the next send uses it. */
     private void refreshSystemPrompt() {
-        this.systemPrompt = assembleSystemPrompt(instructionsLayer(), promptCore);
+        String skillsSection = network.ike.komet.claude.instructions.AssistantSkills.promptSection(skills());
+        String instructions = instructionsLayer();
+        this.systemPrompt = assembleSystemPrompt(skillsSection.isBlank() ? instructions
+                : instructions.strip() + "\n\n" + skillsSection, toolContractLayer());
     }
 
     /*******************************************************************************

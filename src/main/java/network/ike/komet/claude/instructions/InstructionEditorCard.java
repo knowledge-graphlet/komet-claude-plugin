@@ -321,43 +321,39 @@ public final class InstructionEditorCard extends AbstractHostCard {
     }
 
     /** The current seed generation — bump when a new system default joins the seed set. */
-    private static final String SEED_GENERATION = "3";
+    private static final int SEED_GENERATION = 4;
 
     /**
-     * Seeds the read-only system defaults, one per category (KEC 2026-08-17, settled): real
-     * sets showing the form, versioned by generation so an already-seeded tile gains only the
-     * defaults added since — names it has never seen, so a user who deleted an old seed is
-     * never fought.
+     * Seeds the read-only system defaults (KEC 2026-08-17, settled): real sets showing the form,
+     * versioned by generation so an already-seeded tile gains only the defaults added since —
+     * names it has never seen, so a user who deleted an old seed is never fought.
+     *
+     * <ol>
+     *   <li>A System Prompt default and a sample Skill.</li>
+     *   <li>A default for the remaining categories: the assistant's tool contract, and the
+     *       drafting persona behind this editor's own Assistant drawer.</li>
+     *   <li>The drafting persona refreshed in place, for tiles seeded at generation 2.</li>
+     *   <li>Read-only copies of the assistant's bundled skills (KEC 2026-10-23), to read and to
+     *       Save as… a copy that changes; the assistant itself uses the bundled originals.</li>
+     * </ol>
      */
     private void seedExamplesOnce() {
         String seeded = preferences().get(SEEDED_KEY, "");
-        if (SEED_GENERATION.equals(seeded)) {
+        int generation;
+        try {
+            generation = seeded.isBlank() ? 0 : Integer.parseInt(seeded.strip());
+        } catch (NumberFormatException e) {
+            generation = 0;
+        }
+        if (generation >= SEED_GENERATION) {
             return;
         }
-        if (seeded.isBlank()) {
-            // Generation 1: a System Prompt default and a sample Skill.
+        if (generation < 1) {
             store.create("Komet Assistant default",
                     "System default — the assistant's bundled instruction layer. Select it as the "
                             + "system prompt for stock behavior, or Save as… a copy to start your own.",
                     InstructionCategory.SYSTEM_PROMPT, true,
                     bundledResource("system-prompt-instructions.md"));
-            store.create("Terminology answer style",
-                    "System default — an example skill. Use when answers will be pasted into "
-                            + "documents, issues, or reviews and need the lead-with-the-answer, "
-                            + "badge-referenced form; Save as… to adapt.",
-                    InstructionCategory.SKILL, true,
-                    """
-                    Use this skill when answers will be pasted into documents, issues, or reviews.
-
-                    ## Instructions
-
-                    - Lead with the answer in one sentence, then the supporting concepts as a table.
-                    - Reference every concept as a Koncept Badge; label identifier columns as what \
-                    they actually hold.
-                    - Prefer the knowledge base's fully-qualified names; give colloquial synonyms in \
-                    parentheses.
-                    - Close with a one-line caveat when edition or version differences could matter.
-                    """);
         } else {
             // A generation-1 tile from before the read-only ruling may carry writable ghosts —
             // mark the two known system defaults read-only once.
@@ -370,7 +366,7 @@ public final class InstructionEditorCard extends AbstractHostCard {
                 }
             }
         }
-        if ("2".equals(seeded)) {
+        if (generation == 2) {
             // Generation 3 refreshes the drafting persona in place (conversation + the
             // propose_document protocol): OUR read-only content only — a tile whose default
             // was deleted is left alone, and user sets are untouched.
@@ -379,12 +375,11 @@ public final class InstructionEditorCard extends AbstractHostCard {
                     store.refreshSystemDefault(set, bundledResource("instruction-editor-prompt.md"));
                 }
             }
-        } else {
-            // Generation 2: a default for the remaining categories — the assistant's tool
-            // contract, and the drafting persona behind this editor's own Assistant drawer.
+        }
+        if (generation < 2) {
             store.create("Komet tool contract",
                     "System default — the assistant's fixed tool-use mechanics: graph-tool calling "
-                            + "discipline, grounding labels, identifier-column rules. Select as a "
+                            + "discipline, grounding labels, identifier-column rules. Choose a copy as a "
                             + "card's tool contract; Save as… to improve it in our tooling.",
                     InstructionCategory.TOOL_CONTRACT, true,
                     bundledResource("system-prompt-core.md"));
@@ -395,7 +390,19 @@ public final class InstructionEditorCard extends AbstractHostCard {
                     InstructionCategory.SYSTEM_PROMPT, true,
                     bundledResource("instruction-editor-prompt.md"));
         }
-        preferences().put(SEEDED_KEY, SEED_GENERATION);
+        if (generation < 4) {
+            // The assistant's skills, each read-only; Terminology answer style was the sample
+            // Skill of generation 1, so a tile that has it already keeps its copy.
+            java.util.Set<String> present = new java.util.HashSet<>();
+            store.list().forEach(set -> present.add(set.name()));
+            for (AssistantSkills.Skill skill : AssistantSkills.bundled()) {
+                if (!present.contains(skill.name())) {
+                    store.create(skill.name(), "System default — " + skill.description(),
+                            InstructionCategory.SKILL, true, skill.body());
+                }
+            }
+        }
+        preferences().put(SEEDED_KEY, Integer.toString(SEED_GENERATION));
         try {
             preferences().sync();
         } catch (Exception e) {

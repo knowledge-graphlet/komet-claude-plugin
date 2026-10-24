@@ -8,16 +8,17 @@ Each instruction set has a name, a description and a Markdown body, kept in the 
 Each set is intended as one of three things, chosen in the category list beside the body:
 
 System Prompt:: Instructions an assistant card works from. An Assistant card's *System prompt* setting offers these.
-Skill:: A focused set of instructions for one kind of task. New and imported sets start as skills. Assistant cards do not yet include skills.
-Tool Contract:: How the assistant should use Komet's tools. The System prompt setting offers these too; choosing one there makes it the card's instructions.
+Skill:: A focused set of instructions for one kind of task. New and imported sets start as skills. An Assistant card offers your skills alongside its bundled ones, and loads one when a request matches its description, so write the description as when to use it.
+Tool Contract:: How the assistant should use Komet's tools. An Assistant card's *Tool contract* setting offers these.
 
 == The sets in a card
 
 The list on the left shows the card's sets by name, each with its category and description; hover over one for its whole description.
 Choose a set to open it. The *☰* button on the toolbar shows or hides the list.
 
-Every card starts with four read-only system defaults: _Komet Assistant default_, _Terminology answer style_, _Komet tool contract_ and _Instruction Editor default_.
+Every card starts with read-only system defaults: _Komet Assistant default_, _Komet tool contract_ and _Instruction Editor default_, and the assistant's bundled skills: _Concept authoring_, _Definition review_, _Document review_, _Provenance answers_, _ANF lift_ and _Terminology answer style_.
 A default cannot be saved over; *Save as…* makes your own copy to change.
+A skill's copy is offered to assistants beside the bundled one, so give it a name of its own and clear the bundled one in the assistant's *Skills* setting.
 
 Each Instruction Editor card keeps its own sets, as Markdown files in the card's own settings folder.
 
@@ -49,8 +50,9 @@ How the drafting behaves comes from *Settings › Drafting prompt*: the bundled 
 
 == Using a set
 
-To have an assistant work from a set, open the Komet Assistant card's settings and choose the set under *System prompt*.
-Its body becomes the card's instructions; sets from every Instruction Editor card in the journal are offered.
+To have an assistant work from a set, open the Komet Assistant card's settings:
+a System Prompt set is chosen under *System prompt*, a Tool Contract set under *Tool contract*, and a Skill set is listed under *Skills*, where it is on until you clear it.
+Sets from every Instruction Editor card in the journal are offered.
 See xref:komet-assistant.adoc[The Komet Assistant card].
 
 == Settings

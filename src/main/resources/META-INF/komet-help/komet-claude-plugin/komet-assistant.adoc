@@ -73,12 +73,14 @@ The sliders button opens the assistant's settings:
 
 Text size:: *A−* and *A+* change the size of the transcript and the box you type in.
 Chip labels:: Whether concept chips use small capitals, and bold.
-System prompt:: The instructions the card works from: the bundled default, or an instruction set written in an Instruction Editor card. A preview shows the instructions in force. *Open in Instruction Editor…* opens the editor; *Revert to default* returns to the bundled instructions. See xref:instruction-editor.adoc[The Instruction Editor card].
+System prompt:: The instructions the card works from: the bundled default, or a System Prompt set written in an Instruction Editor card. A preview shows the instructions in force. *Open in Instruction Editor…* opens the editor; *Revert to default* returns to the bundled instructions. See xref:instruction-editor.adoc[The Instruction Editor card].
+Tool contract:: How the assistant uses Komet's tools: the bundled contract, or a Tool Contract set of your own. It is sent with the system prompt, so changing one never loses the other.
+Skills:: The skills the assistant may load: focused instructions for one kind of request, such as authoring a concept, reviewing a definition or a document, answering where something came from, or lifting narrative into ANF. The assistant sees each skill's name and description, and loads a skill's instructions only when a request matches it. Clear a skill's box to leave it out of this card. The list holds the bundled skills and the Skill sets written in Instruction Editor cards.
 Model:: The Claude model that answers. The list shows the models your API key can use, newest first. The choice also applies to the Instruction Editor's drafting and to commit narration.
 API key:: The Anthropic API key every assistant card uses.
 Trash:: Whether the Trash is emptied when Komet quits, and a way into it.
 
-Text size, chip labels, the model, the key and the Trash setting are yours and apply to every assistant card; the system prompt and the conversations belong to the card.
+Text size, chip labels, the model, the key and the Trash setting are yours and apply to every assistant card; the system prompt, the tool contract, the skills and the conversations belong to the card.
 
 When a conversation's journal cannot be written into the knowledge base, Komet says so once in an alert; the exchange is still kept in the conversation's own file.
 
