@@ -59,6 +59,9 @@ public final class AnthropicClient {
     /** The Anthropic Messages API endpoint. */
     private static final String ENDPOINT = "https://api.anthropic.com/v1/messages";
 
+    /** The Anthropic Models API endpoint, which lists the models a key can use. */
+    private static final String MODELS_ENDPOINT = "https://api.anthropic.com/v1/models";
+
     /** The {@code anthropic-version} header value. */
     private static final String ANTHROPIC_VERSION = "2023-06-01";
 
@@ -301,6 +304,64 @@ public final class AnthropicClient {
             results.add(tr);
         }
         return results;
+    }
+
+    /**
+     * A model the API key can use, as the Models API lists it.
+     *
+     * @param id           the model id, as a request names it
+     * @param display_name its name for people
+     * @param created_at   its release date, RFC 3339
+     */
+    public record ModelInfo(String id, String display_name, String created_at) {
+    }
+
+    /** One page of the Models API's list. */
+    private record ModelPage(List<ModelInfo> data, boolean has_more, String last_id) {
+    }
+
+    /**
+     * Lists the models an API key can use, newest first, through the Models API
+     * ({@code GET /v1/models}), following its pages.
+     *
+     * @param apiKey the Anthropic API key
+     * @return the models
+     * @throws AnthropicException when the API refuses or cannot be reached
+     */
+    public static List<ModelInfo> listModels(String apiKey) {
+        HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
+        List<ModelInfo> models = new ArrayList<>();
+        String after = null;
+        for (int page = 0; page < 20; page++) {
+            String query = "?limit=1000" + (after == null ? "" : "&after_id=" + java.net.URLEncoder.encode(after, java.nio.charset.StandardCharsets.UTF_8));
+            HttpRequest request = HttpRequest.newBuilder(URI.create(MODELS_ENDPOINT + query))
+                    .timeout(Duration.ofSeconds(30))
+                    .header("x-api-key", apiKey)
+                    .header("anthropic-version", ANTHROPIC_VERSION)
+                    .GET()
+                    .build();
+            HttpResponse<String> response;
+            try {
+                response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            } catch (IOException e) {
+                throw new AnthropicException("I/O error listing models: " + e.getMessage(), e);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new AnthropicException("Interrupted while listing models", e);
+            }
+            if (response.statusCode() / 100 != 2) {
+                throw new AnthropicException("Anthropic API returned " + response.statusCode() + " listing models: " + response.body());
+            }
+            ModelPage parsed = Json.parse(response.body(), ModelPage.class);
+            if (parsed.data() != null) {
+                models.addAll(parsed.data());
+            }
+            if (!parsed.has_more() || parsed.last_id() == null) {
+                break;
+            }
+            after = parsed.last_id();
+        }
+        return models;
     }
 
     /** Sends one request and returns the parsed response, reporting retries to {@code obs}. */

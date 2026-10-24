@@ -52,12 +52,14 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
+import dev.ikm.komet.kview.mvvm.view.trash.TrashTray;
 import network.ike.komet.claude.ClaudeCard;
 import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.help.PluginHelp;
 import network.ike.komet.claude.instructions.InstructionSets.Frontmatter;
 import network.ike.komet.claude.instructions.InstructionSets.InstructionSet;
+import network.ike.komet.claude.trash.PluginTrash;
 import network.ike.komet.claude.ui.MarkdownDiff;
 import network.ike.komet.claude.ui.MarkdownEditPane;
 import network.ike.komet.claude.ui.MarkdownRichText;
@@ -445,6 +447,7 @@ public final class InstructionEditorCard extends AbstractHostCard {
         railHeader.setPadding(new Insets(6));
 
         setList = new ListView<>();
+        setList.setId("instructionSets");
         setList.setPrefWidth(210);
         setList.setCellFactory(lv -> new ListCell<>() {
             private final Label nameLabel = new Label();
@@ -493,7 +496,28 @@ public final class InstructionEditorCard extends AbstractHostCard {
                 openSet(sel);
             }
         });
-        rail = new VBox(railHeader, setList);
+        // The Trash (KEC 2026-10-23): Move to Trash takes a set out of the list until the Trash is
+        // emptied; a system default stays, since it cannot be deleted.
+        javafx.scene.control.MenuItem trashItem = new javafx.scene.control.MenuItem("Move to Trash");
+        trashItem.setOnAction(e -> moveSelectedToTrash());
+        javafx.scene.control.ContextMenu setMenu = new javafx.scene.control.ContextMenu(trashItem);
+        setMenu.setOnShowing(e -> {
+            InstructionSet selected = setList.getSelectionModel().getSelectedItem();
+            trashItem.setDisable(selected == null || selected.readOnly());
+        });
+        setList.setContextMenu(setMenu);
+        trashButton = new Button();
+        trashButton.setId("instructionTrash");
+        trashButton.setTooltip(new Tooltip("Open the Trash: put sets back, or delete them for good"));
+        trashButton.setMaxWidth(Double.MAX_VALUE);
+        trashButton.setOnAction(e -> TrashTray.open(trashButton));
+        refreshTrashButton();
+        HBox trashRow = new HBox(trashButton);
+        HBox.setHgrow(trashButton, Priority.ALWAYS);
+        trashRow.setPadding(new Insets(6));
+        PluginTrash.onPutBack(trashPutBack);
+        PluginTrash.onChange(trashChanged);
+        rail = new VBox(railHeader, setList, trashRow);
         VBox.setVgrow(setList, Priority.ALWAYS);
         rail.setMinWidth(160);
 
@@ -660,6 +684,50 @@ public final class InstructionEditorCard extends AbstractHostCard {
         }
     }
 
+    /** The rail's Trash button, showing how many instruction sets are in the Trash. */
+    private Button trashButton;
+    private final java.util.function.Consumer<PluginTrash.Entry> trashPutBack = this::putBackFromTrash;
+    private final Runnable trashChanged = () -> Platform.runLater(this::refreshTrashButton);
+
+    /** Moves the selected set to the Trash; a system default is refused. */
+    private void moveSelectedToTrash() {
+        InstructionSet selected = setList.getSelectionModel().getSelectedItem();
+        if (selected == null) {
+            return;
+        }
+        if (!store.moveToTrash(selected)) {
+            statusLine.setText("A system default cannot be moved to the Trash; Save as… makes a copy you can change.");
+            return;
+        }
+        active = null;
+        refreshSets(null);
+        statusLine.setText("Moved “" + selected.name() + "” to the Trash.");
+    }
+
+    /** Shows a set of this card again when it is put back from the Trash. */
+    private void putBackFromTrash(PluginTrash.Entry item) {
+        if (item.kind() == PluginTrash.Kind.INSTRUCTION_SET
+                && item.node().equals(PluginTrash.relativePath(preferences()))) {
+            Platform.runLater(() -> refreshSets(null));
+        }
+    }
+
+    /** Shows the Trash's instruction-set count on its button. */
+    private void refreshTrashButton() {
+        if (trashButton == null) {
+            return;
+        }
+        long count = PluginTrash.entries().stream().filter(e -> e.kind() == PluginTrash.Kind.INSTRUCTION_SET).count();
+        trashButton.setText(count == 0 ? "🗑 Trash" : "🗑 Trash (" + count + ")");
+    }
+
+    @Override
+    public void knowledgeLayoutUnbind() {
+        super.knowledgeLayoutUnbind();
+        PluginTrash.stopListening(trashPutBack);
+        PluginTrash.stopListening(trashChanged);
+    }
+
     /** Reloads the rail, keeping (or setting) the selection; empty swaps in the first-run state. */
     private void refreshSets(InstructionSet select) {
         InstructionSet target = select != null ? select
@@ -670,11 +738,13 @@ public final class InstructionEditorCard extends AbstractHostCard {
             active = null;
             return;
         }
-        if (target != null) {
-            setList.getItems().stream()
-                    .filter(set -> set.id().equals(target.id()))
-                    .findFirst()
-                    .ifPresent(set -> setList.getSelectionModel().select(set));
+        // The target, or the first set when there is none or it has left the list (moved to the Trash):
+        // the editor always shows a set that is in the list.
+        Optional<InstructionSet> listed = target == null ? Optional.empty() : setList.getItems().stream()
+                .filter(set -> set.id().equals(target.id()))
+                .findFirst();
+        if (listed.isPresent()) {
+            setList.getSelectionModel().select(listed.get());
         } else {
             setList.getSelectionModel().select(0);
         }

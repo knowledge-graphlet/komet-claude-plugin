@@ -1,0 +1,23 @@
+= The Trash
+
+What you remove from an assistant card or an Instruction Editor card goes to Komet's Trash first, so a mistake can be undone.
+
+Move to Trash:: Right-click a conversation or an instruction set and choose *Move to Trash*. It leaves the list at once.
+Opening the Trash:: Choose the bin in the journal's left-hand sidebar; a count on it shows how many items the Trash holds. *🗑 Trash* below a card's list opens the same Trash. It lists everything in it, conversations and instruction sets alike, with what each is and when it was moved there.
+Put Back:: Select items and choose *Put Back*. Each returns to the card it came from.
+Delete:: Select items and choose *Delete…* to delete them for good.
+Empty Trash:: Deletes everything in the Trash for good.
+
+Deleting is final.
+A conversation is deleted with its file and with its journal in the knowledge base: every exchange recorded there, which is instance data the store alone holds.
+An instruction set is deleted with its file.
+
+== Emptying when Komet quits
+
+*Empty the Trash when Komet quits*, at the bottom of the Trash, is on unless you turn it off.
+With it on, everything in the Trash is deleted as Komet quits, while the knowledge base is still open.
+With it off, the Trash keeps its contents until you empty it.
+
+Conversations that an earlier version of Komet only hid when they were deleted are in the Trash too, so they are deleted when it is next emptied.
+
+See xref:kinds-of-data.adoc[Kinds of data] for what instance data is.

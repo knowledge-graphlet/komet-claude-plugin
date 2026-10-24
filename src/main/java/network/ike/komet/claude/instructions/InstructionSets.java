@@ -16,6 +16,7 @@
 package network.ike.komet.claude.instructions;
 
 import dev.ikm.komet.preferences.KometPreferences;
+import network.ike.komet.claude.trash.PluginTrash;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -46,6 +47,9 @@ public final class InstructionSets {
 
     /** Index-entry key prefix within the owning tile's preferences node. */
     private static final String KEY_PREFIX = "instruction-set.";
+
+    /** Index-entry key suffix marking a set moved to the Trash, with when (epoch milliseconds). */
+    private static final String TRASHED = ".trashed";
 
     /**
      * One registered titled instruction set.
@@ -88,16 +92,50 @@ public final class InstructionSets {
     }
 
     /**
-     * The registered sets, sorted by name.
+     * The registered sets, sorted by name, leaving out those in the Trash.
      *
      * @return the sets (never {@code null}; empty when none are registered)
      */
     public List<InstructionSet> list() {
+        return registered(false);
+    }
+
+    /**
+     * Moves a set to the plugin's Trash (KEC 2026-10-23): it leaves the list at once and is deleted
+     * for good, file and registration, when the Trash is emptied; until then it can be put back.
+     * A card that already uses it as its system prompt keeps it until then. A system default is
+     * never trashed.
+     *
+     * @param set the set
+     * @return whether it was moved
+     */
+    public boolean moveToTrash(InstructionSet set) {
+        if (set.readOnly()) {
+            return false;
+        }
+        long now = System.currentTimeMillis();
+        String trashedKey = KEY_PREFIX + set.id() + TRASHED;
+        node.put(trashedKey, Long.toString(now));
+        try {
+            node.sync();
+        } catch (Exception e) {
+            LOG.warn("Could not save the Trash mark of set {}", set.id(), e);
+        }
+        String file = node.directory().map(dir -> dir.resolve(set.fileName()).toString()).orElse("");
+        PluginTrash.moveToTrash(new PluginTrash.Entry(set.id(), PluginTrash.Kind.INSTRUCTION_SET, set.name(), now,
+                PluginTrash.relativePath(node), List.of(trashedKey), false, KEY_PREFIX + set.id() + ".", file, ""));
+        return true;
+    }
+
+    private List<InstructionSet> registered(boolean includingTrashed) {
         List<InstructionSet> sets = new ArrayList<>();
         try {
             for (String key : node.keys()) {
                 if (key.startsWith(KEY_PREFIX) && key.endsWith(".file")) {
                     String id = key.substring(KEY_PREFIX.length(), key.length() - ".file".length());
+                    if (!includingTrashed && !node.get(KEY_PREFIX + id + TRASHED, "").isBlank()) {
+                        continue;
+                    }
                     sets.add(new InstructionSet(id,
                             node.get(KEY_PREFIX + id + ".name", "Untitled"),
                             node.get(KEY_PREFIX + id + ".description", ""),
@@ -114,13 +152,13 @@ public final class InstructionSets {
     }
 
     /**
-     * The registered set with the given id, if present.
+     * The registered set with the given id, if present, in the Trash or not.
      *
      * @param id the set id
      * @return the set, or empty when the id is not registered here
      */
     public Optional<InstructionSet> byId(String id) {
-        return list().stream().filter(set -> set.id().equals(id)).findFirst();
+        return registered(true).stream().filter(set -> set.id().equals(id)).findFirst();
     }
 
     /**

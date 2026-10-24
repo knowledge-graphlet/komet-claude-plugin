@@ -175,6 +175,10 @@ module komet.claude {
     // ServiceLifecycle machinery, regardless of whether the assistant UI is opened.
     provides dev.ikm.tinkar.common.service.ServiceLifecycle
             with network.ike.komet.claude.narrator.CommitNarratorLifecycle;
+    // The conversations and instruction sets the plugin's cards moved to Komet's Trash, which the
+    // journal's Trash lists and Komet empties as it quits.
+    provides dev.ikm.komet.layout.trash.KlTrashProvider
+            with network.ike.komet.claude.trash.PluginTrashProvider;
 
     // Evrete accesses the rule class via MethodHandles. Like komet/rules (an
     // `open module`), the rule package must be opened UNQUALIFIED — a qualified

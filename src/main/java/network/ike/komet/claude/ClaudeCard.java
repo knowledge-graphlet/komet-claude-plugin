@@ -82,6 +82,11 @@ import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.events.EvtBusFactory;
 import network.ike.komet.claude.instructions.InstructionEditorCard;
+import network.ike.komet.claude.trash.PluginTrash;
+import dev.ikm.komet.kview.mvvm.view.trash.TrashTray;
+import dev.ikm.komet.layout.trash.KlTrash;
+import dev.ikm.tinkar.common.alert.AlertObject;
+import dev.ikm.tinkar.common.alert.AlertStreams;
 import java.util.LinkedHashMap;
 import java.util.OptionalLong;
 import network.ike.komet.claude.anthropic.AnthropicClient;
@@ -219,6 +224,10 @@ public final class ClaudeCard extends AbstractHostCard {
     private Button sendButton;
     private BorderPane content;
     private Label statusLabel;
+    /** The rail's Trash button, showing how many conversations are in the Trash. */
+    private Button trashButton;
+    private final java.util.function.Consumer<PluginTrash.Entry> trashPutBack = this::putBackFromTrash;
+    private final Runnable trashChanged = () -> Platform.runLater(this::refreshTrashButton);
 
     // Find-in-conversation state (🔍 / Cmd-Ctrl+F), over the document surface.
     private HBox findBar;
@@ -281,9 +290,11 @@ public final class ClaudeCard extends AbstractHostCard {
     private static final String KEY_ANCHOR = "journal-anchor";
     private static final String KEY_MOVED_TO = "moved-to";
     private static final String KEY_MOVED_FROM = "moved-from";
-    /** Nothing is ever deleted (KEC principle — history/time travel):
-     *  a "deleted" conversation is marked hidden; payload and index stay. */
+    /** A conversation an earlier Delete hid; since the Trash (2026-10-23) such conversations
+     *  are brought into it, and deleted when it is emptied. */
     private static final String KEY_HIDDEN = "hidden";
+    /** When a conversation was moved to the Trash (epoch milliseconds); it is out of the rail. */
+    private static final String KEY_TRASHED = "trashed";
     /** Child node of a conversation's index entry holding remembered table
      *  column widths (ike-issues#1034), keyed by table identity. */
     private static final String TABLE_WIDTHS_NODE = "table-widths";
@@ -298,6 +309,8 @@ public final class ClaudeCard extends AbstractHostCard {
          *  to this card with provenance recorded both ways. */
         KometPreferences homeNode;
         Path homeDir;
+        /** Whether a failed journal write has been alerted, so it is said once per conversation. */
+        boolean journalFailureAlerted;
         /** Claude-generated exchange titles by zero-based ordinal (KEC design:
          *  numbered named turns); persisted in the payload, transcript content. */
         final Map<Integer, String> turnTitles = new LinkedHashMap<>();
@@ -399,6 +412,8 @@ public final class ClaudeCard extends AbstractHostCard {
 
     private void init() {
         OPEN.add(new java.lang.ref.WeakReference<>(this));
+        PluginTrash.onPutBack(trashPutBack);
+        PluginTrash.onChange(trashChanged);
         this.promptCore = loadPromptResource("system-prompt-core.md",
                 "You are a read-only terminology assistant embedded in Komet. "
                         + "Always use the provided tools to resolve concepts, identifiers, and "
@@ -517,6 +532,7 @@ public final class ClaudeCard extends AbstractHostCard {
         settings.setGraphic(Icon.PANEL_PREFERENCE_SLIDERS.makeIcon());
         settings.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
         settings.setTooltip(new Tooltip("Assistant settings"));
+        settings.setId("assistantSettings");
         settings.getStyleClass().addAll("claude-card-toolbar-button", "claude-card-settings-button");
 
         SettingsPanePopup pane = new SettingsPanePopup("Assistant Settings");
@@ -531,9 +547,15 @@ public final class ClaudeCard extends AbstractHostCard {
                         () -> preferences().get(PREF_SYSTEM_INSTRUCTIONS_FILE, "").isBlank()
                                 ? "Default" : "Edited"),
                 () -> promptSettingsContent(pane));
+        pane.addSection("Model",
+                this::currentModelLabel,
+                () -> modelSettingsContent(pane));
         pane.addSection("API key",
                 () -> hasApiKey() ? "Set (per-user)" : "Not set",
                 () -> apiKeySettingsContent(pane));
+        pane.addSection("Trash",
+                () -> KlTrash.emptyOnQuit() ? "Emptied when Komet quits" : "Kept until you empty it",
+                () -> trashSettingsContent(pane));
         pane.attachTo(settings, (Pane) fxObject());
         return settings;
     }
@@ -714,6 +736,123 @@ public final class ClaudeCard extends AbstractHostCard {
         EvtBusFactory.getDefaultEvtBus().publish(journalTopic, new MakeCardWindowEvent(this,
                 MakeCardWindowEvent.FOCUS_OR_CREATE,
                 InstructionEditorCard.Factory.class.getName()));
+    }
+
+    /** Display names of the models the key can use, as the Models API last listed them. */
+    private static final Map<String, String> MODEL_NAMES = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Models offered when the Models API cannot be asked: the current generation, most capable first. */
+    private static final List<String> KNOWN_MODELS = List.of(
+            "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1", "claude-sonnet-4-6");
+
+    /** The configured model, by name when the Models API has named it. */
+    private String currentModelLabel() {
+        String id = currentModel();
+        String name = MODEL_NAMES.get(id);
+        return name == null ? id : name;
+    }
+
+    /**
+     * The model section: the models the API key can use, listed by the Models API, saved to the
+     * shared per-user preference every assistant card, the Instruction Editor's drafting and the
+     * commit narrator read.
+     */
+    private javafx.scene.Node modelSettingsContent(SettingsPanePopup pane) {
+        javafx.scene.control.ComboBox<String> models = new javafx.scene.control.ComboBox<>();
+        models.setId("assistantModel");
+        models.setMaxWidth(Double.MAX_VALUE);
+        models.setCellFactory(view -> new ListCell<>() {
+            @Override
+            protected void updateItem(String id, boolean empty) {
+                super.updateItem(id, empty);
+                setText(empty || id == null ? null : modelText(id));
+            }
+        });
+        models.setButtonCell(models.getCellFactory().call(null));
+        Label note = new Label("Used by every assistant card, the Instruction Editor's drafting and commit narration. "
+                + "A more capable model answers harder questions; a smaller one answers faster and costs less.");
+        note.setWrapText(true);
+        Label status = new Label();
+        status.setWrapText(true);
+        status.setStyle("-fx-font-size: 11px; -fx-text-fill: #5f6b7a;");
+        // Only a person's choice is saved: refilling the list moves the selection on its own, and
+        // that must not change the model (it once saved the list's first model as the choice).
+        boolean[] filling = {false};
+        Runnable offer = () -> {
+            List<String> ids = new ArrayList<>(modelOrder.isEmpty() ? KNOWN_MODELS : modelOrder);
+            String current = currentModel();
+            if (!ids.contains(current)) {
+                ids.addFirst(current);
+            }
+            filling[0] = true;
+            try {
+                models.getItems().setAll(ids);
+                models.getSelectionModel().select(current);
+            } finally {
+                filling[0] = false;
+            }
+        };
+        offer.run();
+        models.valueProperty().addListener((obs, was, is) -> {
+            if (!filling[0] && is != null && !is.equals(currentModel())) {
+                userPreferences().put(PREF_MODEL, is);
+                try {
+                    userPreferences().sync();
+                } catch (BackingStoreException ex) {
+                    LOG.warn("Could not save the model preference", ex);
+                }
+                pane.refreshSummaries();
+            }
+        });
+        if (hasApiKey()) {
+            status.setText("Asking Anthropic which models your key can use…");
+            String key = apiKey();
+            java.util.concurrent.CompletableFuture.supplyAsync(() -> AnthropicClient.listModels(key))
+                    .whenComplete((listed, failure) -> Platform.runLater(() -> {
+                        if (failure != null) {
+                            Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
+                            status.setText("Could not list the models (" + cause.getMessage() + "); showing the current ones.");
+                            return;
+                        }
+                        MODEL_NAMES.clear();
+                        List<String> order = new ArrayList<>();
+                        for (AnthropicClient.ModelInfo model : listed) {
+                            MODEL_NAMES.put(model.id(), model.display_name() == null ? model.id() : model.display_name());
+                            order.add(model.id());
+                        }
+                        modelOrder = List.copyOf(order);
+                        offer.run();
+                        status.setText(listed.size() + " models available to your key, newest first.");
+                        pane.refreshSummaries();
+                    }));
+        } else {
+            status.setText("Set the API key to see every model your key can use.");
+        }
+        return new VBox(6, models, note, status);
+    }
+
+    /** The order the Models API last listed the models in, newest first. */
+    private static volatile List<String> modelOrder = List.of();
+
+    private static String modelText(String id) {
+        String name = MODEL_NAMES.get(id);
+        return name == null || name.equals(id) ? id : name + " · " + id;
+    }
+
+    /** The Trash section: whether quitting empties it, and the way into it. */
+    private javafx.scene.Node trashSettingsContent(SettingsPanePopup pane) {
+        CheckBox onQuit = new CheckBox("Empty the Trash when Komet quits");
+        onQuit.setSelected(KlTrash.emptyOnQuit());
+        onQuit.selectedProperty().addListener((obs, was, is) -> {
+            KlTrash.setEmptyOnQuit(is);
+            pane.refreshSummaries();
+        });
+        Label note = new Label("Move to Trash takes a conversation out of the list. It is deleted for good, with its journal "
+                + "in the knowledge base, when the Trash is emptied; until then it can be put back.");
+        note.setWrapText(true);
+        Button open = new Button("Open the Trash…");
+        open.setOnAction(e -> TrashTray.open(open));
+        return new VBox(6, onQuit, note, open);
     }
 
     /** The API-key section: the per-user key, masked, saved to shared per-user preferences. */
@@ -948,6 +1087,7 @@ public final class ClaudeCard extends AbstractHostCard {
         HBox.setHgrow(tileSelector, Priority.ALWAYS);
         tileRow.setPadding(new Insets(6, 6, 0, 6));
         conversationList = new ListView<>(conversations);
+        conversationList.setId("assistantConversations");
         Label noConversations = new Label("No conversations in this tile");
         noConversations.setStyle("-fx-text-fill: #8a8f98;");
         conversationList.setPlaceholder(noConversations);
@@ -1026,9 +1166,9 @@ public final class ClaudeCard extends AbstractHostCard {
         });
         MenuItem renameItem = new MenuItem("Rename…");
         renameItem.setOnAction(e -> renameActive());
-        MenuItem deleteItem = new MenuItem("Delete");
-        deleteItem.setOnAction(e -> deleteActive());
-        conversationList.setContextMenu(new ContextMenu(renameItem, deleteItem));
+        MenuItem trashItem = new MenuItem("Move to Trash");
+        trashItem.setOnAction(e -> moveActiveToTrash());
+        conversationList.setContextMenu(new ContextMenu(renameItem, trashItem));
 
         // The tile is the overarching scope, so its selector sits ABOVE the conversations
         // header (KEC 2026-08-17); "+ New" creates within THIS tile only, so it disables while
@@ -1036,7 +1176,17 @@ public final class ClaudeCard extends AbstractHostCard {
         newButton.disableProperty().bind(javafx.beans.binding.Bindings.createBooleanBinding(
                 () -> tileSelector.getValue() != null && !tileSelector.getValue().own(),
                 tileSelector.valueProperty()));
-        conversationRail = new VBox(tileRow, railHeader, conversationList);
+        // The Trash (KEC 2026-10-23): what Move to Trash took from the rail, until it is emptied.
+        trashButton = new Button();
+        trashButton.setId("assistantTrash");
+        trashButton.setTooltip(new Tooltip("Open the Trash: put conversations back, or delete them for good"));
+        trashButton.setMaxWidth(Double.MAX_VALUE);
+        trashButton.setOnAction(e -> TrashTray.open(trashButton));
+        refreshTrashButton();
+        HBox trashRow = new HBox(trashButton);
+        HBox.setHgrow(trashButton, Priority.ALWAYS);
+        trashRow.setPadding(new Insets(6));
+        conversationRail = new VBox(tileRow, railHeader, conversationList, trashRow);
         VBox.setVgrow(conversationList, Priority.ALWAYS);
         conversationRail.setMinWidth(140);
 
@@ -1620,6 +1770,18 @@ public final class ClaudeCard extends AbstractHostCard {
                             journalStore.appendExchange(conv.journalAnchor, conv.name, text, reply);
                 } catch (Throwable je) {
                     LOG.warn("Journal write failed; conversation persists as JSON only", je);
+                    // Said once per conversation through Komet's alert stream: the exchange is safe in
+                    // the conversation's own file, but the knowledge base has no record of it.
+                    if (!conv.journalFailureAlerted) {
+                        conv.journalFailureAlerted = true;
+                        AlertStreams.getRoot().dispatch(AlertObject.makeError(
+                                "Conversation not recorded in the knowledge base",
+                                "The exchange in “" + conv.name + "” is kept in the conversation's own file, but "
+                                        + "writing its journal into the knowledge base failed: "
+                                        + (je.getMessage() != null ? je.getMessage() : je.getClass().getSimpleName())
+                                        + ". Later exchanges are tried again; this is said once per conversation.",
+                                je));
+                    }
                 }
             } catch (Throwable t) {
                 // Catch Throwable: a non-runtime failure (e.g. class-init / ServiceConfigurationError)
@@ -1947,33 +2109,127 @@ public final class ClaudeCard extends AbstractHostCard {
         });
     }
 
-    /** Confirms, then removes the active conversation (rail + file) and activates another. */
-    private void deleteActive() {
+    /**
+     * Moves the active conversation to the plugin's Trash (KEC 2026-10-23): it leaves the rail at
+     * once, and is deleted for good, with its journal in the knowledge base, when the Trash is
+     * emptied; until then Put Back returns it.
+     */
+    private void moveActiveToTrash() {
         if (active == null) {
             return;
         }
-        Conversation toDelete = active;
-        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
-                "Delete conversation \"" + toDelete.name + "\"? This cannot be undone.",
-                ButtonType.OK, ButtonType.CANCEL);
-        confirm.setHeaderText(null);
-        confirm.initOwner(ownerWindow());
-        if (confirm.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) {
-            return;
-        }
-        int idx = conversations.indexOf(toDelete);
-        conversations.remove(toDelete);
+        Conversation toTrash = active;
+        int idx = conversations.indexOf(toTrash);
         // Cancel any in-flight request: the worker is interrupt-aware, and the completion handler's
         // liveness guard already skips persistence for a conversation no longer in the list.
-        if (toDelete.task != null) {
-            toDelete.task.cancel(true);
+        if (toTrash.task != null) {
+            toTrash.task.cancel(true);
         }
-        deleteConversationFile(toDelete);
+        boolean trashed = trashConversation(toTrash);
+        conversations.remove(toTrash);
         if (conversations.isEmpty()) {
             newConversation();
         } else {
             activate(conversations.get(Math.min(idx, conversations.size() - 1)));
         }
+        statusLabel.setText(trashed ? "Moved “" + railLabel(toTrash) + "” to the Trash."
+                : "“" + railLabel(toTrash) + "” was never saved, so there is nothing to keep in the Trash.");
+        statusLabel.setTooltip(null);
+    }
+
+    /** Shows the Trash's conversation count on its button. */
+    private void refreshTrashButton() {
+        if (trashButton == null) {
+            return;
+        }
+        long count = PluginTrash.entries().stream().filter(e -> e.kind() == PluginTrash.Kind.CONVERSATION).count();
+        trashButton.setText(count == 0 ? "🗑 Trash" : "🗑 Trash (" + count + ")");
+    }
+
+    /** The name the rail shows for a conversation: its first exchange's title unless it was renamed. */
+    private static String railLabel(Conversation c) {
+        String generated = c.turnTitles.get(0);
+        return (generated != null && !c.userNamed) ? generated : c.name;
+    }
+
+    /**
+     * Marks a conversation trashed in its home index and records it in the Trash.
+     *
+     * @return whether there was a saved conversation to trash
+     */
+    private boolean trashConversation(Conversation conv) {
+        KometPreferences home = conv.homeNode != null ? conv.homeNode : preferences();
+        Path dir = conv.homeDir != null ? conv.homeDir : conversationsDir();
+        try {
+            KometPreferences index = home.node(INDEX_NODE);
+            if (!index.nodeExists(conv.id)) {
+                return false;
+            }
+            KometPreferences entry = index.node(conv.id);
+            long now = System.currentTimeMillis();
+            entry.put(KEY_TRASHED, Long.toString(now));
+            entry.sync();
+            String file = entry.get(KEY_FILE, "");
+            PluginTrash.moveToTrash(trashEntry(conv.id, railLabel(conv), now, entry,
+                    dir == null || file.isBlank() ? "" : dir.resolve(file).toString(),
+                    conv.journalAnchor == null ? entry.get(KEY_ANCHOR, "") : conv.journalAnchor.asUuidArray()[0].toString()));
+            return true;
+        } catch (Exception e) {
+            LOG.warn("Could not move conversation {} to the Trash", conv.id, e);
+            return false;
+        }
+    }
+
+    private static PluginTrash.Entry trashEntry(String id, String name, long when, KometPreferences indexEntry,
+                                                String file, String journalAnchor) {
+        return new PluginTrash.Entry(id, PluginTrash.Kind.CONVERSATION, name, when,
+                PluginTrash.relativePath(indexEntry), List.of(KEY_TRASHED, KEY_HIDDEN), true, "", file, journalAnchor);
+    }
+
+    /**
+     * Brings into the Trash the conversations an earlier Delete only hid, so emptying the Trash
+     * deletes them too; their payload's last change dates them.
+     */
+    private void adoptHiddenIntoTrash(KometPreferences cardNode, Path dir) {
+        try {
+            KometPreferences index = cardNode.node(INDEX_NODE);
+            for (String id : index.childrenNames()) {
+                KometPreferences entry = index.node(id);
+                if (!"true".equals(entry.get(KEY_HIDDEN, "")) || !entry.get(KEY_TRASHED, "").isBlank()
+                        || !entry.get(KEY_MOVED_TO, "").isBlank() || PluginTrash.contains(id)) {
+                    continue;
+                }
+                String file = entry.get(KEY_FILE, "");
+                Path payload = file.isBlank() ? null : dir.resolve(file);
+                long when = payload != null && Files.isRegularFile(payload) ? Files.getLastModifiedTime(payload).toMillis() : 0L;
+                entry.put(KEY_TRASHED, Long.toString(when));
+                entry.sync();
+                PluginTrash.moveToTrash(trashEntry(id, entry.get(KEY_NAME, id), when, entry,
+                        payload == null ? "" : payload.toString(), entry.get(KEY_ANCHOR, "")));
+            }
+        } catch (Exception e) {
+            LOG.warn("Could not bring hidden conversations of {} into the Trash", cardNode, e);
+        }
+    }
+
+    /** Shows a conversation of this card again when it is put back from the Trash. */
+    private void putBackFromTrash(PluginTrash.Entry item) {
+        if (item.kind() != PluginTrash.Kind.CONVERSATION || item.file().isBlank()) {
+            return;
+        }
+        String own = PluginTrash.relativePath(preferences().node(INDEX_NODE));
+        if (!item.node().startsWith(own + "/")) {
+            return;
+        }
+        Platform.runLater(() -> {
+            if (conversations.stream().anyMatch(c -> c.id.equals(item.id()))) {
+                return;
+            }
+            Conversation restored = loadConversation(Path.of(item.file()));
+            if (restored != null) {
+                activate(restored);
+            }
+        });
     }
 
     /*******************************************************************************
@@ -2193,6 +2449,7 @@ public final class ClaudeCard extends AbstractHostCard {
         }
         if (!foreign) {
             adoptPreIndexPayloads(cardNode, dir);
+            adoptHiddenIntoTrash(cardNode, dir);
         }
         record Row(String id, String file, long lastActive) {}
         List<Row> rows = new ArrayList<>();
@@ -2201,7 +2458,8 @@ public final class ClaudeCard extends AbstractHostCard {
             for (String id : index.childrenNames()) {
                 KometPreferences entry = index.node(id);
                 if (!entry.get(KEY_MOVED_TO, "").isBlank()
-                        || "true".equals(entry.get(KEY_HIDDEN, ""))) {
+                        || "true".equals(entry.get(KEY_HIDDEN, ""))
+                        || !entry.get(KEY_TRASHED, "").isBlank()) {
                     continue;
                 }
                 String file = entry.get(KEY_FILE, "");
@@ -2260,7 +2518,7 @@ public final class ClaudeCard extends AbstractHostCard {
 
     /**
      * The tile's LOADABLE conversation count: what a browse will actually show — index entry
-     * present, not moved or hidden, AND the payload file on disk. Counting bare index entries
+     * present, not moved, hidden or trashed, AND the payload file on disk. Counting bare index entries
      * over-reported abandoned tiles ("1 conversation" over an empty list, KEC 2026-08-18):
      * an orphaned index record whose payload never hit disk is not a conversation.
      */
@@ -2272,7 +2530,8 @@ public final class ClaudeCard extends AbstractHostCard {
             for (String id : index.childrenNames()) {
                 KometPreferences entry = index.node(id);
                 if (!entry.get(KEY_MOVED_TO, "").isBlank()
-                        || "true".equals(entry.get(KEY_HIDDEN, ""))) {
+                        || "true".equals(entry.get(KEY_HIDDEN, ""))
+                        || !entry.get(KEY_TRASHED, "").isBlank()) {
                     continue;
                 }
                 String file = entry.get(KEY_FILE, "");
@@ -2532,23 +2791,6 @@ public final class ClaudeCard extends AbstractHostCard {
         }
     }
 
-    private void deleteConversationFile(Conversation conv) {
-        Path dir = conv.homeDir != null ? conv.homeDir : conversationsDir();
-        if (dir == null) {
-            return;
-        }
-        try {
-            // Nothing is ever deleted (KEC principle): the payload and its
-            // index record stay for history/time travel; the conversation
-            // just leaves visibility.
-            KometPreferences home =
-                    conv.homeNode != null ? conv.homeNode : preferences();
-            home.node(INDEX_NODE).node(conv.id).put(KEY_HIDDEN, "true");
-        } catch (Exception e) {
-            LOG.warn("Could not hide conversation {}", conv.id, e);
-        }
-    }
-
     /*******************************************************************************
      *  Transcript rendering (FX thread)                                           *
      ******************************************************************************/
@@ -2784,6 +3026,8 @@ public final class ClaudeCard extends AbstractHostCard {
     @Override
     public void knowledgeLayoutUnbind() {
         super.knowledgeLayoutUnbind();
+        PluginTrash.stopListening(trashPutBack);
+        PluginTrash.stopListening(trashChanged);
         worker.shutdownNow();
         if (statusTimer != null) {
             statusTimer.stop();

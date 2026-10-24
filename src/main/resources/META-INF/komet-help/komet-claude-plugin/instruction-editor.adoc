@@ -19,7 +19,10 @@ Choose a set to open it. The *☰* button on the toolbar shows or hides the list
 Every card starts with four read-only system defaults: _Komet Assistant default_, _Terminology answer style_, _Komet tool contract_ and _Instruction Editor default_.
 A default cannot be saved over; *Save as…* makes your own copy to change.
 
-Each Instruction Editor card keeps its own sets, as Markdown files in the card's own settings folder. There is no delete yet.
+Each Instruction Editor card keeps its own sets, as Markdown files in the card's own settings folder.
+
+To remove a set, right-click it and choose *Move to Trash*. It leaves the list, and the bin in the journal's sidebar, or *🗑 Trash* below the list, opens the Trash, where it can be put back until the Trash is emptied; an assistant card that already uses it keeps it until then. A system default cannot be moved to the Trash.
+See xref:trash.adoc[The Trash].
 
 == Writing a set
 

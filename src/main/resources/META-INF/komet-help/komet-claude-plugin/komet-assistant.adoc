@@ -46,7 +46,10 @@ It turns orange when the card's view differs from the journal's.
 
 The *☰* button shows or hides the conversations list.
 *+ New* starts a conversation; a conversation is named from its first message until you rename it.
-Double-click a conversation, or right-click it, to rename it; right-click and choose *Delete* to remove it from the list.
+Double-click a conversation, or right-click it, to rename it.
+Right-click and choose *Move to Trash* to take it out of the list; the bin in the journal's sidebar, or *🗑 Trash* below the list, opens the Trash, where it can be put back until the Trash is emptied.
+Emptying the Trash deletes the conversation for good, with its journal in the knowledge base.
+See xref:trash.adoc[The Trash].
 
 Each assistant card keeps its own conversations, and reopens on the last one, where you left it.
 The list at the top of the rail shows the other assistant cards in the journal; choose one to read its conversations, and send in one to carry it over to this card.
@@ -71,9 +74,13 @@ The sliders button opens the assistant's settings:
 Text size:: *A−* and *A+* change the size of the transcript and the box you type in.
 Chip labels:: Whether concept chips use small capitals, and bold.
 System prompt:: The instructions the card works from: the bundled default, or an instruction set written in an Instruction Editor card. A preview shows the instructions in force. *Open in Instruction Editor…* opens the editor; *Revert to default* returns to the bundled instructions. See xref:instruction-editor.adoc[The Instruction Editor card].
+Model:: The Claude model that answers. The list shows the models your API key can use, newest first. The choice also applies to the Instruction Editor's drafting and to commit narration.
 API key:: The Anthropic API key every assistant card uses.
+Trash:: Whether the Trash is emptied when Komet quits, and a way into it.
 
-Text size, chip labels and the key are yours and apply to every assistant card; the system prompt and the conversations belong to the card.
+Text size, chip labels, the model, the key and the Trash setting are yours and apply to every assistant card; the system prompt and the conversations belong to the card.
+
+When a conversation's journal cannot be written into the knowledge base, Komet says so once in an alert; the exchange is still kept in the conversation's own file.
 
 == Printing a conversation
 
