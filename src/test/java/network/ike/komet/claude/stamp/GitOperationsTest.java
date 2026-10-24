@@ -30,7 +30,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * The Repository panel's operations against a scratch bare remote, through the git on PATH as
  * the core's own tests run it: state (remotes, branch, HEAD, ahead and behind, file status),
- * clone refusals, fetch and fast-forward-only pull, push, and the log.
+ * clone refusals, fetch and fast-forward-only pull, push, and the log. The scratch repositories
+ * run no hooks: a hook from the runner's global core.hooksPath (one that rewrites short commit
+ * messages, on the kec build agent) would otherwise change what the test asserts.
  */
 class GitOperationsTest {
 
@@ -148,6 +150,7 @@ class GitOperationsTest {
     private Path bare(String name) throws Exception {
         Path bare = root.resolve(name);
         git(root, "init", "-q", "--bare", "-b", "main", bare.toString());
+        git(bare, "config", "core.hooksPath", NO_HOOKS);
         return bare;
     }
 
@@ -157,6 +160,8 @@ class GitOperationsTest {
         git(work, "config", "user.name", name);
         git(work, "config", "user.email", name + "@example.test");
         git(work, "config", "commit.gpgsign", "false");
+        // GitOperations runs git untouched, so the repository itself turns hooks off for it.
+        git(work, "config", "core.hooksPath", NO_HOOKS);
         git(work, "checkout", "-q", "-B", "main");
         return work;
     }
@@ -165,8 +170,12 @@ class GitOperationsTest {
         git(dir, "commit", "-q", "--no-gpg-sign", "-m", message);
     }
 
+    /** A hooks directory that holds no hooks. */
+    private static final String NO_HOOKS = "/dev/null";
+
     private static void git(Path dir, String... args) throws Exception {
-        List<String> command = new ArrayList<>(List.of("git"));
+        // Hooks off for the test's own git too, from before a repository has its own config.
+        List<String> command = new ArrayList<>(List.of("git", "-c", "core.hooksPath=" + NO_HOOKS));
         command.addAll(List.of(args));
         Process p = new ProcessBuilder(command).directory(dir.toFile()).redirectErrorStream(true).start();
         String out = new String(p.getInputStream().readAllBytes());
