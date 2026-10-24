@@ -129,11 +129,6 @@
              META-INF/services), so the *IT classpath run (the parent runs tests with
              useModulePath=false) discovers them via the legacy META-INF/services files in
              src/test/resources. Mirrors complex-clause-plugin's classpath IT setup. -->
-        <dependency>
-            <groupId>dev.ikm.tinkar</groupId>
-            <artifactId>data-spinedarray-provider</artifactId>
-            <scope>test</scope>
-        </dependency>
         <!-- The memory-only store the tests run on (IKE-Network/ike-issues#1313). -->
         <dependency>
             <groupId>dev.ikm.tinkar</groupId>
