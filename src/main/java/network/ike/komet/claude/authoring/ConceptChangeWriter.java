@@ -162,6 +162,11 @@ public final class ConceptChangeWriter {
             return concept;
         }
 
+        /** @return the transaction this change saved into, or null until it saves */
+        Transaction transaction() {
+            return transaction;
+        }
+
         /** @return where the change stands */
         public Status status() {
             if (transaction == null) {

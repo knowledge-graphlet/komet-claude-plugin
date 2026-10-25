@@ -499,7 +499,7 @@ public final class ConceptProposalTools {
     }
 
     /** Runs the work on the JavaFX application thread and waits for it. */
-    private static <T> T onFxThread(Supplier<T> work) {
+    static <T> T onFxThread(Supplier<T> work) {
         if (Platform.isFxApplicationThread()) {
             return work.get();
         }
@@ -517,19 +517,19 @@ public final class ConceptProposalTools {
             Throwable cause = e.getCause();
             throw cause instanceof RuntimeException runtime ? runtime : new IllegalStateException(cause);
         } catch (TimeoutException e) {
-            throw new IllegalStateException("Komet did not write the proposal within " + FX_TIMEOUT_SECONDS + " s");
+            throw new IllegalStateException("Komet did not finish writing within " + FX_TIMEOUT_SECONDS + " s");
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("interrupted while writing the proposal");
+            throw new IllegalStateException("interrupted while writing");
         }
     }
 
-    private static String str(Map<String, Object> m, String key) {
+    static String str(Map<String, Object> m, String key) {
         Object v = m.get(key);
         return v == null ? null : v.toString();
     }
 
-    private static Map<String, Object> obj(Object... keyValues) {
+    static Map<String, Object> obj(Object... keyValues) {
         LinkedHashMap<String, Object> m = new LinkedHashMap<>();
         for (int i = 0; i + 1 < keyValues.length; i += 2) {
             m.put((String) keyValues[i], keyValues[i + 1]);
@@ -537,7 +537,7 @@ public final class ConceptProposalTools {
         return m;
     }
 
-    private static Map<String, Object> strProp(String description) {
+    static Map<String, Object> strProp(String description) {
         return obj("type", "string", "description", description);
     }
 }

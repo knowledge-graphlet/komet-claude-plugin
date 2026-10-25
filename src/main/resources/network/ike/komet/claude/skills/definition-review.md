@@ -29,4 +29,4 @@ Review a concept's logical definition against its peers and the knowledge base, 
 - Lead with the verdict in a sentence, then one finding per point, each with the evidence: the tool's line, the peer it differs from, as Koncept Badges.
 - Separate what the graph says from clinical judgement, and label the judgement.
 - To show a corrected definition, draw it as a `koncept-definition` block, with `gap:` lines for what the knowledge base lacks.
-- You cannot change an existing concept or run the classifier. Describe the change for the person to make in Komet; propose a new concept only if they ask.
+- You cannot run the classifier. When the person asks you to make the corrections, load the Concept editing skill and write them as uncommitted changes for them to publish; propose a new concept only if they ask.

@@ -474,6 +474,9 @@ public final class ClaudeCard extends AbstractHostCard {
         // window of this journal for the person to publish — never committed here.
         all.addAll(new network.ike.komet.claude.authoring.ConceptProposalTools(
                 viewProperties, journalTopic).tools());
+        // Changes to existing concepts (ike-issues#1326): a definition or description change written
+        // uncommitted for the person to publish or discard in the Unpublished Changes tray.
+        all.addAll(new network.ike.komet.claude.authoring.ConceptChangeTools(viewProperties).tools());
         // Composition (ike-issues#1304): what the open knowledge base is made of, read from the records
         // its build wrote into it — the Knowledge Base Composition card's text, without the card open.
         all.addAll(network.ike.komet.claude.composition.KnowledgeBaseCompositionTools.tools(safeView));

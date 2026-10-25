@@ -43,6 +43,7 @@ public final class AssistantSkills {
     /** The bundled skills' files, in the order the assistant lists them. */
     static final List<String> BUNDLED = List.of(
             "concept-authoring.md",
+            "concept-editing.md",
             "definition-review.md",
             "document-review.md",
             "provenance-answers.md",
