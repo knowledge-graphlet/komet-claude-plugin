@@ -20,22 +20,32 @@ import dev.ikm.komet.framework.observable.ObservableComposer.EntityComposer;
 import dev.ikm.komet.framework.observable.ObservableField;
 import dev.ikm.komet.framework.observable.ObservableSemantic;
 import dev.ikm.komet.framework.observable.ObservableSemanticVersion;
+import dev.ikm.komet.terms.KometConcept;
+import dev.ikm.tinkar.common.id.PublicIds;
+import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.Entity;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.entity.EntityVersion;
+import dev.ikm.tinkar.entity.PatternEntityVersion;
 import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.entity.transaction.Transaction;
 import dev.ikm.tinkar.terms.EntityFacade;
+import dev.ikm.tinkar.terms.EntityProxy;
+import dev.ikm.tinkar.terms.KernelConcept;
 import dev.ikm.tinkar.terms.KernelPattern;
 import dev.ikm.tinkar.terms.State;
 import network.ike.komet.claude.authoring.ProposedDefinition.Proposal;
 import network.ike.komet.claude.koncept.ComponentText;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.Map;
+import java.util.Set;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.UnaryOperator;
@@ -78,6 +88,42 @@ public final class ConceptChangeWriter {
      * @param notes   what the person should know: parts of the definition the block cannot show, kept as they were
      */
     public record DefinitionEdited(boolean changed, String before, String after, List<String> notes) {
+    }
+
+    /**
+     * What a description edit did.
+     *
+     * @param changed whether it wrote anything; false when every description already was what was asked
+     * @param changes what changed, one line each, for the person
+     * @param added   the descriptions it added, in order
+     */
+    public record DescriptionsEdited(boolean changed, List<String> changes, List<EntityFacade> added) {
+    }
+
+    /**
+     * An active description of the concept as the view reads it.
+     *
+     * @param nid           the description semantic
+     * @param type          its description type
+     * @param text          its text
+     * @param caseSensitive whether its case is significant
+     * @param dialect       its active US English acceptability semantic, or null
+     * @param preferred     whether that makes it preferred; null with no acceptability
+     */
+    private record Description(long nid, long type, String text, boolean caseSensitive, Long dialect, Boolean preferred) {
+    }
+
+    /** What an edit does to one description; a null part is left as it is. */
+    private static final class Planned {
+        final Description description;
+        boolean retire;
+        String text;
+        Boolean caseSensitive;
+        Boolean preferred;
+
+        Planned(Description description) {
+            this.description = description;
+        }
     }
 
     /** Where a change stands. */
@@ -175,13 +221,9 @@ public final class ConceptChangeWriter {
         }
 
         private DefinitionEdited edit(UnaryOperator<DefinitionShape> targetOf) {
-            Status status = status();
-            if (status == Status.PUBLISHED || status == Status.DISCARDED) {
-                throw new IllegalStateException("this change to " + name() + " was " + status.name().toLowerCase()
-                        + "; start a new change to change it again");
-            }
+            refuseIfEnded();
             SemanticEntity<SemanticEntityVersion> stated = stated();
-            refuseOtherPendingVersions(stated);
+            refuseOtherPendingVersions(stated.nid(), "the stated definition of " + name());
 
             EntityComposer<ObservableSemanticVersion.Editable, ObservableSemantic> editor = composer.composeSemantic(
                     stated.publicId(), concept, KernelPattern.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN);
@@ -209,7 +251,7 @@ public final class ConceptChangeWriter {
                 field.setObjectValue(rewritten);
                 editor.save();
                 saved = true;
-                remember(stated);
+                remember(stated.nid());
                 return new DefinitionEdited(true, before, DefinitionShape.of(rewritten).block(calc), List.copyOf(notes));
             } finally {
                 if (!saved) {
@@ -217,6 +259,261 @@ public final class ConceptChangeWriter {
                     composer.discardUnsavedEdits(stated.nid());
                 }
             }
+        }
+
+        /**
+         * Changes the concept's descriptions: retires them, changes their text, case significance
+         * or US English acceptability, or adds synonyms and textual definitions. Every operation is
+         * checked before anything is written, so a refused edit writes nothing; several operations
+         * on one description are written as one version of it. A retired description's
+         * acceptability is retired with it.
+         *
+         * <p>An edit that retires a synonym, changes an acceptability, or adds a synonym must leave
+         * exactly one preferred synonym in US English: to change which one, demote the old and
+         * promote the new in the same edit. The last fully specified name is not retired.
+         *
+         * @param operations the operations
+         * @return what the edit did
+         * @throws IllegalArgumentException when an operation names what is not an active
+         *                                  description of the concept, retires one it also
+         *                                  changes, gives blank text, adds a description the
+         *                                  concept already has, or would leave other than one
+         *                                  preferred synonym or no fully specified name
+         * @throws IllegalStateException    when the change was published or discarded, or a
+         *                                  description it changes has an unpublished change of
+         *                                  another transaction
+         */
+        public DescriptionsEdited editDescriptions(List<DescriptionOperation> operations) {
+            refuseIfEnded();
+            Map<Long, Description> active = descriptions();
+            Map<Long, Planned> planned = new LinkedHashMap<>();
+            List<DescriptionOperation> additions = new ArrayList<>();
+            for (DescriptionOperation operation : operations) {
+                switch (operation) {
+                    case DescriptionOperation.Retire(EntityFacade description) -> plan(planned, active, description).retire = true;
+                    case DescriptionOperation.ChangeText(EntityFacade description, String text) ->
+                            plan(planned, active, description).text = nonBlank(text);
+                    case DescriptionOperation.ChangeCaseSignificance(EntityFacade description, boolean caseSensitive) ->
+                            plan(planned, active, description).caseSensitive = caseSensitive;
+                    case DescriptionOperation.ChangeAcceptability(EntityFacade description, boolean preferred) ->
+                            plan(planned, active, description).preferred = preferred;
+                    case DescriptionOperation.AddSynonym synonym -> additions.add(
+                            new DescriptionOperation.AddSynonym(nonBlank(synonym.text()), synonym.preferred(), synonym.caseSensitive()));
+                    case DescriptionOperation.AddTextualDefinition definition -> additions.add(
+                            new DescriptionOperation.AddTextualDefinition(nonBlank(definition.text())));
+                }
+            }
+            check(active, planned, additions);
+            for (Planned plan : planned.values()) {
+                refuseOtherPendingVersions(plan.description.nid(), "the description \"" + plan.description.text() + "\"");
+                if (plan.description.dialect() != null) {
+                    refuseOtherPendingVersions(plan.description.dialect(), "the acceptability of \"" + plan.description.text() + "\"");
+                }
+            }
+
+            List<String> changes = new ArrayList<>();
+            List<EntityFacade> added = new ArrayList<>();
+            Set<Long> opened = new LinkedHashSet<>();
+            Set<Long> saved = new LinkedHashSet<>();
+            try {
+                for (Planned plan : planned.values()) {
+                    write(plan, changes, opened, saved);
+                }
+                for (DescriptionOperation addition : additions) {
+                    ConceptProposalWriter.Described written = switch (addition) {
+                        case DescriptionOperation.AddSynonym(String text, boolean preferred, boolean caseSensitive) -> {
+                            changes.add("added the synonym \"" + text + "\", " + (preferred ? "preferred" : "acceptable"));
+                            yield ConceptProposalWriter.description(composer, calc, concept, text, caseSensitive,
+                                    KernelConcept.REGULAR_NAME_DESCRIPTION_TYPE, preferred);
+                        }
+                        case DescriptionOperation.AddTextualDefinition(String text) -> {
+                            changes.add("added a textual definition");
+                            yield ConceptProposalWriter.description(composer, calc, concept, text, false,
+                                    KernelConcept.DEFINITION_DESCRIPTION_TYPE, true);
+                        }
+                        default -> throw new IllegalStateException("not an addition: " + addition);
+                    };
+                    added.add(EntityProxy.Semantic.make(written.description()));
+                    saved.add(written.description());
+                }
+            } finally {
+                // Opening an editor stamped the transaction; a description it wrote nothing to keeps nothing.
+                opened.stream().filter(nid -> !saved.contains(nid)).forEach(composer::discardUnsavedEdits);
+            }
+            if (!saved.isEmpty()) {
+                remember(saved.iterator().next());
+            }
+            return new DescriptionsEdited(!saved.isEmpty(), List.copyOf(changes), List.copyOf(added));
+        }
+
+        /** Writes one description's planned changes: a retirement, or its fields and acceptability. */
+        private void write(Planned plan, List<String> changes, Set<Long> opened, Set<Long> saved) {
+            Description description = plan.description;
+            EntityFacade facade = EntityProxy.Semantic.make(description.nid());
+            if (plan.retire) {
+                composer.composeSemantic(facade.publicId(), concept, KernelPattern.DESCRIPTION_PATTERN, State.INACTIVE).save();
+                saved.add(description.nid());
+                opened.add(description.nid());
+                if (description.dialect() != null) {
+                    composer.composeSemantic(EntityProxy.Semantic.make(description.dialect()).publicId(), facade,
+                            KernelPattern.US_DIALECT_PATTERN, State.INACTIVE).save();
+                    saved.add(description.dialect());
+                    opened.add(description.dialect());
+                }
+                changes.add("retired \"" + description.text() + "\"");
+                return;
+            }
+            if (plan.text != null || plan.caseSensitive != null) {
+                PatternEntityVersion pattern = ConceptProposalWriter.latest(calc, KernelPattern.DESCRIPTION_PATTERN);
+                EntityComposer<ObservableSemanticVersion.Editable, ObservableSemantic> editor =
+                        composer.composeSemantic(facade.publicId(), concept, KernelPattern.DESCRIPTION_PATTERN);
+                opened.add(description.nid());
+                var fields = editor.getEditableVersion().getEditableFields();
+                if (plan.text != null) {
+                    fields.get(ConceptProposalWriter.index(pattern, KernelConcept.TEXT_FOR_DESCRIPTION)).setObjectValue(plan.text);
+                }
+                if (plan.caseSensitive != null) {
+                    fields.get(ConceptProposalWriter.index(pattern, KernelConcept.DESCRIPTION_CASE_SIGNIFICANCE)).setObjectValue(
+                            plan.caseSensitive ? KernelConcept.DESCRIPTION_CASE_SENSITIVE : KernelConcept.DESCRIPTION_NOT_CASE_SENSITIVE);
+                }
+                if (editor.hasUnsavedChanges()) {
+                    editor.save();
+                    saved.add(description.nid());
+                    if (plan.text != null && !plan.text.equals(description.text())) {
+                        changes.add("\"" + description.text() + "\" now reads \"" + plan.text + "\"");
+                    }
+                    if (plan.caseSensitive != null && plan.caseSensitive != description.caseSensitive()) {
+                        changes.add("\"" + description.text() + "\" is now case " + (plan.caseSensitive ? "sensitive" : "insensitive"));
+                    }
+                }
+            }
+            if (plan.preferred != null && !plan.preferred.equals(description.preferred())) {
+                Object acceptability = plan.preferred ? KernelConcept.PREFERRED : KometConcept.ACCEPTABLE;
+                int field = ConceptProposalWriter.index(ConceptProposalWriter.latest(calc, KernelPattern.US_DIALECT_PATTERN),
+                        KometConcept.US_ENGLISH_DIALECT);
+                EntityComposer<ObservableSemanticVersion.Editable, ObservableSemantic> editor = description.dialect() == null
+                        ? composer.composeSemantic(PublicIds.newRandom(), facade, KernelPattern.US_DIALECT_PATTERN)
+                        : composer.composeSemantic(EntityProxy.Semantic.make(description.dialect()).publicId(), facade,
+                                KernelPattern.US_DIALECT_PATTERN);
+                editor.getEditableVersion().getEditableFields().get(field).setObjectValue(acceptability);
+                editor.save();
+                long dialect = editor.getEntity().nid();
+                opened.add(dialect);
+                saved.add(dialect);
+                changes.add("\"" + description.text() + "\" is now " + (plan.preferred ? "preferred" : "acceptable"));
+            }
+        }
+
+        /**
+         * Checks the planned changes and additions against the concept's active descriptions:
+         * a retired description changes nothing else, the last fully specified name stays, an
+         * addition repeats no active description, and an edit touching acceptability leaves one
+         * preferred synonym.
+         */
+        private void check(Map<Long, Description> active, Map<Long, Planned> planned, List<DescriptionOperation> additions) {
+            for (Planned plan : planned.values()) {
+                if (plan.retire && (plan.text != null || plan.caseSensitive != null || plan.preferred != null)) {
+                    throw new IllegalArgumentException("\"" + plan.description.text() + "\" is both retired and changed");
+                }
+            }
+            long names = active.values().stream()
+                    .filter(description -> description.type() == KernelConcept.FULLY_QUALIFIED_NAME_DESCRIPTION_TYPE.nid())
+                    .filter(description -> !planned.containsKey(description.nid()) || !planned.get(description.nid()).retire)
+                    .count();
+            boolean hadName = active.values().stream()
+                    .anyMatch(description -> description.type() == KernelConcept.FULLY_QUALIFIED_NAME_DESCRIPTION_TYPE.nid());
+            if (hadName && names == 0) {
+                throw new IllegalArgumentException("the edit would retire the last fully specified name of " + name());
+            }
+            for (DescriptionOperation addition : additions) {
+                long type = addition instanceof DescriptionOperation.AddSynonym
+                        ? KernelConcept.REGULAR_NAME_DESCRIPTION_TYPE.nid() : KernelConcept.DEFINITION_DESCRIPTION_TYPE.nid();
+                String text = switch (addition) {
+                    case DescriptionOperation.AddSynonym synonym -> synonym.text();
+                    case DescriptionOperation.AddTextualDefinition definition -> definition.text();
+                    default -> "";
+                };
+                if (active.values().stream().anyMatch(description -> description.type() == type && description.text().equals(text))) {
+                    throw new IllegalArgumentException(name() + " already has the " + (type == KernelConcept.REGULAR_NAME_DESCRIPTION_TYPE.nid()
+                            ? "synonym" : "textual definition") + " \"" + text + "\"");
+                }
+            }
+            boolean touchesPreferred = additions.stream().anyMatch(DescriptionOperation.AddSynonym.class::isInstance)
+                    || planned.values().stream().anyMatch(plan -> plan.preferred != null
+                    || plan.retire && plan.description.type() == KernelConcept.REGULAR_NAME_DESCRIPTION_TYPE.nid());
+            if (touchesPreferred) {
+                long preferred = active.values().stream()
+                        .filter(description -> description.type() == KernelConcept.REGULAR_NAME_DESCRIPTION_TYPE.nid())
+                        .filter(description -> {
+                            Planned plan = planned.get(description.nid());
+                            if (plan != null && plan.retire) {
+                                return false;
+                            }
+                            Boolean now = plan != null && plan.preferred != null ? plan.preferred : description.preferred();
+                            return Boolean.TRUE.equals(now);
+                        }).count()
+                        + additions.stream().filter(addition -> addition instanceof DescriptionOperation.AddSynonym synonym
+                        && synonym.preferred()).count();
+                if (preferred != 1) {
+                    throw new IllegalArgumentException("the edit would leave " + preferred + " preferred synonyms; a concept "
+                            + "has exactly one preferred synonym in US English, so make one preferred and the others "
+                            + "acceptable in the same edit");
+                }
+            }
+        }
+
+        /** The plan for a description an operation names, which must be an active description of the concept. */
+        private Planned plan(Map<Long, Planned> planned, Map<Long, Description> active, EntityFacade description) {
+            Description found = active.get(description.nid());
+            if (found == null) {
+                throw new IllegalArgumentException(ComponentText.identifier(description.nid()) + " is not an active "
+                        + "description of " + name() + "; its descriptions are " + active.values().stream()
+                        .map(d -> "\"" + d.text() + "\" " + ComponentText.identifier(d.nid())).toList());
+            }
+            return planned.computeIfAbsent(found.nid(), nid -> new Planned(found));
+        }
+
+        /** The concept's active descriptions on the view, with their US English acceptability. */
+        private Map<Long, Description> descriptions() {
+            PatternEntityVersion pattern = ConceptProposalWriter.latest(calc, KernelPattern.DESCRIPTION_PATTERN);
+            int text = ConceptProposalWriter.index(pattern, KernelConcept.TEXT_FOR_DESCRIPTION);
+            int type = ConceptProposalWriter.index(pattern, KernelConcept.DESCRIPTION_TYPE);
+            int caseSignificance = ConceptProposalWriter.index(pattern, KernelConcept.DESCRIPTION_CASE_SIGNIFICANCE);
+            int acceptability = ConceptProposalWriter.index(ConceptProposalWriter.latest(calc, KernelPattern.US_DIALECT_PATTERN),
+                    KometConcept.US_ENGLISH_DIALECT);
+            Map<Long, Description> descriptions = new LinkedHashMap<>();
+            EntityService.get().semanticsForComponentOfPattern(concept.nid(), KernelPattern.DESCRIPTION_PATTERN.nid()).forEach(semantic -> {
+                Latest<SemanticEntityVersion> latest = calc.latest(semantic.nid());
+                if (!latest.isPresent() || latest.get().state() != State.ACTIVE) {
+                    return;
+                }
+                var fields = latest.get().fieldValues();
+                Long dialect = null;
+                Boolean preferred = null;
+                for (SemanticEntity<SemanticEntityVersion> candidate : EntityService.get()
+                        .semanticsForComponentOfPattern(semantic.nid(), KernelPattern.US_DIALECT_PATTERN.nid()).toList()) {
+                    Latest<SemanticEntityVersion> dialectLatest = calc.latest(candidate.nid());
+                    if (dialectLatest.isPresent() && dialectLatest.get().state() == State.ACTIVE) {
+                        dialect = candidate.nid();
+                        preferred = dialectLatest.get().fieldValues().get(acceptability) instanceof EntityFacade value
+                                && value.nid() == KernelConcept.PREFERRED.nid();
+                    }
+                }
+                descriptions.put(semantic.nid(), new Description(semantic.nid(),
+                        fields.get(type) instanceof EntityFacade value ? value.nid() : 0L,
+                        String.valueOf(fields.get(text)),
+                        fields.get(caseSignificance) instanceof EntityFacade value
+                                && value.nid() == KernelConcept.DESCRIPTION_CASE_SENSITIVE.nid(),
+                        dialect, preferred));
+            });
+            return descriptions;
+        }
+
+        private static String nonBlank(String text) {
+            if (text == null || text.isBlank()) {
+                throw new IllegalArgumentException("a description's text cannot be blank");
+            }
+            return text.strip();
         }
 
         /** The concept's one stated-axiom semantic. */
@@ -234,25 +531,33 @@ public final class ConceptChangeWriter {
             return stated.getFirst();
         }
 
+        /** Refuses a change that was published or discarded. */
+        private void refuseIfEnded() {
+            Status status = status();
+            if (status == Status.PUBLISHED || status == Status.DISCARDED) {
+                throw new IllegalStateException("this change to " + name() + " was " + status.name().toLowerCase()
+                        + "; start a new change to change it again");
+            }
+        }
+
         /** Refuses a semantic with an unpublished version of any transaction but this change's. */
-        private void refuseOtherPendingVersions(SemanticEntity<SemanticEntityVersion> semantic) {
-            for (EntityVersion version : EntityHandle.get(semantic.nid()).expectEntity().versions()) {
+        private void refuseOtherPendingVersions(long semanticNid, String what) {
+            for (EntityVersion version : EntityHandle.get(semanticNid).expectEntity().versions()) {
                 if (!version.uncommitted()) {
                     continue;
                 }
                 Optional<Transaction> owner = Transaction.forVersion(version);
                 if (owner.isEmpty() || owner.get() != transaction) {
-                    throw new IllegalStateException("the stated definition of " + name() + " already has an unpublished "
-                            + "change from another window or session; publish or discard it in the Unpublished Changes "
-                            + "tray first. Nothing was written");
+                    throw new IllegalStateException(what + " already has an unpublished change from another window or "
+                            + "session; publish or discard it in the Unpublished Changes tray first. Nothing was written");
                 }
             }
         }
 
         /** Remembers the transaction and stamp this change saved into. */
-        private void remember(SemanticEntity<?> semantic) {
+        private void remember(long semanticNid) {
             transaction = composer.getOrCreateTransaction();
-            for (EntityVersion version : EntityHandle.get(semantic.nid()).expectEntity().versions()) {
+            for (EntityVersion version : EntityHandle.get(semanticNid).expectEntity().versions()) {
                 if (version.uncommitted() && Transaction.forVersion(version).filter(t -> t == transaction).isPresent()) {
                     stampNid = version.stampNid();
                 }

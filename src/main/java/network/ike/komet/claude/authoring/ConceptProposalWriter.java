@@ -123,7 +123,7 @@ public final class ConceptProposalWriter {
     }
 
     /** A description written with its US-English acceptability. */
-    private record Described(long description, long dialect) {
+    record Described(long description, long dialect) {
     }
 
     /** A synonym as written. */
@@ -482,7 +482,7 @@ public final class ConceptProposalWriter {
     }
 
     /** A description and its US-English acceptability. */
-    private static Described description(ObservableComposer composer, ViewCalculator calc, EntityFacade concept,
+    static Described description(ObservableComposer composer, ViewCalculator calc, EntityFacade concept,
                                          String text, boolean caseSensitive, ConceptFacade type, boolean preferred) {
         PatternEntityVersion pattern = latest(calc, KernelPattern.DESCRIPTION_PATTERN);
         Map<ConceptFacade, Object> byMeaning = Map.of(
@@ -569,12 +569,12 @@ public final class ConceptProposalWriter {
         return synonym;
     }
 
-    private static PatternEntityVersion latest(ViewCalculator calc, PatternFacade pattern) {
+    static PatternEntityVersion latest(ViewCalculator calc, PatternFacade pattern) {
         return calc.latestPatternEntityVersion(pattern.nid()).orElseThrow(() ->
                 new IllegalStateException(pattern.description() + " has no version on this view"));
     }
 
-    private static int index(PatternEntityVersion pattern, ConceptFacade meaning) {
+    static int index(PatternEntityVersion pattern, ConceptFacade meaning) {
         int index = pattern.indexForMeaning(meaning.nid());
         if (index < 0) {
             List<String> meanings = new ArrayList<>();

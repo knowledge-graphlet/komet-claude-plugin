@@ -38,12 +38,20 @@ import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.entity.transaction.Transaction;
 import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityFacade;
+import dev.ikm.tinkar.terms.EntityProxy;
 import dev.ikm.tinkar.terms.KernelConcept;
 import dev.ikm.tinkar.terms.KernelPattern;
 import dev.ikm.tinkar.terms.State;
 import javafx.application.Platform;
 import network.ike.komet.claude.authoring.ConceptChangeWriter.Change;
 import network.ike.komet.claude.authoring.ConceptChangeWriter.DefinitionEdited;
+import network.ike.komet.claude.authoring.ConceptChangeWriter.DescriptionsEdited;
+import network.ike.komet.claude.authoring.DescriptionOperation.AddSynonym;
+import network.ike.komet.claude.authoring.DescriptionOperation.AddTextualDefinition;
+import network.ike.komet.claude.authoring.DescriptionOperation.ChangeAcceptability;
+import network.ike.komet.claude.authoring.DescriptionOperation.ChangeCaseSignificance;
+import network.ike.komet.claude.authoring.DescriptionOperation.ChangeText;
+import network.ike.komet.claude.authoring.DescriptionOperation.Retire;
 import network.ike.komet.claude.authoring.ConceptChangeWriter.Status;
 import network.ike.komet.claude.authoring.DefinitionOperation.AddSupertype;
 import network.ike.komet.claude.authoring.DefinitionOperation.AddToGroup;
@@ -361,6 +369,145 @@ class ConceptChangeWriterIT {
         assertFalse(entity(stated(concept).nid()).uncommitted());
     }
 
+    // ── descriptions ────────────────────────────────────────────────────
+
+    @Test
+    void retiringASynonymRetiresItsAcceptabilityInTheChangesTransaction() {
+        EntityFacade concept = describedFixture("Retire fixture");
+        EntityFacade alternative = description(concept, "Retire fixture alternative");
+        Change change = open(concept);
+
+        DescriptionsEdited edited = onFx(() -> change.editDescriptions(List.of(new Retire(alternative))));
+
+        assertTrue(edited.changed(), edited.toString());
+        assertEquals(State.INACTIVE, pendingState(alternative.nid()));
+        long dialect = dialect(alternative.nid());
+        assertEquals(State.INACTIVE, pendingState(dialect), "its acceptability is retired with it");
+        assertEquals(transactionsOf(alternative.nid()), Set.of(transactionOf(dialect)), "one transaction holds both");
+        UnpublishedChange row = UnpublishedChange.of(entity(alternative.nid()), view);
+        assertEquals(concept.nid(), row.rootNid());
+        assertEquals(UnpublishedChange.Kind.INACTIVATED, row.kind());
+
+        onFx(() -> {
+            transactionsOf(concept.nid()).forEach(Transaction::commit);
+            return null;
+        });
+        assertEquals(Status.PUBLISHED, change.status());
+        assertFalse(activeTexts(concept).contains("Retire fixture alternative"));
+    }
+
+    @Test
+    void thePreferredSynonymChangesWhenTheOldIsDemotedAndTheNewPromotedTogether() {
+        EntityFacade concept = describedFixture("Swap fixture");
+        EntityFacade preferred = description(concept, "Swap fixture");
+        EntityFacade alternative = description(concept, "Swap fixture alternative");
+        Change change = open(concept);
+
+        assertRefused(IllegalArgumentException.class,
+                () -> onFx(() -> change.editDescriptions(List.of(new ChangeAcceptability(alternative, true)))),
+                "two preferred synonyms");
+        assertRefused(IllegalArgumentException.class,
+                () -> onFx(() -> change.editDescriptions(List.of(new Retire(preferred)))),
+                "no preferred synonym");
+        assertEquals(Status.EMPTY, change.status(), "a refused edit writes nothing");
+
+        onFx(() -> change.editDescriptions(List.of(new ChangeAcceptability(preferred, false),
+                new ChangeAcceptability(alternative, true))));
+        assertFalse(isPreferred(preferred.nid()));
+        assertTrue(isPreferred(alternative.nid()));
+        assertEquals(transactionsOf(preferred.nid()), transactionsOf(alternative.nid()));
+    }
+
+    @Test
+    void severalChangesToOneDescriptionAreOneVersion() {
+        EntityFacade concept = describedFixture("Text fixture");
+        EntityFacade alternative = description(concept, "Text fixture alternative");
+        Change change = open(concept);
+
+        DescriptionsEdited edited = onFx(() -> change.editDescriptions(List.of(
+                new ChangeText(alternative, "Text fixture variant"), new ChangeCaseSignificance(alternative, true))));
+
+        assertEquals(2, edited.changes().size(), edited.changes().toString());
+        List<EntityVersion> pending = uncommitted(alternative.nid());
+        assertEquals(1, pending.size());
+        List<Object> fields = ((SemanticEntityVersion) pending.getFirst()).fieldValues().castToList();
+        assertTrue(fields.contains("Text fixture variant"), fields.toString());
+        assertTrue(fields.stream().anyMatch(value -> value instanceof EntityFacade facade
+                && facade.nid() == KernelConcept.DESCRIPTION_CASE_SENSITIVE.nid()), fields.toString());
+    }
+
+    @Test
+    void synonymsAndTextualDefinitionsAreAddedButNotRepeated() {
+        EntityFacade concept = describedFixture("Add fixture");
+        Change change = open(concept);
+
+        assertRefused(IllegalArgumentException.class,
+                () -> onFx(() -> change.editDescriptions(List.of(new AddSynonym("Add fixture alternative", false, false)))),
+                "an existing synonym");
+        DescriptionsEdited edited = onFx(() -> change.editDescriptions(List.of(
+                new AddSynonym("Add fixture other", false, false), new AddTextualDefinition("Another definition."))));
+
+        assertEquals(2, edited.added().size());
+        Set<String> texts = activeTexts(concept);
+        assertTrue(texts.containsAll(Set.of("Add fixture other", "Another definition.")), texts.toString());
+        edited.added().forEach(added -> assertTrue(entity(added.nid()).uncommitted()));
+        assertFalse(isPreferred(edited.added().getFirst().nid()), "the synonym is acceptable");
+    }
+
+    @Test
+    void definitionAndDescriptionChangesShareOneTransactionAndDiscardTogether() {
+        EntityFacade concept = describedFixture("Together fixture");
+        EntityFacade alternative = description(concept, "Together fixture alternative");
+        Change change = open(concept);
+
+        onFx(() -> change.editDefinition(List.of(new AddSupertype(SetSelector.NECESSARY, OTHER_SUPERTYPE))));
+        onFx(() -> change.editDescriptions(List.of(new Retire(alternative))));
+        assertEquals(transactionsOf(stated(concept).nid()), transactionsOf(alternative.nid()),
+                "the tray publishes or discards the concept's changes as one");
+
+        assertTrue(onFx(() -> ConceptChangeWriter.discard(change)));
+        assertFalse(entity(stated(concept).nid()).uncommitted());
+        assertFalse(entity(alternative.nid()).uncommitted());
+        assertTrue(activeTexts(concept).contains("Together fixture alternative"));
+    }
+
+    @Test
+    void descriptionEditsAreRefusedForWhatTheConceptDoesNotHoldOrAnotherWindowChanged() {
+        EntityFacade concept = describedFixture("Refuse fixture");
+        EntityFacade other = describedFixture("Other fixture");
+        EntityFacade name = description(concept, "Refuse fixture (qualifier value)");
+        EntityFacade alternative = description(concept, "Refuse fixture alternative");
+        Change change = open(concept);
+
+        assertRefused(IllegalArgumentException.class,
+                () -> onFx(() -> change.editDescriptions(List.of(new Retire(description(other, "Other fixture alternative"))))),
+                "another concept's description");
+        assertRefused(IllegalArgumentException.class,
+                () -> onFx(() -> change.editDescriptions(List.of(new Retire(name)))),
+                "the last fully specified name");
+        assertRefused(IllegalArgumentException.class,
+                () -> onFx(() -> change.editDescriptions(List.of(new Retire(alternative), new ChangeText(alternative, "x")))),
+                "retired and changed");
+
+        onFx(() -> {
+            ObservableComposer window = ObservableComposer.create(view, State.ACTIVE, KernelConcept.USER,
+                    KernelConcept.PRIMORDIAL_MODULE, KernelConcept.DEVELOPMENT_PATH, "The window");
+            var editor = window.composeSemantic(alternative.publicId(), concept, KernelPattern.DESCRIPTION_PATTERN);
+            var fields = editor.getEditableVersion().getEditableFields();
+            for (var field : fields) {
+                if (field.getValue() instanceof String) {
+                    field.setObjectValue("The person's text");
+                }
+            }
+            editor.save();
+            return null;
+        });
+        assertRefused(IllegalStateException.class,
+                () -> onFx(() -> change.editDescriptions(List.of(new ChangeCaseSignificance(alternative, true)))),
+                "the window's pending edit");
+        assertEquals(Status.EMPTY, change.status());
+    }
+
     // ── fixtures ────────────────────────────────────────────────────────
 
     /** A committed concept with the fixture definition. */
@@ -387,6 +534,26 @@ class ConceptChangeWriterIT {
         });
         assertFalse(entity(concept).uncommitted());
         assertFalse(entity(stated(draft.concept()).nid()).uncommitted());
+        return draft.concept();
+    }
+
+    /**
+     * A committed concept with the fixture definition and descriptions: its fully specified name
+     * {@code <name> (qualifier value)}, the preferred synonym {@code <name>}, the acceptable
+     * synonym {@code <name> alternative}, and a textual definition.
+     */
+    private EntityFacade describedFixture(String name) {
+        String fsn = name + " (qualifier value)";
+        ProposedDefinition.Built built = ProposedDefinition.build(ProposedDefinition.parse(
+                "proposed: " + fsn + "\nnecessary\n  " + token(SUPERTYPE.nid()) + "\n"));
+        ConceptProposalWriter.Draft draft = onFx(() -> ConceptProposalWriter.write(view, KernelConcept.USER,
+                KernelConcept.PRIMORDIAL_MODULE, KernelConcept.DEVELOPMENT_PATH, fsn, built.tree(),
+                List.of(new ConceptProposalWriter.Synonym(name + " alternative", false, false)), null, "A textual definition."));
+        onFx(() -> {
+            transactionsOf(draft.concept().nid()).forEach(Transaction::commit);
+            return null;
+        });
+        assertFalse(entity(draft.concept().nid()).uncommitted());
         return draft.concept();
     }
 
@@ -427,12 +594,68 @@ class ConceptChangeWriterIT {
         return disjoints.getFirst().vertexUUID();
     }
 
+    /** The concept's active description with this text. */
+    private EntityFacade description(EntityFacade concept, String text) {
+        for (SemanticEntity<SemanticEntityVersion> description : EntityService.get()
+                .semanticsForComponentOfPattern(concept.nid(), KernelPattern.DESCRIPTION_PATTERN.nid()).toList()) {
+            Latest<SemanticEntityVersion> latest = view.latest(description.nid());
+            if (latest.isPresent() && latest.get().state() == State.ACTIVE && latest.get().fieldValues().contains(text)) {
+                return EntityProxy.Semantic.make(description.nid());
+            }
+        }
+        throw new AssertionError("no active description \"" + text + "\"");
+    }
+
+    /** The texts of the concept's active descriptions, latest on the view. */
+    private Set<String> activeTexts(EntityFacade concept) {
+        Set<String> texts = new HashSet<>();
+        EntityService.get().semanticsForComponentOfPattern(concept.nid(), KernelPattern.DESCRIPTION_PATTERN.nid()).forEach(description -> {
+            Latest<SemanticEntityVersion> latest = view.latest(description.nid());
+            if (latest.isPresent() && latest.get().state() == State.ACTIVE) {
+                latest.get().fieldValues().forEach(value -> {
+                    if (value instanceof String text) {
+                        texts.add(text);
+                    }
+                });
+            }
+        });
+        return texts;
+    }
+
+    /** The description's one US English acceptability semantic. */
+    private static long dialect(long description) {
+        List<SemanticEntity<SemanticEntityVersion>> dialects = EntityService.get()
+                .semanticsForComponentOfPattern(description, KernelPattern.US_DIALECT_PATTERN.nid()).toList();
+        assertEquals(1, dialects.size());
+        return dialects.getFirst().nid();
+    }
+
+    private boolean isPreferred(long description) {
+        Latest<SemanticEntityVersion> latest = view.latest(dialect(description));
+        return latest.get().fieldValues().getFirst() instanceof EntityFacade facade && facade.nid() == KernelConcept.PREFERRED.nid();
+    }
+
+    /** The state of the component's one unpublished version. */
+    private static State pendingState(long nid) {
+        List<EntityVersion> pending = uncommitted(nid);
+        assertEquals(1, pending.size());
+        return pending.getFirst().state();
+    }
+
+    private static Transaction transactionOf(long nid) {
+        return Transaction.forVersion(uncommitted(nid).getFirst()).orElseThrow();
+    }
+
     private static RoleNode node(Group group, long type) {
         return group.roles.stream().filter(node -> node.role().type() == type).findFirst().orElseThrow();
     }
 
     private static List<EntityVersion> uncommitted(SemanticEntity<?> semantic) {
-        return entity(semantic.nid()).versions().stream().map(EntityVersion.class::cast)
+        return uncommitted(semantic.nid());
+    }
+
+    private static List<EntityVersion> uncommitted(long nid) {
+        return entity(nid).versions().stream().map(EntityVersion.class::cast)
                 .filter(EntityVersion::uncommitted).toList();
     }
 
