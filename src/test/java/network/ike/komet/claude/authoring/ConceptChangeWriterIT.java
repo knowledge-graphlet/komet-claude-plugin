@@ -85,6 +85,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -308,17 +310,17 @@ class ConceptChangeWriterIT {
     }
 
     @Test
-    void aDefinitionWithAnotherTransactionsPendingVersionIsRefused() {
+    void aDefinitionWithAnotherModulesPendingVersionIsRefused() {
         EntityFacade concept = fixture("Window fixture (qualifier value)");
         SemanticEntity<SemanticEntityVersion> stated = stated(concept);
 
-        // The person's window edits the definition through a composer, and transaction, of its own.
+        // A window edits the definition in another module, through a composer, and transaction, of its own.
         LogicalExpressionBuilder builder = new LogicalExpressionBuilder();
         builder.NecessarySet(builder.And(builder.ConceptAxiom(OTHER_SUPERTYPE)));
         DiTreeEntity windowTree = tree(builder);
         onFx(() -> {
             ObservableComposer window = ObservableComposer.create(view, State.ACTIVE, KernelConcept.USER,
-                    KernelConcept.PRIMORDIAL_MODULE, KernelConcept.DEVELOPMENT_PATH, "The window");
+                    KernelConcept.SOLOR_MODULE, KernelConcept.DEVELOPMENT_PATH, "The window").joinPendingWork();
             ObservableComposer.EntityComposer<ObservableSemanticVersion.Editable, ObservableSemantic> editor =
                     window.composeSemantic(stated.publicId(), concept, KernelPattern.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN);
             editor.getEditableVersion().getEditableFields().getFirst().setObjectValue(windowTree);
@@ -330,7 +332,7 @@ class ConceptChangeWriterIT {
         Change change = open(concept);
         assertRefused(IllegalStateException.class,
                 () -> onFx(() -> change.editDefinition(List.of(new AddSupertype(SetSelector.NECESSARY, SUPERTYPE)))),
-                "the window's pending edit is not written over");
+                "another module's pending edit is not written over");
         assertEquals(Status.EMPTY, change.status());
         assertEquals(windowTransactions, transactionsOf(stated.nid()), "only the window's transaction holds a version");
         assertEquals(1, uncommitted(stated).size());
@@ -489,9 +491,10 @@ class ConceptChangeWriterIT {
                 () -> onFx(() -> change.editDescriptions(List.of(new Retire(alternative), new ChangeText(alternative, "x")))),
                 "retired and changed");
 
+        // A composer that commits at once leaves its transaction unmarked: its edit is not continued.
         onFx(() -> {
             ObservableComposer window = ObservableComposer.create(view, State.ACTIVE, KernelConcept.USER,
-                    KernelConcept.PRIMORDIAL_MODULE, KernelConcept.DEVELOPMENT_PATH, "The window");
+                    KernelConcept.PRIMORDIAL_MODULE, KernelConcept.DEVELOPMENT_PATH, "Commits at once");
             var editor = window.composeSemantic(alternative.publicId(), concept, KernelPattern.DESCRIPTION_PATTERN);
             var fields = editor.getEditableVersion().getEditableFields();
             for (var field : fields) {
@@ -504,11 +507,136 @@ class ConceptChangeWriterIT {
         });
         assertRefused(IllegalStateException.class,
                 () -> onFx(() -> change.editDescriptions(List.of(new ChangeCaseSignificance(alternative, true)))),
-                "the window's pending edit");
+                "the pending edit of a composer that commits at once");
         assertEquals(Status.EMPTY, change.status());
     }
 
+    // ── modify before commit (Phase 4) ─────────────────────────────────
+
+    @Test
+    void theChangeContinuesTheWindowsPendingEditOfTheDefinition() {
+        EntityFacade concept = fixture("Continue window fixture (qualifier value)");
+        SemanticEntity<SemanticEntityVersion> stated = stated(concept);
+        ObservableComposer window = window();
+        LogicalExpressionBuilder builder = new LogicalExpressionBuilder();
+        builder.NecessarySet(builder.And(builder.ConceptAxiom(OTHER_SUPERTYPE)));
+        DiTreeEntity windowTree = tree(builder);
+        onFx(() -> {
+            var editor = window.composeSemantic(stated.publicId(), concept, KernelPattern.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN);
+            editor.getEditableVersion().getEditableFields().getFirst().setObjectValue(windowTree);
+            editor.save();
+            return null;
+        });
+        Transaction windowTransaction = transactionOf(stated.nid());
+
+        Change change = open(concept);
+        DefinitionEdited edited = onFx(() -> change.editDefinition(List.of(new AddSupertype(SetSelector.NECESSARY, SUPERTYPE))));
+
+        assertTrue(edited.changed());
+        assertTrue(edited.before().contains(token(OTHER_SUPERTYPE.nid())), "the edit starts from the window's version: " + edited.before());
+        assertEquals(1, uncommitted(stated).size(), "the change replaced the window's pending version");
+        assertSame(windowTransaction, transactionOf(stated.nid()), "in the window's transaction");
+        assertSame(windowTransaction, change.transaction());
+        assertEquals(Set.of(SUPERTYPE.nid(), OTHER_SUPERTYPE.nid()),
+                Set.copyOf(shape(concept).sets.getFirst().supertypes.stream().map(Supertype::concept).toList()));
+        assertTrue(change.sharedWithOthers(stated.nid()), "the version holds the person's edit too");
+        assertRefused(IllegalStateException.class, () -> onFx(() -> ConceptChangeWriter.discard(change)),
+                "discarding the change would discard the window's edit");
+        assertEquals(1, uncommitted(stated).size(), "a refused discard discards nothing");
+
+        onFx(() -> {
+            window.commit();
+            return null;
+        });
+        assertFalse(entity(stated.nid()).uncommitted(), "the window's Publish published both");
+        assertEquals(Status.PUBLISHED, change.status());
+    }
+
+    @Test
+    void aWindowEditOfWhatTheChangeWroteJoinsTheChange() {
+        EntityFacade concept = fixture("Window joins fixture (qualifier value)");
+        SemanticEntity<SemanticEntityVersion> stated = stated(concept);
+        Change change = open(concept);
+        onFx(() -> change.editDefinition(List.of(new AddSupertype(SetSelector.NECESSARY, OTHER_SUPERTYPE))));
+        Transaction changeTransaction = transactionOf(stated.nid());
+        assertFalse(change.sharedWithOthers(stated.nid()));
+
+        // The person modifies the assistant's change before publishing it.
+        ObservableComposer window = window();
+        onFx(() -> {
+            var editor = window.composeSemantic(stated.publicId(), concept, KernelPattern.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN);
+            var field = editor.getEditableVersion().getEditableFields().getFirst();
+            DefinitionShape shape = DefinitionShape.of((DiTreeEntity) field.getValue());
+            DefinitionShape target = shape.copy();
+            target.sets.getFirst().roles.clear();
+            field.setObjectValue(DefinitionRewrite.rewrite((DiTreeEntity) field.getValue(), shape, target));
+            editor.save();
+            return null;
+        });
+
+        assertEquals(1, uncommitted(stated).size(), "the window's edit replaced the change's version");
+        assertSame(changeTransaction, transactionOf(stated.nid()), "in the change's transaction");
+        assertTrue(shape(concept).sets.getFirst().roles.isEmpty(), "the window's edit stands");
+        assertTrue(change.sharedWithOthers(stated.nid()), "the change sees the person edited it since");
+        assertRefused(IllegalStateException.class, () -> onFx(() -> ConceptChangeWriter.discard(change)),
+                "discarding the change would discard the window's edit");
+
+        onFx(() -> {
+            window.commit();
+            return null;
+        });
+        assertFalse(entity(stated.nid()).uncommitted());
+        assertEquals(Status.PUBLISHED, change.status());
+    }
+
+    @Test
+    void theChangesWorkMovesIntoTheWindowsTransactionToContinueIt() {
+        EntityFacade concept = describedFixture("Move fixture");
+        EntityFacade alternative = description(concept, "Move fixture alternative");
+        SemanticEntity<SemanticEntityVersion> stated = stated(concept);
+        ObservableComposer window = window();
+        onFx(() -> {
+            var editor = window.composeSemantic(alternative.publicId(), concept, KernelPattern.DESCRIPTION_PATTERN);
+            for (var field : editor.getEditableVersion().getEditableFields()) {
+                if (field.getValue() instanceof String) {
+                    field.setObjectValue("Move fixture, as the person wrote it");
+                }
+            }
+            editor.save();
+            return null;
+        });
+        Transaction windowTransaction = transactionOf(alternative.nid());
+
+        Change change = open(concept);
+        onFx(() -> change.editDefinition(List.of(new AddSupertype(SetSelector.NECESSARY, OTHER_SUPERTYPE))));
+        Transaction changeTransaction = transactionOf(stated.nid());
+        assertNotSame(windowTransaction, changeTransaction, "the definition was the change's alone");
+
+        onFx(() -> change.editDescriptions(List.of(new ChangeCaseSignificance(alternative, true))));
+
+        assertFalse(changeTransaction.isOpen(), "the change's own transaction was emptied into the window's");
+        assertSame(windowTransaction, transactionOf(stated.nid()), "the change's definition edit moved with it");
+        assertSame(windowTransaction, transactionOf(alternative.nid()));
+        assertSame(windowTransaction, change.transaction());
+        assertEquals(1, uncommitted(alternative.nid()).size(), "one pending version of the description");
+        assertEquals(Status.OPEN, change.status());
+
+        onFx(() -> {
+            window.commit();
+            return null;
+        });
+        assertFalse(entity(stated.nid()).uncommitted() || entity(alternative.nid()).uncommitted(),
+                "the window's Publish published the change too");
+        assertEquals(Status.PUBLISHED, change.status());
+    }
+
     // ── fixtures ────────────────────────────────────────────────────────
+
+    /** A KL window's composer: on the edit coordinate's author, module and path, joining pending work. */
+    private ObservableComposer window() {
+        return onFx(() -> ObservableComposer.create(view, State.ACTIVE, KernelConcept.USER,
+                KernelConcept.PRIMORDIAL_MODULE, KernelConcept.DEVELOPMENT_PATH, "Edit Semantic Details").joinPendingWork());
+    }
 
     /** A committed concept with the fixture definition. */
     private EntityFacade fixture(String fsn) {

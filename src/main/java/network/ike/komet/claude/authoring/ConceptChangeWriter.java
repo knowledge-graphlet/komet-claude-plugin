@@ -31,6 +31,7 @@ import dev.ikm.tinkar.entity.EntityVersion;
 import dev.ikm.tinkar.entity.PatternEntityVersion;
 import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
+import dev.ikm.tinkar.entity.StampEntity;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.entity.transaction.Transaction;
 import dev.ikm.tinkar.terms.EntityFacade;
@@ -47,7 +48,6 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.List;
-import java.util.Optional;
 import java.util.function.UnaryOperator;
 
 /**
@@ -70,10 +70,16 @@ import java.util.function.UnaryOperator;
  * a definition holding what the {@code koncept-definition} grammar cannot express, which a
  * rewrite through the grammar would drop.
  *
- * <p>An edit is refused, writing nothing, when the stated definition already carries an
- * unpublished version of another transaction, such as the person's open window: two
- * uncommitted versions of two transactions would commit in whichever order they happened to be
- * published. The check runs before the editor opens, since opening one stamps the transaction.
+ * <p>The change continues pending work under its own author, module and path, as the person's
+ * window does ({@link ObservableComposer#joinPendingWork()}): an edit of a component the
+ * person's window changed lands in the window's transaction, replacing its pending version, and
+ * a window edit of a component the change wrote lands in the change's. Either way one
+ * transaction holds both, so one Publish or Discard settles them, and the change follows its
+ * work there ({@link Change#transaction()}). An edit is refused, writing nothing, when the
+ * component carries an unpublished version of any other transaction — another author's, module's
+ * or path's: two uncommitted versions of two transactions would commit in whichever order they
+ * happened to be published. The check runs before the editor opens, since opening one stamps the
+ * transaction.
  *
  * <p>Must run on the JavaFX application thread, as {@link ObservableComposer} requires.
  */
@@ -146,15 +152,27 @@ public final class ConceptChangeWriter {
         private final ViewCalculator calc;
         private final EntityFacade concept;
         private final ObservableComposer composer;
-        /** The transaction this change saved into; null until it saves. */
+        private final long authorNid;
+        private final long moduleNid;
+        private final long pathNid;
+        /** The transaction this change saved into, or the one its work was moved into since; null until it saves. */
         private Transaction transaction;
-        /** The stamp of this change's saved versions; 0 until it saves. */
-        private long stampNid;
+        /**
+         * The components this change wrote a version of, each with what its pending version held
+         * when the change last saved it: its state, and a semantic's field values.
+         */
+        private final Map<Long, List<Object>> written = new LinkedHashMap<>();
+        /** The components that already held someone else's pending version when this change continued it. */
+        private final Set<Long> continued = new LinkedHashSet<>();
 
-        private Change(ViewCalculator calc, EntityFacade concept, ObservableComposer composer) {
+        private Change(ViewCalculator calc, EntityFacade concept, ObservableComposer composer,
+                       long authorNid, long moduleNid, long pathNid) {
             this.calc = calc;
             this.concept = concept;
             this.composer = composer;
+            this.authorNid = authorNid;
+            this.moduleNid = moduleNid;
+            this.pathNid = pathNid;
         }
 
         /** @return the concept the change is on */
@@ -162,20 +180,53 @@ public final class ConceptChangeWriter {
             return concept;
         }
 
-        /** @return the transaction this change saved into, or null until it saves */
+        /**
+         * @return the transaction holding this change's work — the one it saved into, or the one a
+         *         window's edit moved it into since ({@link Transaction#moveInto}) — or null until it saves
+         */
         Transaction transaction() {
+            if (transaction != null) {
+                transaction = transaction.continuation();
+            }
             return transaction;
+        }
+
+        /** @return the components this change wrote a version of */
+        Set<Long> written() {
+            return Set.copyOf(written.keySet());
+        }
+
+        /**
+         * @param componentNid a component this change wrote
+         * @return whether its pending version holds the person's edit too: it held their pending
+         *         version when the change continued it, or they edited it since
+         */
+        boolean sharedWithOthers(long componentNid) {
+            return continued.contains(componentNid) || editedSince(componentNid);
+        }
+
+        /**
+         * @param componentNid a component this change wrote
+         * @return whether its pending version no longer holds what the change saved: the person's
+         *         window, continuing the change, edited it since
+         */
+        private boolean editedSince(long componentNid) {
+            List<Object> saved = written.get(componentNid);
+            Transaction holder = transaction();
+            return saved != null && holder != null && holder.isOpen()
+                    && !saved.equals(content(pendingIn(componentNid, holder)));
         }
 
         /** @return where the change stands */
         public Status status() {
-            if (transaction == null) {
+            Transaction holder = transaction();
+            if (holder == null) {
                 return Status.EMPTY;
             }
-            if (transaction.isOpen()) {
+            if (holder.isOpen()) {
                 return Status.OPEN;
             }
-            return Entity.getStamp(stampNid).time() == Long.MIN_VALUE ? Status.DISCARDED : Status.PUBLISHED;
+            return holder.committed() ? Status.PUBLISHED : Status.DISCARDED;
         }
 
         /**
@@ -340,13 +391,16 @@ public final class ConceptChangeWriter {
                     };
                     added.add(EntityProxy.Semantic.make(written.description()));
                     saved.add(written.description());
+                    if (written.dialect() != 0) {
+                        saved.add(written.dialect());
+                    }
                 }
             } finally {
                 // Opening an editor stamped the transaction; a description it wrote nothing to keeps nothing.
                 opened.stream().filter(nid -> !saved.contains(nid)).forEach(composer::discardUnsavedEdits);
             }
             if (!saved.isEmpty()) {
-                remember(saved.iterator().next());
+                saved.forEach(this::remember);
             }
             return new DescriptionsEdited(!saved.isEmpty(), List.copyOf(changes), List.copyOf(added));
         }
@@ -545,28 +599,87 @@ public final class ConceptChangeWriter {
             }
         }
 
-        /** Refuses a semantic with an unpublished version of any transaction but this change's. */
+        /**
+         * Refuses a semantic with an unpublished version of a transaction this change does not
+         * continue. The change continues pending work under its own author, module and path, as
+         * the person's window does ({@link ObservableComposer#joinPendingWork()}): its edit then
+         * replaces that version, in that transaction. Any other unpublished version — another
+         * author's, another module's or path's, or one this change's own work could not be moved
+         * beside — is refused.
+         */
         private void refuseOtherPendingVersions(long semanticNid, String what) {
+            Transaction own = transaction();
+            Transaction joined = Transaction.pendingOwnerOf(semanticNid, authorNid, moduleNid, pathNid, own)
+                    .filter(owner -> own == null || !own.isOpen() || own.stampsInTransactionCount() == 0
+                            || own.canMoveInto(owner))
+                    .orElse(null);
             for (EntityVersion version : EntityHandle.get(semanticNid).expectEntity().versions()) {
                 if (!version.uncommitted()) {
                     continue;
                 }
-                Optional<Transaction> owner = Transaction.forVersion(version);
-                if (owner.isEmpty() || owner.get() != transaction) {
-                    throw new IllegalStateException(what + " already has an unpublished change from another window or "
-                            + "session; publish or discard it in the Unpublished Changes tray first. Nothing was written");
+                Transaction owner = Transaction.forVersion(version).orElse(null);
+                if (owner == null || (owner != own && owner != joined)) {
+                    throw new IllegalStateException(what + " already has an unpublished change from another author, "
+                            + "module, path or session; publish or discard it in the Unpublished Changes tray first. "
+                            + "Nothing was written");
                 }
+            }
+            if (joined != null) {
+                // The person's pending version: what this change writes to it holds their edit too.
+                continued.add(semanticNid);
             }
         }
 
-        /** Remembers the transaction and stamp this change saved into. */
-        private void remember(long semanticNid) {
+        /** Remembers that this change wrote the component, what it wrote, and the transaction it wrote into. */
+        private void remember(long componentNid) {
             transaction = composer.getOrCreateTransaction();
-            for (EntityVersion version : EntityHandle.get(semanticNid).expectEntity().versions()) {
-                if (version.uncommitted() && Transaction.forVersion(version).filter(t -> t == transaction).isPresent()) {
-                    stampNid = version.stampNid();
+            written.put(componentNid, content(pendingIn(componentNid, transaction)));
+        }
+
+        /** The component's pending version in the transaction, or null when it holds none. */
+        private static EntityVersion pendingIn(long componentNid, Transaction holder) {
+            if (!(EntityHandle.get(componentNid).orNull() instanceof Entity<?> entity)) {
+                return null;
+            }
+            for (Object object : entity.versions()) {
+                EntityVersion version = (EntityVersion) object;
+                if (version.uncommitted() && Transaction.forVersion(version).filter(t -> t == holder).isPresent()) {
+                    return version;
                 }
             }
+            return null;
+        }
+
+        /** What a version holds, for telling whether it changed: its state and, for a semantic, its fields. */
+        private static List<Object> content(EntityVersion version) {
+            if (version == null) {
+                return List.of();
+            }
+            return version instanceof SemanticEntityVersion semantic
+                    ? List.of(version.state(), semantic.fieldValues())
+                    : List.of(version.state());
+        }
+
+        /**
+         * The components with a pending version in this change's transaction that the change did
+         * not leave as they are: the person's edits, or another session's, that joined it — a
+         * component the change never wrote, or one it wrote that was edited since.
+         */
+        Set<Long> othersWork() {
+            Transaction holder = transaction();
+            Set<Long> others = new LinkedHashSet<>();
+            if (holder == null || !holder.isOpen()) {
+                return others;
+            }
+            holder.forEachComponentInTransaction(nid -> {
+                if (EntityHandle.get(nid).orNull() instanceof StampEntity<?> || pendingIn(nid, holder) == null) {
+                    return;
+                }
+                if (!written.containsKey(nid) || sharedWithOthers(nid)) {
+                    others.add(nid);
+                }
+            });
+            return others;
         }
 
         private String name() {
@@ -592,20 +705,32 @@ public final class ConceptChangeWriter {
                               EntityFacade concept, String rationale) {
         String comment = "Assistant change: " + ComponentText.name(calc, concept.nid())
                 + (rationale == null || rationale.isBlank() ? "" : ": " + rationale.strip());
-        return new Change(calc, concept, ObservableComposer.create(calc, State.ACTIVE, author, module, path, comment));
+        return new Change(calc, concept,
+                ObservableComposer.create(calc, State.ACTIVE, author, module, path, comment).joinPendingWork(),
+                author.nid(), module.nid(), path.nid());
     }
 
     /**
      * Discards a change that is still uncommitted: its transaction is rolled back, and the concept
-     * is as it was before. A change the person already published is left alone.
+     * is as it was before. A change the person already published is left alone. A change the
+     * person's edits joined is not discarded here, since rolling it back would discard their edits
+     * too: they publish or discard it in the Unpublished Changes tray.
      *
      * @param change the change
      * @return true when it was discarded; false when nothing was written, or it was already
      *         published or discarded
+     * @throws IllegalStateException when the change's transaction holds edits the change did not make
      */
     public static boolean discard(Change change) {
         if (change.status() != Status.OPEN) {
             return false;
+        }
+        Set<Long> others = change.othersWork();
+        if (!others.isEmpty()) {
+            throw new IllegalStateException("the change to " + change.name() + " now also holds edits you did not make ("
+                    + others.size() + " component(s), such as " + ComponentText.name(change.calc, others.iterator().next())
+                    + "): discarding it would discard those too, so the person discards it in the Unpublished Changes "
+                    + "tray. Nothing was discarded");
         }
         change.composer.rollback();
         return true;

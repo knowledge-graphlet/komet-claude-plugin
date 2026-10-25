@@ -39,6 +39,7 @@ import network.ike.komet.claude.authoring.DefinitionOperation.SetSelector;
 import network.ike.komet.claude.koncept.ComponentText;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -128,6 +129,8 @@ public final class ConceptChangeTools {
                         + "definition holding what the block cannot express (property sets, features, disjoints, "
                         + "universal or nested roles); use operations then. The result shows the definition before and "
                         + "after. Every change to one concept joins the same change, until it is published or discarded. "
+                        + "A definition the person is editing in their window is continued, starting from their version, "
+                        + "and their edit and yours become one change. "
                         + "Use it only when the person asks you to make or apply the change.",
                 obj("type", "object",
                         "properties", obj(
@@ -276,7 +279,8 @@ public final class ConceptChangeTools {
         return tool("discard_change",
                 "Withdraw the uncommitted change you made to an existing concept, its definition and description "
                         + "changes together: the concept is left as it is published. Use it only when the person asks to "
-                        + "discard or withdraw your change. A change they already published is left alone.",
+                        + "discard or withdraw your change. A change they already published is left alone, and one holding "
+                        + "their own edits is refused: they discard that in the Unpublished Changes tray.",
                 obj("type", "object",
                         "properties", obj("concept", strProp("The concept the change is on: SCTID, UUID or badge token.")),
                         "required", List.of("concept")),
@@ -308,7 +312,8 @@ public final class ConceptChangeTools {
         return tool("pending_changes",
                 "List what is waiting to be published: every component with an unpublished version, grouped under the "
                         + "concept or pattern it belongs to, as the Unpublished Changes tray lists it, each marked as "
-                        + "yours (a change you proposed) or not (the person's, or another session's). Read it before changing a concept the person "
+                        + "yours (a change you proposed), yours and the person's (they edited it too, in the same change), "
+                        + "or not yours (the person's, or another session's). Read it before changing a concept the person "
                         + "may be editing, and to see what they changed after your proposal.",
                 obj("type", "object",
                         "properties", obj("concept", strProp("Optional: only the changes under this concept.")),
@@ -322,10 +327,12 @@ public final class ConceptChangeTools {
     }
 
     private String pending(ViewCalculator calc, Long only) {
-        Set<Transaction> mine = new HashSet<>();
+        // A component is yours when your change wrote it and its pending version is in your change's
+        // transaction: the person's window may have joined that transaction, with edits of its own.
+        Map<Long, Change> mine = new HashMap<>();
         changes.values().forEach(change -> {
             if (change.transaction() != null) {
-                mine.add(change.transaction());
+                change.written().forEach(nid -> mine.put(nid, change));
             }
         });
         Map<Long, List<String>> byRoot = new LinkedHashMap<>();
@@ -343,13 +350,16 @@ public final class ConceptChangeTools {
                 if (only != null && change.rootNid() != only) {
                     return;
                 }
-                boolean yours = entity.versions().stream().map(EntityVersion.class::cast)
+                Change yours = mine.get(nid);
+                String whose = yours != null && entity.versions().stream().map(EntityVersion.class::cast)
                         .filter(EntityVersion::uncommitted)
-                        .anyMatch(version -> Transaction.forVersion(version).filter(mine::contains).isPresent());
+                        .anyMatch(version -> Transaction.forVersion(version).filter(t -> t == yours.transaction()).isPresent())
+                        ? yours.sharedWithOthers(nid) ? " — yours and the person's" : " — yours"
+                        : " — not yours";
                 byRoot.computeIfAbsent(change.rootNid(), root -> new ArrayList<>()).add(
                         change.kind().label() + " " + change.type().label().toLowerCase() + " \"" + change.title() + "\""
                                 + (change.type() == UnpublishedChange.Type.SEMANTIC ? " (" + change.subtitle() + ")" : "")
-                                + " " + ComponentText.identifier(nid) + (yours ? " — yours" : " — not yours"));
+                                + " " + ComponentText.identifier(nid) + whose);
             });
         }
         if (byRoot.isEmpty()) {

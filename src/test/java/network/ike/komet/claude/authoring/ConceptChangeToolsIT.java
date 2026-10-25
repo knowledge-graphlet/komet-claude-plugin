@@ -154,7 +154,7 @@ class ConceptChangeToolsIT {
         long alternative = description(concept, "Tool pending fixture alternative");
         onFx(() -> {
             ObservableComposer window = ObservableComposer.create(viewProperties.calculator(), State.ACTIVE, KernelConcept.USER,
-                    KernelConcept.PRIMORDIAL_MODULE, KernelConcept.DEVELOPMENT_PATH, "The window");
+                    KernelConcept.PRIMORDIAL_MODULE, KernelConcept.DEVELOPMENT_PATH, "Commits at once");
             var editor = window.composeSemantic(EntityHandle.get(alternative).expectEntity().publicId(), concept,
                     KernelPattern.DESCRIPTION_PATTERN);
             for (var field : editor.getEditableVersion().getEditableFields()) {
@@ -172,6 +172,45 @@ class ConceptChangeToolsIT {
                 "operations", List.of(Map.of("op", "change_case_significance", "description", id(alternative),
                         "case_sensitive", true))));
         assertTrue(refused.startsWith("Error:") && refused.contains("Unpublished Changes"), refused);
+    }
+
+    @Test
+    void theAssistantContinuesTheWindowsPendingEditAndLeavesItsDiscardToThePerson() {
+        EntityFacade concept = fixture("Tool continue fixture");
+        long alternative = description(concept, "Tool continue fixture alternative");
+        onFx(() -> {
+            // As a KL window's composer is made: the edit coordinate's author, default module and path.
+            var edit = viewProperties.nodeView().editCoordinate();
+            ObservableComposer window = ObservableComposer.create(viewProperties.calculator(), State.ACTIVE,
+                    edit.getAuthorForChanges(), edit.getDefaultModule(), edit.getDefaultPath(), "Edit Semantic Details")
+                    .joinPendingWork();
+            var editor = window.composeSemantic(EntityHandle.get(alternative).expectEntity().publicId(), concept,
+                    KernelPattern.DESCRIPTION_PATTERN);
+            for (var field : editor.getEditableVersion().getEditableFields()) {
+                if (field.getValue() instanceof String) {
+                    field.setObjectValue("Tool continue fixture, as the person wrote it");
+                }
+            }
+            editor.save();
+            return null;
+        });
+        Set<Transaction> window = transactions(alternative);
+
+        String written = call("propose_description_change", Map.of("concept", id(concept),
+                "operations", List.of(Map.of("op", "change_case_significance", "description", id(alternative),
+                        "case_sensitive", true))));
+        assertFalse(written.startsWith("Error:"), written);
+        assertEquals(window, transactions(alternative), "the assistant's edit landed in the window's transaction");
+
+        String pending = call("pending_changes", Map.of("concept", id(concept)));
+        assertTrue(pending.contains("— yours and the person's"), pending);
+        String refused = call("discard_change", Map.of("concept", id(concept)));
+        assertTrue(refused.startsWith("Error:") && refused.contains("Unpublished Changes"), refused);
+        assertEquals(window, transactions(alternative), "a refused discard discards nothing");
+        onFx(() -> {
+            window.forEach(Transaction::cancel);
+            return null;
+        });
     }
 
     @Test

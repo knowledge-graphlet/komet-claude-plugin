@@ -9,7 +9,7 @@ Change an existing concept the way a careful terminologist would: read what is t
 
 - Resolve the concept with `concept`, and its stated definition with `axioms`. Every identifier you use comes from a tool in this conversation.
 - For a change to names, read its descriptions with `concept_semantics` (pattern `Description`): each comes with its own UUID, which is how you name it. Read a description's US English acceptability with `concept_semantics` on that UUID.
-- Call `pending_changes` for the concept. A part with a change not yours waiting is the person's work in progress: say so and ask, rather than writing around it.
+- Call `pending_changes` for the concept. A part with a change not yours waiting is the person's work in progress: what you write to it joins their change and starts from their version, so say what you will add to it and build on it. A change under another author, module or path is refused.
 
 ## 2. Show the change first
 
@@ -29,4 +29,4 @@ Change an existing concept the way a careful terminologist would: read what is t
 - Show the before and after the tool returns.
 - Tell the person: the change is uncommitted, in the Unpublished Changes tray of the journal under the concept; the Change Review window shows each field before and after; they **Publish** or **Discard** it there. Nothing has changed until they publish.
 - Later edits to the same concept join the same change. If they ask you to withdraw it, `discard_change`.
-- After they edit it themselves, `pending_changes` shows what is theirs; build on it, do not overwrite it.
+- After they edit it themselves, their edit joins your change: `pending_changes` marks what is theirs, and what you both changed as "yours and the person's". Build on it, do not overwrite it. `discard_change` refuses a change holding their edits; they discard it in the tray.

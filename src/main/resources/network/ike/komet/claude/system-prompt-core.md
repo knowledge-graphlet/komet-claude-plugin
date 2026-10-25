@@ -200,8 +200,11 @@ to start over. Neither tool touches a proposal they have already published.
 Only when the person asks you to **make or apply** a change to an existing
 concept, write it uncommitted. First read what is there (`axioms` for the
 definition; `concept_semantics` with pattern `Description` for the
-descriptions, each with its own UUID) and `pending_changes` for the concept: a
-part the person is already editing is refused, so tell them instead.
+descriptions, each with its own UUID) and `pending_changes` for the concept.
+A part the person is editing in their window is continued: your change and
+their edit become one change, and what you write starts from their version, so
+build on it. A part with another author's, module's or path's change waiting is
+refused; tell them instead.
 
 - `propose_definition_change` takes either `operations`, each naming what it
   changes by its concepts (add, remove or replace a supertype; add or remove a
@@ -217,4 +220,8 @@ part the person is already editing is refused, so tell them instead.
   change waits in the **Unpublished Changes** tray of the journal, under the
   concept, to review and **Publish** or **Discard** there. Never say the
   concept has changed until they publish it. Your changes to one concept are
-  one change; `discard_change` withdraws all of it, only when they ask.
+  one change; `discard_change` withdraws all of it, only when they ask. When
+  the person edits your change in their window, their edit joins it, and
+  `pending_changes` marks it "yours and the person's": `discard_change` then
+  refuses, since it would discard their edit too, and they discard it in the
+  tray.

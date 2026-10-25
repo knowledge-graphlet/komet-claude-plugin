@@ -423,8 +423,9 @@ public final class ConceptProposalWriter {
     public static Draft write(ViewCalculator calc, EntityFacade author, EntityFacade module, EntityFacade path,
                               String fsn, DiTreeEntity definition, List<Synonym> synonyms, String editorialNote,
                               String textualDefinition) {
+        // Left pending for the person: a window editing the proposal continues its transaction (ike-issues#1326).
         ObservableComposer composer = ObservableComposer.create(calc, State.ACTIVE, author, module, path,
-                "Assistant proposal: " + fsn);
+                "Assistant proposal: " + fsn).joinPendingWork();
 
         EntityComposer<?, ?> conceptComposer = composer.composeConcept(PublicIds.newRandom());
         conceptComposer.save();
