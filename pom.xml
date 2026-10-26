@@ -79,6 +79,8 @@
         <!-- Main-line Komet BOM; manages komet module + tinkar versions.
              Matches ike-komet-wsr on main. -->
         <komet-bom.version>3.0.12-SNAPSHOT</komet-bom.version>
+        <!-- komet-bom does not manage the gRPC plugin; the property lets a release retarget it. -->
+        <komet-grpc-plugin.version>6-SNAPSHOT</komet-grpc-plugin.version>
         <!-- The IKE starter set the tests load, from starter-data-ws, which builds after this repository. -->
         <ike-starter-set.version>1-SNAPSHOT</ike-starter-set.version>
         <java.version>27</java.version>
@@ -219,7 +221,7 @@
         <dependency>
             <groupId>network.ike.komet</groupId>
             <artifactId>komet-grpc-plugin</artifactId>
-            <version>6-SNAPSHOT</version>
+            <version>${komet-grpc-plugin.version}</version>
             <scope>provided</scope>
         </dependency>
 
