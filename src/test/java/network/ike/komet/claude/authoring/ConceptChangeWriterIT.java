@@ -630,6 +630,48 @@ class ConceptChangeWriterIT {
         assertEquals(Status.PUBLISHED, change.status());
     }
 
+    @Test
+    void retiringADescriptionTheWindowEditedReplacesTheEditInItsTransaction() {
+        EntityFacade concept = describedFixture("Retire edited fixture");
+        EntityFacade alternative = description(concept, "Retire edited fixture alternative");
+        ObservableComposer window = window();
+        onFx(() -> {
+            var editor = window.composeSemantic(alternative.publicId(), concept, KernelPattern.DESCRIPTION_PATTERN);
+            for (var field : editor.getEditableVersion().getEditableFields()) {
+                if (field.getValue() instanceof String) {
+                    field.setObjectValue("Retire edited fixture, as the person wrote it");
+                }
+            }
+            editor.save();
+            return null;
+        });
+        Transaction windowTransaction = transactionOf(alternative.nid());
+
+        Change change = open(concept);
+        onFx(() -> change.editDescriptions(List.of(new Retire(alternative))));
+
+        List<EntityVersion> pending = uncommitted(alternative.nid());
+        assertEquals(1, pending.size(), "the retirement replaced the window's version: " + pending);
+        assertEquals(State.INACTIVE, pending.getFirst().state());
+        assertTrue(((SemanticEntityVersion) pending.getFirst()).fieldValues()
+                        .contains("Retire edited fixture, as the person wrote it"),
+                "the retirement starts from the person's text");
+        assertSame(windowTransaction, transactionOf(alternative.nid()));
+        assertSame(windowTransaction, transactionOf(dialect(alternative.nid())), "its acceptability retires there too");
+        assertTrue(change.sharedWithOthers(alternative.nid()));
+        assertRefused(IllegalStateException.class, () -> onFx(() -> ConceptChangeWriter.discard(change)),
+                "discarding the change would discard the window's edit");
+
+        onFx(() -> {
+            window.commit();
+            return null;
+        });
+        assertFalse(entity(alternative.nid()).uncommitted());
+        assertEquals(Status.PUBLISHED, change.status());
+        assertFalse(activeTexts(concept).contains("Retire edited fixture, as the person wrote it"));
+        assertFalse(activeTexts(concept).contains("Retire edited fixture alternative"));
+    }
+
     // ── fixtures ────────────────────────────────────────────────────────
 
     /** A KL window's composer: on the edit coordinate's author, module and path, joining pending work. */
