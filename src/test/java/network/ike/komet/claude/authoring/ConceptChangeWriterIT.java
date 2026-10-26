@@ -22,8 +22,11 @@ import dev.ikm.komet.kview.mvvm.view.changes.UnpublishedChange;
 import dev.ikm.komet.terms.KometConcept;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
+import dev.ikm.tinkar.coordinate.stamp.StateSet;
 import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
+import dev.ikm.tinkar.coordinate.view.ViewCoordinateRecord;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
+import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculatorWithCache;
 import dev.ikm.tinkar.entity.Entity;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
@@ -65,7 +68,9 @@ import network.ike.komet.claude.authoring.DefinitionShape.Role;
 import network.ike.komet.claude.authoring.DefinitionShape.RoleNode;
 import network.ike.komet.claude.authoring.DefinitionShape.SetNode;
 import network.ike.komet.claude.authoring.DefinitionShape.Supertype;
+import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.tools.GraphTools;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -75,6 +80,7 @@ import org.junit.jupiter.api.TestInstance;
 import java.io.File;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -396,6 +402,32 @@ class ConceptChangeWriterIT {
         });
         assertEquals(Status.PUBLISHED, change.status());
         assertFalse(activeTexts(concept).contains("Retire fixture alternative"));
+    }
+
+    @Test
+    void aRetiredSynonymReadsBackAsRetiredUnderAViewOfActiveVersionsOnly() {
+        EntityFacade concept = describedFixture("Read-back fixture");
+        EntityFacade preferred = description(concept, "Read-back fixture");
+        EntityFacade alternative = description(concept, "Read-back fixture alternative");
+        Change change = open(concept);
+        onFx(() -> change.editDescriptions(List.of(new Retire(alternative))));
+        onFx(() -> {
+            transactionsOf(concept.nid()).forEach(Transaction::commit);
+            return null;
+        });
+        // Komet's windows often allow active versions only. Under such a view the latest version of
+        // the retired synonym is its last active one, which is what the assistant read back in the
+        // Pizza KB acceptance run (IKE-Network/ike-issues#1326) and took for a retirement not taken.
+        ViewCoordinateRecord coordinate = view.viewCoordinateRecord();
+        ViewCalculator activeOnly = ViewCalculatorWithCache.getCalculator(coordinate.withStampCoordinate(
+                coordinate.stampCoordinate().withAllowedStates(StateSet.ACTIVE)));
+
+        String listed = conceptSemantics(activeOnly, concept);
+
+        String retired = semanticBlock(listed, alternative);
+        assertTrue(retired.lines().findFirst().orElseThrow().endsWith("(retired)"), listed);
+        assertTrue(retired.contains("Read-back fixture alternative"), "listed with the text it was retired with: " + listed);
+        assertFalse(semanticBlock(listed, preferred).contains("(retired)"), listed);
     }
 
     @Test
@@ -774,6 +806,32 @@ class ConceptChangeWriterIT {
             }
         }
         throw new AssertionError("no active description \"" + text + "\"");
+    }
+
+    /** What the assistant's {@code concept_semantics} tool answers for the concept's descriptions under a view. */
+    private static String conceptSemantics(ViewCalculator calculator, EntityFacade concept) {
+        for (AnthropicTool tool : new GraphTools(() -> calculator).tools()) {
+            if (tool.name().equals("concept_semantics")) {
+                return tool.execute(Map.of("id", ComponentText.leastUuid(concept.nid()).orElseThrow().toString(),
+                        "pattern", "Description"));
+            }
+        }
+        throw new AssertionError("no concept_semantics tool");
+    }
+
+    /** One semantic's block of a {@code concept_semantics} answer: its "Pattern:" line and its fields. */
+    private static String semanticBlock(String listed, EntityFacade semantic) {
+        String id = "[" + ComponentText.leastUuid(semantic.nid()).orElseThrow() + "]";
+        int start = listed.indexOf("Pattern: ");
+        while (start >= 0) {
+            int next = listed.indexOf("\nPattern: ", start);
+            String block = next < 0 ? listed.substring(start) : listed.substring(start, next + 1);
+            if (block.lines().findFirst().orElseThrow().contains(id)) {
+                return block;
+            }
+            start = next < 0 ? -1 : next + 1;
+        }
+        throw new AssertionError("no block for " + id + " in:\n" + listed);
     }
 
     /** The texts of the concept's active descriptions, latest on the view. */

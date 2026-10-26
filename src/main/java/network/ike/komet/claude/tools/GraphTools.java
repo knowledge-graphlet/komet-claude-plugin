@@ -23,7 +23,9 @@ import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.service.PrimitiveDataSearchResult;
 import dev.ikm.tinkar.common.service.RemoteConceptSearchService;
 import dev.ikm.tinkar.common.util.uuid.UuidUtil;
+import dev.ikm.tinkar.coordinate.stamp.StateSet;
 import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
+import dev.ikm.tinkar.coordinate.stamp.calculator.StampCalculatorWithCache;
 import dev.ikm.tinkar.coordinate.view.ViewCoordinateRecord;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.Entity;
@@ -38,6 +40,7 @@ import dev.ikm.tinkar.provider.grpc.GrpcSearchService;
 import dev.ikm.tinkar.provider.search.Searcher;
 import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.KernelPattern;
+import dev.ikm.tinkar.terms.State;
 import network.ike.komet.claude.anf.AnfSlot;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.koncept.ComponentText;
@@ -338,7 +341,9 @@ public final class GraphTools {
                         + "to the device concept and not a field of the Test Performed record. So "
                         + "to find acceptable results: resolve the concept, call this tool with "
                         + "pattern='Test Performed', then call it again on the returned semantic's "
-                        + "UUID.",
+                        + "UUID. A semantic whose latest version is inactive is listed too, marked "
+                        + "'(retired)' with the field values it was retired with — so a description "
+                        + "or acceptability you retired shows as retired, not as its last active text.",
                 objectSchema(Map.of(
                                 "id", strProp("a concept's SCTID or UUID, or a semantic instance's own "
                                         + "UUID (to list the semantics attached to that semantic)"),
@@ -594,7 +599,8 @@ public final class GraphTools {
         List<NamedField> fields = info.fields().stream()
                 .map(f -> new NamedField(f.name(), f.value()))
                 .toList();
-        return new SemanticInfo(info.patternName(), info.semanticId(), fields);
+        // The service reports no state; its semantics read as before, unmarked.
+        return new SemanticInfo(info.patternName(), info.semanticId(), false, fields);
     }
 
     /**
@@ -603,8 +609,11 @@ public final class GraphTools {
      */
     record NamedField(String name, String value) {}
 
-    /** A semantic instance: pattern name, the semantic's own UUID, and its named field values. */
-    record SemanticInfo(String patternName, String semanticId, List<NamedField> fields) {}
+    /**
+     * A semantic instance: pattern name, the semantic's own UUID, whether its latest version is
+     * inactive, and that version's named field values.
+     */
+    record SemanticInfo(String patternName, String semanticId, boolean retired, List<NamedField> fields) {}
 
     /**
      * The semantics attached to {@code componentNid}.
@@ -633,8 +642,12 @@ public final class GraphTools {
     }
 
     /**
-     * Reads one semantic: its pattern name, own UUID, and field values paired with the field
-     * names from the pattern's field definitions.
+     * Reads one semantic: its pattern name, own UUID, whether it is retired, and field values
+     * paired with the field names from the pattern's field definitions.
+     *
+     * <p>The latest version is taken at the view's position and modules but in either state. A
+     * view that allows only active versions would otherwise answer with a retired semantic's last
+     * active version, and a retirement would read as never having happened.
      *
      * @param semanticNid the semantic's nid
      * @param v           the active view
@@ -647,10 +660,13 @@ public final class GraphTools {
             if (!(entity instanceof SemanticEntity<?> semantic)) {
                 return null;
             }
-            Latest<SemanticEntityVersion> latest = v.stampCalculator().latest(semanticNid);
+            Latest<SemanticEntityVersion> latest = StampCalculatorWithCache.getCalculator(
+                            v.viewCoordinateRecord().stampCoordinate().withAllowedStates(StateSet.ACTIVE_AND_INACTIVE))
+                    .latest(semanticNid);
             if (!latest.isPresent()) {
                 return null;
             }
+            boolean retired = latest.get().stamp().state() != State.ACTIVE;
             String patternName = ComponentText.preferredName(v, semantic.patternNid());
             List<String> fieldNames = fieldNamesFor(semantic.patternNid(), v);
 
@@ -661,7 +677,7 @@ public final class GraphTools {
                 fields.add(new NamedField(name, fieldValue(values[i], v)));
             }
             String semanticId = ComponentText.leastUuid(semantic.nid()).map(UUID::toString).orElse("");
-            return new SemanticInfo(patternName, semanticId, fields);
+            return new SemanticInfo(patternName, semanticId, retired, fields);
         } catch (RuntimeException e) {
             return null;
         }
@@ -760,6 +776,9 @@ public final class GraphTools {
         sb.append("Pattern: ").append(info.patternName());
         if (!info.semanticId().isEmpty()) {
             sb.append("  [").append(info.semanticId()).append(']');
+        }
+        if (info.retired()) {
+            sb.append("  (retired)");
         }
         sb.append('\n');
         if (info.fields().isEmpty()) {
