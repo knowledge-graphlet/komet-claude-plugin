@@ -18,10 +18,12 @@ package network.ike.komet.claude.semantic;
 import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.PatternEntityVersion;
-import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.anthropic.AskListener;
 import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.provider.LlmProvider;
+import network.ike.komet.claude.provider.LlmProviders;
+import network.ike.komet.claude.provider.ProviderConfig;
 import network.ike.komet.claude.tools.GraphTools;
 
 import java.util.ArrayList;
@@ -50,25 +52,31 @@ public final class SemanticLift {
     private static final int MAX_TOKENS = 8192;
     /** Tool-use turn cap: a backstop, not the normal stop — the model signals completion with {@code finish_semantic}. */
     private static final int LIFT_MAX_TURNS = 40;
+    /** The dedicated model for Anthropic-backed lifts. */
+    private static final String LIFT_MODEL = "claude-opus-4-8";
 
     private final ViewCalculator view;
-    private final String apiKey;
-    private final String model;
+    private final LlmProvider provider;
     private final long patternNid;
 
     /**
-     * Creates a lift engine bound to a view, key, model, and target pattern.
+     * Creates a lift engine bound to a view, provider configuration, and target pattern.
+     *
+     * <p>For the Anthropic provider the lift runs its dedicated model
+     * ({@code claude-opus-4-8}); for any other provider it runs the configured model.
      *
      * @param view       the view calculator that grounds every reference; must not be null
-     * @param apiKey     the Anthropic API key; must not be null
-     * @param model      the model id (use the more capable model for the lift); null falls back to
-     *                   the client default
+     * @param config     the resolved provider configuration (already checked
+     *                   {@link ProviderConfig#usable()}); must not be null
      * @param patternNid the nid of the pattern to lift a semantic for
      */
-    public SemanticLift(ViewCalculator view, String apiKey, String model, long patternNid) {
+    public SemanticLift(ViewCalculator view, ProviderConfig config, long patternNid) {
         this.view = Objects.requireNonNull(view, "view");
-        this.apiKey = Objects.requireNonNull(apiKey, "apiKey");
-        this.model = model;
+        Objects.requireNonNull(config, "config");
+        String model = ProviderConfig.ANTHROPIC.equals(config.id()) ? LIFT_MODEL : config.model();
+        this.provider = LlmProviders.create(
+                new ProviderConfig(config.id(), config.apiKey(), config.baseUrl(), model),
+                MAX_TOKENS, LIFT_MAX_TURNS);
         this.patternNid = patternNid;
     }
 
@@ -188,10 +196,9 @@ public final class SemanticLift {
             }
         };
 
-        AnthropicClient client = new AnthropicClient(apiKey, model, MAX_TOKENS, LIFT_MAX_TURNS);
         String text;
         try {
-            text = client.ask(systemPrompt(fields), tools, List.of(), request, wrapper, finished::get);
+            text = provider.ask(systemPrompt(fields), tools, List.of(), request, wrapper, finished::get);
         } catch (RuntimeException e) {
             text = "Lift failed: " + (e.getMessage() == null ? e.toString() : e.getMessage());
         }

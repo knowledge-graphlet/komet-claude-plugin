@@ -25,8 +25,9 @@ import dev.ikm.komet.layout.controls.KlConceptField;
 import dev.ikm.komet.layout.preferences.KlPreferencesFactory;
 import dev.ikm.komet.layout_engine.blueprint.SupplementalAreaBlueprint;
 import dev.ikm.komet.preferences.KometPreferences;
-import dev.ikm.komet.preferences.PreferencesService;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
+import network.ike.komet.claude.provider.LlmProviders;
+import network.ike.komet.claude.provider.ProviderConfig;
 import network.ike.komet.claude.tools.GraphTools;
 import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
@@ -78,10 +79,6 @@ import java.util.concurrent.Executors;
 public final class AnfArea extends SupplementalAreaBlueprint implements KlToolArea<BorderPane> {
 
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(AnfArea.class);
-
-    private static final String PREF_API_KEY = "network.ike.komet.claude.apiKey";
-    /** The lift runs on the more capable model for the structural reasoning. */
-    private static final String ANF_MODEL = "claude-opus-4-8";
 
     private final ExecutorService worker = Executors.newSingleThreadExecutor(r -> {
         Thread t = new Thread(r, "komet-anf-lift");
@@ -465,9 +462,9 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
             setStatus("No knowledge-base view is available to ground the lift.");
             return;
         }
-        String apiKey = PreferencesService.userPreferences().get(PREF_API_KEY, "");
-        if (apiKey.isBlank()) {
-            setStatus("No Anthropic API key configured (set it in the Komet Assistant).");
+        ProviderConfig config = LlmProviders.readConfig();
+        if (!config.usable()) {
+            setStatus("No LLM provider configured (set it in the Komet Assistant).");
             return;
         }
         setBusy(true);
@@ -517,7 +514,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         worker.submit(() -> {
             AnfLift.Result result;
             try {
-                result = new AnfLift(view, apiKey, ANF_MODEL).lift(text, listener);
+                result = new AnfLift(view, config).lift(text, listener);
             } catch (Throwable t) {
                 LOG.error("ANF lift failed", t);
                 String msg = (t.getMessage() != null) ? t.getMessage() : t.toString();

@@ -21,7 +21,6 @@ import dev.ikm.komet.layout.area.AreaGridSettings;
 import dev.ikm.komet.layout.preferences.KlPreferencesFactory;
 import dev.ikm.komet.layout_engine.blueprint.SupplementalAreaBlueprint;
 import dev.ikm.komet.preferences.KometPreferences;
-import dev.ikm.komet.preferences.PreferencesService;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -31,8 +30,10 @@ import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import jfx.incubator.scene.control.richtext.RichTextArea;
-import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.anthropic.AnthropicTool;
+import network.ike.komet.claude.provider.LlmProvider;
+import network.ike.komet.claude.provider.LlmProviders;
+import network.ike.komet.claude.provider.ProviderConfig;
 import network.ike.komet.claude.tools.GraphTools;
 import network.ike.komet.claude.ui.MarkdownRichText;
 import network.ike.komet.claude.ui.RichTextViewpoint;
@@ -48,17 +49,15 @@ import java.util.concurrent.Executors;
  * section grid alongside other areas. It is the lightweight counterpart to the full
  * {@code ClaudeAssistantArea} (no conversations rail, no header chrome, in-memory history only).
  *
- * <p>It reuses the plugin's {@link AnthropicClient} multi-turn tool-use loop, the read-only
+ * <p>It reuses the plugin's {@link LlmProvider} multi-turn tool-use loop, the read-only
  * {@link GraphTools} grounded in the live {@link ViewCalculator}, and {@link MarkdownRichText}
- * for rendering replies. The Anthropic API key and model come from the shared per-OS-user Komet
- * preferences (set once via the Komet Assistant).
+ * for rendering replies. The provider selection, key, base URL and model come from the shared
+ * per-OS-user Komet preferences (set once via the Komet Assistant).
  */
 public final class ChatArea extends SupplementalAreaBlueprint {
 
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(ChatArea.class);
 
-    private static final String PREF_API_KEY = "network.ike.komet.claude.apiKey";
-    private static final String PREF_MODEL = "network.ike.komet.claude.model";
     private static final int MAX_TOKENS = 4096;
 
     private static final String SYSTEM_PROMPT = """
@@ -132,14 +131,13 @@ public final class ChatArea extends SupplementalAreaBlueprint {
         if (text.isEmpty()) {
             return;
         }
-        String apiKey = PreferencesService.userPreferences().get(PREF_API_KEY, "");
-        if (apiKey.isBlank()) {
+        ProviderConfig config = LlmProviders.readConfig();
+        if (!config.usable()) {
             entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ERROR,
-                    "No Anthropic API key configured (set it in the Komet Assistant).", false));
+                    "No LLM provider configured (set it in the Komet Assistant's Provider settings).", false));
             refreshTranscript();
             return;
         }
-        String model = PreferencesService.userPreferences().get(PREF_MODEL, AnthropicClient.DEFAULT_MODEL);
 
         entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.USER, text, false));
         refreshTranscript();
@@ -147,7 +145,7 @@ public final class ChatArea extends SupplementalAreaBlueprint {
         setBusy(true);
 
         List<Map<String, Object>> history = List.copyOf(apiMessages);
-        AnthropicClient client = new AnthropicClient(apiKey, model, MAX_TOKENS);
+        LlmProvider client = LlmProviders.create(config, MAX_TOKENS);
 
         worker.submit(() -> {
             String reply;

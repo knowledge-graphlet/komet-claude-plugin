@@ -23,7 +23,6 @@ import dev.ikm.komet.layout_engine.host.AbstractHostCard;
 import dev.ikm.komet.layout_engine.host.KlCardProvider;
 import dev.ikm.komet.layout.controls.KlDrawer;
 import dev.ikm.komet.preferences.KometPreferences;
-import dev.ikm.komet.preferences.PreferencesService;
 import javafx.application.Platform;
 import javafx.beans.Observable;
 import javafx.beans.binding.Bindings;
@@ -51,11 +50,12 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
-import network.ike.komet.claude.ClaudeCard;
-import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.instructions.InstructionSets.Frontmatter;
 import network.ike.komet.claude.instructions.InstructionSets.InstructionSet;
+import network.ike.komet.claude.provider.LlmProvider;
+import network.ike.komet.claude.provider.LlmProviders;
+import network.ike.komet.claude.provider.ProviderConfig;
 import network.ike.komet.claude.ui.MarkdownDiff;
 import network.ike.komet.claude.ui.MarkdownEditPane;
 import network.ike.komet.claude.ui.MarkdownRichText;
@@ -1001,9 +1001,9 @@ public final class InstructionEditorCard extends AbstractHostCard {
         if (request.isBlank()) {
             return;
         }
-        String key = PreferencesService.userPreferences().get(ClaudeCard.PREF_API_KEY, "");
-        if (key.isBlank()) {
-            draftingStatus.setText("Set the Anthropic API key in an Assistant card's settings first");
+        ProviderConfig config = LlmProviders.readConfig();
+        if (!config.usable()) {
+            draftingStatus.setText("Set an LLM provider in the Assistant card's settings first");
             return;
         }
         String setId = active.id();
@@ -1012,8 +1012,6 @@ public final class InstructionEditorCard extends AbstractHostCard {
             return;
         }
         session.busy = true;
-        String model = PreferencesService.userPreferences()
-                .get(ClaudeCard.PREF_MODEL, AnthropicClient.DEFAULT_MODEL);
         String document = InstructionSets.withFrontmatter(
                 nameField.getText(), descriptionText(), categoryBox.getValue(), bodyPane.getText());
         String message = "Current document:\n\n" + document + "\n\nRequest: " + request;
@@ -1025,7 +1023,7 @@ public final class InstructionEditorCard extends AbstractHostCard {
         Thread worker = new Thread(() -> {
             String answer;
             try {
-                AnthropicClient client = new AnthropicClient(key, model, 8192);
+                LlmProvider client = LlmProviders.create(config, 8192);
                 answer = client.ask(system, List.of(proposeDocumentTool(setId)), history, message);
             } catch (Exception ex) {
                 LOG.warn("Drafting request failed", ex);

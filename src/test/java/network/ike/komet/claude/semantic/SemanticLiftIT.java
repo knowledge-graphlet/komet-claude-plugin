@@ -20,6 +20,7 @@ import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.terms.KernelPattern;
+import network.ike.komet.claude.provider.ProviderConfig;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -79,7 +80,8 @@ class SemanticLiftIT {
                 "No Anthropic API key (system property / env / Komet user preferences) — skipping live lift.");
 
         long patternNid = KernelPattern.DESCRIPTION_PATTERN.nid();
-        SemanticLift lift = new SemanticLift(view, apiKey.get(), LIFT_MODEL, patternNid);
+        ProviderConfig config = new ProviderConfig(ProviderConfig.ANTHROPIC, apiKey.get(), null, LIFT_MODEL);
+        SemanticLift lift = new SemanticLift(view, config, patternNid);
 
         SemanticLift.Result result = lift.lift(
                 "Record an English-language description with the text 'diabetes mellitus'.");

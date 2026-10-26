@@ -83,9 +83,11 @@ import dev.ikm.tinkar.events.EvtBusFactory;
 import network.ike.komet.claude.instructions.InstructionEditorCard;
 import java.util.LinkedHashMap;
 import java.util.OptionalLong;
-import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.anthropic.AskListener;
+import network.ike.komet.claude.provider.LlmProvider;
+import network.ike.komet.claude.provider.LlmProviders;
+import network.ike.komet.claude.provider.ProviderConfig;
 import javafx.util.Duration;
 import network.ike.komet.claude.doc.BlockFactory;
 import network.ike.komet.claude.doc.DocumentSurface;
@@ -137,11 +139,11 @@ import java.util.stream.Stream;
  *
  * <p><b>Sandboxed per instance.</b> Conversations are written as files in <em>this card's own preferences-node
  * {@linkplain KometPreferences#directory() directory}</em> — so two Claude cards never share a rail, and the
- * conversations are removed with the card when it is deleted. The API key and model stay in shared per-OS-user
- * preferences (one key for every card), never in the knowledge base.
+ * conversations are removed with the card when it is deleted. The provider selection, key, base URL and model
+ * stay in shared per-OS-user preferences (one setting for every card), never in the knowledge base.
  *
- * <p>Each send runs the Anthropic tool-use loop ({@link AnthropicClient#ask}) on a background thread; Claude's
- * read-only {@link GraphTools} execute in-process against this card's live coordinate
+ * <p>Each send runs the configured provider's tool-use loop ({@link LlmProvider#ask}) on a background thread;
+ * the model's read-only {@link GraphTools} execute in-process against this card's live coordinate
  * ({@link #getCardViewProperties()}), so answers are grounded in exactly the view the user sees.
  */
 public final class ClaudeCard extends AbstractHostCard {
@@ -152,10 +154,6 @@ public final class ClaudeCard extends AbstractHostCard {
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(ClaudeCard.class);
 
     /** Per-user preference keys (shared across cards, stored under {@link PreferencesService#userPreferences()}). */
-    // PREF_API_KEY / PREF_MODEL are public so the headless commit narrator reads the same per-user config
-    // (the key names, not the value, are shared).
-    public static final String PREF_API_KEY = "network.ike.komet.claude.apiKey";
-    public static final String PREF_MODEL = "network.ike.komet.claude.model";
     private static final String PREF_FONT_SIZE = "network.ike.komet.claude.fontSize";
     /** Chip-label typography (ike-issues#1050): small caps (default) vs plain text, and weight. */
     private static final String PREF_CHIP_SMALL_CAPS = "network.ike.komet.claude.chipSmallCaps";
@@ -481,9 +479,20 @@ public final class ClaudeCard extends AbstractHostCard {
                         () -> preferences().get(PREF_SYSTEM_INSTRUCTIONS_FILE, "").isBlank()
                                 ? "Default" : "Edited"),
                 () -> promptSettingsContent(pane));
-        pane.addSection("API key",
-                () -> hasApiKey() ? "Set (per-user)" : "Not set",
-                () -> apiKeySettingsContent(pane));
+        pane.addSection("Provider",
+                () -> {
+                    ProviderConfig config = LlmProviders.readConfig();
+                    if (!config.usable()) {
+                        return "Not set";
+                    }
+                    String name = LlmProviders.options().stream()
+                            .filter(o -> o.id().equals(config.id()))
+                            .map(LlmProviders.ProviderOption::displayName)
+                            .findFirst().orElse(config.id());
+                    return config.model() == null || config.model().isBlank()
+                            ? name : name + " · " + config.model();
+                },
+                () -> providerSettingsContent(pane));
         pane.attachTo(settings, (Pane) fxObject());
         return settings;
     }
@@ -666,25 +675,76 @@ public final class ClaudeCard extends AbstractHostCard {
                 InstructionEditorCard.Factory.class.getName()));
     }
 
-    /** The API-key section: the per-user key, masked, saved to shared per-user preferences. */
-    private javafx.scene.Node apiKeySettingsContent(SettingsPanePopup pane) {
-        PasswordField field = new PasswordField();
-        field.setPromptText("sk-ant-…");
-        field.setText(apiKey());
-        Label note = new Label("Stored in your per-user Komet preferences on this machine,\nnever in the knowledge base. One key for every assistant card.");
+    /**
+     * The Provider section: which service to call, its endpoint and model, and the per-user
+     * key — saved to the shared per-user preferences via {@link LlmProviders#save(ProviderConfig)}.
+     */
+    private javafx.scene.Node providerSettingsContent(SettingsPanePopup pane) {
+        ProviderConfig current = LlmProviders.readConfig();
+
+        javafx.scene.control.ComboBox<String> providerBox = new javafx.scene.control.ComboBox<>();
+        providerBox.getItems().addAll(LlmProviders.options().stream()
+                .map(LlmProviders.ProviderOption::displayName).toList());
+        providerBox.setValue(LlmProviders.options().stream()
+                .filter(o -> o.id().equals(current.id()))
+                .map(LlmProviders.ProviderOption::displayName)
+                .findFirst().orElseGet(() -> providerBox.getItems().get(0)));
+        providerBox.setPrefWidth(360);
+
+        TextField baseUrlField = new TextField();
+        baseUrlField.setPromptText(ProviderConfig.DEFAULT_OPENAI_BASE_URL);
+        baseUrlField.setText(current.baseUrl() == null ? "" : current.baseUrl());
+        baseUrlField.setPrefColumnCount(40);
+        Label baseUrlLabel = new Label("Base URL (OpenAI-compatible only)");
+
+        TextField modelField = new TextField();
+        modelField.setPromptText("e.g. claude-sonnet-4-6 · gpt-4o · llama3");
+        modelField.setText(current.model() == null ? "" : current.model());
+        modelField.setPrefColumnCount(40);
+
+        PasswordField keyField = new PasswordField();
+        keyField.setPromptText(LlmProviders.options().stream()
+                .filter(o -> o.id().equals(current.id()))
+                .map(LlmProviders.ProviderOption::keyPrompt).findFirst().orElse("API key"));
+        keyField.setText(current.apiKey() == null ? "" : current.apiKey());
+        keyField.setPrefColumnCount(40);
+
+        Runnable updateBaseUrlState = () -> {
+            boolean openAi = ProviderConfig.OPENAI.equals(providerIdForDisplay(providerBox.getValue()));
+            baseUrlField.setDisable(!openAi);
+            baseUrlLabel.setDisable(!openAi);
+        };
+        providerBox.valueProperty().addListener((obs, oldV, newV) -> updateBaseUrlState.run());
+        updateBaseUrlState.run();
+
+        Label note = new Label("Stored in your per-user Komet preferences on this machine,\nnever in the knowledge base. One setting for every assistant card.");
         note.setWrapText(true);
         Button save = new Button("Save");
         save.setOnAction(e -> {
-            userPreferences().put(PREF_API_KEY, field.getText() == null ? "" : field.getText().trim());
-            try {
-                userPreferences().sync();
-            } catch (BackingStoreException ex) {
-                LOG.warn("Could not sync the API key preference", ex);
-            }
+            String id = providerIdForDisplay(providerBox.getValue());
+            String baseUrl = baseUrlField.getText() == null ? "" : baseUrlField.getText().trim();
+            String model = modelField.getText() == null ? "" : modelField.getText().trim();
+            String key = keyField.getText() == null ? "" : keyField.getText().trim();
+            LlmProviders.save(new ProviderConfig(id, key,
+                    ProviderConfig.OPENAI.equals(id) ? baseUrl : null, model));
             pane.refreshSummaries();
         });
-        VBox content = new VBox(6, field, note, save);
+        VBox content = new VBox(6,
+                new Label("Provider"), providerBox,
+                baseUrlLabel, baseUrlField,
+                new Label("Model"), modelField,
+                new Label("API key"), keyField,
+                note, save);
         return content;
+    }
+
+    /** The provider id for a settings-combo display name; unknown values fall back to Anthropic. */
+    private static String providerIdForDisplay(String displayName) {
+        return LlmProviders.options().stream()
+                .filter(o -> o.displayName().equals(displayName))
+                .map(LlmProviders.ProviderOption::id)
+                .findFirst()
+                .orElse(ProviderConfig.ANTHROPIC);
     }
 
     @Override
@@ -1453,8 +1513,8 @@ public final class ClaudeCard extends AbstractHostCard {
         if (text.isEmpty()) {
             return;
         }
-        String key = hasApiKey() ? apiKey() : promptForApiKey();
-        if (key == null || key.isBlank()) {
+        ProviderConfig config = providerConfigOrPrompt();
+        if (config == null) {
             return;
         }
         Conversation conv = active;
@@ -1480,7 +1540,7 @@ public final class ClaudeCard extends AbstractHostCard {
             }
         }
         composeModel.clear();
-        dispatch(conv, text, key, currentModel());
+        dispatch(conv, text, config);
     }
 
     /**
@@ -1493,16 +1553,11 @@ public final class ClaudeCard extends AbstractHostCard {
         if (conv == null || conv.busy || conv.pendingRetryText == null) {
             return;
         }
-        String key = hasApiKey() ? apiKey() : promptForApiKey();
-        if (key == null || key.isBlank()) {
+        ProviderConfig config = providerConfigOrPrompt();
+        if (config == null) {
             return;
         }
-        dispatch(conv, conv.pendingRetryText, key, currentModel());
-    }
-
-    /** The configured model id for a new request. */
-    private String currentModel() {
-        return userPreferences().get(PREF_MODEL, AnthropicClient.DEFAULT_MODEL);
+        dispatch(conv, conv.pendingRetryText, config);
     }
 
     /**
@@ -1511,7 +1566,7 @@ public final class ClaudeCard extends AbstractHostCard {
      * turn — or, on failure, holds the text for Retry and shows the failure as <em>status</em>, never as
      * a transcript message.
      */
-    private void dispatch(Conversation conv, String text, String key, String model) {
+    private void dispatch(Conversation conv, String text, ProviderConfig config) {
         // Amending a conversation browsed from another tile moves it home to
         // this card first, with provenance recorded both ways (ike-issues#1032).
         moveConversationHome(conv);
@@ -1536,7 +1591,7 @@ public final class ClaudeCard extends AbstractHostCard {
         }
         startStatusTimer();
 
-        AnthropicClient client = new AnthropicClient(key, model, MAX_TOKENS);
+        LlmProvider client = LlmProviders.create(config, MAX_TOKENS);
         List<Map<String, Object>> history = List.copyOf(conv.apiMessages);
         AskListener listener = new AskListener() {
             @Override
@@ -1614,7 +1669,7 @@ public final class ClaudeCard extends AbstractHostCard {
                     conv.outcome = "✓ Replied in " + formatElapsed(elapsedMillis);
                     conv.outcomeFailed = false;
                     conv.pendingRetryText = null;
-                    requestExchangeTitle(conv, text, finalReply, key, model);
+                    requestExchangeTitle(conv, text, finalReply, config);
                 }
                 conversationList.refresh();
                 if (conv == active) {
@@ -1635,22 +1690,22 @@ public final class ClaudeCard extends AbstractHostCard {
      * a failed title leaves the numbered question preview in place.
      */
     private void requestExchangeTitle(Conversation conv, String question,
-                                      String answer, String key, String model) {
+                                      String answer, ProviderConfig config) {
         long userTurns = conv.apiMessages.stream()
                 .filter(m -> "user".equals(String.valueOf(m.get("role")))).count();
         int ordinal = (int) userTurns - 1;
-        requestExchangeTitleFor(conv, ordinal, question, answer, key, model);
+        requestExchangeTitleFor(conv, ordinal, question, answer, config);
     }
 
     private void requestExchangeTitleFor(Conversation conv, int ordinal,
                                          String question, String answer,
-                                         String key, String model) {
+                                         ProviderConfig config) {
         if (ordinal < 0 || conv.turnTitles.containsKey(ordinal)) {
             return;
         }
         worker.submit(() -> {
             try {
-                AnthropicClient titler = new AnthropicClient(key, model, 64);
+                LlmProvider titler = LlmProviders.create(config, 64);
                 String prompt = "Title this exchange in 3 to 6 words. Reply with"
                         + " the title only — no quotes, no punctuation at the"
                         + " end.\n\nQuestion: " + clip(question, 500)
@@ -1812,11 +1867,10 @@ public final class ClaudeCard extends AbstractHostCard {
      * key, no work; already-titled exchanges are skipped.
      */
     private void retrofitExchangeTitles(Conversation conv) {
-        if (!hasApiKey()) {
+        if (!LlmProviders.isConfigured()) {
             return;
         }
-        String key = apiKey();
-        String model = currentModel();
+        ProviderConfig config = LlmProviders.readConfig();
         int ordinal = -1;
         String question = null;
         for (Map<String, Object> message : List.copyOf(conv.apiMessages)) {
@@ -1826,8 +1880,7 @@ public final class ClaudeCard extends AbstractHostCard {
                 question = content;
             } else if (question != null
                     && !conv.turnTitles.containsKey(ordinal)) {
-                requestExchangeTitleFor(conv, ordinal, question, content,
-                        key, model);
+                requestExchangeTitleFor(conv, ordinal, question, content, config);
             }
         }
     }
@@ -1867,9 +1920,9 @@ public final class ClaudeCard extends AbstractHostCard {
                 "Ask about the concepts in your open knowledge base. "
                         + "I answer by running read-only queries against the active view — "
                         + "I won't invent codes or relationships. "
-                        + (hasApiKey()
+                        + (LlmProviders.isConfigured()
                                 ? "Type a question below to begin."
-                                : "Set your Anthropic API key (the \"API key…\" button) to begin."),
+                                : "Set an LLM provider in the Assistant settings (the \"Provider\" section) to begin."),
                 false));
         conversations.add(conv);
         activate(conv);
@@ -2556,19 +2609,44 @@ public final class ClaudeCard extends AbstractHostCard {
     }
 
     /*******************************************************************************
-     *  API key (shared per-user preferences)                                      *
+     *  LLM provider (shared per-user preferences)                                 *
      ******************************************************************************/
 
     private static KometPreferences userPreferences() {
         return PreferencesService.userPreferences();
     }
 
-    private static boolean hasApiKey() {
-        return !apiKey().isBlank();
-    }
-
-    private static String apiKey() {
-        return userPreferences().get(PREF_API_KEY, "");
+    /**
+     * A usable provider configuration for a send: the saved per-user config, or — when the
+     * selected provider is Anthropic and has no key yet — the prompted-for key. A
+     * misconfigured OpenAI-compatible endpoint is pointed at the settings pane, since it
+     * needs a base URL and model, not just a key.
+     *
+     * @return a usable configuration, or {@code null} when the user cancelled the prompt or
+     *         the selected provider still needs its settings section
+     */
+    private ProviderConfig providerConfigOrPrompt() {
+        ProviderConfig config = LlmProviders.readConfig();
+        if (config.usable()) {
+            return config;
+        }
+        if (ProviderConfig.ANTHROPIC.equals(config.id())) {
+            String key = promptForApiKey();
+            if (key != null && !key.isBlank()) {
+                config = LlmProviders.readConfig();
+                if (config.usable()) {
+                    return config;
+                }
+            }
+            return null;
+        }
+        Alert alert = new Alert(Alert.AlertType.INFORMATION,
+                "The OpenAI-compatible endpoint needs its base URL and model — set them in the "
+                        + "\"Provider\" section of the Assistant settings.");
+        alert.setTitle("LLM provider not configured");
+        alert.setHeaderText(null);
+        alert.showAndWait();
+        return null;
     }
 
     /**
@@ -2588,7 +2666,7 @@ public final class ClaudeCard extends AbstractHostCard {
 
         PasswordField field = new PasswordField();
         field.setPromptText("sk-ant-…");
-        field.setText(apiKey());
+        field.setText(LlmProviders.readConfig().apiKey());
         field.setPrefColumnCount(36);
         dialog.getDialogPane().setContent(field);
         Platform.runLater(field::requestFocus);
@@ -2599,7 +2677,7 @@ public final class ClaudeCard extends AbstractHostCard {
             return null;
         }
         String key = result.get().trim();
-        userPreferences().put(PREF_API_KEY, key);
+        userPreferences().put(LlmProviders.PREF_PROVIDER_API_KEY, key);
         try {
             userPreferences().sync();
         } catch (BackingStoreException e) {

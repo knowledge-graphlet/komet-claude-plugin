@@ -24,7 +24,6 @@ import dev.ikm.komet.layout.area.KlToolArea;
 import dev.ikm.komet.layout.preferences.KlPreferencesFactory;
 import dev.ikm.komet.layout_engine.blueprint.SupplementalAreaBlueprint;
 import dev.ikm.komet.preferences.KometPreferences;
-import dev.ikm.komet.preferences.PreferencesService;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -40,6 +39,8 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import jfx.incubator.scene.control.richtext.RichTextArea;
+import network.ike.komet.claude.provider.LlmProviders;
+import network.ike.komet.claude.provider.ProviderConfig;
 import network.ike.komet.claude.ui.MarkdownRichText;
 
 import java.util.ArrayList;
@@ -67,10 +68,6 @@ import java.util.function.Supplier;
 public final class SemanticLiftArea extends SupplementalAreaBlueprint implements KlToolArea<BorderPane> {
 
     private static final double BASE_FONT = MarkdownRichText.DEFAULT_BASE;
-    /** The lift runs on the more capable model for the structural reasoning. */
-    private static final String LIFT_MODEL = "claude-opus-4-8";
-    /** Per-OS-user key the Komet Assistant / ANF lift store the Anthropic key under. */
-    private static final String PREF_API_KEY = "network.ike.komet.claude.apiKey";
     /** Area-node keys for this tile's own restorable state. */
     private static final String PREF_SESSION = "semanticLift.session";
     private static final String PREF_GRAPH = "semanticLift.graph";
@@ -230,9 +227,9 @@ public final class SemanticLiftArea extends SupplementalAreaBlueprint implements
             status("No knowledge-base view is available to ground the lift.");
             return;
         }
-        String apiKey = PreferencesService.userPreferences().get(PREF_API_KEY, "");
-        if (apiKey.isBlank()) {
-            status("No Anthropic API key configured (set it in the Komet Assistant).");
+        ProviderConfig config = LlmProviders.readConfig();
+        if (!config.usable()) {
+            status("No LLM provider configured (set it in the Komet Assistant).");
             return;
         }
         if (patternPanel.nodes().isEmpty()) {
@@ -248,7 +245,7 @@ public final class SemanticLiftArea extends SupplementalAreaBlueprint implements
         worker.submit(() -> {
             SemanticLift.Result result;
             try {
-                result = new SemanticLift(view, apiKey, LIFT_MODEL, patternNid).lift(text);
+                result = new SemanticLift(view, config, patternNid).lift(text);
             } catch (Throwable t) {
                 String message = (t.getMessage() != null) ? t.getMessage() : t.toString();
                 Platform.runLater(() -> {

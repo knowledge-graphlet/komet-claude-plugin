@@ -23,11 +23,12 @@ import dev.ikm.komet.layout.preferences.KlPreferencesFactory;
 import dev.ikm.komet.layout_engine.blueprint.AbstractCheckArea;
 import dev.ikm.komet.layout_engine.blueprint.SupplementalAreaBlueprint;
 import dev.ikm.komet.preferences.KometPreferences;
-import dev.ikm.komet.preferences.PreferencesService;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.terms.EntityFacade;
-import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.anthropic.AnthropicTool;
+import network.ike.komet.claude.provider.LlmProvider;
+import network.ike.komet.claude.provider.LlmProviders;
+import network.ike.komet.claude.provider.ProviderConfig;
 import network.ike.komet.claude.koncept.ComponentText;
 import network.ike.komet.claude.tools.GraphTools;
 
@@ -40,7 +41,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * A {@link AbstractCheckArea check area} backed by Claude: it asks the model whether the focused
  * concept satisfies an author-configured criterion and renders a green / red verdict.
  *
- * <p>It reuses the {@code komet-claude-plugin} machinery — the outbound {@link AnthropicClient}
+ * <p>It reuses the {@code komet-claude-plugin} machinery — the outbound {@link LlmProvider}
  * tool-use loop and the read-only {@link GraphTools} grounded in the live {@link ViewCalculator}
  * — and adds a single forced-decision tool, {@code report_result}, so the verdict is structured
  * (PASS / FAIL + reason) rather than parsed from prose. Per the assistant's grounding contract,
@@ -52,8 +53,6 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class ClaudeCheckArea extends AbstractCheckArea {
 
     private static final String CHECK_TITLE = "Claude check";
-    private static final String PREF_API_KEY = "network.ike.komet.claude.apiKey";
-    private static final String PREF_MODEL = "network.ike.komet.claude.model";
     private static final String PREF_CRITERION = "network.ike.komet.claude.check.criterion";
     private static final int MAX_TOKENS = 4096;
     private static final String DEFAULT_CRITERION =
@@ -136,11 +135,10 @@ public final class ClaudeCheckArea extends AbstractCheckArea {
         if (viewProperties == null) {
             return CheckResult.error("No view available to ground the check.");
         }
-        String apiKey = PreferencesService.userPreferences().get(PREF_API_KEY, "");
-        if (apiKey.isBlank()) {
-            return CheckResult.error("No Anthropic API key configured (set it in the Komet Assistant).");
+        ProviderConfig config = LlmProviders.readConfig();
+        if (!config.usable()) {
+            return CheckResult.error("No LLM provider configured (set it in the Komet Assistant's Provider settings).");
         }
-        String model = PreferencesService.userPreferences().get(PREF_MODEL, AnthropicClient.DEFAULT_MODEL);
         ViewCalculator viewCalculator = viewProperties.calculator();
 
         AtomicReference<CheckResult> verdict = new AtomicReference<>();
@@ -149,7 +147,7 @@ public final class ClaudeCheckArea extends AbstractCheckArea {
 
         String userMessage = checkRequest(viewCalculator, item.nid(), criterion);
 
-        AnthropicClient client = new AnthropicClient(apiKey, model, MAX_TOKENS);
+        LlmProvider client = LlmProviders.create(config, MAX_TOKENS);
         String reply = client.ask(SYSTEM_PROMPT, allTools, userMessage);
 
         CheckResult result = verdict.get();

@@ -16,6 +16,7 @@
 package network.ike.komet.claude.anthropic;
 
 import network.ike.komet.claude.json.Json;
+import network.ike.komet.claude.provider.HttpRetry;
 
 import java.io.IOException;
 import java.net.URI;
@@ -24,8 +25,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Clock;
 import java.time.Duration;
-import java.time.ZonedDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -421,21 +420,7 @@ public final class AnthropicClient {
      * @return the requested wait in millis, or {@code -1}
      */
     static long retryAfterMillis(HttpResponse<?> response, Clock clock) {
-        return response.headers().firstValue("retry-after").map(raw -> {
-            String value = raw.trim();
-            try {
-                long seconds = Long.parseLong(value);
-                return (seconds <= 0) ? -1L : Math.min(seconds, MAX_TOTAL_RETRY_MILLIS / 1000L) * 1000L;
-            } catch (NumberFormatException notSeconds) {
-                try {
-                    ZonedDateTime when = ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME);
-                    long millis = Duration.between(ZonedDateTime.now(clock), when).toMillis();
-                    return (millis > 0) ? millis : -1L;
-                } catch (RuntimeException notDate) {
-                    return -1L;
-                }
-            }
-        }).orElse(-1L);
+        return HttpRetry.retryAfterMillis(response, clock, MAX_TOTAL_RETRY_MILLIS);
     }
 
     /** Builds the {@code tools} array; caches the (stable) tool-list prefix. */
@@ -496,12 +481,7 @@ public final class AnthropicClient {
      * @return the wait in millis (never negative)
      */
     static long backoffWaitMillis(int attempt, long retryAfterMillis, RandomGenerator rng) {
-        if (retryAfterMillis > 0) {
-            return retryAfterMillis;
-        }
-        long cap = Math.min((long) (Math.pow(2, attempt) * BASE_BACKOFF_MILLIS), MAX_BACKOFF_MILLIS);
-        long half = cap / 2;
-        return half + rng.nextLong(half + 1);
+        return HttpRetry.backoffWaitMillis(attempt, retryAfterMillis, BASE_BACKOFF_MILLIS, MAX_BACKOFF_MILLIS, rng);
     }
 
     /**

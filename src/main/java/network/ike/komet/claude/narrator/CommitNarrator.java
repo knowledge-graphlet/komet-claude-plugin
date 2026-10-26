@@ -15,7 +15,6 @@
  */
 package network.ike.komet.claude.narrator;
 
-import dev.ikm.komet.preferences.PreferencesService;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.Entity;
@@ -28,9 +27,10 @@ import dev.ikm.tinkar.events.EvtBus;
 import dev.ikm.tinkar.events.EvtBusFactory;
 import dev.ikm.tinkar.events.FrameworkTopics;
 import dev.ikm.tinkar.events.Subscriber;
-import network.ike.komet.claude.ClaudeCard;
-import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.provider.LlmProvider;
+import network.ike.komet.claude.provider.LlmProviders;
+import network.ike.komet.claude.provider.ProviderConfig;
 import network.ike.komet.claude.tools.GraphTools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -85,18 +85,9 @@ public final class CommitNarrator {
     private final GraphTools graphTools = new GraphTools(Calculators.View::Default);
     private final CommentWriter commentWriter = new CommentWriter();
 
-    /** @return whether an Anthropic API key is configured (the narrator is otherwise inert). */
+    /** @return whether an LLM provider is configured (the narrator is otherwise inert). */
     public static boolean isConfigured() {
-        return !apiKey().isBlank();
-    }
-
-    private static String apiKey() {
-        return PreferencesService.userPreferences().get(ClaudeCard.PREF_API_KEY, "");
-    }
-
-    private static String model() {
-        return PreferencesService.userPreferences()
-                .get(ClaudeCard.PREF_MODEL, AnthropicClient.DEFAULT_MODEL);
+        return LlmProviders.isConfigured();
     }
 
     /** Subscribes the narrator to commit events. */
@@ -115,14 +106,13 @@ public final class CommitNarrator {
         if (!isWorthy(evt)) {
             return;
         }
-        String key = apiKey();
-        if (key.isBlank()) {
-            return; // headless: no key, no narration, no UI prompt
+        ProviderConfig config = LlmProviders.readConfig();
+        if (!config.usable()) {
+            return; // headless: no provider, no narration, no UI prompt
         }
-        String model = model();
         worker.submit(() -> {
             try {
-                narrateAndWrite(evt, key, model);
+                narrateAndWrite(evt, config);
             } catch (Throwable t) {
                 LOG.error("Narration failed for transaction {}", evt.transactionUuid(), t);
             }
@@ -155,9 +145,9 @@ public final class CommitNarrator {
         return componentNids != null && componentNids.length > 0;
     }
 
-    private void narrateAndWrite(CommitEvent evt, String key, String model) {
+    private void narrateAndWrite(CommitEvent evt, ProviderConfig config) {
         ViewCalculator view = Calculators.View.Default();
-        AnthropicClient client = new AnthropicClient(key, model, MAX_TOKENS);
+        LlmProvider client = LlmProviders.create(config, MAX_TOKENS);
         long[] components = evt.componentNids();
 
         if (evt.stampCount() > BULK_THRESHOLD || components.length > BULK_THRESHOLD) {
@@ -173,7 +163,7 @@ public final class CommitNarrator {
         }
     }
 
-    private void narrateComponent(long componentNid, AnthropicClient client, ViewCalculator view) {
+    private void narrateComponent(long componentNid, LlmProvider client, ViewCalculator view) {
         var optEntity = EntityHandle.get(componentNid).entity();
         if (optEntity.isEmpty()) {
             return;
@@ -194,7 +184,7 @@ public final class CommitNarrator {
         commentWriter.writeComment(stampNid, narrative);
     }
 
-    private void narrateBulk(CommitEvent evt, AnthropicClient client, ViewCalculator view, long[] components) {
+    private void narrateBulk(CommitEvent evt, LlmProvider client, ViewCalculator view, long[] components) {
         StringBuilder sb = new StringBuilder();
         sb.append(components.length).append(" components changed in transaction '")
                 .append(evt.transactionName()).append("'. Examples: ");

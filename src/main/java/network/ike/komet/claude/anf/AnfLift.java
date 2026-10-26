@@ -16,9 +16,11 @@
 package network.ike.komet.claude.anf;
 
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
-import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.anthropic.AskListener;
+import network.ike.komet.claude.provider.LlmProvider;
+import network.ike.komet.claude.provider.LlmProviders;
+import network.ike.komet.claude.provider.ProviderConfig;
 import network.ike.komet.claude.tools.GraphTools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,6 +58,8 @@ public final class AnfLift {
      * stop — the model signals completion with {@code finish_lift}.
      */
     private static final int LIFT_MAX_TURNS = 40;
+    /** The dedicated model for Anthropic-backed lifts. */
+    private static final String LIFT_MODEL = "claude-opus-4-8";
     private static final String SPEC_RESOURCE = "/network/ike/komet/claude/anf-lift-spec.md";
     private static final String FALLBACK_SYSTEM =
             "You lift a clinical narrative into Analysis Normal Form. Ground every clinical term with "
@@ -63,21 +67,25 @@ public final class AnfLift {
             + "once with the grounded statement.";
 
     private final ViewCalculator view;
-    private final String apiKey;
-    private final String model;
+    private final LlmProvider provider;
 
     /**
-     * Creates a lift engine bound to a view, key, and model.
+     * Creates a lift engine bound to a view and a provider configuration.
+     *
+     * <p>For the Anthropic provider the lift runs its dedicated model
+     * ({@code claude-opus-4-8}); for any other provider it runs the configured model.
      *
      * @param view   the view calculator that grounds every term; must not be null
-     * @param apiKey the Anthropic API key; must not be null
-     * @param model  the model id (use {@code claude-opus-4-8} for the lift); null
-     *               falls back to the client default
+     * @param config the resolved provider configuration (already checked {@link
+     *               ProviderConfig#usable()}); must not be null
      */
-    public AnfLift(ViewCalculator view, String apiKey, String model) {
+    public AnfLift(ViewCalculator view, ProviderConfig config) {
         this.view = Objects.requireNonNull(view, "view");
-        this.apiKey = Objects.requireNonNull(apiKey, "apiKey");
-        this.model = model;
+        Objects.requireNonNull(config, "config");
+        String model = ProviderConfig.ANTHROPIC.equals(config.id()) ? LIFT_MODEL : config.model();
+        this.provider = LlmProviders.create(
+                new ProviderConfig(config.id(), config.apiKey(), config.baseUrl(), model),
+                MAX_TOKENS, LIFT_MAX_TURNS);
     }
 
     /**
@@ -211,14 +219,13 @@ public final class AnfLift {
         tools.add(AnfTools.emitAnf(() -> view, sink, onDiscovered));
         tools.add(AnfTools.finishLift(() -> finished.set(true)));
 
-        AnthropicClient client = new AnthropicClient(apiKey, model, MAX_TOKENS, LIFT_MAX_TURNS);
         String text;
         try {
             // Stop when the model signals completion via finish_lift (a positive done-signal,
             // distinct from the turn cap) rather than after the first emit — a lift now yields a
             // SET of statements. The early-stop machinery is preserved; only the predicate changed
             // from "a statement exists" to "the model says it is done".
-            text = client.ask(systemPrompt(), tools, List.of(), narrative, combined, finished::get);
+            text = provider.ask(systemPrompt(), tools, List.of(), narrative, combined, finished::get);
         } catch (RuntimeException e) {
             text = "Lift failed: " + (e.getMessage() == null ? e.toString() : e.getMessage());
         }
