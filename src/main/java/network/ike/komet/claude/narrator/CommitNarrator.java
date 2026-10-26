@@ -157,7 +157,7 @@ public final class CommitNarrator {
 
     private void narrateAndWrite(CommitEvent evt, String key, String model) {
         ViewCalculator view = Calculators.View.Default();
-        AnthropicClient client = new AnthropicClient(key, model, MAX_TOKENS);
+        AnthropicClient client = new AnthropicClient(key, model, MAX_TOKENS).effort(ClaudeCard.configuredEffort());
         long[] components = evt.componentNids();
 
         if (evt.stampCount() > BULK_THRESHOLD || components.length > BULK_THRESHOLD) {

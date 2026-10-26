@@ -147,7 +147,7 @@ public final class ChatArea extends SupplementalAreaBlueprint {
         setBusy(true);
 
         List<Map<String, Object>> history = List.copyOf(apiMessages);
-        AnthropicClient client = new AnthropicClient(apiKey, model, MAX_TOKENS);
+        AnthropicClient client = new AnthropicClient(apiKey, model, MAX_TOKENS).effort(ClaudeCard.configuredEffort());
 
         worker.submit(() -> {
             String reply;

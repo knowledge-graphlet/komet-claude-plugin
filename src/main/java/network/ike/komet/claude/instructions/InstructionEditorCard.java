@@ -1121,7 +1121,7 @@ public final class InstructionEditorCard extends AbstractHostCard {
         Thread worker = new Thread(() -> {
             String answer;
             try {
-                AnthropicClient client = new AnthropicClient(key, model, 8192);
+                AnthropicClient client = new AnthropicClient(key, model, 8192).effort(ClaudeCard.configuredEffort());
                 answer = client.ask(system, List.of(proposeDocumentTool(setId)), history, message);
             } catch (Exception ex) {
                 LOG.warn("Drafting request failed", ex);

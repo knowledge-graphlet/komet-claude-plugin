@@ -32,6 +32,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.BooleanSupplier;
 import java.util.random.RandomGenerator;
@@ -100,6 +101,17 @@ public final class AnthropicClient {
     private final String model;
     private final int maxTokens;
     private final int maxTurns;
+    /** The effort asked for, or {@code null} for the model's own default; see {@link #effort(String)}. */
+    private String effort;
+
+    /** The effort levels, least to most thorough, as {@code output_config.effort} names them. */
+    public static final List<String> EFFORT_LEVELS = List.of("low", "medium", "high", "xhigh", "max");
+
+    /** The effort levels each model accepts, from the Models API's capabilities. */
+    private static final Map<String, List<String>> MODEL_EFFORT_LEVELS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    /** Whether a request has already listed the models to learn their effort levels, so it lists once. */
+    private static volatile boolean effortLevelsListed;
 
     /**
      * Creates a client with the default tool-use turn cap ({@link #DEFAULT_MAX_TURNS}).
@@ -128,6 +140,62 @@ public final class AnthropicClient {
         this.model = (model == null || model.isBlank()) ? DEFAULT_MODEL : model;
         this.maxTokens = maxTokens > 0 ? maxTokens : 8192;
         this.maxTurns = maxTurns > 0 ? maxTurns : DEFAULT_MAX_TURNS;
+    }
+
+    /**
+     * Asks for an effort level ({@code output_config.effort}) on every request this client sends.
+     * A level the model does not accept is left out, so the model answers at its own default
+     * rather than refusing the request; so is every level while the model's levels are unknown.
+     *
+     * @param level one of {@link #EFFORT_LEVELS}; null or blank for the model's default
+     * @return this client
+     */
+    public AnthropicClient effort(String level) {
+        this.effort = level == null || level.isBlank() ? null : level;
+        return this;
+    }
+
+    /**
+     * The effort levels a model accepts, as the Models API last reported them.
+     *
+     * @param model the model id
+     * @return the levels, least to most thorough (empty when the model takes no effort), or empty
+     *         {@link Optional} while the models have not been listed
+     */
+    public static Optional<List<String>> effortLevels(String model) {
+        return Optional.ofNullable(MODEL_EFFORT_LEVELS.get(model));
+    }
+
+    /** The effort level to send, or null: the one asked for, when the model accepts it. */
+    private String effortToSend() {
+        if (effort == null) {
+            return null;
+        }
+        if (!MODEL_EFFORT_LEVELS.containsKey(model) && !effortLevelsListed) {
+            effortLevelsListed = true;
+            try {
+                listModels(apiKey);
+            } catch (AnthropicException ex) {
+                LOG.warn("Could not list the models to learn their effort levels; asking at the model's default", ex);
+            }
+        }
+        List<String> levels = MODEL_EFFORT_LEVELS.get(model);
+        return levels != null && levels.contains(effort) ? effort : null;
+    }
+
+    /** The effort levels a model's {@code capabilities} say it accepts. */
+    static List<String> effortLevelsIn(Map<String, Object> capabilities) {
+        if (capabilities == null || !(capabilities.get("effort") instanceof Map<?, ?> effort)
+                || !Boolean.TRUE.equals(effort.get("supported"))) {
+            return List.of();
+        }
+        List<String> levels = new ArrayList<>();
+        for (String level : EFFORT_LEVELS) {
+            if (effort.get(level) instanceof Map<?, ?> leaf && Boolean.TRUE.equals(leaf.get("supported"))) {
+                levels.add(level);
+            }
+        }
+        return List.copyOf(levels);
     }
 
     /**
@@ -312,8 +380,9 @@ public final class AnthropicClient {
      * @param id           the model id, as a request names it
      * @param display_name its name for people
      * @param created_at   its release date, RFC 3339
+     * @param capabilities what it supports, as a tree with {@code supported} at each leaf
      */
-    public record ModelInfo(String id, String display_name, String created_at) {
+    public record ModelInfo(String id, String display_name, String created_at, Map<String, Object> capabilities) {
     }
 
     /** One page of the Models API's list. */
@@ -361,6 +430,10 @@ public final class AnthropicClient {
             }
             after = parsed.last_id();
         }
+        for (ModelInfo listed : models) {
+            MODEL_EFFORT_LEVELS.put(listed.id(), effortLevelsIn(listed.capabilities()));
+        }
+        effortLevelsListed = true;
         return models;
     }
 
@@ -376,6 +449,10 @@ public final class AnthropicClient {
         body.put("messages", messages);
         if (tools != null && !tools.isEmpty()) {
             body.put("tools", toolDefs(tools));
+        }
+        String level = effortToSend();
+        if (level != null) {
+            body.put("output_config", Map.of("effort", level));
         }
 
         HttpRequest request = HttpRequest.newBuilder(URI.create(ENDPOINT))

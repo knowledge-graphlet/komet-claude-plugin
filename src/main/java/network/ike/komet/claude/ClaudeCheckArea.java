@@ -149,7 +149,7 @@ public final class ClaudeCheckArea extends AbstractCheckArea {
 
         String userMessage = checkRequest(viewCalculator, item.nid(), criterion);
 
-        AnthropicClient client = new AnthropicClient(apiKey, model, MAX_TOKENS);
+        AnthropicClient client = new AnthropicClient(apiKey, model, MAX_TOKENS).effort(ClaudeCard.configuredEffort());
         String reply = client.ask(SYSTEM_PROMPT, allTools, userMessage);
 
         CheckResult result = verdict.get();

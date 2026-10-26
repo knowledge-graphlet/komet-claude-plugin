@@ -164,6 +164,8 @@ public final class ClaudeCard extends AbstractHostCard {
     // (the key names, not the value, are shared).
     public static final String PREF_API_KEY = "network.ike.komet.claude.apiKey";
     public static final String PREF_MODEL = "network.ike.komet.claude.model";
+    /** The effort level asked of the model; blank for the model's own default. */
+    public static final String PREF_EFFORT = "network.ike.komet.claude.effort";
     private static final String PREF_FONT_SIZE = "network.ike.komet.claude.fontSize";
     /** Chip-label typography (ike-issues#1050): small caps (default) vs plain text, and weight. */
     private static final String PREF_CHIP_SMALL_CAPS = "network.ike.komet.claude.chipSmallCaps";
@@ -237,6 +239,8 @@ public final class ClaudeCard extends AbstractHostCard {
     /** The position the caret was last moved to while a concept hovers, to de-jitter drag tracking. */
     private TextPos dropHint;
     private Button sendButton;
+    /** The model menu beside Send, over the shared model preference. */
+    private MenuButton modelButton;
     private BorderPane content;
     private Label statusLabel;
     /** The rail's Trash button, showing how many conversations are in the Trash. */
@@ -599,6 +603,9 @@ public final class ClaudeCard extends AbstractHostCard {
         pane.addSection("Model",
                 this::currentModelLabel,
                 () -> modelSettingsContent(pane));
+        pane.addSection("Effort",
+                () -> effortLabel(effectiveEffort(currentModel())),
+                () -> effortSettingsContent(pane));
         pane.addSection("API key",
                 () -> hasApiKey() ? "Set (per-user)" : "Not set",
                 () -> apiKeySettingsContent(pane));
@@ -845,32 +852,19 @@ public final class ClaudeCard extends AbstractHostCard {
         offer.run();
         models.valueProperty().addListener((obs, was, is) -> {
             if (!filling[0] && is != null && !is.equals(currentModel())) {
-                userPreferences().put(PREF_MODEL, is);
-                try {
-                    userPreferences().sync();
-                } catch (BackingStoreException ex) {
-                    LOG.warn("Could not save the model preference", ex);
-                }
+                chooseModel(is);
                 pane.refreshSummaries();
             }
         });
         if (hasApiKey()) {
             status.setText("Asking Anthropic which models your key can use…");
-            String key = apiKey();
-            java.util.concurrent.CompletableFuture.supplyAsync(() -> AnthropicClient.listModels(key))
+            listModels(apiKey())
                     .whenComplete((listed, failure) -> Platform.runLater(() -> {
                         if (failure != null) {
                             Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
                             status.setText("Could not list the models (" + cause.getMessage() + "); showing the current ones.");
                             return;
                         }
-                        MODEL_NAMES.clear();
-                        List<String> order = new ArrayList<>();
-                        for (AnthropicClient.ModelInfo model : listed) {
-                            MODEL_NAMES.put(model.id(), model.display_name() == null ? model.id() : model.display_name());
-                            order.add(model.id());
-                        }
-                        modelOrder = List.copyOf(order);
                         offer.run();
                         status.setText(listed.size() + " models available to your key, newest first.");
                         pane.refreshSummaries();
@@ -881,8 +875,205 @@ public final class ClaudeCard extends AbstractHostCard {
         return new VBox(6, models, note, status);
     }
 
+    /**
+     * The effort section: how thoroughly the model works, among the levels the configured model
+     * takes, saved to the shared per-user preference the menu beside Send also sets.
+     */
+    private javafx.scene.Node effortSettingsContent(SettingsPanePopup pane) {
+        javafx.scene.control.ComboBox<String> levels = new javafx.scene.control.ComboBox<>();
+        levels.setId("assistantEffort");
+        levels.setMaxWidth(Double.MAX_VALUE);
+        levels.setCellFactory(view -> new ListCell<>() {
+            @Override
+            protected void updateItem(String level, boolean empty) {
+                super.updateItem(level, empty);
+                setText(empty || level == null ? null : effortLabel(level));
+            }
+        });
+        levels.setButtonCell(levels.getCellFactory().call(null));
+        List<String> offered = new ArrayList<>(offeredEffortLevels(currentModel()));
+        offered.addFirst("");
+        levels.getItems().setAll(offered);
+        levels.getSelectionModel().select(effectiveEffort(currentModel()));
+        levels.valueProperty().addListener((obs, was, is) -> {
+            if (is != null && !is.equals(configuredEffort())) {
+                chooseEffort(is);
+                pane.refreshSummaries();
+            }
+        });
+        Label note = new Label("Higher effort thinks longer and answers harder questions better; lower effort answers "
+                + "faster and costs less. Model default leaves it to the model. A level the model does not take "
+                + "is left out, and the model answers at its default.");
+        note.setWrapText(true);
+        return new VBox(6, levels, note);
+    }
+
     /** The order the Models API last listed the models in, newest first. */
     private static volatile List<String> modelOrder = List.of();
+
+    /**
+     * Asks the Models API which models the key can use, remembering their names and order, and
+     * refills every open card's model menu with them.
+     *
+     * @param key the Anthropic API key
+     * @return the listed models, newest first
+     */
+    private static java.util.concurrent.CompletableFuture<List<AnthropicClient.ModelInfo>> listModels(String key) {
+        return java.util.concurrent.CompletableFuture.supplyAsync(() -> AnthropicClient.listModels(key))
+                .thenApply(listed -> {
+                    Map<String, String> names = new HashMap<>();
+                    List<String> order = new ArrayList<>();
+                    for (AnthropicClient.ModelInfo model : listed) {
+                        names.put(model.id(), model.display_name() == null ? model.id() : model.display_name());
+                        order.add(model.id());
+                    }
+                    MODEL_NAMES.clear();
+                    MODEL_NAMES.putAll(names);
+                    modelOrder = List.copyOf(order);
+                    Platform.runLater(ClaudeCard::refreshModelMenus);
+                    return listed;
+                });
+    }
+
+    /** Lists the key's models by name for the model menu, unless they are already listed. */
+    private void ensureModelsListed() {
+        if (MODEL_NAMES.isEmpty() && hasApiKey()) {
+            listModels(apiKey()).whenComplete((listed, failure) -> {
+                if (failure != null) {
+                    LOG.warn("Could not list the models the API key can use; offering the known ones", failure);
+                }
+            });
+        }
+    }
+
+    /**
+     * Saves the model every assistant card, the Instruction Editor's drafting and the commit
+     * narrator use from their next request on, and shows it in every open card's model menu.
+     */
+    private void chooseModel(String id) {
+        userPreferences().put(PREF_MODEL, id);
+        try {
+            userPreferences().sync();
+        } catch (BackingStoreException ex) {
+            LOG.warn("Could not save the model preference", ex);
+        }
+        refreshModelMenus();
+    }
+
+    /** Refills the model menu of every open assistant card from the shared preference. */
+    private static void refreshModelMenus() {
+        for (java.lang.ref.WeakReference<ClaudeCard> ref : OPEN) {
+            ClaudeCard card = ref.get();
+            if (card != null && card.modelButton != null) {
+                card.fillModelMenu();
+            }
+        }
+    }
+
+    /**
+     * Saves the effort level every assistant card, the Instruction Editor's drafting and the
+     * commit narrator ask for from their next request on, and shows it in every open card's menu.
+     *
+     * @param level one of {@link AnthropicClient#EFFORT_LEVELS}, or blank for the model's default
+     */
+    private void chooseEffort(String level) {
+        userPreferences().put(PREF_EFFORT, level);
+        try {
+            userPreferences().sync();
+        } catch (BackingStoreException ex) {
+            LOG.warn("Could not save the effort preference", ex);
+        }
+        refreshModelMenus();
+    }
+
+    /**
+     * The configured effort level: what every assistant request asks for when its model takes it.
+     *
+     * @return one of {@link AnthropicClient#EFFORT_LEVELS}, or blank for the model's default
+     */
+    public static String configuredEffort() {
+        return PreferencesService.userPreferences().get(PREF_EFFORT, "");
+    }
+
+    /** The effort levels offered for a model: those it takes, or every level while they are unknown. */
+    private static List<String> offeredEffortLevels(String model) {
+        return AnthropicClient.effortLevels(model).orElse(AnthropicClient.EFFORT_LEVELS);
+    }
+
+    /** The configured effort when the model takes it, else blank: the model answers at its default. */
+    private static String effectiveEffort(String model) {
+        String level = configuredEffort();
+        return offeredEffortLevels(model).contains(level) ? level : "";
+    }
+
+    /** An effort level for people: {@code "Extra high"} for {@code xhigh}, "Model default" for blank. */
+    static String effortLabel(String level) {
+        return switch (level) {
+            case "" -> "Model default";
+            case "xhigh" -> "Extra high";
+            default -> Character.toUpperCase(level.charAt(0)) + level.substring(1);
+        };
+    }
+
+    /** The menu beside Send, labelled: {@code "Sonnet 5.5 · High"}, or the model alone at its default. */
+    static String modelMenuLabel(String model, String effort) {
+        return effort.isEmpty() ? shortModelLabel(model) : shortModelLabel(model) + " · " + effortLabel(effort);
+    }
+
+    /**
+     * Fills the menu beside Send: the models offered, then the effort levels the configured model
+     * takes, the configured ones checked.
+     */
+    private void fillModelMenu() {
+        String current = currentModel();
+        List<String> ids = new ArrayList<>(modelOrder.isEmpty() ? KNOWN_MODELS : modelOrder);
+        if (!ids.contains(current)) {
+            ids.addFirst(current);
+        }
+        javafx.scene.control.ToggleGroup group = new javafx.scene.control.ToggleGroup();
+        List<MenuItem> items = new ArrayList<>();
+        for (String id : ids) {
+            javafx.scene.control.RadioMenuItem item = new javafx.scene.control.RadioMenuItem(modelText(id));
+            item.setToggleGroup(group);
+            item.setSelected(id.equals(current));
+            item.setOnAction(e -> {
+                if (!id.equals(currentModel())) {
+                    chooseModel(id);
+                }
+            });
+            items.add(item);
+        }
+        items.add(new javafx.scene.control.SeparatorMenuItem());
+        MenuItem heading = new MenuItem("Effort");
+        heading.setDisable(true);
+        items.add(heading);
+        String effort = effectiveEffort(current);
+        javafx.scene.control.ToggleGroup efforts = new javafx.scene.control.ToggleGroup();
+        List<String> levels = new ArrayList<>(offeredEffortLevels(current));
+        levels.addFirst("");
+        for (String level : levels) {
+            javafx.scene.control.RadioMenuItem item = new javafx.scene.control.RadioMenuItem(effortLabel(level));
+            item.setToggleGroup(efforts);
+            item.setSelected(level.equals(effort));
+            item.setOnAction(e -> {
+                if (!level.equals(configuredEffort())) {
+                    chooseEffort(level);
+                }
+            });
+            items.add(item);
+        }
+        modelButton.getItems().setAll(items);
+        modelButton.setText(modelMenuLabel(current, effort));
+    }
+
+    /** The configured model, briefly, for the menu beside Send: {@code "Sonnet 5.5"}, else the id. */
+    static String shortModelLabel(String id) {
+        String name = MODEL_NAMES.get(id);
+        if (name != null && !name.equals(id)) {
+            return name.startsWith("Claude ") ? name.substring("Claude ".length()) : name;
+        }
+        return id.startsWith("claude-") ? id.substring("claude-".length()) : id;
+    }
 
     private static String modelText(String id) {
         String name = MODEL_NAMES.get(id);
@@ -1074,11 +1265,26 @@ public final class ClaudeCard extends AbstractHostCard {
         sendButton = new Button("Send");
         sendButton.setOnAction(e -> onSend());
 
+        // The model that answers the next question, switchable without opening Settings.
+        modelButton = new MenuButton();
+        modelButton.setId("assistantModelMenu");
+        modelButton.setTooltip(new Tooltip("The model that answers; the same choice as Settings → Model"));
+        modelButton.setOnShowing(e -> {
+            fillModelMenu();
+            ensureModelsListed();
+        });
+        fillModelMenu();
+        ensureModelsListed();
+
         Button findButton = new Button("🔍");
         findButton.setTooltip(new Tooltip("Find in conversation (⌘F)"));
         findButton.setOnAction(e -> toggleFind());
 
-        HBox inputBar = new HBox(6, findButton, composeStack, sendButton);
+        // The compose surface yields width first: the buttons keep their labels on a narrow card.
+        for (Region button : List.of(findButton, modelButton, sendButton)) {
+            button.setMinWidth(Region.USE_PREF_SIZE);
+        }
+        HBox inputBar = new HBox(6, findButton, composeStack, modelButton, sendButton);
         inputBar.setAlignment(Pos.BOTTOM_LEFT);
         inputBar.setPadding(new Insets(6));
 
@@ -1788,7 +1994,7 @@ public final class ClaudeCard extends AbstractHostCard {
         }
         startStatusTimer();
 
-        AnthropicClient client = new AnthropicClient(key, model, MAX_TOKENS);
+        AnthropicClient client = new AnthropicClient(key, model, MAX_TOKENS).effort(configuredEffort());
         List<Map<String, Object>> history = List.copyOf(conv.apiMessages);
         AskListener listener = new AskListener() {
             @Override
