@@ -45,15 +45,19 @@ import java.util.function.Supplier;
 
 /**
  * The assistant's authoring hand-off ({@code IKE-Network/ike-issues#1292}): {@code propose_concept}
- * writes a proposed concept uncommitted and opens a KL window on it in the assistant's journal,
- * {@code edit_proposal} corrects that open proposal in place, and {@code discard_concept_proposal}
- * withdraws one the person does not want.
+ * writes a proposed concept uncommitted into the store, where the journal's Unpublished Changes
+ * panel lists it; {@code open_concept_proposal} opens a KL window on it in the assistant's journal,
+ * only when the person asks for one; {@code edit_proposal} corrects the open proposal in place; and
+ * {@code discard_concept_proposal} withdraws one the person does not want.
  *
  * <p>The assistant is a proposer, never a committer. Nothing these tools write is committed: the
- * person reviews the proposal in the window, adjusts it, and commits it with the window's Publish
- * button — the same signed act as for a concept they authored by hand. The definition is a
+ * person reviews the proposal from the Unpublished Changes panel, whose change review window shows
+ * each field Before / After, and commits it with Publish — the same signed act as for a concept
+ * they authored by hand. A KL window is for editing, never the suggested way to review, and none
+ * opens unless they ask: {@code propose_concept} opens one only when told to, and
+ * {@code open_concept_proposal} exists for the ask that comes later. The definition is a
  * {@code koncept-definition} block, the grammar the assistant already previews proposals in, so
- * what the person saw previewed is what the window opens with.
+ * what the person saw previewed is what the store holds and a window opens with.
  *
  * <p>Modelling gaps cannot be axioms — a stored definition holds only concepts that exist — so
  * they travel in the editorial note, and are reported back to the assistant.
@@ -83,7 +87,7 @@ public final class ConceptProposalTools {
     /**
      * @param view         the assistant's view, whose edit coordinate proposals are authored on;
      *                     may supply null before the card is bound
-     * @param journalTopic the assistant's journal, where the KL window opens; may supply null
+     * @param journalTopic the assistant's journal, where a KL window opens when asked for; may supply null
      */
     public ConceptProposalTools(Supplier<ViewProperties> view, Supplier<UUID> journalTopic) {
         this.view = view;
@@ -93,10 +97,10 @@ public final class ConceptProposalTools {
     /**
      * The tools to register with the Anthropic client.
      *
-     * @return the three tools
+     * @return the four tools
      */
     public List<AnthropicTool> tools() {
-        return List.of(proposeConcept(), editProposal(), discardProposal());
+        return List.of(proposeConcept(), openProposal(), editProposal(), discardProposal());
     }
 
     // ── propose_concept ─────────────────────────────────────────────────
@@ -110,28 +114,37 @@ public final class ConceptProposalTools {
 
             @Override
             public String description() {
-                return "Hand a proposed concept to the person for authoring: write it UNCOMMITTED and open a "
-                        + "Komet KL window on it, where they review, adjust, and commit it with Publish. Nothing "
-                        + "is committed by this tool, and you must never claim the concept exists — it exists "
-                        + "only once the person publishes it. Pass the same koncept-definition block you showed "
-                        + "them (its `proposed:` line is the fully specified name, with its semantic tag); every "
-                        + "identifier is resolved again here, and any that is not in the knowledge base becomes "
-                        + "a gap instead of an axiom. Gaps travel in the editorial note. Pass "
-                        + "'textual_definition' to pre-populate the prose textual definition, editable in the "
-                        + "window. Use it only when the person asks to create, author, or open the proposed "
-                        + "concept; to correct the open proposal afterwards use edit_proposal.";
+                return """
+                        Hand a proposed concept to the person for authoring: write it UNCOMMITTED into the
+                        knowledge base, where the journal's Unpublished Changes panel lists it. THE PANEL IS
+                        WHERE THEY REVIEW IT: its change review window shows every field Before / After and
+                        publishes or discards the component. NO KL WINDOW OPENS unless the person asked for
+                        one, and a KL window is never the way to review: pass open_window=true only when they
+                        explicitly asked to open, show, or edit the concept in a KL window; otherwise leave it
+                        out and tell them the proposal waits in Unpublished Changes for their review. Never
+                        suggest a KL window for reviewing. Nothing is committed by this tool, and you must
+                        never claim the concept exists — it exists only once the person publishes it. Pass the same
+                        koncept-definition block you showed them (its `proposed:` line is the fully qualified
+                        name, with its semantic tag); every identifier is resolved again here, and any that is
+                        not in the knowledge base becomes a gap instead of an axiom. Gaps travel in the
+                        editorial note. Pass 'textual_definition' to pre-populate the prose textual
+                        definition. Use it only when the person asks to create or author the proposed
+                        concept; to correct the proposal afterwards use edit_proposal, and to open a window
+                        on it later, when they ask, use open_concept_proposal.""";
             }
 
             @Override
             public Map<String, Object> inputSchema() {
                 return obj("type", "object",
                         "properties", obj(
-                                "definition", strProp("The koncept-definition block body, exactly as shown to the "
-                                        + "person: a `proposed: <fully specified name (semantic tag)>` line, then "
-                                        + "necessary/sufficient sets, supertypes, roles, groups, and gap: lines."),
+                                "definition", strProp("""
+                                        The koncept-definition block body, exactly as shown to the person: a
+                                        `proposed: <fully qualified name (semantic tag)>` line, then
+                                        necessary/sufficient sets, supertypes, roles, groups, and gap: lines."""),
                                 "synonyms", obj("type", "array",
-                                        "description", "Synonyms beyond the fully specified name. If none is "
-                                                + "preferred, the name without its semantic tag becomes the preferred synonym.",
+                                        "description", """
+                                                Synonyms beyond the fully qualified name. If none is preferred,
+                                                the name without its semantic tag becomes the preferred synonym.""",
                                         "items", obj("type", "object",
                                                 "properties", obj(
                                                         "term", strProp("The synonym text."),
@@ -141,12 +154,21 @@ public final class ConceptProposalTools {
                                                         "case_sensitive", obj("type", "boolean",
                                                                 "description", "True when the term's case is significant.")),
                                                 "required", List.of("term", "acceptability"))),
-                                "editorial_note", strProp("Optional rationale for the proposal: what it was "
-                                        + "modelled on and why. The gaps are appended to it."),
-                                "textual_definition", strProp("Optional. The plain-text prose textual definition: "
-                                        + "the human-readable clinical description, written as an uncommitted "
-                                        + "textual definition the person can edit in the window before publishing. "
-                                        + "It should not restate the logical axioms.")),
+                                "editorial_note", strProp("""
+                                        Optional rationale for the proposal: what it was modelled on and why.
+                                        The gaps are appended to it."""),
+                                "textual_definition", strProp("""
+                                        Optional. The plain-text prose textual definition: the human-readable
+                                        clinical description, written as an uncommitted textual definition the
+                                        person can edit before publishing. It should not restate the logical
+                                        axioms."""),
+                                "open_window", obj("type", "boolean",
+                                        "description", """
+                                                Optional, default false. True ONLY when the person explicitly
+                                                asked to open, see, or edit the concept in a KL window; then one
+                                                opens in their journal on the written proposal. Never set it on
+                                                your own initiative, and never to offer a review: they review in
+                                                the Unpublished Changes panel.""")),
                         "required", List.of("definition"));
             }
 
@@ -167,11 +189,12 @@ public final class ConceptProposalTools {
         ViewProperties viewProperties = view.get();
         UUID topic = journalTopic.get();
         if (viewProperties == null || topic == null) {
-            throw new IllegalStateException("the assistant is not attached to a journal yet, so there is no window to open");
+            throw new IllegalStateException("the assistant is not attached to a journal yet, so there is nowhere to write the proposal");
         }
+        boolean wantsWindow = bool(input, "open_window");
         Proposal proposal = proposal(str(input, "definition"));
-        String fsn = proposal.title();
-        if (fsn == null || fsn.isBlank()) {
+        String fqn = proposal.title();
+        if (fqn == null || fqn.isBlank()) {
             throw new IllegalArgumentException("the block has no `proposed:` line naming the concept");
         }
         Built built = built(proposal);
@@ -182,48 +205,139 @@ public final class ConceptProposalTools {
 
         Draft written = onFxThread(() -> {
             var edit = viewProperties.nodeView().editCoordinate();
-            Draft w = ConceptProposalWriter.write(viewProperties.calculator(), edit.getAuthorForChanges(),
-                    edit.getDefaultModule(), edit.getDefaultPath(), fsn, built.tree(), synonyms, note,
+            return ConceptProposalWriter.write(viewProperties.calculator(), edit.getAuthorForChanges(),
+                    edit.getDefaultModule(), edit.getDefaultPath(), fqn, built.tree(), synonyms, note,
                     textualDefinition);
-            try {
-                // The event's title names the window LAYOUT to open, not a caption: the standard
-                // concept window, which lays out the names and the stated definition.
-                EvtBusFactory.getDefaultEvtBus().publish(topic, new MakeKLWindowEvent(this,
-                        MakeKLWindowEvent.OPEN_STANDARD_WINDOW, w.concept(), StandardEditorWindows.CONCEPT_WINDOW));
-            } catch (RuntimeException windowFailed) {
-                // No window to review it in means no proposal: withdraw what was written.
-                ConceptProposalWriter.discard(w);
-                throw new IllegalStateException("the proposal was withdrawn because its window could not open: "
-                        + windowFailed.getMessage(), windowFailed);
-            }
-            return w;
         });
         String id = ComponentText.identifier(written.concept().nid());
         proposals.put(id, new Open(written, rationale, built.gaps()));
+        if (wantsWindow) {
+            onFxThread(() -> {
+                openWindow(topic, written);
+                return null;
+            });
+        }
 
         boolean hasTextualDefinition = textualDefinition != null && !textualDefinition.isBlank();
-        StringBuilder result = new StringBuilder("Opened an uncommitted proposal for \"" + fsn
-                + "\" in a KL window in the person's journal (proposal " + id + "): the concept, its fully "
-                + "specified name, " + synonyms.size() + " synonym(s), the stated definition");
+        StringBuilder result = new StringBuilder("""
+                Wrote an uncommitted proposal for "%s" (proposal %s): the concept, its fully qualified name,
+                %d synonym(s), the stated definition""".formatted(fqn, id, synonyms.size()));
         result.append(hasTextualDefinition ? ", a textual definition" : "")
-                .append(note == null ? "" : ", and an editorial note").append(". NOTHING IS COMMITTED: it becomes "
-                + "a concept only when the person presses Publish in that window. Tell them it is waiting there "
-                + "for their review. To correct it, use edit_proposal with this proposal id.");
+                .append(note == null ? "" : ", and an editorial note")
+                .append(". NOTHING IS COMMITTED: it becomes a concept only when the person presses Publish. ");
+        if (wantsWindow) {
+            result.append("""
+                    As asked, it is open in a KL concept window in the person's journal; it is also listed in
+                    the journal's Unpublished Changes panel, where they review and publish it.""");
+        } else {
+            result.append("""
+                    No window was opened. It is listed in the journal's Unpublished Changes panel: tell them it
+                    is waiting there, and that they review it in the panel's change review window (double-click
+                    the component to see each field Before / After, then Publish or Discard it). Do NOT offer a
+                    KL window for reviewing; open one with open_concept_proposal only if they ask for one
+                    themselves.""");
+        }
+        result.append(" To correct it, use edit_proposal with this proposal id.");
         appendGaps(result, proposal, built);
         return result.toString();
+    }
+
+    /**
+     * Opens the standard concept KL window on a written proposal in the assistant's journal. The
+     * event's title names the window LAYOUT to open, not a caption: the standard concept window,
+     * which lays out the names and the stated definition.
+     */
+    private void openWindow(UUID topic, Draft written) {
+        EvtBusFactory.getDefaultEvtBus().publish(topic, new MakeKLWindowEvent(this,
+                MakeKLWindowEvent.OPEN_STANDARD_WINDOW, written.concept(), StandardEditorWindows.CONCEPT_WINDOW));
+    }
+
+    // ── open_concept_proposal ───────────────────────────────────────────
+
+    private AnthropicTool openProposal() {
+        return new AnthropicTool() {
+            @Override
+            public String name() {
+                return "open_concept_proposal";
+            }
+
+            @Override
+            public String description() {
+                return """
+                        Open a KL concept window in the person's journal on a proposal propose_concept wrote, so
+                        they can edit it there. Use it ONLY when the person explicitly asks to open, show, or
+                        edit the proposal in a KL window — never on your own initiative, never as a routine
+                        follow-up to propose_concept, and never as a way to review: reviewing happens in the
+                        Unpublished Changes panel and its change review window, not in a KL window, so do not
+                        offer this for reviewing. Each call opens a new window. Nothing is committed by opening
+                        a window. A discarded proposal is refused.""";
+            }
+
+            @Override
+            public Map<String, Object> inputSchema() {
+                return obj("type", "object",
+                        "properties", obj("proposal", strProp("The proposal id propose_concept returned.")),
+                        "required", List.of("proposal"));
+            }
+
+            @Override
+            public String execute(Map<String, Object> input) {
+                try {
+                    return open(input);
+                } catch (IllegalArgumentException | IllegalStateException e) {
+                    return "Error: " + e.getMessage();
+                } catch (RuntimeException e) {
+                    return "Error: " + (e.getMessage() == null ? e.toString() : e.getMessage());
+                }
+            }
+        };
+    }
+
+    private String open(Map<String, Object> input) {
+        String id = str(input, "proposal") == null ? null : str(input, "proposal").strip();
+        if (id != null && discarded.contains(id)) {
+            throw new IllegalStateException("proposal " + id + " was discarded, so there is nothing to open");
+        }
+        Open open = id == null ? null : proposals.get(id);
+        if (open == null) {
+            throw new IllegalArgumentException("no proposal " + id + " from this assistant");
+        }
+        UUID topic = journalTopic.get();
+        if (topic == null) {
+            throw new IllegalStateException("the assistant is not attached to a journal yet, so there is no window to open");
+        }
+        if (open.draft().status() == ConceptProposalWriter.Status.DISCARDED) {
+            proposals.remove(id);
+            discarded.add(id);
+            throw new IllegalStateException("proposal " + id + " was discarded in Komet, so there is nothing to open");
+        }
+        onFxThread(() -> {
+            openWindow(topic, open.draft());
+            return null;
+        });
+        String committed = open.draft().status() == ConceptProposalWriter.Status.PUBLISHED
+                ? "It was already published, so the window shows a committed concept."
+                : "NOTHING IS COMMITTED: it becomes a concept only when the person presses Publish there.";
+        return """
+                Opened proposal %s in a KL concept window in the person's journal, as they asked.
+                %s""".formatted(id, committed);
     }
 
     /** Warns of a sufficient set proposed with gaps, and lists the gaps. */
     private static void appendGaps(StringBuilder result, Proposal proposal, Built built) {
         if (!built.gaps().isEmpty() && proposal.sets().stream().anyMatch(ProposedDefinition.SetSpec::sufficient)) {
-            result.append("\nWARNING: a SUFFICIENT set is proposed while gaps remain. Until the gaps are "
-                    + "resolved, the definition lacks what distinguishes the concept, so as a sufficient set it "
-                    + "would classify as equivalent to every concept meeting the rest. Tell the person; a "
-                    + "necessary (primitive) set is the safe choice until the gaps are filled.");
+            result.append("""
+
+                    WARNING: a SUFFICIENT set is proposed while gaps remain. Until the gaps are resolved, the
+                    definition lacks what distinguishes the concept, so as a sufficient set it would classify
+                    as equivalent to every concept meeting the rest. Tell the person; a necessary (primitive)
+                    set is the safe choice until the gaps are filled.""");
         }
         if (!built.gaps().isEmpty()) {
-            result.append("\nGaps (in the editorial note, not in the definition — the person must resolve them "
-                    + "before publishing):");
+            result.append("""
+
+                    Gaps (in the editorial note, not in the definition — the person must resolve them before
+                    publishing):""");
             built.gaps().forEach(gap -> result.append("\n- ").append(gap));
         }
     }
@@ -239,16 +353,18 @@ public final class ConceptProposalTools {
 
             @Override
             public String description() {
-                return "Correct an open, uncommitted proposal in place: update one or more of its fields without "
-                        + "discarding it, so the person's own edits in its KL window are kept and the window stays "
-                        + "open. Only the fields you pass change; everything else is left as the person left it. "
-                        + "Nothing is committed: it stays a proposal until the person presses Publish. Use it for "
-                        + "incremental corrections the person asks for (a synonym, the textual definition, a role "
-                        + "group) on a proposal id propose_concept returned; to start over entirely use "
-                        + "discard_concept_proposal and propose_concept. A published or discarded proposal is "
-                        + "refused. A field the person has already edited in the window is left as they left it "
-                        + "and reported as a warning — tell them. The proposal keeps exactly one preferred "
-                        + "synonym: to change which one, demote the old and promote the new in the same call.";
+                return """
+                        Correct an open, uncommitted proposal in place: update one or more of its fields without
+                        discarding it, so the person's own edits are kept and any KL window open on it stays
+                        open. Only the fields you pass change; everything else is left as the person left it.
+                        Nothing is committed: it stays a proposal until the person presses Publish. Use it for
+                        incremental corrections the person asks for (a synonym, the textual definition, a role
+                        group) on a proposal id propose_concept returned; to start over entirely use
+                        discard_concept_proposal and propose_concept. A published or discarded proposal is
+                        refused. A field the person has already edited in Komet is left as they left it
+                        and reported as a warning — tell them. The proposal keeps exactly one preferred
+                        synonym: to change which one, demote the old and promote the new in the same call.
+                        """;
             }
 
             @Override
@@ -265,20 +381,24 @@ public final class ConceptProposalTools {
                 return obj("type", "object",
                         "properties", obj(
                                 "proposal", strProp("The proposal id propose_concept returned."),
-                                "textual_definition", strProp("Optional. Replaces the textual definition, or "
-                                        + "adds one when the proposal has none."),
-                                "editorial_note", strProp("Optional. Replaces your rationale in the editorial "
-                                        + "note; the definition's gaps are still appended to it."),
+                                "textual_definition", strProp("""
+                                        Optional. Replaces the textual definition, or adds one when the proposal
+                                        has none."""),
+                                "editorial_note", strProp("""
+                                        Optional. Replaces your rationale in the editorial note; the definition's
+                                        gaps are still appended to it."""),
                                 "synonyms_add", obj("type", "array",
-                                        "description", "Optional. Synonyms to add; none may repeat a synonym "
-                                                + "the proposal already has.",
+                                        "description", """
+                                                Optional. Synonyms to add; none may repeat a synonym the proposal
+                                                already has.""",
                                         "items", synonymItem),
                                 "synonyms_remove", obj("type", "array",
                                         "description", "Optional. The exact terms of proposed synonyms to withdraw.",
                                         "items", obj("type", "string")),
                                 "synonyms_update", obj("type", "array",
-                                        "description", "Optional. Change the acceptability or case significance "
-                                                + "of a proposed synonym, found by its exact term.",
+                                        "description", """
+                                                Optional. Change the acceptability or case significance of a
+                                                proposed synonym, found by its exact term.""",
                                         "items", obj("type", "object",
                                                 "properties", obj(
                                                         "term", strProp("The synonym's exact text."),
@@ -288,12 +408,14 @@ public final class ConceptProposalTools {
                                                         "case_sensitive", obj("type", "boolean",
                                                                 "description", "New case significance.")),
                                                 "required", List.of("term"))),
-                                "definition", strProp("Optional. A whole replacement koncept-definition block "
-                                        + "(sets, axioms, gap: lines); its `proposed:` line is ignored — rename with "
-                                        + "proposed_name. Replaces the entire stated definition; if the person has "
-                                        + "already edited the axioms in the window, theirs stand and you are warned."),
-                                "proposed_name", strProp("Optional. A replacement fully specified name, with its "
-                                        + "semantic tag. A preferred synonym derived from the old name follows it.")),
+                                "definition", strProp("""
+                                        Optional. A whole replacement koncept-definition block (sets, axioms,
+                                        gap: lines); its `proposed:` line is ignored — rename with proposed_name.
+                                        Replaces the entire stated definition; if the person has already edited
+                                        the axioms in Komet, theirs stand and you are warned."""),
+                                "proposed_name", strProp("""
+                                        Optional. A replacement fully qualified name, with its semantic tag. A
+                                        preferred synonym derived from the old name follows it.""")),
                         "required", List.of("proposal"));
             }
 
@@ -313,8 +435,8 @@ public final class ConceptProposalTools {
     private String edit(Map<String, Object> input) {
         String id = str(input, "proposal") == null ? null : str(input, "proposal").strip();
         if (id != null && discarded.contains(id)) {
-            throw new IllegalStateException("proposal " + id + " was discarded, so there is nothing to edit; use "
-                    + "propose_concept to start over");
+            throw new IllegalStateException(
+                    "proposal %s was discarded, so there is nothing to edit; use propose_concept to start over".formatted(id));
         }
         Open open = id == null ? null : proposals.get(id);
         if (open == null) {
@@ -346,12 +468,14 @@ public final class ConceptProposalTools {
 
         StringBuilder result = new StringBuilder();
         if (edited.fields().isEmpty()) {
-            result.append("No change to proposal ").append(id).append(": it already held what was passed. ");
+            result.append("No change to proposal %s: it already held what was passed.".formatted(id));
         } else {
-            result.append("Updated proposal ").append(id).append(" in place; its window stays open and refreshes. ");
+            result.append("""
+                    Updated proposal %s in place; a window open on it refreshes, and the Unpublished Changes
+                    panel reflects it.""".formatted(id));
         }
-        result.append("fields_updated: ").append(edited.fields()).append(". NOTHING IS COMMITTED: it becomes a "
-                + "concept only when the person presses Publish.");
+        result.append(" fields_updated: ").append(edited.fields())
+                .append(". NOTHING IS COMMITTED: it becomes a concept only when the person presses Publish.");
         if (!edited.warnings().isEmpty()) {
             result.append("\nWarnings (tell the person):");
             edited.warnings().forEach(warning -> result.append("\n- ").append(warning));
@@ -373,9 +497,10 @@ public final class ConceptProposalTools {
 
             @Override
             public String description() {
-                return "Withdraw an uncommitted proposal propose_concept opened, rolling back everything it "
-                        + "wrote. Use it only when the person asks to discard or withdraw that proposal. A "
-                        + "proposal they already published is a committed concept and is left alone.";
+                return """
+                        Withdraw an uncommitted proposal propose_concept wrote, rolling back everything it wrote.
+                        Use it only when the person asks to discard or withdraw that proposal. A proposal they
+                        already published is a committed concept and is left alone.""";
             }
 
             @Override
@@ -400,8 +525,10 @@ public final class ConceptProposalTools {
                         discarded.add(id.strip());
                     }
                     return withdrawn
-                            ? "Discarded proposal " + id + ": nothing of it remains. Ask the person to close its window."
-                            : "Proposal " + id + " was already published; it is a committed concept and was left alone.";
+                            ? """
+                            Discarded proposal %s: nothing of it remains. If a window is open on it, ask the
+                            person to close it.""".formatted(id)
+                            : "Proposal %s was already published; it is a committed concept and was left alone.".formatted(id);
                 } catch (RuntimeException e) {
                     return "Error: " + (e.getMessage() == null ? e.toString() : e.getMessage());
                 }
@@ -424,8 +551,9 @@ public final class ConceptProposalTools {
     private static Built built(Proposal proposal) {
         Built built = ProposedDefinition.build(proposal);
         if (built.tree() == null) {
-            throw new IllegalArgumentException("none of the block's identifiers is in this knowledge base, so "
-                    + "there is no definition to propose: " + String.join("; ", built.gaps()));
+            throw new IllegalArgumentException("""
+                    none of the block's identifiers is in this knowledge base, so there is no definition to
+                    propose: %s""".formatted(String.join("; ", built.gaps())));
         }
         return built;
     }
@@ -527,6 +655,12 @@ public final class ConceptProposalTools {
     static String str(Map<String, Object> m, String key) {
         Object v = m.get(key);
         return v == null ? null : v.toString();
+    }
+
+    /** The boolean under the key; absent, null, or anything but true is false. */
+    private static boolean bool(Map<String, Object> m, String key) {
+        Object v = m.get(key);
+        return Boolean.TRUE.equals(v) || (v != null && "true".equalsIgnoreCase(v.toString()));
     }
 
     static Map<String, Object> obj(Object... keyValues) {
