@@ -1,0 +1,66 @@
+/*
+ * Copyright © 2026 Knowledge Graphlet / IKE Network
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     https://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package network.ike.komet.claude.decision;
+
+import dev.ikm.tinkar.terms.KernelConcept;
+import network.ike.foundation.ike.bindings.IkeConcept;
+
+/**
+ * The concepts the decision-tree profile reads vertices by, as nids: the node and measure kinds,
+ * the property keys, the measure semantics and the basis kinds {@code DecisionTreeSet} declares
+ * in the IKE starter set, and the kernel's concept-reference and interval-role keys the tree
+ * reuses. {@link #fromBindings()} resolves them through the store once; {@link #synthetic()}
+ * numbers them arbitrarily, so the profile and its rollback are testable with no store at all,
+ * since nothing in either depends on what a nid is beyond its identity.
+ */
+public record DecisionTerms(
+        long decisionNode, long alternativeNode, long chanceNode, long eventNode, long outcomeNode,
+        long probabilityMeasure, long moneyCostMeasure, long healthCostMeasure,
+        long statement, long derivedFrom, long measureBasis, long basisSource, long treeReference,
+        long inputKind, long residual,
+        long shareAtNode, long moneySemantic, long healthSemantic,
+        long estimatedBasis, long citedBasis, long derivedBasis,
+        long conceptReference, long intervalLowerBound, long intervalUpperBound,
+        long lowerBoundOpen, long upperBoundOpen, long unitOfMeasure) {
+
+    /** The terms as the running store numbers them. */
+    public static DecisionTerms fromBindings() {
+        return new DecisionTerms(
+                IkeConcept.DECISION_NODE.nid(), IkeConcept.ALTERNATIVE_NODE.nid(), IkeConcept.CHANCE_NODE.nid(),
+                IkeConcept.EVENT_NODE.nid(), IkeConcept.OUTCOME_NODE.nid(),
+                IkeConcept.PROBABILITY_MEASURE.nid(), IkeConcept.MONEY_COST_MEASURE.nid(),
+                IkeConcept.HEALTH_COST_MEASURE.nid(),
+                IkeConcept.STATEMENT.nid(), IkeConcept.DERIVED_FROM.nid(), IkeConcept.MEASURE_BASIS.nid(),
+                IkeConcept.BASIS_SOURCE.nid(), IkeConcept.TREE_REFERENCE.nid(), IkeConcept.INPUT_KIND.nid(),
+                IkeConcept.RESIDUAL.nid(),
+                IkeConcept.SHARE_AT_NODE.nid(), IkeConcept.MONEY_SEMANTIC.nid(), IkeConcept.HEALTH_SEMANTIC.nid(),
+                IkeConcept.ESTIMATED_BASIS.nid(), IkeConcept.CITED_BASIS.nid(), IkeConcept.DERIVED_BASIS.nid(),
+                KernelConcept.CONCEPT_REFERENCE.nid(), KernelConcept.INTERVAL_LOWER_BOUND.nid(),
+                KernelConcept.INTERVAL_UPPER_BOUND.nid(), KernelConcept.LOWER_BOUND_OPEN.nid(),
+                KernelConcept.UPPER_BOUND_OPEN.nid(), KernelConcept.UNIT_OF_MEASURE.nid());
+    }
+
+    /** Distinct arbitrary nids, for a profile read with no store. */
+    public static DecisionTerms synthetic() {
+        long[] nid = new long[27];
+        for (int i = 0; i < nid.length; i++) {
+            nid[i] = -1_000 - i;
+        }
+        return new DecisionTerms(nid[0], nid[1], nid[2], nid[3], nid[4], nid[5], nid[6], nid[7], nid[8], nid[9],
+                nid[10], nid[11], nid[12], nid[13], nid[14], nid[15], nid[16], nid[17], nid[18], nid[19], nid[20],
+                nid[21], nid[22], nid[23], nid[24], nid[25], nid[26]);
+    }
+}
