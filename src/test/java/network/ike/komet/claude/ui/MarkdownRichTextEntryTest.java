@@ -47,4 +47,14 @@ class MarkdownRichTextEntryTest {
         assertTrue(MarkdownRichText.Entry.user(text).markdown());
         assertTrue(MarkdownRichText.Entry.fenced("```koncept-tree\nk:sctid=1[x]\n```"));
     }
+
+    @Test
+    @DisplayName("Komet's findings on a block are Komet's turn, not the person's, and read as Markdown")
+    void feedbackIsKometsTurn() {
+        MarkdownRichText.Entry entry = MarkdownRichText.Entry.user(
+                "Komet read the decision tree block in your reply and found:\n- line 3: unknown value of a vertex: cost\n");
+
+        assertEquals(MarkdownRichText.Role.KOMET, entry.role());
+        assertTrue(entry.markdown());
+    }
 }

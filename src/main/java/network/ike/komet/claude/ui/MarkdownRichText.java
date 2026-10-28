@@ -25,6 +25,7 @@ import dev.ikm.komet.markdown.richtext.TableColumnWidths;
 import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import javafx.scene.paint.Color;
+import network.ike.komet.claude.decision.DecisionTreeFeedback;
 import jfx.incubator.scene.control.richtext.model.RichParagraph;
 import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
 import jfx.incubator.scene.control.richtext.model.StyledTextModel;
@@ -57,6 +58,8 @@ public final class MarkdownRichText {
         USER("You", Color.web("#1a56db")),
         ASSISTANT("Komet Assistant", Color.web("#b15c00")),
         ERROR("Error", Color.web("#b00020")),
+        /** Komet itself speaking in a conversation: what it read in a block, sent back for correction. */
+        KOMET("Komet", Color.web("#4a6b2a")),
         /** A document that is no one's turn — a page rendered from a store — with no role label at all. */
         DOCUMENT("", Color.BLACK);
 
@@ -102,6 +105,9 @@ public final class MarkdownRichText {
          * renders in the prompt as it does in a reply.
          */
         public static Entry user(String content) {
+            if (DecisionTreeFeedback.isFeedback(content)) {
+                return new Entry(Role.KOMET, content, true);
+            }
             return new Entry(Role.USER, content, fenced(content));
         }
 

@@ -94,10 +94,40 @@ public final class DecisionTreeText {
     /** The block's language tag, and the profile's name under the property-graph block. */
     public static final String TAG = "decision-tree";
 
+    /** The default price of a year of healthy life, in the tree's money semantic. */
+    public static final double DEFAULT_HEALTH_PRICE = 100_000;
+
+    private static final String HEALTH_PRICE = "health-price";
     private static final String INDENT = "  ";
     private static final String DELIMITER = "----";
 
     private DecisionTreeText() {
+    }
+
+    /**
+     * Whether a fence's info string names this profile: tagged {@code decision-tree}, or
+     * {@code property-graph} with {@code profile=decision-tree}.
+     */
+    public static boolean isTagged(String info) {
+        String tag = info == null ? "" : Tokens.words(info).stream().findFirst().orElse("");
+        return TAG.equals(tag) || ("property-graph".equals(tag) && info.contains("profile=" + TAG));
+    }
+
+    /** The health price a fence's info string sets, {@code health-price=<number>}, when it does. */
+    public static Optional<Double> healthPrice(String info) {
+        if (info == null) {
+            return Optional.empty();
+        }
+        for (String word : Tokens.words(info)) {
+            if (word.startsWith(HEALTH_PRICE + "=")) {
+                try {
+                    return Optional.of(Double.parseDouble(word.substring(HEALTH_PRICE.length() + 1).replace(",", "")));
+                } catch (NumberFormatException e) {
+                    return Optional.empty();
+                }
+            }
+        }
+        return Optional.empty();
     }
 
     /** What a parse produced: the tree, when there was a root to build from, and every finding. */

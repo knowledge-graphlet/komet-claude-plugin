@@ -93,6 +93,11 @@ import java.util.OptionalLong;
 import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.anthropic.AskListener;
+import network.ike.komet.claude.block.BlockIdentities;
+import network.ike.komet.claude.block.Identities;
+import network.ike.komet.claude.decision.DecisionTerms;
+import network.ike.komet.claude.decision.DecisionTreeFeedback;
+import network.ike.komet.claude.decision.ViewIdentities;
 import javafx.util.Duration;
 import network.ike.komet.claude.doc.BlockFactory;
 import network.ike.komet.claude.doc.DocumentSurface;
@@ -2015,58 +2020,75 @@ public final class ClaudeCard extends AbstractHostCard {
         };
 
         conv.task = worker.submit(() -> {
-            String reply = null;
+            // An exchange may take correcting turns (dev-decision-tree-blocks): a reply whose
+            // decision-tree block Komet cannot read clean, or roll back at every node, goes back to
+            // the assistant with the findings, as a compiler's errors go back to a programmer, and
+            // the next reply follows the draft in the transcript. Each turn is committed as it lands,
+            // so a correction that fails leaves the draft standing.
+            List<Map<String, Object>> context = new ArrayList<>(history);
+            String message = text;
+            String lastReply = null;
             String errorMessage = null;
-            try {
-                reply = client.ask(systemPrompt, tools, history, text, listener);
-                // Chronology persistence (#807), write-after-success and off the FX thread: the
-                // completed exchange becomes two prose elements + one new manifest version
-                // (appendExchange bootstraps the vocabulary itself). A store failure degrades to
-                // JSON-only — the conversation itself must never be lost to it.
+            int rounds = 0;
+            while (true) {
+                String reply;
                 try {
-                    conv.journalAnchor =
-                            journalStore.appendExchange(conv.journalAnchor, conv.name, text, reply);
-                } catch (Throwable je) {
-                    LOG.warn("Journal write failed; conversation persists as JSON only", je);
-                    // Said once per conversation through Komet's alert stream: the exchange is safe in
-                    // the conversation's own file, but the knowledge base has no record of it.
-                    if (!conv.journalFailureAlerted) {
-                        conv.journalFailureAlerted = true;
-                        AlertStreams.getRoot().dispatch(AlertObject.makeError(
-                                "Conversation not recorded in the knowledge base",
-                                "The exchange in “" + conv.name + "” is kept in the conversation's own file, but "
-                                        + "writing its journal into the knowledge base failed: "
-                                        + (je.getMessage() != null ? je.getMessage() : je.getClass().getSimpleName())
-                                        + ". Later exchanges are tried again; this is said once per conversation.",
-                                je));
+                    reply = client.ask(systemPrompt, tools, context, message, listener);
+                } catch (Throwable t) {
+                    // Catch Throwable: a non-runtime failure (e.g. class-init / ServiceConfigurationError)
+                    // must still settle the status strip, not wedge the conversation busy.
+                    LOG.error("Claude request failed", t);
+                    Throwable root = t;
+                    while (root.getCause() != null) {
+                        root = root.getCause();
                     }
+                    String msg = t.getMessage() != null ? t.getMessage() : t.toString();
+                    errorMessage = (root != t && root.getMessage() != null)
+                            ? msg + " (" + root.getMessage() + ")" : msg;
+                    break;
                 }
-            } catch (Throwable t) {
-                // Catch Throwable: a non-runtime failure (e.g. class-init / ServiceConfigurationError)
-                // must still settle the status strip, not wedge the conversation busy.
-                LOG.error("Claude request failed", t);
-                Throwable root = t;
-                while (root.getCause() != null) {
-                    root = root.getCause();
+                lastReply = reply;
+                journalExchange(conv, message, reply);
+                context.add(Map.of("role", "user", "content", message));
+                context.add(Map.of("role", "assistant", "content", reply));
+                boolean correcting = rounds > 0;
+                String sent = message;
+                Platform.runLater(() -> {
+                    // The conversation may have been deleted while in flight — do not render or
+                    // persist it (a save here would resurrect the deleted file on disk).
+                    if (!conversations.contains(conv)) {
+                        return;
+                    }
+                    if (correcting) {
+                        renderFeedback(conv, sent);
+                    }
+                    renderAssistant(conv, reply);
+                    conv.apiMessages.add(Map.of("role", "user", "content", sent));
+                    conv.apiMessages.add(Map.of("role", "assistant", "content", reply));
+                    saveConversation(conv);
+                });
+                Optional<String> feedback = rounds < DecisionTreeFeedback.MAX_ROUNDS
+                        ? decisionTreeFeedback(reply) : Optional.empty();
+                if (feedback.isEmpty()) {
+                    break;
                 }
-                String msg = t.getMessage() != null ? t.getMessage() : t.toString();
-                errorMessage = (root != t && root.getMessage() != null)
-                        ? msg + " (" + root.getMessage() + ")" : msg;
+                setActivity(conv, "Correcting the decision tree…");
+                message = feedback.get();
+                rounds++;
             }
-            String finalReply = reply;
+            String finalReply = lastReply;
             String finalError = errorMessage;
+            int corrections = rounds;
             long elapsedMillis = (System.nanoTime() - conv.startNanos) / 1_000_000L;
             Platform.runLater(() -> {
                 conv.busy = false;
                 conv.activity = null;
                 conv.task = null;
-                // The conversation may have been deleted while in flight — do not render or persist it
-                // (a save here would resurrect the deleted file on disk).
                 if (!conversations.contains(conv)) {
                     stopStatusTimerIfIdle();
                     return;
                 }
-                if (finalError != null) {
+                if (finalError != null && finalReply == null) {
                     // A failed turn is not part of the conversation: pop the optimistic user bubble so the
                     // transcript stays equal to the committed (and persisted) history. Hold it for Retry.
                     truncateEntries(conv, entryMark, markdownMark);
@@ -2077,11 +2099,19 @@ public final class ClaudeCard extends AbstractHostCard {
                     conv.outcomeFailed = true;
                     conv.pendingRetryText = text;
                 } else {
-                    renderAssistant(conv, finalReply);
-                    conv.apiMessages.add(Map.of("role", "user", "content", text));
-                    conv.apiMessages.add(Map.of("role", "assistant", "content", finalReply));
-                    saveConversation(conv);
-                    conv.outcome = "✓ Replied in " + formatElapsed(elapsedMillis);
+                    if (finalError != null) {
+                        // A correcting turn failed or was stopped: the draft it would have replaced stands,
+                        // with Komet's findings beneath its tree, and nothing is held for Retry.
+                        conv.outcomeStopped = conv.stopRequested;
+                        conv.outcome = conv.outcomeStopped
+                                ? "■ Stopped; the first reply stands"
+                                : "✓ Replied in " + formatElapsed(elapsedMillis) + "; the correction failed: " + finalError;
+                    } else {
+                        conv.outcomeStopped = false;
+                        conv.outcome = "✓ Replied in " + formatElapsed(elapsedMillis)
+                                + (corrections == 0 ? "" : corrections == 1 ? ", corrected once" : ", corrected twice");
+                    }
+                    conv.stopRequested = false;
                     conv.outcomeFailed = false;
                     conv.pendingRetryText = null;
                     requestExchangeTitle(conv, text, finalReply, key, model);
@@ -2098,6 +2128,53 @@ public final class ClaudeCard extends AbstractHostCard {
     }
 
     /**
+     * Records one completed exchange in the conversation's journal (#807), write-after-success and
+     * off the FX thread: two prose elements and one new manifest version (appendExchange bootstraps
+     * the vocabulary itself). A store failure degrades to JSON-only — the conversation itself must
+     * never be lost to it — and is said once per conversation through Komet's alert stream.
+     */
+    private void journalExchange(Conversation conv, String question, String reply) {
+        try {
+            conv.journalAnchor = journalStore.appendExchange(conv.journalAnchor, conv.name, question, reply);
+        } catch (Throwable je) {
+            LOG.warn("Journal write failed; conversation persists as JSON only", je);
+            if (!conv.journalFailureAlerted) {
+                conv.journalFailureAlerted = true;
+                AlertStreams.getRoot().dispatch(AlertObject.makeError(
+                        "Conversation not recorded in the knowledge base",
+                        "The exchange in “" + conv.name + "” is kept in the conversation's own file, but "
+                                + "writing its journal into the knowledge base failed: "
+                                + (je.getMessage() != null ? je.getMessage() : je.getClass().getSimpleName())
+                                + ". Later exchanges are tried again; this is said once per conversation.",
+                        je));
+            }
+        }
+    }
+
+    /**
+     * Komet's findings on the decision-tree blocks of a reply, as the message that asks the assistant
+     * to correct them; empty when the reply has no such block, every block reads clean and rolls back
+     * at every node, or the card has no view to read identities by. Worker thread; a failure of the
+     * reader itself is logged and never fails the reply.
+     */
+    private Optional<String> decisionTreeFeedback(String reply) {
+        if (reply == null || DecisionTreeFeedback.blocks(reply).isEmpty()) {
+            return Optional.empty();
+        }
+        ViewProperties vp = safeViewProperties();
+        if (vp == null) {
+            return Optional.empty();
+        }
+        try {
+            Identities ids = new BlockIdentities(new ViewIdentities(vp.calculator()));
+            return DecisionTreeFeedback.message(reply, DecisionTerms.fromBindings(), ids);
+        } catch (RuntimeException e) {
+            LOG.warn("Could not read the reply's decision tree for feedback", e);
+            return Optional.empty();
+        }
+    }
+
+    /**
      * Asks for a short generated title naming the completed exchange (KEC
      * design: numbered named turns) — a one-shot, tool-free call off the
      * FX thread. The title is transcript content: it persists in the
@@ -2107,7 +2184,8 @@ public final class ClaudeCard extends AbstractHostCard {
     private void requestExchangeTitle(Conversation conv, String question,
                                       String answer, String key, String model) {
         long userTurns = conv.apiMessages.stream()
-                .filter(m -> "user".equals(String.valueOf(m.get("role")))).count();
+                .filter(m -> "user".equals(String.valueOf(m.get("role"))))
+                .filter(m -> !DecisionTreeFeedback.isFeedback(String.valueOf(m.get("content")))).count();
         int ordinal = (int) userTurns - 1;
         requestExchangeTitleFor(conv, ordinal, question, answer, key, model);
     }
@@ -2292,6 +2370,9 @@ public final class ClaudeCard extends AbstractHostCard {
         for (Map<String, Object> message : List.copyOf(conv.apiMessages)) {
             String content = String.valueOf(message.get("content"));
             if ("user".equals(String.valueOf(message.get("role")))) {
+                if (DecisionTreeFeedback.isFeedback(content)) {
+                    continue;   // Komet's own turn: part of the exchange it corrects, not a new one
+                }
                 ordinal++;
                 question = content;
             } else if (question != null
@@ -3062,6 +3143,18 @@ public final class ClaudeCard extends AbstractHostCard {
         if (conv == active) {
             surface.appendTurn(entry);
             surface.scrollToTurn(conv.turnStartTurn);
+            refreshMatchesIfFinding();
+            refreshPreviewIfOpen();
+        }
+    }
+
+    /** Komet's findings on the assistant's block, sent back for correction: a turn of Komet's own. */
+    private void renderFeedback(Conversation conv, String text) {
+        MarkdownRichText.Entry entry = MarkdownRichText.Entry.user(text);
+        conv.entries.add(entry);
+        conv.markdown.append("**Komet:** ").append(text).append("\n\n");
+        if (conv == active) {
+            surface.appendTurn(entry);
             refreshMatchesIfFinding();
             refreshPreviewIfOpen();
         }

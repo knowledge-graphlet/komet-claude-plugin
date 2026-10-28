@@ -16,6 +16,7 @@
 package network.ike.komet.claude.ui;
 
 import network.ike.komet.claude.decision.Bounds;
+import network.ike.komet.claude.decision.DecisionTreeText;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -63,10 +64,10 @@ class DecisionTreeBlockRendererTest {
     @Test
     @DisplayName("The block's info may set the health price; otherwise the default stands")
     void readsTheHealthPrice() {
-        assertEquals(Optional.of(50_000.0), DecisionTreeBlockRenderer.healthPrice("decision-tree health-price=50000"));
-        assertEquals(Optional.of(150_000.0), DecisionTreeBlockRenderer.healthPrice("decision-tree health-price=150,000"));
-        assertEquals(Optional.empty(), DecisionTreeBlockRenderer.healthPrice("decision-tree"));
-        assertEquals(Optional.empty(), DecisionTreeBlockRenderer.healthPrice("decision-tree health-price=lots"));
-        assertEquals(100_000, DecisionTreeBlockRenderer.DEFAULT_HEALTH_PRICE);
+        assertEquals(Optional.of(50_000.0), DecisionTreeText.healthPrice("decision-tree health-price=50000"));
+        assertEquals(Optional.of(150_000.0), DecisionTreeText.healthPrice("decision-tree health-price=150,000"));
+        assertEquals(Optional.empty(), DecisionTreeText.healthPrice("decision-tree"));
+        assertEquals(Optional.empty(), DecisionTreeText.healthPrice("decision-tree health-price=lots"));
+        assertEquals(100_000, DecisionTreeText.DEFAULT_HEALTH_PRICE);
     }
 }

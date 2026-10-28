@@ -56,6 +56,7 @@ import network.ike.komet.claude.decision.DecisionElement.Parameter;
 import network.ike.komet.claude.decision.Derivations;
 import network.ike.komet.claude.decision.DecisionTerms;
 import network.ike.komet.claude.decision.DecisionTree;
+import network.ike.komet.claude.decision.DecisionTreeFeedback;
 import network.ike.komet.claude.decision.DecisionTreeText;
 import network.ike.komet.claude.decision.Measure;
 import network.ike.komet.claude.decision.Rollback;
@@ -90,10 +91,6 @@ import java.util.OptionalLong;
  */
 final class DecisionTreeBlockRenderer implements BlockRenderer {
 
-    /** The default price of a year of healthy life, in the tree's money semantic. */
-    static final double DEFAULT_HEALTH_PRICE = 100_000;
-
-    private static final String HEALTH_PRICE = "health-price";
     private static final double INDENT_PER_LEVEL = 16;
 
     private final ViewCalculator viewCalc;
@@ -127,7 +124,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             return List.of();
         }
         String body = literal == null ? "" : literal;
-        double price = healthPrice(info).orElse(DEFAULT_HEALTH_PRICE);
+        double price = DecisionTreeText.healthPrice(info).orElse(DecisionTreeText.DEFAULT_HEALTH_PRICE);
         return List.of(new BlockPiece(() -> buildView(body, price), body.stripTrailing()));
     }
 
@@ -138,33 +135,13 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
      * with {@code profile=decision-tree}, and opening with a root decision line.
      */
     static boolean accepts(String info, String literal) {
-        String tag = KonceptTreeBlockRenderer.firstWord(info);
-        boolean tagged = DecisionTreeText.TAG.equals(tag)
-                || ("property-graph".equals(tag) && info != null && info.contains("profile=" + DecisionTreeText.TAG));
-        if (!tagged) {
+        if (!DecisionTreeText.isTagged(info)) {
             return false;
         }
         BlockLines.Parsed lines = BlockLines.parse(literal);
         return lines.roots().size() == 1
                 && lines.roots().get(0).form() == BlockLines.Form.VERTEX
                 && "decision".equals(lines.roots().get(0).word());
-    }
-
-    /** The health price the block's info sets, when it does. */
-    static Optional<Double> healthPrice(String info) {
-        if (info == null) {
-            return Optional.empty();
-        }
-        for (String word : Tokens.words(info)) {
-            if (word.startsWith(HEALTH_PRICE + "=")) {
-                try {
-                    return Optional.of(Double.parseDouble(word.substring(HEALTH_PRICE.length() + 1).replace(",", "")));
-                } catch (NumberFormatException e) {
-                    return Optional.empty();
-                }
-            }
-        }
-        return Optional.empty();
     }
 
     // ── View building (JavaFX application thread) ───────────────────────
@@ -188,7 +165,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         column.setCursor(Cursor.DEFAULT);
         column.setFillWidth(false);
 
-        Live live = new Live(tree, terms, findings);
+        Live live = new Live(tree, terms, ids, findings);
         column.getChildren().add(header(tree, live, price));
         Derivations derivations = Derivations.of(tree);
         for (Parameter parameter : tree.nodesOfType(Parameter.class)) {
@@ -404,13 +381,15 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
     private static final class Live {
         final DecisionTree tree;
         final DecisionTerms terms;
+        final Identities ids;
         final List<ProfileFinding> staticFindings;
         final Map<Integer, Label> values = new HashMap<>();
         Label gaps;
 
-        Live(DecisionTree tree, DecisionTerms terms, List<ProfileFinding> staticFindings) {
+        Live(DecisionTree tree, DecisionTerms terms, Identities ids, List<ProfileFinding> staticFindings) {
             this.tree = tree;
             this.terms = terms;
+            this.ids = ids;
             this.staticFindings = staticFindings;
         }
 
@@ -428,8 +407,9 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                 label.setText(text);
             });
             List<String> messages = new ArrayList<>();
-            staticFindings.forEach(finding -> messages.add(finding.toString()));
-            rollback.findings().forEach(finding -> messages.add(finding.toString()));
+            // Named by the node they are on, as the feedback to the assistant names them, not by vertex index.
+            staticFindings.forEach(finding -> messages.add(DecisionTreeFeedback.describe(tree, ids, finding)));
+            rollback.findings().forEach(finding -> messages.add(DecisionTreeFeedback.describe(tree, ids, finding)));
             gaps.setText(messages.isEmpty() ? "" : String.join("\n", messages));
             gaps.setVisible(!messages.isEmpty());
             gaps.setManaged(!messages.isEmpty());

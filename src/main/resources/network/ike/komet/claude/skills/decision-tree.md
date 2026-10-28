@@ -54,3 +54,5 @@ Inside this block a concept is always `k:Key[label] @id=<identity>`: a short Cam
 ## Answering
 
 Put the block first, then two or three sentences: which concepts are local, and which assumptions the comparison is most sensitive to. **Do not compute, estimate or quote expected values, totals or the favoured alternative**: Komet rolls the tree back and shows every node's value and the chosen alternative beside it, and a number you work out in prose will disagree with the rendered one. If the person gives numbers, state them as parameters with `basis=cited` or `basis=estimated` as they told you; if they give none, say which you assumed and mark them `basis=estimated`.
+
+When Komet reads your block and sends its findings back, restate your whole answer with the block corrected: change only what the findings name, keep every identity and every number the person gave, and do not explain the correction. A node Komet reports as not determinable lacks a value it can fold: give it the cost line, probability or parameter the finding names.
