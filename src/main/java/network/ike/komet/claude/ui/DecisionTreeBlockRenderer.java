@@ -47,6 +47,8 @@ import network.ike.komet.claude.decision.DecisionElement.Event;
 import network.ike.komet.claude.decision.DecisionElement.HealthCost;
 import network.ike.komet.claude.decision.DecisionElement.MoneyCost;
 import network.ike.komet.claude.decision.DecisionElement.Outcome;
+import network.ike.komet.claude.decision.DecisionElement.Parameter;
+import network.ike.komet.claude.decision.Derivations;
 import network.ike.komet.claude.decision.DecisionTerms;
 import network.ike.komet.claude.decision.DecisionTree;
 import network.ike.komet.claude.decision.DecisionTreeText;
@@ -178,9 +180,13 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
 
         Live live = new Live(tree, terms, findings);
         column.getChildren().add(header(tree, live, price));
+        Derivations derivations = Derivations.of(tree);
+        for (Parameter parameter : tree.nodesOfType(Parameter.class)) {
+            column.getChildren().add(parameterRow(tree, derivations, parameter));
+        }
         Optional<DecisionElement> root = tree.root();
         if (root.isPresent() && root.get() instanceof DecisionElement.Node node) {
-            rows(column, tree, node, 0, live);
+            rows(column, tree, derivations, node, 0, live);
         }
         Label gaps = new Label();
         gaps.setFont(Font.font(base * 0.9));
@@ -239,8 +245,28 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         return header;
     }
 
+    /** A parameter of the method: its quantity, its value, stated or derived, and where it rests. */
+    private HBox parameterRow(DecisionTree tree, Derivations derivations, Parameter parameter) {
+        HBox row = new HBox(6);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.setPadding(new Insets(0, 0, 0, INDENT_PER_LEVEL));
+        Label glyph = new Label("≔");
+        glyph.setFont(Font.font(base));
+        glyph.setMinWidth(base * 1.2);
+        row.getChildren().add(glyph);
+        row.getChildren().add(concept(parameter.quantity()).orElseGet(() -> plain("parameter")));
+        Measure measure = parameter.measure();
+        String value = derivations.bounds(parameter.vertexIndex()).map(Bounds::toString).orElse("not determinable");
+        Label text = new Label(measure.derived() ? "derived: " + value : value);
+        text.setFont(Font.font(base * 0.9));
+        text.setStyle("-fx-text-fill: #555;");
+        row.getChildren().add(text);
+        return row;
+    }
+
     /** One row per node, depth first, with its measures in the row and its value at the end. */
-    private void rows(VBox column, DecisionTree tree, DecisionElement.Node node, int depth, Live live) {
+    private void rows(VBox column, DecisionTree tree, Derivations derivations, DecisionElement.Node node, int depth,
+                      Live live) {
         HBox row = new HBox(6);
         row.setAlignment(Pos.CENTER_LEFT);
         row.setPadding(new Insets(0, 0, 0, depth * INDENT_PER_LEVEL));
@@ -252,7 +278,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
 
         row.getChildren().add(concept(node.concept()).orElseGet(() -> plain(word(node))));
 
-        String measures = measures(tree, node);
+        String measures = measures(tree, derivations, node);
         if (!measures.isEmpty()) {
             Label text = new Label(measures);
             text.setFont(Font.font(base * 0.9));
@@ -267,7 +293,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
 
         column.getChildren().add(row);
         for (DecisionElement.Node child : tree.children(node.vertexIndex(), DecisionElement.Node.class)) {
-            rows(column, tree, child, depth + 1, live);
+            rows(column, tree, derivations, child, depth + 1, live);
         }
     }
 
@@ -295,21 +321,24 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         return label;
     }
 
-    /** The measures a node carries, as text: its probability, then its costs. */
-    private static String measures(DecisionTree tree, DecisionElement.Node node) {
+    /** The measures a node carries, as text: its probability, then its costs, derived ones computed. */
+    private static String measures(DecisionTree tree, Derivations derivations, DecisionElement.Node node) {
         List<String> parts = new ArrayList<>();
         if (node instanceof Event event) {
             event.probability().ifPresentOrElse(
-                    probability -> parts.add("p " + probability.measure().bounds()),
+                    probability -> parts.add("p " + shown(derivations, probability.vertexIndex())),
                     () -> parts.add(event.residual() ? "residual" : "p ?"));
         }
         for (DecisionElement child : tree.children(node.vertexIndex())) {
             if (child instanceof Cost cost) {
-                Measure measure = cost.measure();
-                parts.add((cost instanceof MoneyCost ? "money " : "health ") + measure.bounds());
+                parts.add((cost instanceof MoneyCost ? "money " : "health ") + shown(derivations, cost.vertexIndex()));
             }
         }
         return String.join(" · ", parts);
+    }
+
+    private static String shown(Derivations derivations, int vertexIndex) {
+        return derivations.bounds(vertexIndex).map(Bounds::toString).orElse("?");
     }
 
     private static String glyph(DecisionElement.Node node) {

@@ -20,6 +20,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -96,6 +97,119 @@ class ScanTreeRollbackTest {
     private static void untreatedReopening(DecisionTree.Builder.Handle leaf) {
         leaf.money(Bounds.point(RUPTURE_RISK_20 * RUPTURE_MONEY), USD)
                 .health(Bounds.point(RUPTURE_RISK_20 * RUPTURE_QALY), QALY);
+    }
+
+    // The quantities of the model, as concepts, for the tree stated from its assumptions.
+    static final long Q_REOPENING = 101, Q_SENSITIVITY = 102, Q_SPECIFICITY = 103, Q_FALSE_NEGATIVE = 104,
+            Q_FALSE_POSITIVE = 105, Q_HAZARD = 106, Q_YEARS = 107, Q_RISK_20 = 108, Q_RUPTURE_MONEY = 109,
+            Q_RUPTURE_QALY = 110, Q_REMOVES = 111, Q_REMAINS = 112;
+
+    /**
+     * Builds the scan tree from the model assumptions alone: every probability and every leaf
+     * cost is derived from the parameters under the root by the derivation kinds, so the
+     * assumptions are stated once and the worked numbers follow.
+     */
+    static DecisionTree assumedScanTree(Bounds reopening) {
+        DecisionTree.Builder b = DecisionTree.builder(T);
+        DecisionTree.Builder.Handle scanNow = b.decision(1);
+        scanNow.parameter(Q_REOPENING, reopening, T.shareAtNode(), UUID.randomUUID());
+        scanNow.parameter(Q_SENSITIVITY, Bounds.point(SENSITIVITY), T.shareAtNode(), UUID.randomUUID());
+        scanNow.parameter(Q_SPECIFICITY, Bounds.point(SPECIFICITY), T.shareAtNode(), UUID.randomUUID());
+        scanNow.derivedParameter(Q_FALSE_NEGATIVE, T.complement(), new long[] {Q_SENSITIVITY}, T.shareAtNode(), UUID.randomUUID());
+        scanNow.derivedParameter(Q_FALSE_POSITIVE, T.complement(), new long[] {Q_SPECIFICITY}, T.shareAtNode(), UUID.randomUUID());
+        scanNow.parameter(Q_HAZARD, Bounds.point(0.01), T.shareAtNode(), UUID.randomUUID());
+        scanNow.parameter(Q_YEARS, Bounds.point(20), T.shareAtNode(), UUID.randomUUID());
+        scanNow.derivedParameter(Q_RISK_20, T.cumulativeHazard(), new long[] {Q_HAZARD, Q_YEARS}, T.shareAtNode(), UUID.randomUUID());
+        scanNow.parameter(Q_RUPTURE_MONEY, Bounds.point(RUPTURE_MONEY), USD, UUID.randomUUID());
+        scanNow.parameter(Q_RUPTURE_QALY, Bounds.point(RUPTURE_QALY), QALY, UUID.randomUUID());
+        scanNow.parameter(Q_REMOVES, Bounds.point(RETREAT_REMOVES), T.shareAtNode(), UUID.randomUUID());
+        scanNow.derivedParameter(Q_REMAINS, T.complement(), new long[] {Q_REMOVES}, T.shareAtNode(), UUID.randomUUID());
+
+        long[] positive = {Q_REOPENING, Q_SENSITIVITY, Q_FALSE_POSITIVE};
+        long[] negative = {Q_REOPENING, Q_FALSE_NEGATIVE, Q_SPECIFICITY};
+
+        DecisionTree.Builder.Handle scan = scanNow.alternative(2)
+                .money(Bounds.point(700), USD).health(Bounds.point(0.002), QALY);
+        DecisionTree.Builder.Handle mra = scan.chance(3);
+        DecisionTree.Builder.Handle positiveScan = mra.event(4)
+                .money(Bounds.point(5_000), USD).health(Bounds.point(0.01), QALY);
+        positiveScan.derived(T.probabilityMeasure(), T.bayesMarginal(), positive, T.shareAtNode(), UUID.randomUUID());
+        DecisionTree.Builder.Handle angiogram = positiveScan.chance(5);
+        DecisionTree.Builder.Handle confirmed = angiogram.event(6);
+        confirmed.derived(T.probabilityMeasure(), T.bayesPosterior(), positive, T.shareAtNode(), UUID.randomUUID());
+        DecisionTree.Builder.Handle retreatDecision = confirmed.decision(7);
+        DecisionTree.Builder.Handle retreated = retreatDecision.alternative(8)
+                .money(Bounds.point(35_000), USD).health(Bounds.point(0.15), QALY).outcome(9);
+        retreated.derived(T.moneyCostMeasure(), T.product(), new long[] {Q_REMAINS, Q_RISK_20, Q_RUPTURE_MONEY}, USD, UUID.randomUUID());
+        retreated.derived(T.healthCostMeasure(), T.product(), new long[] {Q_REMAINS, Q_RISK_20, Q_RUPTURE_QALY}, QALY, UUID.randomUUID());
+        untreatedDerived(retreatDecision.alternative(10).outcome(11));
+        angiogram.residualEvent(12).outcome(13);
+        DecisionTree.Builder.Handle negativeScan = mra.residualEvent(14);
+        DecisionTree.Builder.Handle missedChance = negativeScan.chance(15);
+        DecisionTree.Builder.Handle missed = missedChance.event(16);
+        missed.derived(T.probabilityMeasure(), T.bayesPosterior(), negative, T.shareAtNode(), UUID.randomUUID());
+        untreatedDerived(missed.outcome(17));
+        missedChance.residualEvent(18).outcome(19);
+
+        DecisionTree.Builder.Handle noScan = scanNow.alternative(20).money(Bounds.point(0), USD);
+        DecisionTree.Builder.Handle present = noScan.chance(21);
+        DecisionTree.Builder.Handle reopeningEvent = present.event(22).probability(reopening);
+        untreatedDerived(reopeningEvent.outcome(23));
+        present.residualEvent(24).outcome(25);
+        return b.tree();
+    }
+
+    private static void untreatedDerived(DecisionTree.Builder.Handle leaf) {
+        leaf.derived(T.moneyCostMeasure(), T.product(), new long[] {Q_RISK_20, Q_RUPTURE_MONEY}, USD, UUID.randomUUID());
+        leaf.derived(T.healthCostMeasure(), T.product(), new long[] {Q_RISK_20, Q_RUPTURE_QALY}, QALY, UUID.randomUUID());
+    }
+
+    @Test
+    @DisplayName("Stated from its assumptions alone, the tree derives the worked probabilities and lands on the same numbers")
+    void assumptionsDeriveTheWorkedNumbers() {
+        DecisionTree tree = assumedScanTree(Bounds.point(REOPENING));
+        assertEquals(0, tree.check().size(), () -> "findings: " + tree.check());
+        Rollback rollback = Rollback.of(tree, at(100_000));
+
+        assertTrue(rollback.determinable(), () -> "findings: " + rollback.findings());
+        Derivations derivations = rollback.derivations();
+        assertEquals(1 - Math.pow(0.99, 20), derivations.quantity(Q_RISK_20).orElseThrow().lower(), 1e-12,
+                "the twenty-year risk from the yearly hazard");
+        assertEquals(3_880, rollback.value(alternative(tree, 0).vertexIndex()).orElseThrow().lower(), 1.0);
+        assertEquals(4_188, rollback.value(alternative(tree, 1).vertexIndex()).orElseThrow().lower(), 1.0);
+        DecisionElement.Event positive = tree.nodesOfType(DecisionElement.Chance.class).get(0).events().get(0);
+        assertEquals(0.214, derivations.bounds(positive.probability().orElseThrow().vertexIndex()).orElseThrow().lower(), 1e-9,
+                "the share of scans positive, by Bayes marginal");
+    }
+
+    @Test
+    @DisplayName("A bounded assumption flows through the derivations as bounds")
+    void boundedAssumptionsDeriveBounds() {
+        DecisionTree tree = assumedScanTree(Bounds.of(0.01, 0.04));
+        Rollback rollback = Rollback.of(tree, at(100_000));
+
+        assertTrue(rollback.determinable(), () -> "findings: " + rollback.findings());
+        Bounds root = rollback.rootValue().orElseThrow();
+        assertFalse(root.isPoint(), "the root is bounded");
+        assertTrue(root.lower() < 3_880 && root.upper() > 3_880, "and the point value lies within: " + root);
+    }
+
+    @Test
+    @DisplayName("A derivation with the wrong number of operands, or reading a missing quantity, is not determinable")
+    void badDerivationsAreFindings() {
+        DecisionTree.Builder b = DecisionTree.builder(T);
+        DecisionTree.Builder.Handle root = b.decision(1);
+        root.parameter(Q_HAZARD, Bounds.point(0.01), T.shareAtNode(), UUID.randomUUID());
+        DecisionTree.Builder.Handle leaf = root.alternative(2).outcome(3);
+        leaf.derived(T.moneyCostMeasure(), T.cumulativeHazard(), new long[] {Q_HAZARD}, USD, UUID.randomUUID());
+        root.alternative(4).outcome(5).derived(T.moneyCostMeasure(), T.product(), new long[] {Q_HAZARD, 999}, USD, UUID.randomUUID());
+        Rollback rollback = Rollback.of(b.tree(), at(100_000));
+
+        assertFalse(rollback.determinable());
+        assertTrue(rollback.findings().anySatisfy(f -> f.message().contains("cumulative hazard reads 2 operands")),
+                () -> "findings: " + rollback.findings());
+        assertTrue(rollback.findings().anySatisfy(f -> f.message().contains("no parameter for")),
+                () -> "findings: " + rollback.findings());
     }
 
     private static DecisionElement.Alternative alternative(DecisionTree tree, int which) {

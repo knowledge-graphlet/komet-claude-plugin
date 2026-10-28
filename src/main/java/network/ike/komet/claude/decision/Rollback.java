@@ -59,10 +59,17 @@ public final class Rollback {
     private final MutableIntObjectMap<Bounds> values = IntObjectMaps.mutable.empty();
     private final MutableIntIntMap chosen = IntIntMaps.mutable.empty();
     private final MutableList<ProfileFinding> findings = Lists.mutable.empty();
+    private final Derivations derivations;
 
     private Rollback(DecisionTree tree, ValuationCoordinate coordinate) {
         this.tree = tree;
         this.coordinate = coordinate;
+        this.derivations = Derivations.of(tree);
+    }
+
+    /** The derived measures the rollback read, with their findings. */
+    public Derivations derivations() {
+        return derivations;
     }
 
     /** Rolls a tree back under a coordinate. */
@@ -100,9 +107,9 @@ public final class Rollback {
         return chosen.containsKey(decisionIndex) ? OptionalInt.of(chosen.get(decisionIndex)) : OptionalInt.empty();
     }
 
-    /** Why a node is not determinable, or what the rollback had to leave open. */
+    /** Why a node is not determinable, or what the rollback had to leave open, the derivations' findings included. */
     public ImmutableList<ProfileFinding> findings() {
-        return findings.toImmutable();
+        return findings.toImmutable().newWithAll(derivations.findings());
     }
 
     /** Whether the root has a value. */
@@ -201,8 +208,12 @@ public final class Rollback {
             if (measure.semanticNid() != tree.terms().shareAtNode()) {
                 return notDeterminable(event.vertexIndex(), "a probability is not on the Share at node semantic");
             }
-            probabilities.add(measure.bounds());
-            others = others.plus(measure.bounds());
+            Optional<Bounds> share = derivations.bounds(event.probability().get().vertexIndex());
+            if (share.isEmpty()) {
+                return notDeterminable(event.vertexIndex(), "a probability is not determinable");
+            }
+            probabilities.add(share.get());
+            others = others.plus(share.get());
         }
         if (residual != null) {
             Bounds remainder = others.complement().clip(0, 1);
@@ -227,8 +238,9 @@ public final class Rollback {
         Bounds total = Bounds.point(0);
         for (Cost cost : costs) {
             Measure measure = cost.measure();
-            if (Double.isNaN(measure.bounds().lower())) {
-                return notDeterminable(cost.vertexIndex(), "a cost has no bounds");
+            Optional<Bounds> bounds = derivations.bounds(cost.vertexIndex());
+            if (bounds.isEmpty()) {
+                return notDeterminable(cost.vertexIndex(), "a cost is not determinable");
             }
             switch (cost) {
                 case MoneyCost money -> {
@@ -236,14 +248,14 @@ public final class Rollback {
                         return notDeterminable(cost.vertexIndex(),
                                 "a money cost is not on the coordinate's money semantic");
                     }
-                    total = total.plus(measure.bounds());
+                    total = total.plus(bounds.get());
                 }
                 case HealthCost health -> {
                     if (measure.semanticNid() != coordinate.healthSemantic()) {
                         return notDeterminable(cost.vertexIndex(),
                                 "a health cost is not on the coordinate's health semantic");
                     }
-                    total = total.plus(measure.bounds().times(coordinate.healthPrice()));
+                    total = total.plus(bounds.get().times(coordinate.healthPrice()));
                 }
             }
         }

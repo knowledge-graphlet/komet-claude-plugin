@@ -31,6 +31,7 @@ import static network.ike.komet.claude.decision.ScanTreeRollbackTest.QALY;
 import static network.ike.komet.claude.decision.ScanTreeRollbackTest.REOPENING;
 import static network.ike.komet.claude.decision.ScanTreeRollbackTest.T;
 import static network.ike.komet.claude.decision.ScanTreeRollbackTest.USD;
+import static network.ike.komet.claude.decision.ScanTreeRollbackTest.assumedScanTree;
 import static network.ike.komet.claude.decision.ScanTreeRollbackTest.at;
 import static network.ike.komet.claude.decision.ScanTreeRollbackTest.scanTree;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -54,8 +55,16 @@ class DecisionTreeTextTest {
             for (long nid = 1; nid <= 25; nid++) {
                 add("c" + nid, nid);
             }
+            for (long nid = 101; nid <= 112; nid++) {
+                add("q" + nid, nid);
+            }
             add("usd-2026", USD);
             add("qaly", QALY);
+            add("kind-complement", T.complement());
+            add("kind-product", T.product());
+            add("kind-cumulative-hazard", T.cumulativeHazard());
+            add("kind-bayes-posterior", T.bayesPosterior());
+            add("kind-bayes-marginal", T.bayesMarginal());
         }
 
         private void add(String identifier, long nid) {
@@ -76,8 +85,28 @@ class DecisionTreeTextTest {
 
         @Override
         public String label(long nid) {
-            return nid == USD ? "US dollar at 2026 prices" : nid == QALY ? "Quality-adjusted life year"
-                    : "Concept " + nid;
+            if (nid == USD) {
+                return "US dollar at 2026 prices";
+            }
+            if (nid == QALY) {
+                return "Quality-adjusted life year";
+            }
+            if (nid == T.complement()) {
+                return "Complement";
+            }
+            if (nid == T.product()) {
+                return "Product";
+            }
+            if (nid == T.cumulativeHazard()) {
+                return "Cumulative hazard";
+            }
+            if (nid == T.bayesPosterior()) {
+                return "Bayes posterior";
+            }
+            if (nid == T.bayesMarginal()) {
+                return "Bayes marginal";
+            }
+            return (nid > 100 ? "Quantity " : "Concept ") + nid;
         }
     };
 
@@ -199,6 +228,55 @@ class DecisionTreeTextTest {
         assertFinding(parsed, "line 8", "not a vertex identity");
         assertFinding(parsed, "line 9", "unknown kind of vertex under decision: limb");
         assertFalse(parsed.tree().orElseThrow().check().isEmpty(), "the gaps show in the profile's checks too");
+    }
+
+    @Test
+    @DisplayName("A tree stated from its assumptions writes its parameters and derivations and reads back byte for byte")
+    void derivedTreeRoundTrips() {
+        DecisionTree original = assumedScanTree(Bounds.point(REOPENING));
+        String first = DecisionTreeText.toAdoc(original, IDS);
+
+        DecisionTreeText.Parsed parsed = DecisionTreeText.parse(first, T, IDS);
+
+        assertTrue(parsed.findings().isEmpty(), () -> "findings: " + parsed.findings() + "\n" + first);
+        DecisionTree read = parsed.tree().orElseThrow();
+        assertTrue(read.check().isEmpty(), () -> "check: " + read.check());
+        assertEquals(first, DecisionTreeText.toAdoc(read, IDS), "the second emission is the first");
+        assertTrue(first.contains("parameter = k:Quantity108[Quantity 108] @id=q108 from k:CumulativeHazard[Cumulative hazard] @id=kind-cumulative-hazard of k:Quantity106[Quantity 106] @id=q106 k:Quantity107[Quantity 107] @id=q107 @vertex="),
+                () -> first);
+        assertTrue(first.contains("money = from k:Product[Product] @id=kind-product of k:Quantity108[Quantity 108] @id=q108 k:Quantity109[Quantity 109] @id=q109 in k:USDollarAt2026Prices[US dollar at 2026 prices] @id=usd-2026 @vertex="),
+                () -> first);
+        Rollback rollback = Rollback.of(read, at(100_000));
+        assertEquals(3_880, rollback.value(read.decision().orElseThrow().alternatives().get(0).vertexIndex()).orElseThrow().lower(), 1.0);
+    }
+
+    @Test
+    @DisplayName("A hand-written block states its assumptions as parameters and derives from them")
+    void handWrittenDerivations() {
+        String block = """
+                decision: k:Repair[Repair now?] @id=c1
+                  parameter = [0.01,0.01] k:Hazard[Yearly failure hazard] @id=q106 basis=estimated
+                  parameter = [20,20] k:Years[Years at risk] @id=q107
+                  parameter = k:Risk[Twenty-year failure risk] @id=q108 from k:CumulativeHazard[] @id=kind-cumulative-hazard of k:Hazard[] @id=q106 k:Years[] @id=q107
+                  parameter = [150000,150000] k:FailureCost[Cost of a failure] @id=q109 in k:Usd[US dollar] @id=usd-2026
+                  alternative: k:Wait[wait] @id=c2
+                    outcome: k:Exposed[exposed] @id=c3
+                      money = from k:Product[] @id=kind-product of k:Risk[] @id=q108 k:FailureCost[] @id=q109 in k:Usd[US dollar] @id=usd-2026
+                  alternative: k:Fix[repair] @id=c4
+                    money = [20000,20000] k:Usd[US dollar] @id=usd-2026
+                    outcome: k:Safe[safe] @id=c5
+                """;
+
+        DecisionTreeText.Parsed parsed = DecisionTreeText.parse(block, T, IDS);
+
+        assertTrue(parsed.findings().isEmpty(), () -> "findings: " + parsed.findings());
+        DecisionTree tree = parsed.tree().orElseThrow();
+        assertTrue(tree.check().isEmpty(), () -> "check: " + tree.check());
+        Rollback rollback = Rollback.of(tree, at(100_000));
+        DecisionElement.Decision root = tree.decision().orElseThrow();
+        assertEquals((1 - Math.pow(0.99, 20)) * 150_000, rollback.value(root.alternatives().get(0).vertexIndex()).orElseThrow().lower(), 0.01);
+        assertEquals(20_000, rollback.value(root.alternatives().get(1).vertexIndex()).orElseThrow().lower(), 0.01);
+        assertEquals(root.alternatives().get(1).vertexIndex(), rollback.chosen(root.vertexIndex()).orElseThrow(), "repair is cheaper");
     }
 
     private static void assertFinding(DecisionTreeText.Parsed parsed, String line, String text) {

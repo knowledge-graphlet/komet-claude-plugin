@@ -31,11 +31,14 @@ import network.ike.komet.claude.decision.DecisionElement.HealthCost;
 import network.ike.komet.claude.decision.DecisionElement.MoneyCost;
 import network.ike.komet.claude.decision.DecisionElement.Node;
 import network.ike.komet.claude.decision.DecisionElement.Outcome;
+import network.ike.komet.claude.decision.DecisionElement.Parameter;
 import network.ike.komet.claude.decision.DecisionElement.Probability;
 import org.eclipse.collections.api.factory.Lists;
 import org.eclipse.collections.api.list.ImmutableList;
 import org.eclipse.collections.api.list.MutableList;
+import org.eclipse.collections.api.list.primitive.ImmutableLongList;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -47,41 +50,41 @@ import java.util.UUID;
  * The decision-tree profile in text: the {@code [decision-tree]} block, sugar for the
  * property-graph block with this profile ({@code dev-decision-tree-blocks}, settled KEC
  * 2026-10-27). One vertex per line, its kind word first, indentation the edge, measures as value
- * lines under the node that carries them:
+ * lines under the node that carries them, the model's parameters as value lines under the root:
  *
  * <pre>
  * [decision-tree]
  * ----
  * decision: k:ScanNow[Scan now?] @id=… @vertex=…
+ *   parameter = [0.02,0.02] k:Reopening[Late reopening hazard in year 2] @id=… basis=estimated @vertex=…
+ *   parameter = [0.9,0.9] k:Sensitivity[MRA sensitivity] @id=… @vertex=…
+ *   parameter = k:Positive[Share of scans positive] @id=… from k:BayesMarginal[Bayes marginal] @id=… of k:Reopening[] @id=… k:Sensitivity[] @id=… k:FalsePositive[] @id=… @vertex=…
+ *   parameter = [150000,150000] k:RuptureCost[Cost of a rupture] @id=… in k:Usd[US dollar] @id=… @vertex=…
  *   alternative: k:Scan[Scan] @id=… statement=… @vertex=…
  *     money = [700,700] k:Usd[US dollar at 2026 prices] @id=… basis=estimated @vertex=…
- *     health = [0.002,0.002] k:Qaly[Quality-adjusted life year] @id=… @vertex=…
  *     chance: k:MraResult[MRA result] @id=… @vertex=…
  *       event: k:Positive[Scan positive] @id=… @vertex=…
- *         probability = [0.214,0.214] @vertex=…
+ *         probability = from k:Lookup[…] … (or a stated interval)
  *         …
- *       residual: k:Negative[Scan negative] @id=… @vertex=…
- *         …
- *   alternative: k:NoScan[No scan] @id=… @vertex=…
- *     …
  * ----
  * </pre>
  *
  * <p><b>Lossless by identity.</b> A concept writes as the {@code k:} token of the ANF block,
  * its {@code @id} the identity and its key and label human aids recomputed on every emit; every
  * vertex writes its own identity as {@code @vertex}, so a block parsed and written again holds
- * the same vertices and a revised number is a new version of one of them. A measure writes in
- * the ANF interval grammar, a probability leaving its semantic implicit, a cost naming its money
- * or health semantic. Nothing computed is written.
+ * the same vertices and a revised number is a new version of one of them. A stated measure
+ * writes in the ANF interval grammar; a derived one writes {@code from} its kind {@code of} the
+ * quantities it reads; a cost or a parameter with a money or health semantic names it after
+ * {@code in}. Nothing computed is written.
  *
- * <p><b>Deterministic emission.</b> Measures before nodes, each in stored order; one fixed
- * attribute order; integral numbers without a fraction and others exactly as Java prints them.
- * Store to text to store is byte-stable, so a parameter edit changes one line in a diff.
+ * <p><b>Deterministic emission.</b> Parameters first under the root, then measures, then nodes,
+ * each in stored order; one fixed attribute order; integral numbers without a fraction and others
+ * exactly as Java prints them. Store to text to store is byte-stable.
  *
  * <p><b>Parsing never refuses.</b> An unknown word, an identifier that does not resolve, a
  * measure with no semantic: each is a finding with its line, and the vertex is written with the
- * gap, as the ANF block keeps a clarify. The caller decides whether the tree is usable, and
- * {@link DecisionTree#check()} says whether it is well formed.
+ * gap, as the ANF block keeps a clarify. {@link DecisionTree#check()} says whether the tree is
+ * well formed.
  */
 public final class DecisionTreeText {
 
@@ -124,8 +127,11 @@ public final class DecisionTreeText {
             outcome.treeReference().ifPresent(nid -> reference(sb, ids, "tree", nid));
         }
         vertex(sb, tree, node.vertexIndex());
+        for (Parameter parameter : tree.children(node.vertexIndex(), Parameter.class)) {
+            measure(sb, tree, ids, parameter, depth + 1);
+        }
         for (DecisionElement child : tree.children(node.vertexIndex())) {
-            if (child instanceof Node) {
+            if (child instanceof Node || child instanceof Parameter) {
                 continue;
             }
             measure(sb, tree, ids, child, depth + 1);
@@ -136,23 +142,37 @@ public final class DecisionTreeText {
     }
 
     private static void measure(StringBuilder sb, DecisionTree tree, Identities ids, DecisionElement element, int depth) {
-        Measure measure = switch (element) {
-            case Probability probability -> probability.measure();
-            case Cost cost -> cost.measure();
-            case Node node -> throw new IllegalStateException("a node is not a measure");
-        };
-        Bounds bounds = measure.bounds();
-        sb.append(INDENT.repeat(depth)).append(word(element)).append(" = ")
-                .append(Tokens.interval(finite(bounds.lower()), finite(bounds.upper()),
-                        !bounds.lowerOpen(), !bounds.upperOpen()));
-        boolean implicit = element instanceof Probability && measure.semanticNid() == tree.terms().shareAtNode();
-        if (!implicit && measure.semanticNid() != 0) {
+        Measure measure = tree.measure(element.vertexIndex());
+        sb.append(INDENT.repeat(depth)).append(word(element)).append(" =");
+        if (element instanceof Parameter parameter && measure.derived()) {
+            concept(sb, ids, parameter.quantity());
+        }
+        if (measure.stated()) {
+            Bounds bounds = measure.bounds();
+            sb.append(' ').append(Tokens.interval(finite(bounds.lower()), finite(bounds.upper()),
+                    !bounds.lowerOpen(), !bounds.upperOpen()));
+            if (element instanceof Parameter parameter) {
+                concept(sb, ids, parameter.quantity());
+            }
+        }
+        if (measure.derived()) {
+            sb.append(" from");
+            concept(sb, ids, measure.derivedFrom());
+            sb.append(" of");
+            measure.operands().forEach(nid -> concept(sb, ids, OptionalLong.of(nid)));
+        }
+        boolean share = measure.semanticNid() == tree.terms().shareAtNode();
+        if (!share && measure.semanticNid() != 0) {
+            if (element instanceof Parameter || measure.derived()) {
+                sb.append(" in");
+            }
             concept(sb, ids, OptionalLong.of(measure.semanticNid()));
         }
-        measure.basisNid().ifPresent(nid -> basisWord(tree, nid).ifPresent(word -> sb.append(" basis=").append(word)));
+        measure.basisNid().ifPresent(nid -> basisWord(tree, nid)
+                .filter(word -> !(measure.derived() && "derived".equals(word)))
+                .ifPresent(word -> sb.append(" basis=").append(word)));
         tree.conceptProperty(element.vertexIndex(), tree.terms().basisSource())
                 .ifPresent(nid -> reference(sb, ids, "source", nid));
-        measure.derivedFrom().ifPresent(nid -> reference(sb, ids, "derived", nid));
         vertex(sb, tree, element.vertexIndex());
     }
 
@@ -167,15 +187,15 @@ public final class DecisionTreeText {
         }
     }
 
+    /** A reference attribute, written only when the store can name the component: a nid is local and never written. */
+    private static void reference(StringBuilder sb, Identities ids, String name, long nid) {
+        ids.identifier(nid).ifPresent(id -> sb.append(' ').append(name).append('=').append(id));
+    }
+
     private static void vertex(StringBuilder sb, DecisionTree tree, int vertexIndex) {
         EntityVertex vertex = tree.vertex(vertexIndex);
         sb.append(" @vertex=").append(new UUID(vertex.mostSignificantBits(), vertex.leastSignificantBits()))
                 .append('\n');
-    }
-
-    /** A reference attribute, written only when the store can name the component: a nid is local and never written. */
-    private static void reference(StringBuilder sb, Identities ids, String name, long nid) {
-        ids.identifier(nid).ifPresent(id -> sb.append(' ').append(name).append('=').append(id));
     }
 
     private static Double finite(double bound) {
@@ -192,6 +212,7 @@ public final class DecisionTreeText {
             case Probability p -> "probability";
             case MoneyCost m -> "money";
             case HealthCost h -> "health";
+            case Parameter p -> "parameter";
         };
     }
 
@@ -243,6 +264,19 @@ public final class DecisionTreeText {
         return ProfileFinding.ofTree("line " + line.number() + ": " + message);
     }
 
+    /** One item of a value line's head: an interval, a concept token, or one of the words from, of and in. */
+    private sealed interface Item permits IntervalItem, ConceptItem, Keyword {
+    }
+
+    private record IntervalItem(Tokens.Interval interval) implements Item {
+    }
+
+    private record ConceptItem(Tokens.Concept concept, String text) implements Item {
+    }
+
+    private record Keyword(String word) implements Item {
+    }
+
     /** One parse: the terms and identities it reads by, and the findings it gathers. */
     private static final class Reader {
         private final DecisionTerms terms;
@@ -280,14 +314,26 @@ public final class DecisionTreeText {
 
         private void measure(Line line, DecisionTree.Builder.Handle node) {
             long kind;
-            boolean probability = false;
+            boolean share;
+            boolean parameter = false;
             switch (line.word().toLowerCase(Locale.ROOT)) {
                 case "probability", "p" -> {
                     kind = terms.probabilityMeasure();
-                    probability = true;
+                    share = true;
                 }
-                case "money" -> kind = terms.moneyCostMeasure();
-                case "health" -> kind = terms.healthCostMeasure();
+                case "money" -> {
+                    kind = terms.moneyCostMeasure();
+                    share = false;
+                }
+                case "health" -> {
+                    kind = terms.healthCostMeasure();
+                    share = false;
+                }
+                case "parameter" -> {
+                    kind = terms.parameterMeasure();
+                    share = true;
+                    parameter = true;
+                }
                 default -> {
                     findings.add(finding(line, "unknown value of a vertex: " + line.word()));
                     return;
@@ -296,37 +342,131 @@ public final class DecisionTreeText {
             if (!line.children().isEmpty()) {
                 findings.add(finding(line, "a measure has nothing beneath it"));
             }
-            Optional<Tokens.IntervalPrefix> prefix = Tokens.intervalPrefix(line.head());
-            if (prefix.isEmpty()) {
-                findings.add(finding(line, "a measure begins with an interval, [lo,hi]: " + line.head()));
+            List<Item> items = items(line, line.head());
+            Tokens.Interval interval = null;
+            Tokens.Concept quantity = null;
+            Tokens.Concept derivation = null;
+            List<Tokens.Concept> operands = new ArrayList<>();
+            Tokens.Concept unit = null;
+            String mode = "";
+            for (Item item : items) {
+                switch (item) {
+                    case IntervalItem i -> {
+                        if (interval != null) {
+                            findings.add(finding(line, "a measure has one interval"));
+                        }
+                        interval = i.interval();
+                    }
+                    case Keyword k -> mode = k.word();
+                    case ConceptItem c -> {
+                        switch (mode) {
+                            case "from" -> derivation = c.concept();
+                            case "of" -> operands.add(c.concept());
+                            case "in" -> unit = c.concept();
+                            default -> {
+                                if (parameter && quantity == null) {
+                                    quantity = c.concept();
+                                } else if (!parameter && unit == null && interval != null) {
+                                    unit = c.concept();
+                                } else {
+                                    findings.add(finding(line, "an unexpected token: " + c.text()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if (interval == null && derivation == null) {
+                findings.add(finding(line, "a measure begins with an interval, [lo,hi], or is derived from a kind: " + line.head()));
                 return;
             }
-            Tokens.Interval interval = prefix.get().interval();
-            Bounds bounds = new Bounds(
-                    interval.lower() == null ? Double.NEGATIVE_INFINITY : interval.lower(),
-                    interval.upper() == null ? Double.POSITIVE_INFINITY : interval.upper(),
-                    !interval.includeLower(), !interval.includeUpper());
+            if (interval != null && derivation != null) {
+                findings.add(finding(line, "a measure is stated or derived, not both"));
+            }
             long semantic;
-            String rest = prefix.get().rest();
-            if (rest.isEmpty()) {
-                semantic = probability ? terms.shareAtNode() : 0;
-                if (!probability) {
-                    findings.add(finding(line, "a cost names its measure semantic after its interval"));
+            if (unit != null) {
+                semantic = resolveConcept(line, unit, "a measure semantic");
+            } else if (share) {
+                semantic = terms.shareAtNode();
+            } else {
+                semantic = 0;
+                findings.add(finding(line, "a cost names its measure semantic" + (derivation != null ? " after in" : " after its interval")));
+            }
+            UUID vertexId = vertexId(line);
+            DecisionTree.Builder.Handle measure;
+            if (derivation != null) {
+                long kindNid = resolveConcept(line, derivation, "a derivation kind");
+                if (operands.isEmpty()) {
+                    findings.add(finding(line, "a derivation reads its operands after of"));
+                }
+                long[] operandNids = operands.stream()
+                        .mapToLong(operand -> resolveConcept(line, operand, "an operand")).toArray();
+                if (parameter) {
+                    long quantityNid = quantity == null ? 0 : resolveConcept(line, quantity, "a parameter's quantity");
+                    if (quantity == null) {
+                        findings.add(finding(line, "a parameter names its quantity"));
+                    }
+                    measure = node.derivedParameter(quantityNid, kindNid, operandNids, semantic, vertexId);
+                } else {
+                    measure = node.derived(kind, kindNid, operandNids, semantic, vertexId);
                 }
             } else {
-                semantic = resolveConcept(line, rest, "a measure semantic");
+                Bounds bounds = new Bounds(
+                        interval.lower() == null ? Double.NEGATIVE_INFINITY : interval.lower(),
+                        interval.upper() == null ? Double.POSITIVE_INFINITY : interval.upper(),
+                        !interval.includeLower(), !interval.includeUpper());
+                if (parameter) {
+                    long quantityNid = quantity == null ? 0 : resolveConcept(line, quantity, "a parameter's quantity");
+                    if (quantity == null) {
+                        findings.add(finding(line, "a parameter names its quantity"));
+                    }
+                    measure = node.parameter(quantityNid, bounds, semantic, vertexId);
+                } else {
+                    measure = node.measure(kind, bounds, semantic, vertexId);
+                }
             }
-            DecisionTree.Builder.Handle measure = node.measure(kind, bounds, semantic, vertexId(line));
             Map<String, String> attributes = line.attributes();
             attributes.forEach((name, value) -> {
                 switch (name) {
                     case "basis" -> basis(line, value).ifPresent(measure::basis);
                     case "source" -> resolve(line, value, "a basis source").ifPresent(measure::basisSource);
-                    case "derived" -> resolve(line, value, "a derivation").ifPresent(measure::derivedFrom);
                     case "@vertex" -> { }
                     default -> findings.add(finding(line, "unknown attribute of a measure: " + name));
                 }
             });
+        }
+
+        /** The head of a value line as items: intervals, concept tokens with their @id, and the three keywords. */
+        private List<Item> items(Line line, String head) {
+            List<Item> items = new ArrayList<>();
+            List<String> words = Tokens.words(head);
+            for (int i = 0; i < words.size(); i++) {
+                String word = words.get(i);
+                if (word.startsWith("k:")) {
+                    String text = word;
+                    if (i + 1 < words.size() && words.get(i + 1).startsWith("@id=")) {
+                        text = word + " " + words.get(++i);
+                    }
+                    Optional<Tokens.Concept> concept = Tokens.concept(text);
+                    if (concept.isEmpty()) {
+                        findings.add(finding(line, "not a k: token: " + text));
+                    } else {
+                        items.add(new ConceptItem(concept.get(), text));
+                    }
+                } else if (word.startsWith("[") || word.startsWith("(")) {
+                    Optional<Tokens.IntervalPrefix> prefix = Tokens.intervalPrefix(word);
+                    if (prefix.isEmpty()) {
+                        findings.add(finding(line, "not an interval: " + word));
+                    } else {
+                        items.add(new IntervalItem(prefix.get().interval()));
+                    }
+                } else if (List.of("from", "of", "in").contains(word.toLowerCase(Locale.ROOT))) {
+                    items.add(new Keyword(word.toLowerCase(Locale.ROOT)));
+                } else {
+                    findings.add(finding(line, "an unexpected word: " + word));
+                }
+            }
+            return items;
         }
 
         private void attributes(Line line, DecisionTree.Builder.Handle handle, boolean outcome) {
@@ -358,20 +498,20 @@ public final class DecisionTreeText {
                 findings.add(finding(line, what + " names no concept"));
                 return 0;
             }
-            return resolveConcept(line, head, what);
+            Optional<Tokens.Concept> token = Tokens.concept(head);
+            if (token.isEmpty()) {
+                findings.add(finding(line, what + " is not a k: token: " + head));
+                return 0;
+            }
+            return resolveConcept(line, token.get(), what);
         }
 
-        private long resolveConcept(Line line, String text, String what) {
-            Optional<Tokens.Concept> token = Tokens.concept(text);
-            if (token.isEmpty()) {
-                findings.add(finding(line, what + " is not a k: token: " + text));
+        private long resolveConcept(Line line, Tokens.Concept token, String what) {
+            if (token.identifier().isEmpty()) {
+                findings.add(finding(line, what + " carries no @id: " + Tokens.concept(token.label(), null)));
                 return 0;
             }
-            if (token.get().identifier().isEmpty()) {
-                findings.add(finding(line, what + " carries no @id: " + text));
-                return 0;
-            }
-            return resolve(line, token.get().identifier().get(), what).orElse(0L);
+            return resolve(line, token.identifier().get(), what).orElse(0L);
         }
 
         private OptionalLong resolve(Line line, String identifier, String what) {

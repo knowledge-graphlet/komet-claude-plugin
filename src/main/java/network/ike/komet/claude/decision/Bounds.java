@@ -35,12 +35,22 @@ public record Bounds(double lower, double upper, boolean lowerOpen, boolean uppe
     static final double EPSILON = 1e-9;
 
     public Bounds {
-        if (Double.isNaN(lower) || Double.isNaN(upper)) {
-            throw new IllegalArgumentException("a bound is not a number");
+        if (Double.isNaN(lower) != Double.isNaN(upper)) {
+            throw new IllegalArgumentException("one bound is not a number");
         }
         if (lower > upper + EPSILON) {
             throw new IllegalArgumentException("lower bound " + lower + " exceeds upper bound " + upper);
         }
+    }
+
+    /** No bounds at all: what a derived measure states before its derivation runs. */
+    public static Bounds none() {
+        return new Bounds(Double.NaN, Double.NaN, false, false);
+    }
+
+    /** Whether these are no bounds. */
+    public boolean absent() {
+        return Double.isNaN(lower);
     }
 
     /** The bounds that meet at one value. */
@@ -94,6 +104,27 @@ public record Bounds(double lower, double upper, boolean lowerOpen, boolean uppe
             }
         }
         return new Bounds(products[least], products[greatest], open[least], open[greatest]);
+    }
+
+    /** The interval quotient, for a divisor that does not cross zero: the least and greatest endpoint quotients. */
+    public Bounds dividedBy(Bounds divisor) {
+        if (divisor.lower <= 0 && divisor.upper >= 0) {
+            throw new ArithmeticException("a divisor crosses zero: " + divisor);
+        }
+        double[] quotients = {lower / divisor.lower, lower / divisor.upper, upper / divisor.lower, upper / divisor.upper};
+        boolean[] open = {lowerOpen || divisor.lowerOpen, lowerOpen || divisor.upperOpen,
+                upperOpen || divisor.lowerOpen, upperOpen || divisor.upperOpen};
+        int least = 0;
+        int greatest = 0;
+        for (int i = 1; i < 4; i++) {
+            if (quotients[i] < quotients[least] || (quotients[i] == quotients[least] && !open[i])) {
+                least = i;
+            }
+            if (quotients[i] > quotients[greatest] || (quotients[i] == quotients[greatest] && !open[i])) {
+                greatest = i;
+            }
+        }
+        return new Bounds(quotients[least], quotients[greatest], open[least], open[greatest]);
     }
 
     /** One minus these bounds: the complement of a share. */

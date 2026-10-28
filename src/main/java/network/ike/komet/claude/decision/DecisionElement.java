@@ -23,12 +23,13 @@ import java.util.OptionalLong;
 
 /**
  * The typed vertices of a decision tree, the profile's counterpart of the sealed
- * {@code LogicalAxiom} hierarchy: five node kinds and three measure kinds, each a view over one
+ * {@code LogicalAxiom} hierarchy: five node kinds and four measure kinds, each a view over one
  * vertex of the stored tree that reads its properties and its children through the
  * {@link DecisionTree}. Nothing here is stored; a changed probability is a new version of the
  * vertex, and the view reads it.
  */
-public sealed interface DecisionElement permits DecisionElement.Node, DecisionElement.Cost, DecisionElement.Probability {
+public sealed interface DecisionElement
+        permits DecisionElement.Node, DecisionElement.Cost, DecisionElement.Probability, DecisionElement.Parameter {
 
     /** The vertex this element reads. */
     int vertexIndex();
@@ -74,6 +75,11 @@ public sealed interface DecisionElement permits DecisionElement.Node, DecisionEl
     record Decision(DecisionTree tree, int vertexIndex) implements Node {
         public ImmutableList<Alternative> alternatives() {
             return tree.children(vertexIndex, Alternative.class);
+        }
+
+        /** The parameters the tree states under this decision, when it is the root. */
+        public ImmutableList<Parameter> parameters() {
+            return tree.children(vertexIndex, Parameter.class);
         }
     }
 
@@ -133,6 +139,18 @@ public sealed interface DecisionElement permits DecisionElement.Node, DecisionEl
     record Probability(DecisionTree tree, int vertexIndex) implements DecisionElement {
         public Measure measure() {
             return tree.measure(vertexIndex);
+        }
+    }
+
+    /** A measure of the method under the root, named by the quantity it measures; the operand of a derivation. */
+    record Parameter(DecisionTree tree, int vertexIndex) implements DecisionElement {
+        public Measure measure() {
+            return tree.measure(vertexIndex);
+        }
+
+        /** The quantity the parameter measures: its concept. */
+        public OptionalLong quantity() {
+            return concept();
         }
     }
 }

@@ -32,6 +32,7 @@ import network.ike.komet.claude.decision.DecisionElement.HealthCost;
 import network.ike.komet.claude.decision.DecisionElement.MoneyCost;
 import network.ike.komet.claude.decision.DecisionElement.Node;
 import network.ike.komet.claude.decision.DecisionElement.Outcome;
+import network.ike.komet.claude.decision.DecisionElement.Parameter;
 import network.ike.komet.claude.decision.DecisionElement.Probability;
 import org.eclipse.collections.api.factory.Lists;
 import org.eclipse.collections.api.factory.primitive.LongLists;
@@ -87,6 +88,7 @@ public final class DecisionTree extends ProfiledTree<DecisionElement> {
                 .kind(terms.probabilityMeasure(), (tree, index) -> new Probability((DecisionTree) tree, index))
                 .kind(terms.moneyCostMeasure(), (tree, index) -> new MoneyCost((DecisionTree) tree, index))
                 .kind(terms.healthCostMeasure(), (tree, index) -> new HealthCost((DecisionTree) tree, index))
+                .kind(terms.parameterMeasure(), (tree, index) -> new Parameter((DecisionTree) tree, index))
                 .build();
     }
 
@@ -111,7 +113,8 @@ public final class DecisionTree extends ProfiledTree<DecisionElement> {
         long semantic = conceptProperty(vertexIndex, terms.unitOfMeasure()).orElse(0L);
         return new Measure(bounds, semantic,
                 conceptProperty(vertexIndex, terms.measureBasis()),
-                conceptProperty(vertexIndex, terms.derivedFrom()));
+                conceptProperty(vertexIndex, terms.derivedFrom()),
+                componentsProperty(vertexIndex, terms.operands()));
     }
 
     /** A property that names components: one nid, or several. */
@@ -155,7 +158,11 @@ public final class DecisionTree extends ProfiledTree<DecisionElement> {
                     if (decision.alternatives().isEmpty()) {
                         findings.add(new ProfileFinding(decision.vertexIndex(), "a decision has no alternative"));
                     }
-                    childrenOnly(findings, decision.vertexIndex(), "a decision", Alternative.class);
+                    if (decision.vertexIndex() == rootIndex()) {
+                        childrenOnly(findings, decision.vertexIndex(), "a decision", Alternative.class, Parameter.class);
+                    } else {
+                        childrenOnly(findings, decision.vertexIndex(), "a decision", Alternative.class);
+                    }
                 }
                 case Branch branch -> {
                     ImmutableList<Node> structural = children(branch.vertexIndex(), Node.class);
@@ -181,13 +188,22 @@ public final class DecisionTree extends ProfiledTree<DecisionElement> {
                     checkCosts(findings, outcome.costs());
                 }
                 case Cost cost -> checkMeasure(findings, cost.vertexIndex(), cost.measure());
+                case Parameter parameter -> {
+                    checkMeasure(findings, parameter.vertexIndex(), parameter.measure());
+                    if (parameter.quantity().isEmpty()) {
+                        findings.add(new ProfileFinding(parameter.vertexIndex(), "a parameter names no quantity"));
+                    }
+                    if (parentIndex(parameter.vertexIndex()).orElse(-1) != rootIndex()) {
+                        findings.add(new ProfileFinding(parameter.vertexIndex(), "a parameter sits under the root decision"));
+                    }
+                }
                 case Probability probability -> {
                     checkMeasure(findings, probability.vertexIndex(), probability.measure());
                     Measure measure = probability.measure();
                     if (measure.semanticNid() != terms.shareAtNode()) {
                         findings.add(new ProfileFinding(probability.vertexIndex(),
                                 "a probability is not on the Share at node semantic"));
-                    } else if (measure.bounds().lower() < -Bounds.EPSILON || measure.bounds().upper() > 1 + Bounds.EPSILON) {
+                    } else if (measure.stated() && (measure.bounds().lower() < -Bounds.EPSILON || measure.bounds().upper() > 1 + Bounds.EPSILON)) {
                         findings.add(new ProfileFinding(probability.vertexIndex(),
                                 "a probability lies outside zero and one: " + measure.bounds()));
                     }
@@ -252,8 +268,16 @@ public final class DecisionTree extends ProfiledTree<DecisionElement> {
     }
 
     private void checkMeasure(MutableList<ProfileFinding> findings, int vertexIndex, Measure measure) {
-        if (Double.isNaN(measure.bounds().lower())) {
-            findings.add(new ProfileFinding(vertexIndex, "a measure has no bounds"));
+        if (!measure.stated() && !measure.derived()) {
+            findings.add(new ProfileFinding(vertexIndex, "a measure has no bounds and no derivation"));
+        }
+        if (measure.derived()) {
+            if (!terms.isDerivationKind(measure.derivedFrom().getAsLong())) {
+                findings.add(new ProfileFinding(vertexIndex, "a derivation names no kind the evaluator can run"));
+            }
+            if (measure.operands().isEmpty()) {
+                findings.add(new ProfileFinding(vertexIndex, "a derived measure names no operands"));
+            }
         }
         if (measure.semanticNid() == 0) {
             findings.add(new ProfileFinding(vertexIndex, "a measure has no measure semantic"));
@@ -447,6 +471,32 @@ public final class DecisionTree extends ProfiledTree<DecisionElement> {
                     measure.properties.put(terms.upperBoundOpen(), Boolean.TRUE);
                 }
                 measure.properties.put(terms.unitOfMeasure(), semanticNid);
+                return measure;
+            }
+
+            /** A parameter of the method under this root: a measure named by its quantity. */
+            public Handle parameter(long quantityNid, Bounds bounds, long semanticNid, UUID vertexId) {
+                Handle parameter = measure(terms.parameterMeasure(), bounds, semanticNid, vertexId);
+                parameter.properties.put(terms.conceptReference(), quantityNid);
+                return parameter;
+            }
+
+            /** A derived parameter: its quantity, the kind that computes it and the quantities it reads. */
+            public Handle derivedParameter(long quantityNid, long kindNid, long[] operandQuantities, long semanticNid,
+                                           UUID vertexId) {
+                Handle parameter = derived(terms.parameterMeasure(), kindNid, operandQuantities, semanticNid, vertexId);
+                parameter.properties.put(terms.conceptReference(), quantityNid);
+                return parameter;
+            }
+
+            /** A derived measure of a kind under this node: no bounds of its own, a kind and its operands. */
+            public Handle derived(long measureKindNid, long kindNid, long[] operandQuantities, long semanticNid,
+                                  UUID vertexId) {
+                Handle measure = child(measureKindNid, 0, vertexId);
+                measure.properties.put(terms.unitOfMeasure(), semanticNid);
+                measure.properties.put(terms.derivedFrom(), kindNid);
+                measure.properties.put(terms.operands(), operandQuantities.clone());
+                measure.properties.put(terms.measureBasis(), terms.derivedBasis());
                 return measure;
             }
 
