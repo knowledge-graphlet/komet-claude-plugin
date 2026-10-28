@@ -105,6 +105,8 @@ public final class MarkdownRichText {
     private final ConceptChipInlineDecorator decorator;
     /** The koncept-tree block renderer, held so chip typography can be forwarded (ike-issues#1050). */
     private final KonceptTreeBlockRenderer trees;
+    /** The decision-tree block renderer, held so chip typography can be forwarded. */
+    private final DecisionTreeBlockRenderer decisions;
 
     /**
      * Equivalent to {@link #MarkdownRichText(ViewCalculator, double, String)} with the
@@ -143,7 +145,8 @@ public final class MarkdownRichText {
         this(base, fontFamily,
                 new ConceptChipInlineDecorator(viewProperties, base),
                 new KonceptTreeBlockRenderer(viewProperties, base),
-                new KonceptDefinitionBlockRenderer(viewProperties == null ? null : viewProperties.calculator(), base));
+                new KonceptDefinitionBlockRenderer(viewProperties == null ? null : viewProperties.calculator(), base),
+                new DecisionTreeBlockRenderer(viewProperties, base));
     }
 
     /**
@@ -157,19 +160,25 @@ public final class MarkdownRichText {
         this(base, fontFamily,
                 new ConceptChipInlineDecorator(viewCalc, base),
                 new KonceptTreeBlockRenderer(viewCalc, base),
-                new KonceptDefinitionBlockRenderer(viewCalc, base));
+                new KonceptDefinitionBlockRenderer(viewCalc, base),
+                new DecisionTreeBlockRenderer(viewCalc, base));
     }
 
     private MarkdownRichText(double base, String fontFamily, ConceptChipInlineDecorator decorator,
-                             KonceptTreeBlockRenderer trees, KonceptDefinitionBlockRenderer definitions) {
+                             KonceptTreeBlockRenderer trees, KonceptDefinitionBlockRenderer definitions,
+                             DecisionTreeBlockRenderer decisions) {
         this.base = base;
         this.decorator = decorator;
         this.trees = trees;
+        this.decisions = decisions;
         // Each renderer answers only to its own tag and declines the rest, so the first that
         // renders a block wins (ike-issues#1292).
         BlockRenderer blocks = (info, literal, style) -> {
             List<BlockPiece> pieces = trees.render(info, literal, style);
-            return pieces.isEmpty() ? definitions.render(info, literal, style) : pieces;
+            if (pieces.isEmpty()) {
+                pieces = definitions.render(info, literal, style);
+            }
+            return pieces.isEmpty() ? decisions.render(info, literal, style) : pieces;
         };
         this.renderer = new MarkdownRichTextRenderer(base, fontFamily, decorator, blocks);
     }
@@ -184,6 +193,7 @@ public final class MarkdownRichText {
     public void setChipTypography(KonceptLabelTypography typography) {
         decorator.setChipTypography(typography);
         trees.setChipTypography(typography);
+        decisions.setChipTypography(typography);
     }
 
     /**
