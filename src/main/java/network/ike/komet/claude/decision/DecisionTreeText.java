@@ -39,11 +39,13 @@ import org.eclipse.collections.api.list.MutableList;
 import org.eclipse.collections.api.list.primitive.ImmutableLongList;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -257,6 +259,11 @@ public final class DecisionTreeText {
         DecisionTree.Builder.Handle rootHandle = builder.decision(reader.concept(root, "a decision"), reader.vertexId(root));
         reader.attributes(root, rootHandle, false);
         reader.children(root, rootHandle, "decision");
+        if (!reader.localSymbols.isEmpty()) {
+            reader.findings.add(ProfileFinding.ofTree(reader.localSymbols.size()
+                    + " identifiers name nothing in the knowledge base and are read as concepts local to the block: "
+                    + String.join(", ", reader.localSymbols)));
+        }
         return new Parsed(Optional.of(builder.tree()), reader.findings.toImmutable());
     }
 
@@ -282,6 +289,8 @@ public final class DecisionTreeText {
         private final DecisionTerms terms;
         private final Identities ids;
         private final MutableList<ProfileFinding> findings = Lists.mutable.empty();
+        /** The identifiers the store lacked that the identities made local, in reading order. */
+        private final Set<String> localSymbols = new LinkedHashSet<>();
 
         private Reader(DecisionTerms terms, Identities ids) {
             this.terms = terms;
@@ -395,7 +404,7 @@ public final class DecisionTreeText {
             UUID vertexId = vertexId(line);
             DecisionTree.Builder.Handle measure;
             if (derivation != null) {
-                long kindNid = resolveConcept(line, derivation, "a derivation kind");
+                long kindNid = derivationKind(line, derivation);
                 if (operands.isEmpty()) {
                     findings.add(finding(line, "a derivation reads its operands after of"));
                 }
@@ -506,23 +515,62 @@ public final class DecisionTreeText {
             return resolveConcept(line, token.get(), what);
         }
 
+        /**
+         * The derivation kind a token names: by its identity when the store has it, else by its
+         * name, as the documentation build reads {@code from k:Complement[] of ...} with no
+         * identity at all; a kind known neither way resolves as any concept would.
+         */
+        private long derivationKind(Line line, Tokens.Concept token) {
+            if (token.identifier().isPresent()) {
+                OptionalLong stored = ids.nid(token.identifier().get().strip());
+                if (stored.isPresent()) {
+                    return stored.getAsLong();
+                }
+            }
+            OptionalLong byLabel = terms.derivationKind(token.label());
+            if (byLabel.isPresent()) {
+                return byLabel.getAsLong();
+            }
+            OptionalLong byKey = terms.derivationKind(token.key());
+            if (byKey.isPresent()) {
+                return byKey.getAsLong();
+            }
+            return resolveConcept(line, token, "a derivation kind");
+        }
+
         private long resolveConcept(Line line, Tokens.Concept token, String what) {
             if (token.identifier().isEmpty()) {
                 findings.add(finding(line, what + " carries no @id: " + Tokens.concept(token.label(), null)));
                 return 0;
             }
-            return resolve(line, token.identifier().get(), what).orElse(0L);
+            String label = token.label() != null && !token.label().isBlank() ? token.label()
+                    : token.key() != null && !token.key().isBlank() ? token.key() : token.identifier().get();
+            return resolve(line, token.identifier().get(), label, what).orElse(0L);
         }
 
         private OptionalLong resolve(Line line, String identifier, String what) {
+            return resolve(line, identifier, identifier, what);
+        }
+
+        /**
+         * The nid an identifier names: in the store, else local to the block when the identities
+         * admit one (recorded once per identifier, reported together at the end), else a finding.
+         */
+        private OptionalLong resolve(Line line, String identifier, String label, String what) {
             String id = identifier.strip();
             if (id.isEmpty()) {
                 return OptionalLong.empty();
             }
             OptionalLong nid = ids.nid(id);
-            if (nid.isEmpty()) {
-                findings.add(finding(line, what + " does not resolve: " + id));
+            if (nid.isPresent()) {
+                return nid;
             }
+            OptionalLong local = ids.local(id, label);
+            if (local.isPresent()) {
+                localSymbols.add(id);
+                return local;
+            }
+            findings.add(finding(line, what + " does not resolve: " + id));
             return nid;
         }
 

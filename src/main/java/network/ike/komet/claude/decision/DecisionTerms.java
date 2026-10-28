@@ -18,6 +18,9 @@ package network.ike.komet.claude.decision;
 import dev.ikm.tinkar.terms.KernelConcept;
 import network.ike.foundation.ike.bindings.IkeConcept;
 
+import java.util.Locale;
+import java.util.OptionalLong;
+
 /**
  * The concepts the decision-tree profile reads vertices by, as nids: the node and measure kinds,
  * the property keys, the measure semantics, the basis kinds and the derivation kinds
@@ -74,5 +77,28 @@ public record DecisionTerms(
     public boolean isDerivationKind(long nid) {
         return nid == complement || nid == product || nid == cumulativeHazard || nid == bayesPosterior
                 || nid == bayesMarginal;
+    }
+
+    /**
+     * The derivation kind a written name means, case and spacing aside and with or without the
+     * word derivation, as the documentation build reads it: {@code Complement},
+     * {@code cumulative hazard}, {@code BayesPosterior}. Empty for any other name.
+     */
+    public OptionalLong derivationKind(String name) {
+        if (name == null) {
+            return OptionalLong.empty();
+        }
+        String bare = name.toLowerCase(Locale.ROOT).replaceAll("[^a-z]", "");
+        if (bare.endsWith("derivation")) {
+            bare = bare.substring(0, bare.length() - "derivation".length());
+        }
+        return switch (bare) {
+            case "complement" -> OptionalLong.of(complement);
+            case "product" -> OptionalLong.of(product);
+            case "cumulativehazard" -> OptionalLong.of(cumulativeHazard);
+            case "bayesposterior" -> OptionalLong.of(bayesPosterior);
+            case "bayesmarginal" -> OptionalLong.of(bayesMarginal);
+            default -> OptionalLong.empty();
+        };
     }
 }

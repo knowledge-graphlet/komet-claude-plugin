@@ -34,4 +34,19 @@ public interface Identities {
 
     /** The label a component writes beside its identifier. */
     String label(long nid);
+
+    /**
+     * An identity local to the text being read, for an identifier the store lacks, when this
+     * implementation admits one: the same identifier gets the same identity for as long as the
+     * text is read, so the text's own references hold, and the label is what it shows as. Empty
+     * when nothing is local here, which is the default; see {@link BlockIdentities}.
+     */
+    default OptionalLong local(String identifier, String label) {
+        return OptionalLong.empty();
+    }
+
+    /** Whether a nid is one made local to the text, so it names nothing in the store. */
+    default boolean isLocal(long nid) {
+        return false;
+    }
 }

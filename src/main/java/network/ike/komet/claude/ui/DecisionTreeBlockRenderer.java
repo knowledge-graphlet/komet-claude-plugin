@@ -30,12 +30,15 @@ import javafx.scene.Cursor;
 import javafx.scene.Node;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
+import network.ike.komet.claude.block.BlockIdentities;
 import network.ike.komet.claude.block.BlockLines;
+import network.ike.komet.claude.block.Identities;
 import network.ike.komet.claude.block.Tokens;
 import network.ike.komet.claude.decision.Bounds;
 import network.ike.komet.claude.decision.DecisionElement;
@@ -95,6 +98,8 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
     private final ViewProperties viewProperties;
     private final double base;
     private KonceptLabelTypography typography = KonceptLabelTypography.DEFAULT;
+    /** The identities the block being built was read by, so a concept local to it draws as such. */
+    private Identities ids;
 
     DecisionTreeBlockRenderer(ViewCalculator viewCalc, double base) {
         this(viewCalc, null, base);
@@ -164,7 +169,10 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
 
     private Node buildView(String body, double price) {
         DecisionTerms terms = DecisionTerms.fromBindings();
-        ViewIdentities ids = new ViewIdentities(viewCalc);
+        // The view resolves what the store holds; a symbol the store lacks, as a block written for
+        // the documentation build names its concepts, is read as a concept local to the block.
+        Identities ids = new BlockIdentities(new ViewIdentities(viewCalc));
+        this.ids = ids;
         DecisionTreeText.Parsed parsed = DecisionTreeText.parse(body, terms, ids);
         List<ProfileFinding> findings = new ArrayList<>(parsed.findings().castToList());
         if (parsed.tree().isEmpty()) {
@@ -301,6 +309,9 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         if (nid.isEmpty()) {
             return Optional.empty();
         }
+        if (ids != null && ids.isLocal(nid.getAsLong())) {
+            return Optional.of(localConcept(ids.label(nid.getAsLong())));
+        }
         Optional<PublicId> pid = ComponentText.publicId(nid.getAsLong());
         if (pid.isEmpty()) {
             return Optional.empty();
@@ -319,6 +330,20 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         Label label = new Label(text);
         label.setFont(Font.font(base));
         return label;
+    }
+
+    /**
+     * A concept the knowledge base lacks, drawn as a chip with a dashed edge: the block's own
+     * label, and a tooltip saying why it is not the shared Koncept chip.
+     */
+    private Label localConcept(String text) {
+        Label chip = new Label(text);
+        chip.setFont(Font.font(base * 0.95));
+        chip.getStyleClass().add("decision-local-concept");
+        chip.setStyle("-fx-background-color: #f4f2ec; -fx-background-radius: 9; -fx-padding: 1 7 1 7;"
+                + " -fx-border-color: #b9b3a3; -fx-border-radius: 9; -fx-border-style: dashed; -fx-border-width: 1;");
+        chip.setTooltip(new Tooltip("Not in the knowledge base: read as a concept local to this block"));
+        return chip;
     }
 
     /** The measures a node carries, as text: its probability, then its costs, derived ones computed. */

@@ -17,10 +17,13 @@ package network.ike.komet.claude.decision;
 
 import dev.ikm.tinkar.entity.graph.EntityVertex;
 import dev.ikm.tinkar.entity.graph.adaptor.profile.ProfileFinding;
+import network.ike.komet.claude.block.BlockIdentities;
 import network.ike.komet.claude.block.Identities;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -277,6 +280,41 @@ class DecisionTreeTextTest {
         assertEquals((1 - Math.pow(0.99, 20)) * 150_000, rollback.value(root.alternatives().get(0).vertexIndex()).orElseThrow().lower(), 0.01);
         assertEquals(20_000, rollback.value(root.alternatives().get(1).vertexIndex()).orElseThrow().lower(), 0.01);
         assertEquals(root.alternatives().get(1).vertexIndex(), rollback.chosen(root.vertexIndex()).orElseThrow(), "repair is cheaper");
+    }
+
+    @Test
+    @DisplayName("The regulatory topic's block, written for the documentation build with no store, reads live and rolls back to its numbers")
+    void readsTheTopicsBlockWithLocalIdentities() throws Exception {
+        String block;
+        try (InputStream in = DecisionTreeTextTest.class.getResourceAsStream("/decision/rda-scan-tree.adoc")) {
+            block = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        }
+        BlockIdentities ids = BlockIdentities.storeFree();
+
+        DecisionTreeText.Parsed parsed = DecisionTreeText.parse(block, T, ids);
+
+        DecisionTree tree = parsed.tree().orElseThrow();
+        assertFalse(parsed.findings().anySatisfy((ProfileFinding f) -> f.message().contains("does not resolve")),
+                () -> "a symbol the store lacks is local, not unresolved: " + parsed.findings());
+        assertFalse(parsed.findings().anySatisfy((ProfileFinding f) -> f.message().contains("carries no @id")),
+                () -> "a derivation kind is known by its name: " + parsed.findings());
+        assertTrue(parsed.findings().anySatisfy((ProfileFinding f) -> f.message().contains("local to the block")
+                        && f.message().contains("rda-scan-now")),
+                () -> "the local symbols are reported once, together: " + parsed.findings());
+        assertTrue(tree.check().isEmpty(), () -> "check: " + tree.check());
+        assertEquals("Scan now?", ids.label(tree.decision().orElseThrow().concept().orElseThrow()));
+
+        long usd = tree.nodesOfType(DecisionElement.MoneyCost.class).get(0).measure().semanticNid();
+        long qaly = tree.nodesOfType(DecisionElement.HealthCost.class).get(0).measure().semanticNid();
+        assertTrue(ids.isLocal(usd) && ids.isLocal(qaly), "the cost semantics are the block's own");
+        Rollback rollback = Rollback.of(tree, ValuationCoordinate.pricingHealthAt(Bounds.point(100_000), usd, qaly));
+        DecisionElement.Decision root = tree.decision().orElseThrow();
+        assertEquals(3_880, rollback.value(root.alternatives().get(0).vertexIndex()).orElseThrow().lower(), 1.0);
+        assertEquals(4_188, rollback.value(root.alternatives().get(1).vertexIndex()).orElseThrow().lower(), 1.0);
+        assertEquals(root.alternatives().get(0).vertexIndex(), rollback.chosen(root.vertexIndex()).orElseThrow(), "scan is chosen");
+
+        String written = DecisionTreeText.toAdoc(tree, ids);
+        assertTrue(written.contains("k:ScanNow[Scan now?] @id=rda-scan-now"), () -> "the symbols write back: " + written);
     }
 
     private static void assertFinding(DecisionTreeText.Parsed parsed, String line, String text) {

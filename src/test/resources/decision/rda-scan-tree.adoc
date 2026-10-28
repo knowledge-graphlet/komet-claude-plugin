@@ -1,0 +1,61 @@
+[decision-tree, health-price=100000, title="Should this patient have a scan in year 2? Every number carries an orange callout that the table beneath works from the model assumptions, and every dollar figure a mark the key explains. Read $2,980§ at MRA result as follows: 1,000 patients who have just been scanned go on to cost $2,980,000 between them, which is $2,980 each on average. No one patient pays that sum."]
+----
+decision: k:ScanNow[Scan now?] @id=rda-scan-now
+  parameter = [0.02,0.02] k:Reopening[Late reopening hazard in year 2] @id=rda-reopening-hazard basis=estimated
+  parameter = [0.9,0.9] k:Sensitivity[MRA sensitivity] @id=rda-mra-sensitivity basis=estimated
+  parameter = [0.8,0.8] k:Specificity[MRA specificity] @id=rda-mra-specificity basis=estimated
+  parameter = k:FalseNegative[MRA false-negative rate] @id=rda-mra-false-negative from k:Complement[] of k:Sensitivity[] @id=rda-mra-sensitivity
+  parameter = k:FalsePositive[MRA false-positive rate] @id=rda-mra-false-positive from k:Complement[] of k:Specificity[] @id=rda-mra-specificity
+  parameter = [0.01,0.01] k:RuptureHazard[Annual rupture risk of an untreated reopening] @id=rda-rupture-hazard basis=estimated source=johnston2008
+  parameter = [20,20] k:YearsAtRisk[Years an untreated reopening stays at risk] @id=rda-years-at-risk basis=estimated
+  parameter = k:RuptureRisk20[Chance of rupture over the years at risk] @id=rda-rupture-risk-20 from k:CumulativeHazard[Cumulative hazard] of k:RuptureHazard[] @id=rda-rupture-hazard k:YearsAtRisk[] @id=rda-years-at-risk
+  parameter = [150000,150000] k:RuptureCost[Cost of a rupture] @id=rda-rupture-cost in k:Usd[US dollar] @id=rda-usd basis=estimated
+  parameter = [10,10] k:RuptureQaly[QALYs lost per rupture] @id=rda-rupture-qaly in k:Qaly[QALY] @id=rda-qaly basis=estimated
+  parameter = [0.9,0.9] k:RetreatRemoves[Share of rupture risk retreatment removes] @id=rda-retreat-removes basis=estimated
+  parameter = k:RetreatLeaves[Share of rupture risk retreatment leaves] @id=rda-retreat-leaves from k:Complement[] of k:RetreatRemoves[] @id=rda-retreat-removes
+  parameter = [0.03,0.03] k:RetreatComplication[Major complication risk of retreatment] @id=rda-retreat-complication basis=estimated
+  parameter = [0.002,0.002] k:AngiographyComplication[Permanent complication risk of catheter angiography] @id=rda-angiography-complication basis=estimated
+  parameter = [5,5] k:ComplicationQaly[QALYs lost per major complication] @id=rda-complication-qaly in k:Qaly[QALY] @id=rda-qaly basis=estimated
+  alternative: k:Scan[scan] @id=rda-scan
+    money = [700,700] k:Usd[US dollar] @id=rda-usd basis=estimated
+    health = [0.002,0.002] k:Qaly[QALY] @id=rda-qaly basis=estimated
+    chance: k:MraResult[MRA result] @id=rda-mra-result
+      event: k:Positive[positive] @id=rda-mra-positive
+        p = from k:BayesMarginal[Bayes marginal] of k:Reopening[] @id=rda-reopening-hazard k:Sensitivity[] @id=rda-mra-sensitivity k:FalsePositive[] @id=rda-mra-false-positive
+        money = [5000,5000] k:Usd[US dollar] @id=rda-usd basis=estimated
+        health = from k:Product[] of k:AngiographyComplication[] @id=rda-angiography-complication k:ComplicationQaly[] @id=rda-complication-qaly in k:Qaly[QALY] @id=rda-qaly
+        chance: k:AngiogramConfirms[Angiogram confirms?] @id=rda-angiogram-confirms
+          event: k:Reopening[reopening] @id=rda-reopening-confirmed
+            p = from k:BayesPosterior[Bayes posterior] of k:Reopening[] @id=rda-reopening-hazard k:Sensitivity[] @id=rda-mra-sensitivity k:FalsePositive[] @id=rda-mra-false-positive
+            decision: k:Retreat[Retreat?] @id=rda-retreat
+              alternative: k:DoRetreat[retreat] @id=rda-retreat-yes
+                money = [35000,35000] k:Usd[US dollar] @id=rda-usd basis=estimated
+                health = from k:Product[] of k:RetreatComplication[] @id=rda-retreat-complication k:ComplicationQaly[] @id=rda-complication-qaly in k:Qaly[QALY] @id=rda-qaly
+                outcome: k:RiskCut[risk cut to a tenth] @id=rda-risk-cut
+                  money = from k:Product[] of k:RetreatLeaves[] @id=rda-retreat-leaves k:RuptureRisk20[] @id=rda-rupture-risk-20 k:RuptureCost[] @id=rda-rupture-cost in k:Usd[US dollar] @id=rda-usd
+                  health = from k:Product[] of k:RetreatLeaves[] @id=rda-retreat-leaves k:RuptureRisk20[] @id=rda-rupture-risk-20 k:RuptureQaly[] @id=rda-rupture-qaly in k:Qaly[QALY] @id=rda-qaly
+              alternative: k:Leave[leave] @id=rda-retreat-no
+                outcome: k:Untreated[rupture risk] @id=rda-untreated-confirmed
+                  money = from k:Product[] of k:RuptureRisk20[] @id=rda-rupture-risk-20 k:RuptureCost[] @id=rda-rupture-cost in k:Usd[US dollar] @id=rda-usd
+                  health = from k:Product[] of k:RuptureRisk20[] @id=rda-rupture-risk-20 k:RuptureQaly[] @id=rda-rupture-qaly in k:Qaly[QALY] @id=rda-qaly
+          residual: k:NoReopening[no reopening] @id=rda-no-reopening-confirmed
+            outcome: k:Clear[clear] @id=rda-clear-after-angiogram
+      residual: k:Negative[negative] @id=rda-mra-negative
+        chance: k:ReopeningMissed[Reopening missed?] @id=rda-reopening-missed
+          event: k:Missed[reopening] @id=rda-missed-reopening
+            p = from k:BayesPosterior[Bayes posterior] of k:Reopening[] @id=rda-reopening-hazard k:FalseNegative[] @id=rda-mra-false-negative k:Specificity[] @id=rda-mra-specificity
+            outcome: k:Untreated[rupture risk] @id=rda-untreated-missed
+              money = from k:Product[] of k:RuptureRisk20[] @id=rda-rupture-risk-20 k:RuptureCost[] @id=rda-rupture-cost in k:Usd[US dollar] @id=rda-usd
+              health = from k:Product[] of k:RuptureRisk20[] @id=rda-rupture-risk-20 k:RuptureQaly[] @id=rda-rupture-qaly in k:Qaly[QALY] @id=rda-qaly
+          residual: k:NoReopening[no reopening] @id=rda-no-reopening-missed
+            outcome: k:Clear[clear] @id=rda-clear-after-negative
+  alternative: k:NoScan[no scan] @id=rda-no-scan
+    chance: k:ReopeningPresent[Reopening present?] @id=rda-reopening-present
+      event: k:Reopening[reopening] @id=rda-reopening-yes
+        p = [0.02,0.02]
+        outcome: k:Untreated[rupture risk] @id=rda-untreated-unscanned
+          money = from k:Product[] of k:RuptureRisk20[] @id=rda-rupture-risk-20 k:RuptureCost[] @id=rda-rupture-cost in k:Usd[US dollar] @id=rda-usd
+          health = from k:Product[] of k:RuptureRisk20[] @id=rda-rupture-risk-20 k:RuptureQaly[] @id=rda-rupture-qaly in k:Qaly[QALY] @id=rda-qaly
+      residual: k:NoReopening[no reopening] @id=rda-no-reopening-unscanned
+        outcome: k:Clear[clear] @id=rda-clear-unscanned
+----
