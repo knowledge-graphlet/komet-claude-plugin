@@ -44,6 +44,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.UUID;
@@ -408,6 +409,16 @@ public final class DecisionTreeText {
                 if (operands.isEmpty()) {
                     findings.add(finding(line, "a derivation reads its operands after of"));
                 }
+                if (parameter && quantity == null && !operands.isEmpty()) {
+                    // the quantity written after the operands instead of before from: unambiguous when
+                    // the kind reads a fixed number of operands and one token is left over
+                    OptionalInt arity = terms.arity(kindNid);
+                    if (arity.isPresent() && operands.size() == arity.getAsInt() + 1) {
+                        quantity = operands.remove(operands.size() - 1);
+                        findings.add(finding(line, "a derived parameter names its quantity before from; read "
+                                + Tokens.concept(quantity.label(), quantity.identifier().orElse(null)) + " as the quantity"));
+                    }
+                }
                 long[] operandNids = operands.stream()
                         .mapToLong(operand -> resolveConcept(line, operand, "an operand")).toArray();
                 if (parameter) {
@@ -449,8 +460,16 @@ public final class DecisionTreeText {
         private List<Item> items(Line line, String head) {
             List<Item> items = new ArrayList<>();
             List<String> words = Tokens.words(head);
+            String keyword = "";
             for (int i = 0; i < words.size(); i++) {
                 String word = words.get(i);
+                if ("from".equals(keyword) && !word.startsWith("k:") && terms.derivationKind(word).isPresent()) {
+                    // a derivation kind written bare after from, as it reads naturally: from CumulativeHazard of ...
+                    items.add(new ConceptItem(new Tokens.Concept(word, "", Optional.empty()), word));
+                    keyword = "";
+                    continue;
+                }
+                keyword = "";
                 if (word.startsWith("k:")) {
                     String text = word;
                     if (i + 1 < words.size() && words.get(i + 1).startsWith("@id=")) {
@@ -470,7 +489,8 @@ public final class DecisionTreeText {
                         items.add(new IntervalItem(prefix.get().interval()));
                     }
                 } else if (List.of("from", "of", "in").contains(word.toLowerCase(Locale.ROOT))) {
-                    items.add(new Keyword(word.toLowerCase(Locale.ROOT)));
+                    keyword = word.toLowerCase(Locale.ROOT);
+                    items.add(new Keyword(keyword));
                 } else {
                     findings.add(finding(line, "an unexpected word: " + word));
                 }

@@ -176,6 +176,15 @@ same axiom control it shows stored definitions with:
 Every token uses the **exact identifier a tool returned**, as in a
 `koncept-tree` block.
 
+## Showing a decision
+
+When the person asks for a decision tree, a decision analysis, or the expected
+cost or value of alternatives under uncertainty, **do not draw it as box art
+and do not roll it back yourself**. Emit a fenced `decision-tree` block and
+Komet draws the tree, folds expected cost at each chance and least cost at
+each decision, and prices health into money at the block's health price. Load
+the **Decision tree** skill for the block's grammar before you write one.
+
 ## Proposing a concept
 
 Only when the person asks to **create or author** the concept, call

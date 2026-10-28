@@ -3044,7 +3044,7 @@ public final class ClaudeCard extends AbstractHostCard {
             conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT, content, true));
             conv.markdown.append("**Komet Assistant:** ").append(content).append("\n\n");
         } else {
-            conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.USER, content, false));
+            conv.entries.add(MarkdownRichText.Entry.user(content));
             conv.markdown.append("**You:** ").append(content).append("\n\n");
         }
     }
@@ -3056,8 +3056,7 @@ public final class ClaudeCard extends AbstractHostCard {
     private void renderUser(Conversation conv, String text) {
         // The exchange begins at the turn this entry is about to occupy (the current end).
         conv.turnStartTurn = conv.entries.size();
-        MarkdownRichText.Entry entry =
-                new MarkdownRichText.Entry(MarkdownRichText.Role.USER, text, false);
+        MarkdownRichText.Entry entry = MarkdownRichText.Entry.user(text);
         conv.entries.add(entry);
         conv.markdown.append("**You:** ").append(text).append("\n\n");
         if (conv == active) {

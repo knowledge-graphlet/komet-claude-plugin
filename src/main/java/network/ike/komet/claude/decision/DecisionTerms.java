@@ -19,6 +19,7 @@ import dev.ikm.tinkar.terms.KernelConcept;
 import network.ike.foundation.ike.bindings.IkeConcept;
 
 import java.util.Locale;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 
 /**
@@ -77,6 +78,20 @@ public record DecisionTerms(
     public boolean isDerivationKind(long nid) {
         return nid == complement || nid == product || nid == cumulativeHazard || nid == bayesPosterior
                 || nid == bayesMarginal;
+    }
+
+    /** How many operands a derivation kind reads, when that is fixed; empty for a product, which reads two or more. */
+    public OptionalInt arity(long kind) {
+        if (kind == complement) {
+            return OptionalInt.of(1);
+        }
+        if (kind == cumulativeHazard) {
+            return OptionalInt.of(2);
+        }
+        if (kind == bayesPosterior || kind == bayesMarginal) {
+            return OptionalInt.of(3);
+        }
+        return OptionalInt.empty();
     }
 
     /**

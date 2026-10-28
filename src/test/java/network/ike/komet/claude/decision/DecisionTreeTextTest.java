@@ -317,6 +317,63 @@ class DecisionTreeTextTest {
         assertTrue(written.contains("k:ScanNow[Scan now?] @id=rda-scan-now"), () -> "the symbols write back: " + written);
     }
 
+    @Test
+    @DisplayName("A derivation kind written bare after from, as the assistant writes it, reads as the kind")
+    void readsABareDerivationKind() {
+        String block = """
+                decision: k:Fix[Fix now?] @id=c1
+                  parameter = [0.01,0.01] k:Hazard[Yearly failure hazard] @id=q106
+                  parameter = [20,20] k:Years[Years at risk] @id=q107
+                  parameter = k:Risk[Twenty-year failure risk] @id=q108 from CumulativeHazard of k:Hazard[] @id=q106 k:Years[] @id=q107
+                  parameter = [150000,150000] k:FailureCost[Cost of a failure] @id=q109 in k:Usd[US dollar] @id=usd-2026
+                  alternative: k:Wait[wait] @id=c2
+                    outcome: k:Exposed[exposed] @id=c3
+                      money = from Product of k:Risk[] @id=q108 k:FailureCost[] @id=q109 in k:Usd[US dollar] @id=usd-2026
+                  alternative: k:Fix[repair] @id=c4
+                    money = [20000,20000] k:Usd[US dollar] @id=usd-2026
+                    outcome: k:Safe[safe] @id=c5
+                """;
+
+        DecisionTreeText.Parsed parsed = DecisionTreeText.parse(block, T, IDS);
+
+        assertTrue(parsed.findings().isEmpty(), () -> "findings: " + parsed.findings());
+        DecisionTree tree = parsed.tree().orElseThrow();
+        Rollback rollback = Rollback.of(tree, at(100_000));
+        DecisionElement.Decision root = tree.decision().orElseThrow();
+        assertEquals((1 - Math.pow(0.99, 20)) * 150_000, rollback.value(root.alternatives().get(0).vertexIndex()).orElseThrow().lower(), 0.01);
+        String written = DecisionTreeText.toAdoc(tree, IDS);
+        assertTrue(written.matches("(?s).*from k:\\S*\\[[^\\]]*] @id=kind-cumulative-hazard of .*"),
+                () -> "a kind read bare writes back as a token with its identity: " + written);
+    }
+
+    @Test
+    @DisplayName("A derived parameter whose quantity is written after the operands is read, with a finding, when the kind's arity leaves one token over")
+    void readsAQuantityWrittenAfterTheOperands() {
+        String block = """
+                decision: k:Fix[Fix now?] @id=c1
+                  parameter = [0.01,0.01] k:Hazard[Yearly failure hazard] @id=q106
+                  parameter = [20,20] k:Years[Years at risk] @id=q107
+                  parameter = from CumulativeHazard of k:Hazard[] @id=q106 k:Years[] @id=q107 k:Risk[Twenty-year failure risk] @id=q108
+                  parameter = [150000,150000] k:FailureCost[Cost of a failure] @id=q109 in k:Usd[US dollar] @id=usd-2026
+                  alternative: k:Wait[wait] @id=c2
+                    outcome: k:Exposed[exposed] @id=c3
+                      money = from Product of k:Risk[] @id=q108 k:FailureCost[] @id=q109 in k:Usd[US dollar] @id=usd-2026
+                  alternative: k:Fix[repair] @id=c4
+                    money = [20000,20000] k:Usd[US dollar] @id=usd-2026
+                    outcome: k:Safe[safe] @id=c5
+                """;
+
+        DecisionTreeText.Parsed parsed = DecisionTreeText.parse(block, T, IDS);
+
+        assertFinding(parsed, "line 4", "names its quantity before from");
+        assertEquals(1, parsed.findings().size(), () -> "findings: " + parsed.findings());
+        DecisionTree tree = parsed.tree().orElseThrow();
+        Rollback rollback = Rollback.of(tree, at(100_000));
+        DecisionElement.Decision root = tree.decision().orElseThrow();
+        assertEquals((1 - Math.pow(0.99, 20)) * 150_000, rollback.value(root.alternatives().get(0).vertexIndex()).orElseThrow().lower(), 0.01);
+        assertTrue(DecisionTreeText.toAdoc(tree, IDS).contains("@id=q108 from k:"), "it writes back in the canonical order");
+    }
+
     private static void assertFinding(DecisionTreeText.Parsed parsed, String line, String text) {
         assertTrue(parsed.findings().anySatisfy((ProfileFinding f) ->
                         f.message().startsWith(line + ":") && f.message().contains(text)),

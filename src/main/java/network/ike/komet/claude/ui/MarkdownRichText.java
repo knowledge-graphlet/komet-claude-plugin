@@ -95,6 +95,23 @@ public final class MarkdownRichText {
      * @param markdown whether to render {@code content} as Markdown
      */
     public record Entry(Role role, String content, boolean markdown) {
+
+        /**
+         * A person's turn: drawn as the plain text they typed, unless it carries a fenced block,
+         * which is deliberate, so a pasted {@code decision-tree} or {@code koncept-tree} block
+         * renders in the prompt as it does in a reply.
+         */
+        public static Entry user(String content) {
+            return new Entry(Role.USER, content, fenced(content));
+        }
+
+        /** Whether a text opens a fenced code block: a line beginning with three backticks. */
+        static boolean fenced(String content) {
+            if (content == null) {
+                return false;
+            }
+            return content.lines().anyMatch(line -> line.startsWith("```"));
+        }
     }
 
     /** Base body font size (px); the role label and the renderer both scale from it. */
