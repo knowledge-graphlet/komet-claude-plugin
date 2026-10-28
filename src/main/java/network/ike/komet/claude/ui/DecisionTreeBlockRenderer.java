@@ -28,9 +28,13 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Cursor;
 import javafx.scene.Node;
+import javafx.scene.control.Button;
+import javafx.scene.control.Hyperlink;
 import javafx.scene.control.Label;
+import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
+import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
@@ -41,24 +45,16 @@ import network.ike.komet.claude.block.BlockLines;
 import network.ike.komet.claude.block.Identities;
 import network.ike.komet.claude.block.Tokens;
 import network.ike.komet.claude.decision.Bounds;
-
-import java.util.Locale;
-import network.ike.komet.claude.decision.DecisionElement;
-import network.ike.komet.claude.decision.DecisionElement.Alternative;
-import network.ike.komet.claude.decision.DecisionElement.Chance;
 import network.ike.komet.claude.decision.DecisionElement.Cost;
-import network.ike.komet.claude.decision.DecisionElement.Decision;
-import network.ike.komet.claude.decision.DecisionElement.Event;
 import network.ike.komet.claude.decision.DecisionElement.HealthCost;
 import network.ike.komet.claude.decision.DecisionElement.MoneyCost;
-import network.ike.komet.claude.decision.DecisionElement.Outcome;
 import network.ike.komet.claude.decision.DecisionElement.Parameter;
-import network.ike.komet.claude.decision.Derivations;
 import network.ike.komet.claude.decision.DecisionTerms;
 import network.ike.komet.claude.decision.DecisionTree;
+import network.ike.komet.claude.decision.DecisionTreeEdits;
 import network.ike.komet.claude.decision.DecisionTreeFeedback;
 import network.ike.komet.claude.decision.DecisionTreeText;
-import network.ike.komet.claude.decision.Measure;
+import network.ike.komet.claude.decision.Derivations;
 import network.ike.komet.claude.decision.Rollback;
 import network.ike.komet.claude.decision.ValuationCoordinate;
 import network.ike.komet.claude.decision.ViewIdentities;
@@ -66,23 +62,27 @@ import network.ike.komet.claude.koncept.ComponentText;
 import org.eclipse.collections.api.list.ImmutableList;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.Set;
 
 /**
  * The live rendering of a {@code decision-tree} block on the assistant surface
- * ({@code dev-decision-tree-blocks}): the tree as indented rows in the decision-analytic
- * notation, a square for a decision, a circle for a chance, each node's concept as the shared
- * Koncept chip, its measures beside it, and the rolled-back value every node is left with under
- * a valuation coordinate, computed on the view and never stored. The health price is the one
- * dimension of the coordinate the block lets the reader move: a field beside the title re-rolls
- * the tree back, so the same tree reads at several prices of a healthy year, as the regulatory
- * topics present it. A finding of the parse, the profile's checks or the rollback is listed
- * beneath the tree, as a definition block lists its modelling gaps.
+ * ({@code dev-decision-tree-blocks}): the tree drawn as decision analysts draw it, by the
+ * {@link DecisionTreeDiagram} on the shared {@link network.ike.komet.claude.decision.DecisionTreeLayout},
+ * with the model's parameters above it, each node's concept as the shared Koncept chip, and the
+ * rolled-back value beside every glyph under a valuation coordinate, computed on the view and
+ * never stored. The reader may move any stated number and the health price as a what-if: the
+ * block's text is restated on that one line, read again through the same parser, and the tree
+ * redrawn, so the what-if stays what the block would say if written so. It stays a what-if until
+ * the reader writes it back, which hands the restated block to the surface's
+ * {@link BlockRewriter}; a surface without one offers the what-if alone. A finding of the parse,
+ * the profile's checks or the rollback is listed beneath the tree and shown at the glyph it sits
+ * on.
  *
  * <p>The block declines when it is not this profile's, when it has no root decision line, or
  * when there is no view to resolve against, so the text renders preformatted as any other
@@ -91,14 +91,11 @@ import java.util.OptionalLong;
  */
 final class DecisionTreeBlockRenderer implements BlockRenderer {
 
-    private static final double INDENT_PER_LEVEL = 16;
-
     private final ViewCalculator viewCalc;
     private final ViewProperties viewProperties;
     private final double base;
     private KonceptLabelTypography typography = KonceptLabelTypography.DEFAULT;
-    /** The identities the block being built was read by, so a concept local to it draws as such. */
-    private Identities ids;
+    private BlockRewriter rewriter;
 
     DecisionTreeBlockRenderer(ViewCalculator viewCalc, double base) {
         this(viewCalc, null, base);
@@ -118,6 +115,11 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         this.typography = typography == null ? KonceptLabelTypography.DEFAULT : typography;
     }
 
+    /** Where a what-if goes when the reader writes it back; null offers the what-if alone. */
+    void setRewriter(BlockRewriter rewriter) {
+        this.rewriter = rewriter;
+    }
+
     @Override
     public List<BlockPiece> render(String info, String literal, StyleAttributeMap baseStyle) {
         if (viewCalc == null || !accepts(info, literal)) {
@@ -125,7 +127,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         }
         String body = literal == null ? "" : literal;
         double price = DecisionTreeText.healthPrice(info).orElse(DecisionTreeText.DEFAULT_HEALTH_PRICE);
-        return List.of(new BlockPiece(() -> buildView(body, price), body.stripTrailing()));
+        return List.of(new BlockPiece(() -> new Live(info, body, price).column, body.stripTrailing()));
     }
 
     // ── Pure decisions (no store access) ────────────────────────────────
@@ -144,53 +146,261 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                 && "decision".equals(lines.roots().get(0).word());
     }
 
-    // ── View building (JavaFX application thread) ───────────────────────
+    /**
+     * A rolled-back value, which is money, to the whole unit, as the regulatory topics print
+     * their worked numbers: a point as one number, an interval with its two bounds.
+     */
+    static String money(Bounds bounds) {
+        if (bounds.isPoint()) {
+            return String.format(Locale.ROOT, "%,d", Math.round(bounds.lower()));
+        }
+        return (bounds.lowerOpen() ? "(" : "[") + String.format(Locale.ROOT, "%,d", Math.round(bounds.lower()))
+                + ", " + String.format(Locale.ROOT, "%,d", Math.round(bounds.upper())) + (bounds.upperOpen() ? ")" : "]");
+    }
 
-    private Node buildView(String body, double price) {
-        DecisionTerms terms = DecisionTerms.fromBindings();
+    // ── The live block (JavaFX application thread) ───────────────────────
+
+    /**
+     * One rendering of the block: the text it was read from, the text the what-if has made of
+     * it, the price, which nodes are folded, and the column that shows it all, rebuilt whenever
+     * any of these move.
+     */
+    private final class Live implements DecisionTreeDiagram.Host {
+        final String originalInfo;
+        final String originalBody;
+        final double originalPrice;
+        String body;
+        double price;
+        int moves;
+        final Set<Integer> collapsed = new HashSet<>();
+        final VBox column = new VBox(6);
+        final DecisionTerms terms = DecisionTerms.fromBindings();
         // The view resolves what the store holds; a symbol the store lacks, as a block written for
         // the documentation build names its concepts, is read as a concept local to the block.
-        Identities ids = new BlockIdentities(new ViewIdentities(viewCalc));
-        this.ids = ids;
-        DecisionTreeText.Parsed parsed = DecisionTreeText.parse(body, terms, ids);
-        List<ProfileFinding> findings = new ArrayList<>(parsed.findings().castToList());
-        if (parsed.tree().isEmpty()) {
-            return findingsOnly(findings);
-        }
-        DecisionTree tree = parsed.tree().get();
-        findings.addAll(tree.check().castToList());
+        final Identities ids = new BlockIdentities(new ViewIdentities(viewCalc));
+        DecisionTreeText.Parsed parsed;
+        DecisionTree tree;
 
-        VBox column = new VBox(3);
-        column.getStyleClass().add("decision-tree");
-        column.setCursor(Cursor.DEFAULT);
-        column.setFillWidth(false);
-
-        Live live = new Live(tree, terms, ids, findings);
-        column.getChildren().add(header(tree, live, price));
-        Derivations derivations = Derivations.of(tree);
-        for (Parameter parameter : tree.nodesOfType(Parameter.class)) {
-            column.getChildren().add(parameterRow(tree, derivations, parameter));
+        Live(String info, String body, double price) {
+            this.originalInfo = info;
+            this.originalBody = body;
+            this.originalPrice = price;
+            this.body = body;
+            this.price = price;
+            column.getStyleClass().add("decision-tree");
+            column.setCursor(Cursor.DEFAULT);
+            column.setFillWidth(true);
+            column.setMaxWidth(Double.MAX_VALUE);
+            column.parentProperty().addListener((obs, oldParent, newParent) -> {
+                column.maxWidthProperty().unbind();
+                if (newParent instanceof Region host) {
+                    column.maxWidthProperty().bind(host.widthProperty());
+                }
+            });
+            rebuild();
         }
-        Optional<DecisionElement> root = tree.root();
-        if (root.isPresent() && root.get() instanceof DecisionElement.Node node) {
-            rows(column, tree, derivations, node, 0, live);
-        }
-        Label gaps = new Label();
-        gaps.setFont(Font.font(base * 0.9));
-        gaps.setWrapText(true);
-        gaps.setStyle("-fx-text-fill: #8a5a00;");
-        column.getChildren().add(gaps);
-        live.gaps = gaps;
-        live.rollBack(price);
 
-        column.setMaxWidth(Double.MAX_VALUE);
-        column.parentProperty().addListener((obs, oldParent, newParent) -> {
-            column.maxWidthProperty().unbind();
-            if (newParent instanceof Region host) {
-                column.maxWidthProperty().bind(host.widthProperty());
+        void rebuild() {
+            parsed = DecisionTreeText.parse(body, terms, ids);
+            List<ProfileFinding> findings = new ArrayList<>(parsed.findings().castToList());
+            column.getChildren().clear();
+            if (parsed.tree().isEmpty()) {
+                column.getChildren().add(findingsOnly(findings));
+                return;
             }
-        });
-        return column;
+            tree = parsed.tree().get();
+            findings.addAll(tree.check().castToList());
+            ValuationCoordinate coordinate = ValuationCoordinate.pricingHealthAt(Bounds.point(price),
+                    semantic(MoneyCost.class, terms.moneySemantic()), semantic(HealthCost.class, terms.healthSemantic()));
+            Rollback rollback = Rollback.of(tree, coordinate);
+
+            column.getChildren().add(header(rollback));
+            Node parameters = parameters(rollback.derivations());
+            if (parameters != null) {
+                column.getChildren().add(parameters);
+            }
+            DecisionTreeDiagram diagram = new DecisionTreeDiagram(tree, rollback, ids, findings, collapsed, base, this);
+            ScrollPane scroll = new ScrollPane(diagram);
+            scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+            scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+            scroll.setPannable(true);
+            scroll.setFitToHeight(true);
+            // Only the colour, never -fx-background itself: modena ladders every label's text colour off
+            // -fx-background, and a transparent one reads as light, which fades every chip in the drawing.
+            scroll.setStyle("-fx-background-color: transparent; -fx-padding: 0;");
+            scroll.setPrefViewportHeight(diagram.prefHeight(-1));
+            diagram.drawnHeightProperty().addListener((obs, was, now) -> scroll.setPrefViewportHeight(now.doubleValue()));
+            column.getChildren().add(scroll);
+
+            List<String> messages = new ArrayList<>();
+            // Named by the node they are on, as the feedback to the assistant names them, not by vertex index.
+            // The note that only lists the block's local symbols is not a gap: the dashed chips say it.
+            findings.stream().filter(finding -> !DecisionTreeFeedback.isLocalSymbolsNote(finding))
+                    .forEach(finding -> messages.add(DecisionTreeFeedback.describe(tree, ids, finding)));
+            rollback.findings().forEach(finding -> messages.add(DecisionTreeFeedback.describe(tree, ids, finding)));
+            if (!messages.isEmpty()) {
+                Label gaps = new Label(String.join("\n", messages));
+                gaps.setFont(Font.font(base * 0.9));
+                gaps.setWrapText(true);
+                gaps.setStyle("-fx-text-fill: #8a5a00;");
+                column.getChildren().add(gaps);
+            }
+            if (moves > 0) {
+                column.getChildren().add(whatIfBar());
+            }
+        }
+
+        /** The title row: what the tree decides, its value, and the health price the reader may move. */
+        private HBox header(Rollback rollback) {
+            HBox header = new HBox(8);
+            header.setAlignment(Pos.CENTER_LEFT);
+            Label title = new Label("Decision tree");
+            title.setFont(Font.font(null, FontWeight.BOLD, base));
+            header.getChildren().add(title);
+            tree.decision().ifPresent(decision -> concept(decision.concept()).ifPresent(header.getChildren()::add));
+            Label priceLabel = new Label("healthy year at");
+            priceLabel.setFont(Font.font(base * 0.9));
+            TextField priceField = new TextField(Tokens.number(price));
+            priceField.setId("health-price-field");
+            priceField.setFont(Font.font(base * 0.9));
+            priceField.setPrefColumnCount(8);
+            priceField.setOnAction(event -> {
+                try {
+                    double typed = Double.parseDouble(priceField.getText().replace(",", "").replace("$", "").strip());
+                    if (typed != price) {
+                        price = typed;
+                        moves++;
+                        rebuild();
+                    }
+                } catch (NumberFormatException e) {
+                    priceField.setStyle("-fx-border-color: #c0392b;");
+                }
+            });
+            header.getChildren().addAll(priceLabel, priceField);
+            rollback.rootValue().ifPresent(value -> {
+                Label expected = new Label("expected cost " + money(value));
+                expected.setFont(Font.font(null, FontWeight.BOLD, base * 0.9));
+                header.getChildren().add(expected);
+            });
+            return header;
+        }
+
+        /** The model's parameters, each its quantity and its value, stated ones offered for a what-if. */
+        private Node parameters(Derivations derivations) {
+            ImmutableList<Parameter> all = tree.nodesOfType(Parameter.class);
+            if (all.isEmpty()) {
+                return null;
+            }
+            FlowPane flow = new FlowPane(14, 4);
+            flow.setAlignment(Pos.CENTER_LEFT);
+            flow.setPadding(new Insets(0, 0, 2, 0));
+            // A FlowPane reports its height for its wrap length, not its width: wrap at the column's width
+            // or it asks for rows it will not fill and leaves a blank band beneath.
+            flow.prefWrapLengthProperty().bind(column.widthProperty().subtract(4));
+            for (Parameter parameter : all) {
+                HBox item = new HBox(5);
+                item.setAlignment(Pos.CENTER_LEFT);
+                item.getChildren().add(concept(parameter.quantity()).orElseGet(() -> plain("parameter")));
+                int index = parameter.vertexIndex();
+                boolean editable = editable(index);
+                item.getChildren().add(new MeasureChip("", derivations.bounds(index), parameter.measure(), ids, base,
+                        editable ? bounds -> edit(index, bounds) : null));
+                flow.getChildren().add(item);
+            }
+            return flow;
+        }
+
+        /** What the what-if has moved, and the two ways out: back to the block, or into it. */
+        private HBox whatIfBar() {
+            HBox bar = new HBox(10);
+            bar.setAlignment(Pos.CENTER_LEFT);
+            bar.setPadding(new Insets(2, 6, 2, 6));
+            bar.setStyle("-fx-background-color: #fff8e6; -fx-background-radius: 6; -fx-border-color: #e6c87a;"
+                    + " -fx-border-radius: 6;");
+            Label what = new Label("What-if: " + (moves == 1 ? "one value moved" : moves + " values moved")
+                    + (rewriter == null ? "; the block is unchanged" : ""));
+            what.setFont(Font.font(base * 0.9));
+            bar.getChildren().add(what);
+            Hyperlink revert = new Hyperlink("Revert");
+            revert.setFont(Font.font(base * 0.9));
+            revert.setOnAction(e -> {
+                body = originalBody;
+                price = originalPrice;
+                moves = 0;
+                rebuild();
+            });
+            bar.getChildren().add(revert);
+            if (rewriter != null) {
+                Button write = new Button("Write back to the block");
+                write.setFont(Font.font(base * 0.9));
+                write.setTooltip(new Tooltip("Restates the block in the document with these values"));
+                write.setOnAction(e -> {
+                    String newInfo = price == originalPrice ? originalInfo
+                            : DecisionTreeEdits.withHealthPrice(originalInfo, price);
+                    rewriter.rewrite(originalInfo, originalBody, newInfo, body);
+                });
+                bar.getChildren().add(write);
+            }
+            return bar;
+        }
+
+        // ── The diagram's host ──────────────────────────────────────────────
+
+        @Override
+        public Optional<Node> concept(OptionalLong nid) {
+            if (nid.isEmpty()) {
+                return Optional.empty();
+            }
+            if (ids.isLocal(nid.getAsLong())) {
+                return Optional.of(localConcept(ids.label(nid.getAsLong())));
+            }
+            Optional<PublicId> pid = ComponentText.publicId(nid.getAsLong());
+            if (pid.isEmpty()) {
+                return Optional.empty();
+            }
+            String sctid = ComponentText.sctid(viewCalc, nid.getAsLong()).orElse(null);
+            Node chip = viewProperties != null
+                    ? KonceptChips.chip(pid.get(), sctid, viewProperties, base, typography)
+                    : KonceptChips.chip(pid.get(), sctid, viewCalc, base, typography);
+            if (chip instanceof KonceptBadge badge) {
+                badge.setStatusSlotReserved(true);
+            }
+            return Optional.of(chip);
+        }
+
+        @Override
+        public boolean editable(int measureVertex) {
+            return parsed.lineOf(measureVertex).isPresent() && tree.measure(measureVertex).stated();
+        }
+
+        @Override
+        public void edit(int measureVertex, Bounds bounds) {
+            OptionalInt line = parsed.lineOf(measureVertex);
+            if (line.isEmpty()) {
+                return;
+            }
+            DecisionTreeEdits.restate(body, line.getAsInt(), bounds).ifPresent(restated -> {
+                if (!restated.equals(body)) {
+                    body = restated;
+                    moves++;
+                    rebuild();
+                }
+            });
+        }
+
+        @Override
+        public void toggle(int nodeVertex) {
+            if (!collapsed.remove(nodeVertex)) {
+                collapsed.add(nodeVertex);
+            }
+            rebuild();
+        }
+
+        /** The semantic the tree's costs of a kind are on, taken from the first such cost; the parent semantic otherwise. */
+        private long semantic(Class<? extends Cost> kind, long fallback) {
+            ImmutableList<? extends Cost> costs = tree.nodesOfType(kind);
+            return costs.isEmpty() ? fallback : costs.get(0).measure().semanticNid();
+        }
     }
 
     private Node findingsOnly(List<ProfileFinding> findings) {
@@ -207,120 +417,10 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         return column;
     }
 
-    /** The title row: what the tree decides, and the health price the reader may move. */
-    private HBox header(DecisionTree tree, Live live, double price) {
-        HBox header = new HBox(8);
-        header.setAlignment(Pos.CENTER_LEFT);
-        Label title = new Label("Decision tree");
-        title.setFont(Font.font(null, FontWeight.BOLD, base));
-        header.getChildren().add(title);
-        tree.decision().ifPresent(decision -> concept(decision.concept()).ifPresent(header.getChildren()::add));
-        Label priceLabel = new Label("healthy year at");
-        priceLabel.setFont(Font.font(base * 0.9));
-        TextField priceField = new TextField(Tokens.number(price));
-        priceField.setFont(Font.font(base * 0.9));
-        priceField.setPrefColumnCount(8);
-        priceField.setOnAction(event -> {
-            try {
-                live.rollBack(Double.parseDouble(priceField.getText().replace(",", "").strip()));
-                priceField.setStyle("");
-            } catch (NumberFormatException e) {
-                priceField.setStyle("-fx-border-color: #c0392b;");
-            }
-        });
-        header.getChildren().addAll(priceLabel, priceField);
-        return header;
-    }
-
-    /** A parameter of the method: its quantity, its value, stated or derived, and where it rests. */
-    private HBox parameterRow(DecisionTree tree, Derivations derivations, Parameter parameter) {
-        HBox row = new HBox(6);
-        row.setAlignment(Pos.CENTER_LEFT);
-        row.setPadding(new Insets(0, 0, 0, INDENT_PER_LEVEL));
-        Label glyph = new Label("≔");
-        glyph.setFont(Font.font(base));
-        glyph.setMinWidth(base * 1.2);
-        row.getChildren().add(glyph);
-        row.getChildren().add(concept(parameter.quantity()).orElseGet(() -> plain("parameter")));
-        Measure measure = parameter.measure();
-        String value = derivations.bounds(parameter.vertexIndex()).map(Bounds::toString).orElse("not determinable");
-        Label text = new Label(measure.derived() ? "derived: " + value : value);
-        text.setFont(Font.font(base * 0.9));
-        text.setStyle("-fx-text-fill: #555;");
-        row.getChildren().add(text);
-        return row;
-    }
-
-    /** One row per node, depth first, with its measures in the row and its value at the end. */
-    private void rows(VBox column, DecisionTree tree, Derivations derivations, DecisionElement.Node node, int depth,
-                      Live live) {
-        HBox row = new HBox(6);
-        row.setAlignment(Pos.CENTER_LEFT);
-        row.setPadding(new Insets(0, 0, 0, depth * INDENT_PER_LEVEL));
-
-        Label glyph = new Label(glyph(node));
-        glyph.setFont(Font.font(base));
-        glyph.setMinWidth(base * 1.2);
-        row.getChildren().add(glyph);
-
-        row.getChildren().add(concept(node.concept()).orElseGet(() -> plain(word(node))));
-
-        String measures = measures(tree, derivations, node);
-        if (!measures.isEmpty()) {
-            Label text = new Label(measures);
-            text.setFont(Font.font(base * 0.9));
-            text.setStyle("-fx-text-fill: #555;");
-            row.getChildren().add(text);
-        }
-
-        Label value = new Label();
-        value.setFont(Font.font(null, FontWeight.BOLD, base * 0.9));
-        row.getChildren().add(value);
-        live.values.put(node.vertexIndex(), value);
-
-        column.getChildren().add(row);
-        for (DecisionElement.Node child : tree.children(node.vertexIndex(), DecisionElement.Node.class)) {
-            rows(column, tree, derivations, child, depth + 1, live);
-        }
-    }
-
-    private Optional<Node> concept(OptionalLong nid) {
-        if (nid.isEmpty()) {
-            return Optional.empty();
-        }
-        if (ids != null && ids.isLocal(nid.getAsLong())) {
-            return Optional.of(localConcept(ids.label(nid.getAsLong())));
-        }
-        Optional<PublicId> pid = ComponentText.publicId(nid.getAsLong());
-        if (pid.isEmpty()) {
-            return Optional.empty();
-        }
-        String sctid = ComponentText.sctid(viewCalc, nid.getAsLong()).orElse(null);
-        Node chip = viewProperties != null
-                ? KonceptChips.chip(pid.get(), sctid, viewProperties, base, typography)
-                : KonceptChips.chip(pid.get(), sctid, viewCalc, base, typography);
-        if (chip instanceof KonceptBadge badge) {
-            badge.setStatusSlotReserved(true);
-        }
-        return Optional.of(chip);
-    }
-
     private Label plain(String text) {
         Label label = new Label(text);
         label.setFont(Font.font(base));
         return label;
-    }
-
-    /**
-     * A rolled-back value, which is money, to the whole unit, as the regulatory topics print
-     * their worked numbers: a point as one number, an interval with its two bounds.
-     */
-    static String money(Bounds bounds) {
-        if (bounds.isPoint()) {
-            return String.format(Locale.ROOT, "%,d", Math.round(bounds.lower()));
-        }
-        return (bounds.lowerOpen() ? "(" : "[") + String.format(Locale.ROOT, "%,d", Math.round(bounds.lower()))
-                + ", " + String.format(Locale.ROOT, "%,d", Math.round(bounds.upper())) + (bounds.upperOpen() ? ")" : "]");
     }
 
     /**
@@ -332,93 +432,9 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         chip.setFont(Font.font(base * 0.95));
         chip.getStyleClass().add("decision-local-concept");
         chip.setStyle("-fx-background-color: #f4f2ec; -fx-background-radius: 9; -fx-padding: 1 7 1 7;"
-                + " -fx-border-color: #b9b3a3; -fx-border-radius: 9; -fx-border-style: dashed; -fx-border-width: 1;");
+                + " -fx-text-fill: #333; -fx-border-color: #b9b3a3; -fx-border-radius: 9; -fx-border-style: dashed;"
+                + " -fx-border-width: 1;");
         chip.setTooltip(new Tooltip("Not in the knowledge base: read as a concept local to this block"));
         return chip;
-    }
-
-    /** The measures a node carries, as text: its probability, then its costs, derived ones computed. */
-    private static String measures(DecisionTree tree, Derivations derivations, DecisionElement.Node node) {
-        List<String> parts = new ArrayList<>();
-        if (node instanceof Event event) {
-            event.probability().ifPresentOrElse(
-                    probability -> parts.add("p " + shown(derivations, probability.vertexIndex())),
-                    () -> parts.add(event.residual() ? "residual" : "p ?"));
-        }
-        for (DecisionElement child : tree.children(node.vertexIndex())) {
-            if (child instanceof Cost cost) {
-                parts.add((cost instanceof MoneyCost ? "money " : "health ") + shown(derivations, cost.vertexIndex()));
-            }
-        }
-        return String.join(" · ", parts);
-    }
-
-    private static String shown(Derivations derivations, int vertexIndex) {
-        return derivations.bounds(vertexIndex).map(Bounds::toString).orElse("?");
-    }
-
-    private static String glyph(DecisionElement.Node node) {
-        return switch (node) {
-            case Decision d -> "■";
-            case Chance c -> "●";
-            case Alternative a -> "▸";
-            case Event e -> "→";
-            case Outcome o -> "◆";
-        };
-    }
-
-    private static String word(DecisionElement.Node node) {
-        return switch (node) {
-            case Decision d -> "decision";
-            case Chance c -> "chance";
-            case Alternative a -> "alternative";
-            case Event e -> e.residual() ? "residual" : "event";
-            case Outcome o -> "outcome";
-        };
-    }
-
-    /** The rolled-back values on the rows, re-computed when the reader moves the health price. */
-    private static final class Live {
-        final DecisionTree tree;
-        final DecisionTerms terms;
-        final Identities ids;
-        final List<ProfileFinding> staticFindings;
-        final Map<Integer, Label> values = new HashMap<>();
-        Label gaps;
-
-        Live(DecisionTree tree, DecisionTerms terms, Identities ids, List<ProfileFinding> staticFindings) {
-            this.tree = tree;
-            this.terms = terms;
-            this.ids = ids;
-            this.staticFindings = staticFindings;
-        }
-
-        void rollBack(double price) {
-            ValuationCoordinate coordinate = ValuationCoordinate.pricingHealthAt(Bounds.point(price),
-                    semantic(MoneyCost.class, terms.moneySemantic()), semantic(HealthCost.class, terms.healthSemantic()));
-            Rollback rollback = Rollback.of(tree, coordinate);
-            values.forEach((index, label) -> {
-                Optional<Bounds> value = rollback.value(index);
-                String text = value.map(bounds -> "⇒ " + money(bounds)).orElse("⇒ not determinable");
-                OptionalInt parent = tree.parentIndex(index);
-                if (parent.isPresent() && rollback.chosen(parent.getAsInt()).orElse(-1) == index) {
-                    text += "  ✓ chosen";
-                }
-                label.setText(text);
-            });
-            List<String> messages = new ArrayList<>();
-            // Named by the node they are on, as the feedback to the assistant names them, not by vertex index.
-            staticFindings.forEach(finding -> messages.add(DecisionTreeFeedback.describe(tree, ids, finding)));
-            rollback.findings().forEach(finding -> messages.add(DecisionTreeFeedback.describe(tree, ids, finding)));
-            gaps.setText(messages.isEmpty() ? "" : String.join("\n", messages));
-            gaps.setVisible(!messages.isEmpty());
-            gaps.setManaged(!messages.isEmpty());
-        }
-
-        /** The semantic the tree's costs of a kind are on, taken from the first such cost; the parent semantic otherwise. */
-        private long semantic(Class<? extends Cost> kind, long fallback) {
-            ImmutableList<? extends Cost> costs = tree.nodesOfType(kind);
-            return costs.isEmpty() ? fallback : costs.get(0).measure().semanticNid();
-        }
     }
 }

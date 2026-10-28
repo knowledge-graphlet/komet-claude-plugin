@@ -172,6 +172,11 @@ public final class DecisionTreeFeedback {
     }
 
     /** Whether a transcript turn is Komet's feedback rather than a person's words. */
+    /** Whether a finding is the reader's note that only lists the block's local symbols: information, not a gap. */
+    public static boolean isLocalSymbolsNote(ProfileFinding finding) {
+        return finding.vertexIndex() < 0 && finding.message().contains("local to the block");
+    }
+
     public static boolean isFeedback(String content) {
         return content != null && content.startsWith(PREFIX);
     }

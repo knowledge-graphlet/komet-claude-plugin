@@ -34,7 +34,10 @@ import network.ike.komet.claude.decision.DecisionElement.Outcome;
 import network.ike.komet.claude.decision.DecisionElement.Parameter;
 import network.ike.komet.claude.decision.DecisionElement.Probability;
 import org.eclipse.collections.api.factory.Lists;
+import org.eclipse.collections.api.factory.primitive.IntIntMaps;
 import org.eclipse.collections.api.list.ImmutableList;
+import org.eclipse.collections.api.map.primitive.ImmutableIntIntMap;
+import org.eclipse.collections.api.map.primitive.MutableIntIntMap;
 import org.eclipse.collections.api.list.MutableList;
 import org.eclipse.collections.api.list.primitive.ImmutableLongList;
 
@@ -130,8 +133,22 @@ public final class DecisionTreeText {
         return Optional.empty();
     }
 
-    /** What a parse produced: the tree, when there was a root to build from, and every finding. */
-    public record Parsed(Optional<DecisionTree> tree, ImmutableList<ProfileFinding> findings) {
+    /**
+     * What a parse produced: the tree, when there was a root to build from, every finding, and
+     * the line of the text each vertex was read from, so a surface that lets the reader move a
+     * number can restate the line that states it.
+     */
+    public record Parsed(Optional<DecisionTree> tree, ImmutableList<ProfileFinding> findings,
+                         ImmutableIntIntMap lines) {
+
+        public Parsed(Optional<DecisionTree> tree, ImmutableList<ProfileFinding> findings) {
+            this(tree, findings, IntIntMaps.immutable.empty());
+        }
+
+        /** The one-based line a vertex was read from, when the text stated it. */
+        public OptionalInt lineOf(int vertexIndex) {
+            return lines.containsKey(vertexIndex) ? OptionalInt.of(lines.get(vertexIndex)) : OptionalInt.empty();
+        }
     }
 
     // ── Emit ─────────────────────────────────────────────────────────────────
@@ -288,6 +305,7 @@ public final class DecisionTreeText {
         }
         DecisionTree.Builder builder = DecisionTree.builder(terms);
         DecisionTree.Builder.Handle rootHandle = builder.decision(reader.concept(root, "a decision"), reader.vertexId(root));
+        reader.lines.put(rootHandle.vertexIndex(), root.number());
         reader.attributes(root, rootHandle, false);
         reader.children(root, rootHandle, "decision");
         if (!reader.localSymbols.isEmpty()) {
@@ -295,7 +313,7 @@ public final class DecisionTreeText {
                     + " identifiers name nothing in the knowledge base and are read as concepts local to the block: "
                     + String.join(", ", reader.localSymbols)));
         }
-        return new Parsed(Optional.of(builder.tree()), reader.findings.toImmutable());
+        return new Parsed(Optional.of(builder.tree()), reader.findings.toImmutable(), reader.lines.toImmutable());
     }
 
     private static ProfileFinding finding(Line line, String message) {
@@ -320,6 +338,8 @@ public final class DecisionTreeText {
         private final DecisionTerms terms;
         private final Identities ids;
         private final MutableList<ProfileFinding> findings = Lists.mutable.empty();
+        /** The line each vertex was read from. */
+        private final MutableIntIntMap lines = IntIntMaps.mutable.empty();
         /** The identifiers the store lacked that the identities made local, in reading order. */
         private final Set<String> localSymbols = new LinkedHashSet<>();
 
@@ -347,6 +367,7 @@ public final class DecisionTreeText {
                     findings.add(finding(child, "unknown kind of vertex under " + parentWord + ": " + child.word()));
                     continue;
                 }
+                lines.put(childHandle.vertexIndex(), child.number());
                 attributes(child, childHandle, "outcome".equals(child.word()));
                 children(child, childHandle, child.word());
             }
@@ -475,6 +496,7 @@ public final class DecisionTreeText {
                     measure = node.measure(kind, bounds, semantic, vertexId);
                 }
             }
+            lines.put(measure.vertexIndex(), line.number());
             Map<String, String> attributes = line.attributes();
             attributes.forEach((name, value) -> {
                 switch (name) {

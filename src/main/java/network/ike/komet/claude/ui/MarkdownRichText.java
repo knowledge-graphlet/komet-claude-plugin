@@ -226,6 +226,11 @@ public final class MarkdownRichText {
      *
      * @param store the width store, or {@code null} to make column resizing session-local
      */
+    /** Where a rendered decision tree's what-if goes when the reader writes it back; null offers the what-if alone. */
+    public void setBlockRewriter(BlockRewriter rewriter) {
+        decisions.setRewriter(rewriter);
+    }
+
     public void setTableColumnWidths(TableColumnWidths store) {
         renderer.setColumnWidths(store);
     }

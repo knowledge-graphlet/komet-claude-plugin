@@ -156,6 +156,11 @@ public final class BlockFactory {
      *
      * @param store the width store, or {@code null} to make column resizing session-local
      */
+    /** Where a rendered block's what-if goes when the reader writes it back into the document. */
+    public void setBlockRewriter(network.ike.komet.claude.ui.BlockRewriter rewriter) {
+        markdown.setBlockRewriter(rewriter);
+    }
+
     public void setTableColumnWidths(TableColumnWidths store) {
         markdown.setTableColumnWidths(store);
     }

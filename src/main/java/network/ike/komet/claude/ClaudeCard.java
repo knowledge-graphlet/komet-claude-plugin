@@ -94,6 +94,7 @@ import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.anthropic.AskListener;
 import network.ike.komet.claude.block.BlockIdentities;
+import network.ike.komet.claude.block.FencedBlocks;
 import network.ike.komet.claude.block.Identities;
 import network.ike.komet.claude.decision.DecisionTerms;
 import network.ike.komet.claude.decision.DecisionTreeFeedback;
@@ -1523,6 +1524,7 @@ public final class ClaudeCard extends AbstractHostCard {
         // With the card's view, chips carry their status cluster and definition popout (#941).
         BlockFactory blocks = new BlockFactory(safeViewProperties(), baseFontSize);
         blocks.setChipTypography(chipTypography());
+        blocks.setBlockRewriter(this::rewriteBlock);
         surface.setBlockFactory(blocks);
         Conversation rendering = active;
         surface.setExchangeTitleProvider(rendering == null ? null
@@ -3158,6 +3160,53 @@ public final class ClaudeCard extends AbstractHostCard {
             refreshMatchesIfFinding();
             refreshPreviewIfOpen();
         }
+    }
+
+    /**
+     * Restates one fenced block of the active conversation in place, as a rendered decision
+     * tree asks when the reader writes a what-if back: the turn that holds the block, the saved
+     * transcript and the assistant's context all carry the restated block from here on, so the
+     * next question is asked over the tree as the reader left it. The journal keeps the exchange
+     * as it was first written; the restatement is the conversation's, not the journal's.
+     */
+    private void rewriteBlock(String info, String literal, String newInfo, String newLiteral) {
+        Conversation conv = active;
+        if (conv == null) {
+            return;
+        }
+        int turn = -1;
+        for (int i = 0; i < conv.entries.size(); i++) {
+            MarkdownRichText.Entry entry = conv.entries.get(i);
+            if (!entry.markdown()) {
+                continue;
+            }
+            Optional<String> restated = FencedBlocks.replace(entry.content(), info, literal, newInfo, newLiteral);
+            if (restated.isPresent()) {
+                conv.entries.set(i, new MarkdownRichText.Entry(entry.role(), restated.get(), true));
+                turn = i;
+                break;
+            }
+        }
+        if (turn < 0) {
+            LOG.warn("No turn of conversation {} holds the block to restate", conv.id);
+            return;
+        }
+        FencedBlocks.replace(conv.markdown.toString(), info, literal, newInfo, newLiteral).ifPresent(whole -> {
+            conv.markdown.setLength(0);
+            conv.markdown.append(whole);
+        });
+        for (int i = 0; i < conv.apiMessages.size(); i++) {
+            Map<String, Object> message = conv.apiMessages.get(i);
+            if (message.get("content") instanceof String content) {
+                Optional<String> restated = FencedBlocks.replace(content, info, literal, newInfo, newLiteral);
+                if (restated.isPresent()) {
+                    conv.apiMessages.set(i, Map.of("role", message.get("role"), "content", restated.get()));
+                    break;
+                }
+            }
+        }
+        saveConversation(conv);
+        refreshTranscript(true);
     }
 
     private void renderAssistant(Conversation conv, String markdown) {
