@@ -34,14 +34,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class ScanTreeRollbackTest {
 
-    private static final DecisionTerms T = DecisionTerms.synthetic();
+    static final DecisionTerms T = DecisionTerms.synthetic();
 
     /** The money and health semantics the tree's costs are on: US dollars at 2026 prices, QALYs. */
-    private static final long USD = -5_001;
-    private static final long QALY = -5_002;
+    static final long USD = -5_001;
+    static final long QALY = -5_002;
 
     // Model assumptions and default values (rda-model-assumptions), as the topic states them.
-    private static final double REOPENING = 0.02;          // late reopening hazard in year 2
+    static final double REOPENING = 0.02;          // late reopening hazard in year 2
     private static final double SENSITIVITY = 0.90;        // of the MRA
     private static final double SPECIFICITY = 0.80;
     private static final double RUPTURE_RISK_20 = 1 - Math.pow(0.99, 20);   // 1% a year over 20 years
@@ -49,7 +49,7 @@ class ScanTreeRollbackTest {
     private static final double RUPTURE_QALY = 10;
     private static final double RETREAT_REMOVES = 0.90;
 
-    private static ValuationCoordinate at(double healthPrice) {
+    static ValuationCoordinate at(double healthPrice) {
         return ValuationCoordinate.pricingHealthAt(Bounds.point(healthPrice), USD, QALY);
     }
 
@@ -58,7 +58,7 @@ class ScanTreeRollbackTest {
      * from the assumptions: a positive scan 21.4%, a true reopening behind it 8.41%, a missed
      * reopening behind a negative scan 0.254%. The complements are residual events.
      */
-    private static DecisionTree scanTree(Bounds reopening) {
+    static DecisionTree scanTree(Bounds reopening) {
         double positive = REOPENING * SENSITIVITY + (1 - REOPENING) * (1 - SPECIFICITY);
         double ppv = REOPENING * SENSITIVITY / positive;
         double missed = REOPENING * (1 - SENSITIVITY) / (1 - positive);

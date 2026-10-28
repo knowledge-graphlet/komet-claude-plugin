@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import network.ike.komet.claude.block.Tokens;
 
 /**
  * The lossless ANF-in-AsciiDoc canonical form: it projects a validated {@link AnfStatement}
@@ -172,7 +173,7 @@ public final class AnfAdoc {
 
     private static String slotToString(AnfSlot slot) {
         return switch (slot) {
-            case AnfSlot.Grounded g -> "k:" + keyOf(g.label()) + "[" + g.label() + "] @id=" + g.publicId();
+            case AnfSlot.Grounded g -> Tokens.concept(g.label(), g.publicId());
             case AnfSlot.Candidate c -> {
                 StringBuilder cb = new StringBuilder("candidate[").append(c.provisionalLabel())
                         .append("] disp=").append(c.disposition().name());
@@ -188,53 +189,25 @@ public final class AnfAdoc {
         };
     }
 
+    /** The interval in the shared grammar ({@link Tokens#interval}); a null bound is unbounded. */
     private static String interval(AnfStatement.Result r) {
-        String lo = (r.lowerBound() == null) ? "-inf" : trim(r.lowerBound());
-        String hi = (r.upperBound() == null) ? "inf" : trim(r.upperBound());
-        return (r.includeLowerBound() ? "[" : "(") + lo + "," + hi + (r.includeUpperBound() ? "]" : ")");
-    }
-
-    private static String trim(double d) {
-        if (d == Math.rint(d) && !Double.isInfinite(d)) {
-            return Long.toString((long) d);
-        }
-        return Double.toString(d);
-    }
-
-    /** A synthetic CamelCase key from a label — a human/identicon aid only; never parsed. */
-    private static String keyOf(String label) {
-        String base = label.replaceAll("\\(.*?\\)", " ");
-        StringBuilder k = new StringBuilder();
-        for (String part : base.split("[^A-Za-z0-9]+")) {
-            if (!part.isEmpty()) {
-                k.append(Character.toUpperCase(part.charAt(0))).append(part.substring(1));
-            }
-        }
-        return k.isEmpty() ? "Concept" : k.toString();
+        return Tokens.interval(r.lowerBound(), r.upperBound(), r.includeLowerBound(), r.includeUpperBound());
     }
 
     private static String quote(String s) {
-        String escaped = s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
-        return "\"" + escaped + "\"";
+        return Tokens.quote(s);
     }
 
     private static String unquote(String s) {
-        String t = s.trim();
-        if (t.length() >= 2 && t.startsWith("\"") && t.endsWith("\"")) {
-            t = t.substring(1, t.length() - 1);
-        }
-        return t.replace("\\n", "\n").replace("\\\"", "\"").replace("\\\\", "\\");
+        return Tokens.unquote(s);
     }
 
     // ── Parse ─────────────────────────────────────────────────────────────────
 
     private static final Pattern TYPE = Pattern.compile("type=(performance|request|narrative)");
-    private static final Pattern GROUNDED = Pattern.compile("^k:[^\\[]*\\[(.*)\\]\\s*@id=(\\S+)\\s*$");
     private static final Pattern CANDIDATE = Pattern.compile(
             "^candidate\\[(.*?)\\]\\s*disp=(\\S+)(?:\\s+near=(\\S+))?(?:\\s+text=(\".*\"))?\\s*$");
     private static final Pattern CLARIFY = Pattern.compile("^clarify\\[(.*?)\\]\\s*(\".*\")\\s*$");
-    private static final Pattern RESULT = Pattern.compile(
-            "^([\\[(])\\s*(\\S+?)\\s*,\\s*(\\S+?)\\s*([\\])])\\s+(.*)$");
 
     /**
      * Reads an ANF-in-AsciiDoc block back to a validated statement. Grounded slots re-resolve
@@ -361,10 +334,10 @@ public final class AnfAdoc {
         if (clarify.matches()) {
             return new AnfSlot.Clarify(clarify.group(1), unquote(clarify.group(2)));
         }
-        Matcher grounded = GROUNDED.matcher(value);
-        if (grounded.matches()) {
-            String label = grounded.group(1);
-            String id = grounded.group(2);
+        Optional<Tokens.Concept> grounded = Tokens.concept(value);
+        if (grounded.isPresent() && grounded.get().identifier().isPresent()) {
+            String label = grounded.get().label();
+            String id = grounded.get().identifier().get();
             if (resolver != null) {
                 Optional<AnfSlot.Grounded> resolved = resolver.resolve(id);
                 if (resolved != null && resolved.isPresent()) {
@@ -376,36 +349,22 @@ public final class AnfAdoc {
         return null;
     }
 
+    /** A result in the shared interval grammar ({@link Tokens#intervalPrefix}), its measure semantic after the interval. */
     private static AnfStatement.Result parseResult(String value, ConceptResolver resolver) {
         if (value == null) {
             return null;
         }
-        Matcher m = RESULT.matcher(value.strip());
-        if (!m.matches()) {
+        Optional<Tokens.IntervalPrefix> prefix = Tokens.intervalPrefix(value);
+        if (prefix.isEmpty() || prefix.get().rest().isEmpty()) {
             return null;
         }
-        boolean includeLower = "[".equals(m.group(1));
-        Double lower = parseBound(m.group(2));
-        Double upper = parseBound(m.group(3));
-        boolean includeUpper = "]".equals(m.group(4));
-        AnfSlot measure = parseSlot(m.group(5), resolver);
+        Tokens.Interval interval = prefix.get().interval();
+        AnfSlot measure = parseSlot(prefix.get().rest(), resolver);
         if (measure == null) {
             return null;
         }
-        return new AnfStatement.Result(lower, upper, includeLower, includeUpper, measure);
-    }
-
-    /** Parses an interval bound: {@code ±inf} (and {@code inf}) denote an unbounded side (null). */
-    private static Double parseBound(String s) {
-        String t = s.trim();
-        if (t.equals("inf") || t.equals("+inf") || t.equals("-inf")) {
-            return null;
-        }
-        try {
-            return Double.parseDouble(t);
-        } catch (NumberFormatException e) {
-            return null;
-        }
+        return new AnfStatement.Result(interval.lower(), interval.upper(),
+                interval.includeLower(), interval.includeUpper(), measure);
     }
 
     private static AnfSlot.Disposition parseDisposition(String s) {

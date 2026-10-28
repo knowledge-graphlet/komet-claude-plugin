@@ -44,7 +44,7 @@ import org.eclipse.collections.api.map.primitive.MutableLongObjectMap;
 
 import java.util.Optional;
 import java.util.OptionalDouble;
-import java.util.OptionalLong;
+import java.util.UUID;
 
 /**
  * The decision-tree profile over a stored tree ({@code dev-decision-tree-blocks}): the typed view
@@ -291,8 +291,11 @@ public final class DecisionTree extends ProfiledTree<DecisionElement> {
 
     /**
      * Writes a decision tree vertex by vertex. Each node method adds a child of the given kind and
-     * returns its handle; measures are added to the node that carries them. {@link #build()} makes
-     * the stored tree, and {@link #tree()} reads it back through the profile.
+     * returns its handle; the measure methods add a measure to the node that carries it and
+     * return the node, so costs chain, while {@link Handle#measure} returns the measure's own
+     * handle for a basis or a derivation. A vertex keeps the identity it is given, so a block
+     * parsed and written again holds the same vertices. {@link #build()} makes the stored tree,
+     * and {@link #tree()} reads it back through the profile.
      */
     public static final class Builder {
         private final DecisionTerms terms;
@@ -303,9 +306,14 @@ public final class DecisionTree extends ProfiledTree<DecisionElement> {
             this.terms = terms;
         }
 
-        /** The root decision. */
+        /** The root decision, with a fresh vertex identity. */
         public Handle decision(long conceptNid) {
-            Handle root = new Handle(terms.decisionNode(), conceptNid);
+            return decision(conceptNid, UUID.randomUUID());
+        }
+
+        /** The root decision, with the vertex identity given. */
+        public Handle decision(long conceptNid, UUID vertexId) {
+            Handle root = new Handle(terms.decisionNode(), conceptNid, vertexId);
             tree.setRoot(root.vertex);
             return root;
         }
@@ -325,22 +333,28 @@ public final class DecisionTree extends ProfiledTree<DecisionElement> {
         public final class Handle {
             private final EntityVertex vertex;
             private final MutableLongObjectMap<Object> properties = LongObjectMaps.mutable.empty();
+            private final MutableLongList statements = LongLists.mutable.empty();
 
-            private Handle(long meaningNid, long conceptNid) {
-                this.vertex = EntityVertex.make(meaningNid);
+            private Handle(long meaningNid, long conceptNid, UUID vertexId) {
+                this.vertex = EntityVertex.make(vertexId, meaningNid);
                 if (conceptNid != 0) {
                     properties.put(terms.conceptReference(), conceptNid);
                 }
                 handles.add(this);
             }
 
-            private Handle child(long meaningNid, long conceptNid) {
-                Handle child = new Handle(meaningNid, conceptNid);
+            private Handle child(long meaningNid, long conceptNid, UUID vertexId) {
+                Handle child = new Handle(meaningNid, conceptNid, vertexId);
                 tree.addEdge(child.vertex, vertex);
                 return child;
             }
 
             private void commit() {
+                if (statements.size() == 1) {
+                    properties.put(terms.statement(), statements.get(0));
+                } else if (statements.size() > 1) {
+                    properties.put(terms.statement(), statements.toArray());
+                }
                 vertex.setProperties(properties);
             }
 
@@ -348,58 +362,82 @@ public final class DecisionTree extends ProfiledTree<DecisionElement> {
                 return vertex.vertexIndex();
             }
 
+            public UUID vertexId() {
+                return new UUID(vertex.mostSignificantBits(), vertex.leastSignificantBits());
+            }
+
             public Handle alternative(long conceptNid) {
-                return child(terms.alternativeNode(), conceptNid);
+                return alternative(conceptNid, UUID.randomUUID());
+            }
+
+            public Handle alternative(long conceptNid, UUID vertexId) {
+                return child(terms.alternativeNode(), conceptNid, vertexId);
             }
 
             public Handle chance(long conceptNid) {
-                return child(terms.chanceNode(), conceptNid);
+                return chance(conceptNid, UUID.randomUUID());
+            }
+
+            public Handle chance(long conceptNid, UUID vertexId) {
+                return child(terms.chanceNode(), conceptNid, vertexId);
             }
 
             public Handle event(long conceptNid) {
-                return child(terms.eventNode(), conceptNid);
+                return event(conceptNid, UUID.randomUUID());
+            }
+
+            public Handle event(long conceptNid, UUID vertexId) {
+                return child(terms.eventNode(), conceptNid, vertexId);
             }
 
             /** An event that is the remainder of its chance's partition. */
             public Handle residualEvent(long conceptNid) {
-                Handle event = child(terms.eventNode(), conceptNid);
+                return residualEvent(conceptNid, UUID.randomUUID());
+            }
+
+            public Handle residualEvent(long conceptNid, UUID vertexId) {
+                Handle event = child(terms.eventNode(), conceptNid, vertexId);
                 event.properties.put(terms.residual(), Boolean.TRUE);
                 return event;
             }
 
             public Handle decision(long conceptNid) {
-                return child(terms.decisionNode(), conceptNid);
+                return decision(conceptNid, UUID.randomUUID());
+            }
+
+            public Handle decision(long conceptNid, UUID vertexId) {
+                return child(terms.decisionNode(), conceptNid, vertexId);
             }
 
             public Handle outcome(long conceptNid) {
-                return child(terms.outcomeNode(), conceptNid);
+                return outcome(conceptNid, UUID.randomUUID());
             }
 
-            /** A probability on the Share at node semantic. */
+            public Handle outcome(long conceptNid, UUID vertexId) {
+                return child(terms.outcomeNode(), conceptNid, vertexId);
+            }
+
+            /** A probability on the Share at node semantic; returns this node. */
             public Handle probability(Bounds bounds) {
-                measure(terms.probabilityMeasure(), bounds, terms.shareAtNode());
+                measure(terms.probabilityMeasure(), bounds, terms.shareAtNode(), UUID.randomUUID());
                 return this;
             }
 
+            /** A money cost; returns this node. */
             public Handle money(Bounds bounds, long moneySemanticNid) {
-                measure(terms.moneyCostMeasure(), bounds, moneySemanticNid);
+                measure(terms.moneyCostMeasure(), bounds, moneySemanticNid, UUID.randomUUID());
                 return this;
             }
 
+            /** A health cost; returns this node. */
             public Handle health(Bounds bounds, long healthSemanticNid) {
-                measure(terms.healthCostMeasure(), bounds, healthSemanticNid);
+                measure(terms.healthCostMeasure(), bounds, healthSemanticNid, UUID.randomUUID());
                 return this;
             }
 
-            /** A measure vertex with a stated basis. */
-            public Handle measure(long measureKindNid, Bounds bounds, long semanticNid, long basisNid) {
-                Handle measure = measure(measureKindNid, bounds, semanticNid);
-                measure.properties.put(terms.measureBasis(), basisNid);
-                return measure;
-            }
-
-            private Handle measure(long measureKindNid, Bounds bounds, long semanticNid) {
-                Handle measure = child(measureKindNid, 0);
+            /** A measure vertex of a kind under this node, returning the measure's own handle. */
+            public Handle measure(long measureKindNid, Bounds bounds, long semanticNid, UUID vertexId) {
+                Handle measure = child(measureKindNid, 0, vertexId);
                 measure.properties.put(terms.intervalLowerBound(), bounds.lower());
                 measure.properties.put(terms.intervalUpperBound(), bounds.upper());
                 if (bounds.lowerOpen()) {
@@ -412,8 +450,27 @@ public final class DecisionTree extends ProfiledTree<DecisionElement> {
                 return measure;
             }
 
+            /** The basis kind a measure's value rests on. */
+            public Handle basis(long basisKindNid) {
+                properties.put(terms.measureBasis(), basisKindNid);
+                return this;
+            }
+
+            /** The source a cited measure's value is taken from. */
+            public Handle basisSource(long sourceNid) {
+                properties.put(terms.basisSource(), sourceNid);
+                return this;
+            }
+
+            /** The definition a derived measure's value is computed by. */
+            public Handle derivedFrom(long definitionNid) {
+                properties.put(terms.derivedFrom(), definitionNid);
+                return this;
+            }
+
+            /** An ANF statement the node is or holds; several accumulate. */
             public Handle statement(long statementNid) {
-                properties.put(terms.statement(), statementNid);
+                statements.add(statementNid);
                 return this;
             }
 
