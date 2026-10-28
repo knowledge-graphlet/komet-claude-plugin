@@ -41,6 +41,8 @@ import network.ike.komet.claude.block.BlockLines;
 import network.ike.komet.claude.block.Identities;
 import network.ike.komet.claude.block.Tokens;
 import network.ike.komet.claude.decision.Bounds;
+
+import java.util.Locale;
 import network.ike.komet.claude.decision.DecisionElement;
 import network.ike.komet.claude.decision.DecisionElement.Alternative;
 import network.ike.komet.claude.decision.DecisionElement.Chance;
@@ -333,6 +335,18 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
     }
 
     /**
+     * A rolled-back value, which is money, to the whole unit, as the regulatory topics print
+     * their worked numbers: a point as one number, an interval with its two bounds.
+     */
+    static String money(Bounds bounds) {
+        if (bounds.isPoint()) {
+            return String.format(Locale.ROOT, "%,d", Math.round(bounds.lower()));
+        }
+        return (bounds.lowerOpen() ? "(" : "[") + String.format(Locale.ROOT, "%,d", Math.round(bounds.lower()))
+                + ", " + String.format(Locale.ROOT, "%,d", Math.round(bounds.upper())) + (bounds.upperOpen() ? ")" : "]");
+    }
+
+    /**
      * A concept the knowledge base lacks, drawn as a chip with a dashed edge: the block's own
      * label, and a tooltip saying why it is not the shared Koncept chip.
      */
@@ -406,7 +420,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             Rollback rollback = Rollback.of(tree, coordinate);
             values.forEach((index, label) -> {
                 Optional<Bounds> value = rollback.value(index);
-                String text = value.map(bounds -> "⇒ " + bounds).orElse("⇒ not determinable");
+                String text = value.map(bounds -> "⇒ " + money(bounds)).orElse("⇒ not determinable");
                 OptionalInt parent = tree.parentIndex(index);
                 if (parent.isPresent() && rollback.chosen(parent.getAsInt()).orElse(-1) == index) {
                     text += "  ✓ chosen";

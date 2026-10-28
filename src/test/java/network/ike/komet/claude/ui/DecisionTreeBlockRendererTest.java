@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.ui;
 
+import network.ike.komet.claude.decision.Bounds;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -48,6 +49,15 @@ class DecisionTreeBlockRendererTest {
         assertFalse(DecisionTreeBlockRenderer.accepts("decision-tree", "chance: k:X[x] @id=c1\n"));
         assertFalse(DecisionTreeBlockRenderer.accepts("decision-tree", "not a block at all"));
         assertFalse(DecisionTreeBlockRenderer.accepts(null, TREE));
+    }
+
+    @Test
+    @DisplayName("A rolled-back value prints to the whole unit, as the topics print money")
+    void printsMoneyToTheWholeUnit() {
+        assertEquals("3,880", DecisionTreeBlockRenderer.money(Bounds.point(3_879.7467)));
+        assertEquals("0", DecisionTreeBlockRenderer.money(Bounds.point(0)));
+        assertEquals("[3,880, 4,188]", DecisionTreeBlockRenderer.money(new Bounds(3_879.7467, 4_188.14, false, false)));
+        assertEquals("(70,941, 209,407]", DecisionTreeBlockRenderer.money(new Bounds(70_940.7, 209_407.02, true, false)));
     }
 
     @Test
