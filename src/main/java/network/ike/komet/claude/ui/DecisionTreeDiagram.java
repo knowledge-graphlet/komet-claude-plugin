@@ -92,6 +92,10 @@ final class DecisionTreeDiagram extends Region {
 
         /** Folds or opens a node. */
         void toggle(int nodeVertex);
+
+        /** The pointer entered or left a measure's chip. */
+        default void hover(int measureVertex, boolean on) {
+        }
     }
 
     private static final Color INK = Color.web("#333");
@@ -116,6 +120,7 @@ final class DecisionTreeDiagram extends Region {
     private final Map<Integer, Polyline> runs = new HashMap<>();
     private final Map<Integer, Node> bars = new HashMap<>();
     private final Map<Integer, Node> glyphs = new HashMap<>();
+    private final Map<Integer, MeasureChip> chips = new HashMap<>();
     private final Map<Integer, Node> valueLabels = new HashMap<>();
     private final Map<Integer, Node> nameLabels = new HashMap<>();
     private final Map<Integer, List<String>> findingsAt = new HashMap<>();
@@ -316,7 +321,10 @@ final class DecisionTreeDiagram extends Region {
     private Node number(String word, int vertexIndex, Measure measure) {
         Optional<Bounds> bounds = derivations.bounds(vertexIndex);
         boolean editable = !measure.derived() && host.editable(vertexIndex);
-        return new MeasureChip(word, bounds, measure, ids, base, editable ? b -> host.edit(vertexIndex, b) : null);
+        MeasureChip chip = new MeasureChip(word, bounds, measure, ids, base, editable ? b -> host.edit(vertexIndex, b) : null);
+        chip.onHover(on -> host.hover(vertexIndex, on));
+        chips.put(vertexIndex, chip);
+        return chip;
     }
 
     private Shape glyphFor(DecisionElement.Node node, boolean folded) {
@@ -373,6 +381,28 @@ final class DecisionTreeDiagram extends Region {
             index = parent.getAsInt();
         }
         return index;
+    }
+
+    /** The chip a measure is drawn as, when it is drawn on a branch or an outcome. */
+    Optional<MeasureChip> chip(int measureVertex) {
+        return Optional.ofNullable(chips.get(measureVertex));
+    }
+
+    /** Lights a measure: its chip, and the path from the branch that carries it back to the root. */
+    void lightMeasure(int measureVertex, boolean on) {
+        MeasureChip chip = chips.get(measureVertex);
+        if (chip != null) {
+            chip.setHot(on);
+        }
+        int index = measureVertex;
+        while (tree.node(index).map(n -> !(n instanceof Branch)).orElse(true)) {
+            OptionalInt parent = tree.parentIndex(index);
+            if (parent.isEmpty()) {
+                return;
+            }
+            index = parent.getAsInt();
+        }
+        light(index, on);
     }
 
     private void light(int branchVertex, boolean on) {

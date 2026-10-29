@@ -21,6 +21,7 @@ import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
 import javafx.scene.input.KeyCode;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
@@ -48,6 +49,7 @@ final class MeasureChip extends StackPane {
     private static final Color DERIVED = Color.web("#5a5a5a");
 
     private final Label text;
+    private final HBox row;
 
     /**
      * @param word    what the measure is: p, money, health, or the parameter's quantity word
@@ -64,7 +66,9 @@ final class MeasureChip extends StackPane {
         text.setFont(Font.font(base * 0.9));
         text.setTextFill(bounds.isPresent() ? INK : GAP);
         setAlignment(Pos.CENTER_LEFT);
-        getChildren().add(text);
+        row = new HBox(3, text);
+        row.setAlignment(Pos.CENTER_LEFT);
+        getChildren().add(row);
         List<String> tip = new ArrayList<>();
         if (measure.semanticNid() != 0 && ids != null) {
             String unit = ids.label(measure.semanticNid());
@@ -102,7 +106,7 @@ final class MeasureChip extends StackPane {
         field.setId("what-if-field");
         field.setFont(Font.font(base * 0.9));
         field.setPrefColumnCount(Math.max(5, field.getText().length()));
-        Runnable restore = () -> getChildren().setAll(text);
+        Runnable restore = () -> getChildren().setAll(row);
         field.setOnAction(e -> {
             Optional<Bounds> typed = DecisionTreeEdits.typed(field.getText());
             if (typed.isEmpty()) {
@@ -134,5 +138,34 @@ final class MeasureChip extends StackPane {
 
     String shown() {
         return text.getText();
+    }
+
+    /** Lights the chip, as the pointer resting on its bar in the tornado asks. */
+    void setHot(boolean on) {
+        setStyle(on ? "-fx-background-color: #fff3d6; -fx-background-radius: 4;" : "");
+    }
+
+    /** What happens as the pointer enters or leaves the chip. */
+    void onHover(Consumer<Boolean> hover) {
+        setOnMouseEntered(e -> hover.accept(true));
+        setOnMouseExited(e -> hover.accept(false));
+    }
+
+    /** Marks the chip as one whose range holds a flip of the choice, with the threshold in a tooltip. */
+    void mark(String tip) {
+        if (marked().isPresent()) {
+            return;
+        }
+        Label flag = new Label("▲");
+        flag.setId("flip-mark");
+        flag.setFont(Font.font(text.getFont().getSize() * 0.75));
+        flag.setTextFill(Color.web("#d98b1a"));
+        Tooltip.install(flag, new Tooltip(tip));
+        row.getChildren().add(flag);
+    }
+
+    /** The flip mark, when the chip carries one; for a test. */
+    Optional<Label> marked() {
+        return row.getChildren().stream().filter(n -> "flip-mark".equals(n.getId())).map(Label.class::cast).findFirst();
     }
 }

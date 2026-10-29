@@ -24,6 +24,7 @@ import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.graph.adaptor.profile.ProfileFinding;
 import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Cursor;
@@ -44,7 +45,9 @@ import network.ike.komet.claude.block.BlockIdentities;
 import network.ike.komet.claude.block.BlockLines;
 import network.ike.komet.claude.block.Identities;
 import network.ike.komet.claude.block.Tokens;
+import network.ike.komet.claude.decision.BlockSweep;
 import network.ike.komet.claude.decision.Bounds;
+import network.ike.komet.claude.decision.DecisionElement;
 import network.ike.komet.claude.decision.DecisionElement.Cost;
 import network.ike.komet.claude.decision.DecisionElement.HealthCost;
 import network.ike.komet.claude.decision.DecisionElement.MoneyCost;
@@ -53,6 +56,9 @@ import network.ike.komet.claude.decision.DecisionTerms;
 import network.ike.komet.claude.decision.DecisionTree;
 import network.ike.komet.claude.decision.DecisionTreeEdits;
 import network.ike.komet.claude.decision.DecisionTreeFeedback;
+import network.ike.komet.claude.decision.DecisionTreeSensitivity;
+import network.ike.komet.claude.decision.DecisionTreeSensitivity.Flip;
+import network.ike.komet.claude.decision.DecisionTreeSensitivity.Swing;
 import network.ike.komet.claude.decision.DecisionTreeText;
 import network.ike.komet.claude.decision.Derivations;
 import network.ike.komet.claude.decision.Rollback;
@@ -62,13 +68,17 @@ import network.ike.komet.claude.koncept.ComponentText;
 import org.eclipse.collections.api.list.ImmutableList;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 /**
  * The live rendering of a {@code decision-tree} block on the assistant surface
@@ -82,7 +92,9 @@ import java.util.Set;
  * the reader writes it back, which hands the restated block to the surface's
  * {@link BlockRewriter}; a surface without one offers the what-if alone. A finding of the parse,
  * the profile's checks or the rollback is listed beneath the tree and shown at the glyph it sits
- * on.
+ * on. Beneath that, the block's one-way sensitivity is drawn as a {@link TornadoChart}: the
+ * {@link BlockSweep} runs off the application thread, since it reads the block once per step,
+ * and the chart lands when it is done, with a mark on every chip whose range flips the choice.
  *
  * <p>The block declines when it is not this profile's, when it has no root decision line, or
  * when there is no view to resolve against, so the text renders preformatted as any other
@@ -96,6 +108,13 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
     private final double base;
     private KonceptLabelTypography typography = KonceptLabelTypography.DEFAULT;
     private BlockRewriter rewriter;
+
+    /** Where a sweep runs: one thread behind the surface; a test may run it in place. */
+    static Executor sweepExecutor = Executors.newSingleThreadExecutor(runnable -> {
+        Thread thread = new Thread(runnable, "decision-tree-sweep");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     DecisionTreeBlockRenderer(ViewCalculator viewCalc, double base) {
         this(viewCalc, null, base);
@@ -165,7 +184,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
      * it, the price, which nodes are folded, and the column that shows it all, rebuilt whenever
      * any of these move.
      */
-    private final class Live implements DecisionTreeDiagram.Host {
+    private final class Live implements DecisionTreeDiagram.Host, TornadoChart.Host {
         final String originalInfo;
         final String originalBody;
         final double originalPrice;
@@ -180,6 +199,12 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         final Identities ids = new BlockIdentities(new ViewIdentities(viewCalc));
         DecisionTreeText.Parsed parsed;
         DecisionTree tree;
+        DecisionTreeDiagram diagram;
+        TornadoChart tornado;
+        Label priceMark;
+        final Map<Integer, MeasureChip> parameterChips = new HashMap<>();
+        /** Which rebuild a sweep belongs to: a sweep that lands after the next rebuild is dropped. */
+        int generation;
 
         Live(String info, String body, double price) {
             this.originalInfo = info;
@@ -201,6 +226,9 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         }
 
         void rebuild() {
+            generation++;
+            tornado = null;
+            parameterChips.clear();
             parsed = DecisionTreeText.parse(body, terms, ids);
             List<ProfileFinding> findings = new ArrayList<>(parsed.findings().castToList());
             column.getChildren().clear();
@@ -219,7 +247,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             if (parameters != null) {
                 column.getChildren().add(parameters);
             }
-            DecisionTreeDiagram diagram = new DecisionTreeDiagram(tree, rollback, ids, findings, collapsed, base, this);
+            diagram = new DecisionTreeDiagram(tree, rollback, ids, findings, collapsed, base, this);
             ScrollPane scroll = new ScrollPane(diagram);
             scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
             scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
@@ -245,8 +273,94 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                 gaps.setStyle("-fx-text-fill: #8a5a00;");
                 column.getChildren().add(gaps);
             }
+            column.getChildren().add(sensitivity(rollback));
             if (moves > 0) {
                 column.getChildren().add(whatIfBar());
+            }
+        }
+
+        /**
+         * The sensitivity section: a heading now, the tornado when the sweep lands. The sweep reads
+         * the block once per step, so it runs behind the surface on its own identities, and is
+         * dropped if the block has been rebuilt meanwhile.
+         */
+        private VBox sensitivity(Rollback rollback) {
+            VBox section = new VBox(3);
+            section.setPadding(new Insets(6, 0, 0, 0));
+            Label heading = new Label("Sensitivity of the expected cost, one value at a time");
+            heading.setFont(Font.font(null, FontWeight.BOLD, base * 0.9));
+            section.getChildren().add(heading);
+            if (!rollback.determinable()) {
+                Label none = new Label("Nothing to sweep until the tree is determinable.");
+                none.setFont(Font.font(base * 0.85));
+                none.setStyle("-fx-text-fill: #666;");
+                section.getChildren().add(none);
+                return section;
+            }
+            Label wait = new Label("computing…");
+            wait.setFont(Font.font(base * 0.85));
+            wait.setStyle("-fx-text-fill: #666;");
+            section.getChildren().add(wait);
+            int mine = generation;
+            String text = body;
+            double at = price;
+            sweepExecutor.execute(() -> {
+                Optional<DecisionTreeSensitivity> swept;
+                try {
+                    swept = BlockSweep.sweep(text, terms, new BlockIdentities(new ViewIdentities(viewCalc)), at,
+                            BlockSweep.DEFAULT_STEPS);
+                } catch (RuntimeException e) {
+                    swept = Optional.empty();
+                }
+                Optional<DecisionTreeSensitivity> landed = swept;
+                Platform.runLater(() -> {
+                    if (mine != generation) {
+                        return;
+                    }
+                    section.getChildren().remove(wait);
+                    if (landed.isEmpty()) {
+                        Label none = new Label("The block could not be swept.");
+                        none.setFont(Font.font(base * 0.85));
+                        none.setStyle("-fx-text-fill: #8a5a00;");
+                        section.getChildren().add(none);
+                        return;
+                    }
+                    tornado = new TornadoChart(landed.get(), base, this);
+                    tornado.setId("tornado-chart");
+                    section.getChildren().add(tornado);
+                    markFlips(landed.get());
+                });
+            });
+            return section;
+        }
+
+        /** A mark on every chip whose range flips the root's choice, and on the price when it does. */
+        private void markFlips(DecisionTreeSensitivity sweep) {
+            int root = tree.rootIndex();
+            for (Swing swing : sweep.swings()) {
+                ImmutableList<Flip> flips = swing.flipsAt(root);
+                if (flips.isEmpty()) {
+                    continue;
+                }
+                Flip flip = flips.get(0);
+                String tip = "Flips the choice at " + TornadoChart.value(flip.at()) + ": " + alternativeName(flip.chosenBelow())
+                        + " up to there, " + alternativeName(flip.chosenAbove()) + " beyond";
+                if (swing.measureVertex() == DecisionTreeSensitivity.HEALTH_PRICE) {
+                    if (priceMark != null) {
+                        priceMark.setText("▲ flips at " + TornadoChart.value(flip.at()));
+                        priceMark.setTooltip(new Tooltip(tip));
+                        priceMark.setVisible(true);
+                        priceMark.setManaged(true);
+                    }
+                    continue;
+                }
+                MeasureChip chip = parameterChips.get(swing.measureVertex());
+                if (chip == null && diagram != null) {
+                    chip = diagram.chip(swing.measureVertex()).orElse(null);
+                }
+                if (chip != null) {
+                    chip.mark(tip);
+                }
             }
         }
 
@@ -277,6 +391,13 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                 }
             });
             header.getChildren().addAll(priceLabel, priceField);
+            priceMark = new Label();
+            priceMark.setId("price-flip-mark");
+            priceMark.setFont(Font.font(null, FontWeight.BOLD, base * 0.75));
+            priceMark.setStyle("-fx-text-fill: #d98b1a;");
+            priceMark.setVisible(false);
+            priceMark.setManaged(false);
+            header.getChildren().add(priceMark);
             rollback.rootValue().ifPresent(value -> {
                 Label expected = new Label("expected cost " + money(value));
                 expected.setFont(Font.font(null, FontWeight.BOLD, base * 0.9));
@@ -303,8 +424,11 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                 item.getChildren().add(concept(parameter.quantity()).orElseGet(() -> plain("parameter")));
                 int index = parameter.vertexIndex();
                 boolean editable = editable(index);
-                item.getChildren().add(new MeasureChip("", derivations.bounds(index), parameter.measure(), ids, base,
-                        editable ? bounds -> edit(index, bounds) : null));
+                MeasureChip chip = new MeasureChip("", derivations.bounds(index), parameter.measure(), ids, base,
+                        editable ? bounds -> edit(index, bounds) : null);
+                chip.onHover(on -> hover(index, on));
+                parameterChips.put(index, chip);
+                item.getChildren().add(chip);
                 flow.getChildren().add(item);
             }
             return flow;
@@ -394,6 +518,78 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                 collapsed.add(nodeVertex);
             }
             rebuild();
+        }
+
+        @Override
+        public void hover(int measureVertex, boolean on) {
+            if (tornado != null) {
+                tornado.highlight(measureVertex, on);
+            }
+        }
+
+        // ── The tornado's host ──────────────────────────────────────────────
+
+        @Override
+        public String nameOf(int measureVertex) {
+            if (measureVertex == DecisionTreeSensitivity.HEALTH_PRICE) {
+                return "price of a healthy year";
+            }
+            Optional<DecisionElement> element = tree.node(measureVertex);
+            if (element.isEmpty()) {
+                return "a value";
+            }
+            return switch (element.get()) {
+                case Parameter p -> p.quantity().isPresent() ? ids.label(p.quantity().getAsLong()) : "a parameter";
+                case MoneyCost m -> owner(measureVertex) + " · money";
+                case HealthCost h -> owner(measureVertex) + " · health";
+                case DecisionElement.Probability p -> "p of " + owner(measureVertex);
+                default -> "a value";
+            };
+        }
+
+        private String owner(int measureVertex) {
+            OptionalInt parent = tree.parentIndex(measureVertex);
+            if (parent.isEmpty()) {
+                return "the root";
+            }
+            return tree.node(parent.getAsInt()).flatMap(n -> n.concept().isPresent()
+                    ? Optional.of(ids.label(n.concept().getAsLong())) : Optional.empty()).orElse("a node");
+        }
+
+        @Override
+        public String alternativeName(int alternativeVertex) {
+            if (alternativeVertex < 0) {
+                return "no sure choice";
+            }
+            return tree.node(alternativeVertex).flatMap(n -> n.concept().isPresent()
+                    ? Optional.of(ids.label(n.concept().getAsLong())) : Optional.empty()).orElse("an alternative");
+        }
+
+        @Override
+        public void light(int measureVertex, boolean on) {
+            if (measureVertex == DecisionTreeSensitivity.HEALTH_PRICE) {
+                return;
+            }
+            MeasureChip chip = parameterChips.get(measureVertex);
+            if (chip != null) {
+                chip.setHot(on);
+            }
+            if (diagram != null) {
+                diagram.lightMeasure(measureVertex, on);
+            }
+        }
+
+        @Override
+        public void tryValue(int measureVertex, double value) {
+            if (measureVertex == DecisionTreeSensitivity.HEALTH_PRICE) {
+                if (value != price) {
+                    price = value;
+                    moves++;
+                    rebuild();
+                }
+                return;
+            }
+            edit(measureVertex, Bounds.point(value));
         }
 
         /** The semantic the tree's costs of a kind are on, taken from the first such cost; the parent semantic otherwise. */

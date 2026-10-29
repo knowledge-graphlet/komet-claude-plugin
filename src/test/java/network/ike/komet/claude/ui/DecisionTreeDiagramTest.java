@@ -95,6 +95,7 @@ class DecisionTreeDiagramTest {
     static final class Recording implements DecisionTreeDiagram.Host {
         final List<String> edits = new ArrayList<>();
         final List<Integer> toggles = new ArrayList<>();
+        final List<String> hovered = new ArrayList<>();
 
         @Override
         public Optional<Node> concept(OptionalLong nid) {
@@ -114,6 +115,11 @@ class DecisionTreeDiagramTest {
         @Override
         public void toggle(int nodeVertex) {
             toggles.add(nodeVertex);
+        }
+
+        @Override
+        public void hover(int measureVertex, boolean on) {
+            hovered.add(measureVertex + (on ? "+" : "-"));
         }
     }
 
@@ -192,6 +198,30 @@ class DecisionTreeDiagramTest {
             assertTrue(diagram.run(mra).isEmpty());
             diagram.glyph(mra).orElseThrow().getOnMouseClicked().handle(null);
             assertEquals(List.of(mra), host.toggles);
+        });
+    }
+
+    @Test
+    @DisplayName("Lighting a measure lights its chip and the path from its branch to the root; a chip's hover reaches the host")
+    void lightsAMeasure() throws Exception {
+        onFx(() -> {
+            Recording host = new Recording();
+            DecisionTreeDiagram diagram = drawn(host, new HashSet<>());
+            Alternative scan = tree.nodesOfType(Alternative.class).get(0);
+            int costVertex = scan.costs().get(0).vertexIndex();
+            MeasureChip chip = diagram.chip(costVertex).orElseThrow();
+            diagram.lightMeasure(costVertex, true);
+            assertTrue(chip.getStyle().contains("#fff3d6"));
+            assertEquals(3.0, diagram.run(scan.vertexIndex()).orElseThrow().getStrokeWidth(), 1e-9);
+            diagram.lightMeasure(costVertex, false);
+            assertEquals("", chip.getStyle());
+            assertEquals(2.6, diagram.run(scan.vertexIndex()).orElseThrow().getStrokeWidth(), 1e-9, "chosen again");
+            chip.getOnMouseEntered().handle(null);
+            assertEquals(List.of(costVertex + "+"), host.hovered);
+            chip.mark("flips");
+            assertTrue(chip.marked().isPresent());
+            chip.mark("again");
+            assertEquals(1, ((javafx.scene.Parent) chip.getChildren().get(0)).getChildrenUnmodifiable().size() - 1, "one mark");
         });
     }
 
