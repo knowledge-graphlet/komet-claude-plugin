@@ -32,6 +32,7 @@ import network.ike.komet.claude.decision.DecisionTreeSensitivity;
 import network.ike.komet.claude.decision.DecisionTreeSensitivity.Flip;
 import network.ike.komet.claude.decision.DecisionTreeSensitivity.Swing;
 import network.ike.komet.claude.decision.DecisionTreeSensitivity.Unswept;
+import network.ike.komet.claude.decision.render.DecisionFigureText;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -405,14 +406,7 @@ final class TornadoChart extends Region {
      * above one, four beneath, since a flip found by bisection is only as exact as its range.
      */
     static String value(double value) {
-        double magnitude = Math.abs(value);
-        if (magnitude >= 100) {
-            return String.format(java.util.Locale.ROOT, "%,d", Math.round(value));
-        }
-        if (magnitude >= 1) {
-            return String.format(java.util.Locale.ROOT, "%.2f", value);
-        }
-        return String.format(java.util.Locale.ROOT, "%.4f", value);
+        return DecisionFigureText.value(value);
     }
 
     /** A value as the chart prints it, so a what-if tried from a bar says what the reader saw. */
