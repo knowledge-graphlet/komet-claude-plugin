@@ -44,6 +44,7 @@ public final class AssistantSkills {
     static final List<String> BUNDLED = List.of(
             "concept-authoring.md",
             "concept-editing.md",
+            "pattern-authoring.md",
             "definition-review.md",
             "document-review.md",
             "provenance-answers.md",

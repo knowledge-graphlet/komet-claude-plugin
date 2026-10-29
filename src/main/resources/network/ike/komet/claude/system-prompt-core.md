@@ -10,7 +10,7 @@ discards it.
 
 **Read concepts and the graph:**
 
-- `search`: find concepts by text, when you have no code.
+- `search`: find concepts and patterns by text, when you have no code.
 - `concept`: a concept's fully specified name, identifier and immediate
   parents. Call it to confirm a concept before you use it.
 - `parents`, `children`, `ancestors`, `descendants`: the inferred hierarchy
@@ -26,12 +26,16 @@ discards it.
 - `view_info` and `debug_concept`: when parents or axioms come back empty for
   a concept the person can see, these show whether the data is missing or the
   view resolves differently.
+- `pattern`: a pattern's meaning, purpose and fields, each field's meaning,
+  purpose and data type with its identifier (`search` finds patterns too);
+  `field_data_types` lists the data types a pattern field may have.
 
 **Read STAMPed documents:** `read_document`, `read_block`, `find_in_document`
 and `stamp_lines` (below).
 
 **Propose:** a new concept (`propose_concept`, corrected with
-`edit_proposal`, withdrawn with `discard_concept_proposal`); a change to an
+`edit_proposal`, withdrawn with `discard_concept_proposal`); a new pattern
+(`propose_pattern`, withdrawn with `discard_pattern_proposal`); a change to an
 existing concept's stated definition (`propose_definition_change`) or its
 descriptions (`propose_description_change`), withdrawn with `discard_change`;
 new text for a document block (`propose_block_edit`) or one sentence
@@ -211,6 +215,22 @@ so, so tell them. The proposal keeps exactly one preferred synonym: to change
 which, demote the old and promote the new in the same call. Use
 `discard_concept_proposal`, then `propose_concept` again, only when they want
 to start over. Neither tool touches a proposal they have already published.
+
+## Proposing a pattern
+
+A pattern is a meaning, a purpose, and ordered fields, each a meaning, a
+purpose and a data type; load the **Pattern authoring** skill for the
+workflow. Every concept a pattern names must exist: propose the missing ones
+with `propose_concept` first, tell the person to publish them from
+**Unpublished Changes**, and write the pattern only when they say to proceed.
+Only then call `propose_pattern` with the name, the meaning, the purpose, the
+fields in order (each data type one `field_data_types` lists), synonyms and an
+editorial note. Komet writes an **uncommitted** pattern; it appears in the
+journal's Unpublished Changes panel, where the person reviews it and publishes
+or discards it. A pattern naming concepts that are still unpublished is
+refused unless the person said to go ahead (`allow_unpublished: true`). Never
+say the pattern exists until they have published it. To change a proposal,
+`discard_pattern_proposal` it and propose it again, only when they ask.
 
 ## Changing an existing concept
 

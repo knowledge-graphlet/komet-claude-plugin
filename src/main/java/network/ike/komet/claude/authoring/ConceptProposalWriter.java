@@ -505,7 +505,7 @@ public final class ConceptProposalWriter {
     }
 
     /** Saves a new semantic of the pattern on the referenced component, its fields set by {@code seed}. */
-    private static ObservableSemantic semantic(ObservableComposer composer, EntityFacade referenced,
+    static ObservableSemantic semantic(ObservableComposer composer, EntityFacade referenced,
                                                PatternFacade pattern,
                                                Consumer<List<ObservableField.Editable<?>>> seed) {
         EntityComposer<ObservableSemanticVersion.Editable, ObservableSemantic> semantic =
@@ -587,7 +587,7 @@ public final class ConceptProposalWriter {
     }
 
     /** The index of the pattern's first string field, or -1 when it has none. */
-    private static int firstStringField(ViewCalculator calc, PatternFacade pattern) {
+    static int firstStringField(ViewCalculator calc, PatternFacade pattern) {
         PatternEntityVersion version = latest(calc, pattern);
         for (int i = 0; i < version.fieldDefinitions().size(); i++) {
             if (version.fieldDefinitions().get(i).dataTypeNid() == KernelConcept.STRING.nid()) {

@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.tools;
 
+import dev.ikm.komet.terms.KometConcept;
 import dev.ikm.tinkar.common.id.Nid;
 import dev.ikm.tinkar.common.id.LongIdCollection;
 import dev.ikm.tinkar.common.id.PublicId;
@@ -31,6 +32,7 @@ import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.Entity;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
+import dev.ikm.tinkar.entity.FieldDefinitionForEntity;
 import dev.ikm.tinkar.entity.PatternEntityVersion;
 import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
@@ -110,10 +112,75 @@ public final class GraphTools {
     public List<AnthropicTool> tools() {
         return List.of(concept(), children(), parents(), descendants(),
                 ancestors(), isA(), axioms(), search(), viewInfo(), debugConcept(),
-                conceptSemantics(), semanticInfo());
+                conceptSemantics(), semanticInfo(), pattern(), fieldDataTypes());
     }
 
     // ── Tools ───────────────────────────────────────────────────────────
+
+    /**
+     * A pattern's definition: its meaning, its purpose, and each field's meaning, purpose and data
+     * type in order. The identifiers it returns are what a proposed pattern is modelled on, and what
+     * {@code propose_pattern} takes.
+     */
+    private AnthropicTool pattern() {
+        return tool("pattern",
+                """
+                        Read a pattern by its UUID: its name, meaning, purpose, and each field's meaning, \
+                        purpose and data type, in order, every concept with its identifier. Find a \
+                        pattern with `search` first. Call this to model a new pattern on existing ones \
+                        and to confirm the concepts a pattern names before you reuse them.
+                        """,
+                objectSchema(Map.of("id", strProp("the pattern's UUID")), List.of("id")),
+                in -> {
+                    ViewCalculator v = view();
+                    if (v == null) {
+                        return NO_VIEW;
+                    }
+                    long nid = resolve(str(in, "id"), v);
+                    if (Nid.isNone(nid)) {
+                        return notFound(str(in, "id"));
+                    }
+                    Latest<PatternEntityVersion> latest = v.latestPatternEntityVersion(nid);
+                    if (!latest.isPresent()) {
+                        return nameAndId(v, nid) + " is not a pattern in this view.";
+                    }
+                    PatternEntityVersion version = latest.get();
+                    StringBuilder sb = new StringBuilder(nameAndId(v, nid)).append('\n')
+                            .append("Meaning: ").append(nameAndId(v, version.semanticMeaningNid())).append('\n')
+                            .append("Purpose: ").append(nameAndId(v, version.semanticPurposeNid())).append('\n')
+                            .append("Fields:\n");
+                    var definitions = version.fieldDefinitions();
+                    for (int i = 0; i < definitions.size(); i++) {
+                        FieldDefinitionForEntity field = definitions.get(i);
+                        sb.append("  ").append(i + 1).append(". meaning ").append(nameAndId(v, field.meaningNid()))
+                                .append("; purpose ").append(nameAndId(v, field.purposeNid()))
+                                .append("; data type ").append(nameAndId(v, field.dataTypeNid())).append('\n');
+                    }
+                    if (definitions.isEmpty()) {
+                        sb.append("  (none)\n");
+                    }
+                    return sb.append('[').append(definitions.size()).append(" fields]").toString();
+                });
+    }
+
+    /** The data types a pattern field may have: the children of Komet's "Display Fields". */
+    private AnthropicTool fieldDataTypes() {
+        return tool("field_data_types",
+                """
+                        List the data types a pattern field may have, each with its identifier: the choices \
+                        Komet's pattern window offers. A field's data_type in `propose_pattern` must be \
+                        one of these.
+                        """,
+                objectSchema(Map.of(), List.of()),
+                in -> {
+                    ViewCalculator v = view();
+                    if (v == null) {
+                        return NO_VIEW;
+                    }
+                    long root = KometConcept.DISPLAY_FIELDS.nid();
+                    return nameAndId(v, root) + "\n" + renderIds(v, v.childrenOf(root).longStream().toArray(), DEFAULT_LIMIT);
+                });
+    }
 
     private AnthropicTool concept() {
         return tool("concept",
@@ -792,8 +859,9 @@ public final class GraphTools {
 
     private AnthropicTool search() {
         return tool("search",
-                "Full-text search concept descriptions (Lucene). Returns matching concepts with "
-                        + "identifiers. Use this to find a concept when you don't have its code.",
+                "Full-text search descriptions (Lucene). Returns the matching concepts and patterns "
+                        + "with identifiers. Use this to find a concept or a pattern when you don't have "
+                        + "its code.",
                 objectSchema(Map.of(
                         "query", strProp("the text to search for"),
                         "limit", Map.of("type", "integer", "description", "max results (default 50)")),
@@ -834,7 +902,7 @@ public final class GraphTools {
                         if (seen.isEmpty()) {
                             return "No matches for: " + query;
                         }
-                        return sb.append("[").append(seen.size()).append(" concepts]").toString();
+                        return sb.append("[").append(seen.size()).append(" matches]").toString();
                     } catch (Exception e) {
                         return "Search error: " + e.getMessage();
                     } finally {
