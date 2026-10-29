@@ -27,6 +27,7 @@ import network.ike.komet.claude.decision.Bounds;
 import network.ike.komet.claude.decision.DecisionElement.Alternative;
 import network.ike.komet.claude.decision.DecisionTerms;
 import network.ike.komet.claude.decision.DecisionTree;
+import network.ike.komet.claude.decision.DecisionTreeEdits;
 import network.ike.komet.claude.decision.DecisionTreeText;
 import network.ike.komet.claude.decision.Rollback;
 import network.ike.komet.claude.decision.ValuationCoordinate;
@@ -63,6 +64,12 @@ class DecisionTreeDiagramTest {
     static DecisionTree tree;
     static BlockIdentities ids;
     static Rollback rollback;
+    static String bodyText;
+    static DecisionTreeText.Parsed parsed;
+
+    static int bodyLineOf(int vertex) {
+        return parsed.lineOf(vertex).orElseThrow();
+    }
 
     @BeforeAll
     static void startJavaFx() throws Exception {
@@ -83,8 +90,10 @@ class DecisionTreeDiagramTest {
         }
         try (InputStream in = DecisionTreeDiagramTest.class.getResourceAsStream("/decision/rda-scan-tree.adoc")) {
             String text = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+            bodyText = text.substring(text.indexOf("----\n") + 5, text.lastIndexOf("----"));
             ids = BlockIdentities.storeFree();
-            tree = DecisionTreeText.parse(text, T, ids).tree().orElseThrow();
+            parsed = DecisionTreeText.parse(bodyText, T, ids);
+            tree = parsed.tree().orElseThrow();
         }
         rollback = Rollback.of(tree, ValuationCoordinate.pricingHealthAt(Bounds.point(100_000),
                 ids.nid("rda-usd").orElseThrow(), ids.nid("rda-qaly").orElseThrow()));
@@ -222,6 +231,33 @@ class DecisionTreeDiagramTest {
             assertTrue(chip.marked().isPresent());
             chip.mark("again");
             assertEquals(1, ((javafx.scene.Parent) chip.getChildren().get(0)).getChildrenUnmodifiable().size() - 1, "one mark");
+        });
+    }
+
+    @Test
+    @DisplayName("Drawn against a reference, a value that moved is hot with what it was, and a new choice is marked")
+    void previewMarksWhatChanged() throws Exception {
+        onFx(() -> {
+            Recording host = new Recording();
+            // the scan dearer by 400: scanning costs more than not scanning, so the choice moves
+            Alternative scan = tree.nodesOfType(Alternative.class).get(0);
+            DecisionTree dearer = DecisionTreeText.parse(DecisionTreeEdits.restate(bodyText, bodyLineOf(scan.costs().get(0).vertexIndex()),
+                    Bounds.point(1_100)).orElseThrow(), T, ids).tree().orElseThrow();
+            Rollback moved = Rollback.of(dearer, rollback.coordinate());
+            DecisionTreeDiagram diagram = new DecisionTreeDiagram(dearer, moved, Optional.of(rollback), ids, List.of(),
+                    new HashSet<>(), 14, host);
+            new Scene(new StackPane(diagram), 1200, 600);
+            diagram.getParent().applyCss();
+            diagram.getParent().layout();
+            assertTrue(diagram.changed(tree.rootIndex()), "the root's cost moved");
+            assertTrue(diagram.changed(scan.vertexIndex()), "the scan's cost moved");
+            int noScan = tree.children(tree.rootIndex(), Alternative.class).get(1).vertexIndex();
+            assertTrue(diagram.changed(noScan), "not scanning is now chosen");
+            assertEquals(noScan, moved.chosen(tree.rootIndex()).orElseThrow());
+            Label value = (Label) diagram.labelOf(scan.vertexIndex(), true).map(n -> ((javafx.scene.Parent) n).getChildrenUnmodifiable())
+                    .orElseThrow().stream().filter(n -> n instanceof Label l && l.getText().startsWith("⇒")).findFirst().orElseThrow();
+            assertEquals(javafx.scene.paint.Color.web("#d98b1a"), value.getTextFill());
+            assertTrue(value.getTooltip().getText().startsWith("was 3,880"), value.getTooltip().getText());
         });
     }
 

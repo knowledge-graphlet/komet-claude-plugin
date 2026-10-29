@@ -88,6 +88,7 @@ class TornadoChartTest {
     static final class Recording implements TornadoChart.Host {
         final List<String> lit = new ArrayList<>();
         final List<String> tried = new ArrayList<>();
+        final List<String> previews = new ArrayList<>();
 
         @Override
         public String nameOf(int measureVertex) {
@@ -107,6 +108,11 @@ class TornadoChartTest {
         @Override
         public void tryValue(int measureVertex, double value) {
             tried.add(measureVertex + "=" + Math.round(value));
+        }
+
+        @Override
+        public void preview(int measureVertex, java.util.OptionalDouble value) {
+            previews.add(measureVertex + (value.isPresent() ? "~" + Math.round(value.getAsDouble()) : "~"));
         }
     }
 
@@ -214,6 +220,40 @@ class TornadoChartTest {
             assertTrue(row.tickLabels.get(0).getText().matches("flips at 8\\d,\\d{3}"), row.tickLabels.get(0).getText());
             assertEquals("0.0090", TornadoChart.value(0.009), "a share keeps four decimals");
             assertEquals("18.01", TornadoChart.value(18.0066));
+        });
+    }
+
+    @Test
+    @DisplayName("Resting on a value's name opens its control: bounds, a slider that previews, and a button that commits")
+    void controlPreviewsAndCommits() throws Exception {
+        onFx(() -> {
+            Recording host = new Recording();
+            TornadoChart chart = drawn(host);
+            int scanCost = tree.children(vertexOf("rda-scan"), MoneyCost.class).get(0).vertexIndex();
+            MeasureControl control = chart.openControl(scanCost);
+            assertTrue(chart.control().isPresent());
+            assertEquals("350", control.lower.getText());
+            assertEquals("1400", control.upper.getText());
+            assertEquals(700, control.slider.getValue(), 1e-9);
+            assertEquals("700", control.shown.getText());
+            control.slider.setValue(1_200);
+            assertEquals(List.of(scanCost + "~1200"), host.previews);
+            assertEquals("1,200", control.shown.getText());
+            control.upper.setText("3000");
+            control.upper.fireEvent(new javafx.event.ActionEvent());
+            assertEquals(3_000, control.slider.getMax(), 1e-9);
+            assertEquals(1_200, control.slider.getValue(), 1e-9, "the value holds when the range widens");
+            control.lower.setText("2500");
+            control.lower.fireEvent(new javafx.event.ActionEvent());
+            assertEquals(2_500, control.slider.getValue(), 1e-9, "and is held within when it narrows");
+            control.apply.fire();
+            assertEquals(List.of(scanCost + "=2500"), host.tried);
+            assertTrue(chart.control().isEmpty(), "committing closes the control");
+            MeasureControl again = chart.openControl(scanCost);
+            again.slider.setValue(900);
+            chart.closeControl();
+            assertEquals(scanCost + "~", host.previews.get(host.previews.size() - 1), "closing takes the preview back");
+            assertTrue(chart.control().isEmpty());
         });
     }
 

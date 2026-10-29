@@ -25,6 +25,9 @@ import javafx.scene.layout.Region;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Line;
 import javafx.scene.shape.Rectangle;
+import javafx.stage.Popup;
+import javafx.animation.PauseTransition;
+import javafx.util.Duration;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import network.ike.komet.claude.decision.Bounds;
@@ -39,6 +42,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalDouble;
 
 /**
  * A tornado diagram of a decision tree's one-way sensitivity, drawn beneath the tree: one bar
@@ -64,6 +68,9 @@ final class TornadoChart extends Region {
 
         /** Tries a value of a measure as a what-if. */
         void tryValue(int measureVertex, double value);
+
+        /** Draws the tree at a value of a measure, uncommitted; empty draws it where it stands. */
+        void preview(int measureVertex, OptionalDouble value);
     }
 
     static final Color BASE_CHOICE = Color.web("#1f3b73");
@@ -118,6 +125,11 @@ final class TornadoChart extends Region {
     private final Line baseLine = new Line();
     private final Label probe = new Label();
     private final Label footnote;
+    private final Line marker = new Line();
+    private final Popup popup = new Popup();
+    private final PauseTransition hideDelay = new PauseTransition(Duration.millis(600));
+    private MeasureControl control;
+    private Row controlRow;
     private double barLeft;
     private double barWidth;
 
@@ -139,7 +151,20 @@ final class TornadoChart extends Region {
         probe.setStyle("-fx-background-color: #fffbe8; -fx-border-color: #e6c87a; -fx-padding: 1 5 1 5;");
         probe.setVisible(false);
         probe.setMouseTransparent(true);
-        getChildren().addAll(axisLow, axisHigh, axisBase, baseLine);
+        marker.setStroke(HOT);
+        marker.setStrokeWidth(2.5);
+        marker.setVisible(false);
+        marker.setMouseTransparent(true);
+        popup.setAutoHide(true);
+        popup.setAutoFix(true);
+        popup.setOnAutoHide(e -> closeControl());
+        hideDelay.setOnFinished(e -> closeControl());
+        sceneProperty().addListener((obs, was, now) -> {
+            if (now == null && popup.isShowing()) {
+                popup.hide();
+            }
+        });
+        getChildren().addAll(axisLow, axisHigh, axisBase, baseLine, marker);
         for (Swing swing : sweep.swings()) {
             if (swing.width() <= 0) {
                 continue;
@@ -251,10 +276,15 @@ final class TornadoChart extends Region {
         row.name.setOnMouseEntered(e -> {
             highlight(vertex, true);
             host.light(vertex, true);
+            hideDelay.stop();
+            if (controlRow != row) {
+                openControl(vertex);
+            }
         });
         row.name.setOnMouseExited(e -> {
             highlight(vertex, false);
             host.light(vertex, false);
+            hideDelay.playFromStart();
         });
         row.band.setOnMouseMoved(e -> valueAt(row, e.getX()).ifPresent(value -> {
             probe.setText(value(value) + " → " + money(swing.rootAtValue(value).orElse(Double.NaN)));
@@ -273,6 +303,84 @@ final class TornadoChart extends Region {
         double root = sweep.least() + (x - barLeft) / barWidth * (sweep.greatest() - sweep.least());
         double clipped = Math.max(row.swing.least(), Math.min(row.swing.greatest(), root));
         return row.swing.valueAtRoot(clipped);
+    }
+
+    // ── The value's control ──────────────────────────────────────────────────
+
+    /**
+     * Opens the control for a value beneath its name: its bounds, a slider, and the value the
+     * tree is drawn at. Any control already open closes first, and its preview with it.
+     */
+    MeasureControl openControl(int measureVertex) {
+        Row row = rows.get(measureVertex);
+        if (row == null) {
+            return null;
+        }
+        closeControl();
+        Swing swing = row.swing;
+        controlRow = row;
+        control = new MeasureControl(host.nameOf(measureVertex), swing.range(), swing.base(), swing.stated(), base,
+                new MeasureControl.Listener() {
+                    @Override
+                    public void preview(double value) {
+                        mark(row, value);
+                        host.preview(measureVertex, OptionalDouble.of(value));
+                    }
+
+                    @Override
+                    public void commit(double value) {
+                        popup.hide();
+                        control = null;
+                        controlRow = null;
+                        marker.setVisible(false);
+                        host.tryValue(measureVertex, value);
+                    }
+                });
+        control.setOnMouseEntered(e -> hideDelay.stop());
+        control.setOnMouseExited(e -> hideDelay.playFromStart());
+        popup.getContent().setAll(control);
+        if (getScene() != null && getScene().getWindow() != null) {
+            javafx.geometry.Point2D at = row.name.localToScreen(0, row.name.getHeight() + 2);
+            popup.show(getScene().getWindow(), at.getX(), at.getY());
+        }
+        return control;
+    }
+
+    /** Closes the control, and takes the tree back to where it stands. */
+    void closeControl() {
+        hideDelay.stop();
+        if (control == null) {
+            return;
+        }
+        Row row = controlRow;
+        control = null;
+        controlRow = null;
+        marker.setVisible(false);
+        if (popup.isShowing()) {
+            popup.hide();
+        }
+        host.preview(row.swing.measureVertex(), OptionalDouble.empty());
+    }
+
+    /** The control while one is open; for a test. */
+    Optional<MeasureControl> control() {
+        return Optional.ofNullable(control);
+    }
+
+    /** A marker on the row's bar at the root's cost for a value being previewed. */
+    private void mark(Row row, double value) {
+        Optional<Double> root = row.swing.rootAtValue(value);
+        if (root.isEmpty()) {
+            marker.setVisible(false);
+            return;
+        }
+        double x = x(root.get());
+        marker.setStartX(x);
+        marker.setEndX(x);
+        marker.setStartY(row.y + 2);
+        marker.setEndY(row.y + rowHeight - 2);
+        marker.setVisible(true);
+        marker.toFront();
     }
 
     /** Lights a measure's row, as the pointer resting on its chip in the tree asks. */

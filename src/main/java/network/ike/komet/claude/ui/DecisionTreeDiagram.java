@@ -107,6 +107,8 @@ final class DecisionTreeDiagram extends Region {
 
     private final DecisionTree tree;
     private final Rollback rollback;
+    /** The rollback the tree stood at before a preview, when this drawing is one; what differs is marked. */
+    private final Optional<Rollback> reference;
     private final Derivations derivations;
     private final Identities ids;
     private final Host host;
@@ -124,14 +126,25 @@ final class DecisionTreeDiagram extends Region {
     private final Map<Integer, Node> valueLabels = new HashMap<>();
     private final Map<Integer, Node> nameLabels = new HashMap<>();
     private final Map<Integer, List<String>> findingsAt = new HashMap<>();
+    private final Set<Integer> changed = new HashSet<>();
     private final ReadOnlyDoubleWrapper drawnWidth = new ReadOnlyDoubleWrapper();
     private final ReadOnlyDoubleWrapper drawnHeight = new ReadOnlyDoubleWrapper();
     private DecisionTreeLayout layout;
 
     DecisionTreeDiagram(DecisionTree tree, Rollback rollback, Identities ids, List<ProfileFinding> findings,
                         Set<Integer> collapsed, double base, Host host) {
+        this(tree, rollback, Optional.empty(), ids, findings, collapsed, base, host);
+    }
+
+    /**
+     * A drawing of the tree at a previewed value: every rolled-back value and choice that differs
+     * from the reference is drawn hot, with what it was in its tooltip.
+     */
+    DecisionTreeDiagram(DecisionTree tree, Rollback rollback, Optional<Rollback> reference, Identities ids,
+                        List<ProfileFinding> findings, Set<Integer> collapsed, double base, Host host) {
         this.tree = tree;
         this.rollback = rollback;
+        this.reference = reference;
         this.derivations = rollback.derivations();
         this.ids = ids;
         this.host = host;
@@ -196,6 +209,7 @@ final class DecisionTreeDiagram extends Region {
         Optional<Bounds> value = rollback.value(index);
         Label valueLabel = label(value.map(bounds -> "⇒ " + DecisionTreeBlockRenderer.money(bounds))
                 .orElse("⇒ ?"), true, value.isPresent() ? INK : GAP);
+        markChanged(index, value, valueLabel);
         if (findingsAt.containsKey(index)) {
             valueLabel.setTooltip(new Tooltip(String.join("\n", findingsAt.get(index))));
             shape.setStroke(GAP);
@@ -272,11 +286,21 @@ final class DecisionTreeDiagram extends Region {
         }
         if (branch instanceof Alternative) {
             Optional<Bounds> value = rollback.value(index);
-            above.getChildren().add(label(value.map(bounds -> "⇒ " + DecisionTreeBlockRenderer.money(bounds))
-                    .orElse("⇒ ?"), true, value.isPresent() ? (chosen ? CHOSEN : INK) : GAP));
+            Label valueLabel = label(value.map(bounds -> "⇒ " + DecisionTreeBlockRenderer.money(bounds))
+                    .orElse("⇒ ?"), true, value.isPresent() ? (chosen ? CHOSEN : INK) : GAP);
+            markChanged(index, value, valueLabel);
+            above.getChildren().add(valueLabel);
         }
         if (chosen) {
-            above.getChildren().add(label("✓ chosen", true, CHOSEN));
+            Label mark = label("✓ chosen", true, CHOSEN);
+            OptionalInt parent = tree.parentIndex(index);
+            if (reference.isPresent() && parent.isPresent()
+                    && reference.get().chosen(parent.getAsInt()).orElse(-1) != index) {
+                mark.setTextFill(HOT);
+                mark.setTooltip(new Tooltip("Chosen at this value; another alternative was chosen before"));
+                changed.add(index);
+            }
+            above.getChildren().add(mark);
         }
         branchAbove.put(index, above);
         getChildren().add(above);
@@ -304,6 +328,28 @@ final class DecisionTreeDiagram extends Region {
             part.setOnMouseEntered(e -> hot.accept(true));
             part.setOnMouseExited(e -> hot.accept(false));
         }
+    }
+
+    /** Draws a value hot when it differs from the reference's, with what it was in the tooltip. */
+    private void markChanged(int index, Optional<Bounds> value, Label valueLabel) {
+        if (reference.isEmpty()) {
+            return;
+        }
+        Optional<Bounds> was = reference.get().value(index);
+        boolean differs = was.isPresent() != value.isPresent()
+                || (was.isPresent() && (Math.abs(was.get().lower() - value.get().lower()) > 0.5
+                || Math.abs(was.get().upper() - value.get().upper()) > 0.5));
+        if (!differs) {
+            return;
+        }
+        changed.add(index);
+        valueLabel.setTextFill(HOT);
+        valueLabel.setTooltip(new Tooltip("was " + was.map(DecisionTreeBlockRenderer::money).orElse("?")));
+    }
+
+    /** Whether a node's value or choice differs from the reference's; for a test. */
+    boolean changed(int vertexIndex) {
+        return changed.contains(vertexIndex);
     }
 
     /** The costs a branch or an outcome carries, each a chip the reader may move when stated. */

@@ -74,6 +74,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalDouble;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -205,6 +206,15 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         final Map<Integer, MeasureChip> parameterChips = new HashMap<>();
         /** Which rebuild a sweep belongs to: a sweep that lands after the next rebuild is dropped. */
         int generation;
+        /** The top of the column: header, parameters and the drawing, redrawn alone during a preview. */
+        final VBox top = new VBox(6);
+        /** The rollback the block stands at, which a preview is drawn against. */
+        Rollback committed;
+        List<ProfileFinding> committedFindings = List.of();
+        DecisionTreeSensitivity lastSweep;
+        boolean previewing;
+        /** The preview asked for last, applied once per pulse so a dragged slider does not queue redraws. */
+        Runnable pendingPreview;
 
         Live(String info, String body, double price) {
             this.originalInfo = info;
@@ -215,6 +225,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             column.getStyleClass().add("decision-tree");
             column.setCursor(Cursor.DEFAULT);
             column.setFillWidth(true);
+            top.setFillWidth(true);
             column.setMaxWidth(Double.MAX_VALUE);
             column.parentProperty().addListener((obs, oldParent, newParent) -> {
                 column.maxWidthProperty().unbind();
@@ -228,6 +239,9 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         void rebuild() {
             generation++;
             tornado = null;
+            lastSweep = null;
+            previewing = false;
+            pendingPreview = null;
             parameterChips.clear();
             parsed = DecisionTreeText.parse(body, terms, ids);
             List<ProfileFinding> findings = new ArrayList<>(parsed.findings().castToList());
@@ -238,27 +252,11 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             }
             tree = parsed.tree().get();
             findings.addAll(tree.check().castToList());
-            ValuationCoordinate coordinate = ValuationCoordinate.pricingHealthAt(Bounds.point(price),
-                    semantic(MoneyCost.class, terms.moneySemantic()), semantic(HealthCost.class, terms.healthSemantic()));
-            Rollback rollback = Rollback.of(tree, coordinate);
-
-            column.getChildren().add(header(rollback));
-            Node parameters = parameters(rollback.derivations());
-            if (parameters != null) {
-                column.getChildren().add(parameters);
-            }
-            diagram = new DecisionTreeDiagram(tree, rollback, ids, findings, collapsed, base, this);
-            ScrollPane scroll = new ScrollPane(diagram);
-            scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
-            scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-            scroll.setPannable(true);
-            scroll.setFitToHeight(true);
-            // Only the colour, never -fx-background itself: modena ladders every label's text colour off
-            // -fx-background, and a transparent one reads as light, which fades every chip in the drawing.
-            scroll.setStyle("-fx-background-color: transparent; -fx-padding: 0;");
-            scroll.setPrefViewportHeight(diagram.prefHeight(-1));
-            diagram.drawnHeightProperty().addListener((obs, was, now) -> scroll.setPrefViewportHeight(now.doubleValue()));
-            column.getChildren().add(scroll);
+            Rollback rollback = Rollback.of(tree, coordinate(tree, price));
+            committed = rollback;
+            committedFindings = findings;
+            fillTop(tree, rollback, price, Optional.empty(), findings);
+            column.getChildren().add(top);
 
             List<String> messages = new ArrayList<>();
             // Named by the node they are on, as the feedback to the assistant names them, not by vertex index.
@@ -328,6 +326,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                     tornado = new TornadoChart(landed.get(), base, this);
                     tornado.setId("tornado-chart");
                     section.getChildren().add(tornado);
+                    lastSweep = landed.get();
                     markFlips(landed.get());
                 });
             });
@@ -364,17 +363,50 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             }
         }
 
+        /** The coordinate a tree is read at: its own cost semantics, at a price. */
+        private ValuationCoordinate coordinate(DecisionTree tree, double at) {
+            return ValuationCoordinate.pricingHealthAt(Bounds.point(at),
+                    semantic(tree, MoneyCost.class, terms.moneySemantic()), semantic(tree, HealthCost.class, terms.healthSemantic()));
+        }
+
+        /** Fills the top of the column: the header, the parameters and the drawing, for a tree at a price. */
+        private void fillTop(DecisionTree drawn, Rollback rollback, double at, Optional<Rollback> reference,
+                             List<ProfileFinding> findings) {
+            parameterChips.clear();
+            top.getChildren().clear();
+            top.getChildren().add(header(drawn, rollback, at));
+            Node parameters = parameters(drawn, rollback.derivations());
+            if (parameters != null) {
+                top.getChildren().add(parameters);
+            }
+            diagram = new DecisionTreeDiagram(drawn, rollback, reference, ids, findings, collapsed, base, this);
+            ScrollPane scroll = new ScrollPane(diagram);
+            scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
+            scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+            scroll.setPannable(true);
+            scroll.setFitToHeight(true);
+            // Only the colour, never -fx-background itself: modena ladders every label's text colour off
+            // -fx-background, and a transparent one reads as light, which fades every chip in the drawing.
+            scroll.setStyle("-fx-background-color: transparent; -fx-padding: 0;");
+            scroll.setPrefViewportHeight(diagram.prefHeight(-1));
+            diagram.drawnHeightProperty().addListener((obs, was, now) -> scroll.setPrefViewportHeight(now.doubleValue()));
+            top.getChildren().add(scroll);
+            if (lastSweep != null) {
+                markFlips(lastSweep);
+            }
+        }
+
         /** The title row: what the tree decides, its value, and the health price the reader may move. */
-        private HBox header(Rollback rollback) {
+        private HBox header(DecisionTree drawn, Rollback rollback, double at) {
             HBox header = new HBox(8);
             header.setAlignment(Pos.CENTER_LEFT);
             Label title = new Label("Decision tree");
             title.setFont(Font.font(null, FontWeight.BOLD, base));
             header.getChildren().add(title);
-            tree.decision().ifPresent(decision -> concept(decision.concept()).ifPresent(header.getChildren()::add));
+            drawn.decision().ifPresent(decision -> concept(decision.concept()).ifPresent(header.getChildren()::add));
             Label priceLabel = new Label("healthy year at");
             priceLabel.setFont(Font.font(base * 0.9));
-            TextField priceField = new TextField(Tokens.number(price));
+            TextField priceField = new TextField(Tokens.number(at));
             priceField.setId("health-price-field");
             priceField.setFont(Font.font(base * 0.9));
             priceField.setPrefColumnCount(8);
@@ -407,8 +439,8 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         }
 
         /** The model's parameters, each its quantity and its value, stated ones offered for a what-if. */
-        private Node parameters(Derivations derivations) {
-            ImmutableList<Parameter> all = tree.nodesOfType(Parameter.class);
+        private Node parameters(DecisionTree drawn, Derivations derivations) {
+            ImmutableList<Parameter> all = drawn.nodesOfType(Parameter.class);
             if (all.isEmpty()) {
                 return null;
             }
@@ -580,6 +612,62 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         }
 
         @Override
+        public void preview(int measureVertex, OptionalDouble value) {
+            if (value.isEmpty()) {
+                pendingPreview = null;
+                if (previewing) {
+                    previewing = false;
+                    fillTop(tree, committed, price, Optional.empty(), committedFindings);
+                }
+                return;
+            }
+            boolean queued = pendingPreview != null;
+            pendingPreview = () -> drawPreview(measureVertex, value.getAsDouble());
+            if (!queued) {
+                Platform.runLater(() -> {
+                    Runnable run = pendingPreview;
+                    pendingPreview = null;
+                    if (run != null) {
+                        run.run();
+                    }
+                });
+            }
+        }
+
+        /** Draws the top of the column at one value of a measure, the committed rollback as the reference. */
+        private void drawPreview(int measureVertex, double value) {
+            String text = body;
+            double at = price;
+            if (measureVertex == DecisionTreeSensitivity.HEALTH_PRICE) {
+                at = value;
+            } else {
+                OptionalInt line = parsed.lineOf(measureVertex);
+                if (line.isEmpty()) {
+                    return;
+                }
+                Optional<String> restated = DecisionTreeEdits.restate(body, line.getAsInt(), Bounds.point(value));
+                if (restated.isEmpty()) {
+                    return;
+                }
+                text = restated.get();
+            }
+            DecisionTreeText.Parsed again = DecisionTreeText.parse(text, terms, ids);
+            if (again.tree().isEmpty()) {
+                return;
+            }
+            DecisionTree drawn = again.tree().get();
+            List<ProfileFinding> findings = new ArrayList<>(again.findings().castToList());
+            findings.addAll(drawn.check().castToList());
+            previewing = true;
+            fillTop(drawn, Rollback.of(drawn, coordinate(drawn, at)), at, Optional.of(committed), findings);
+        }
+
+        /** Whether the top of the column shows a preview rather than where the block stands; for a test. */
+        boolean previewing() {
+            return previewing;
+        }
+
+        @Override
         public void tryValue(int measureVertex, double value) {
             if (measureVertex == DecisionTreeSensitivity.HEALTH_PRICE) {
                 if (value != price) {
@@ -592,9 +680,9 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             edit(measureVertex, Bounds.point(value));
         }
 
-        /** The semantic the tree's costs of a kind are on, taken from the first such cost; the parent semantic otherwise. */
-        private long semantic(Class<? extends Cost> kind, long fallback) {
-            ImmutableList<? extends Cost> costs = tree.nodesOfType(kind);
+        /** The semantic a tree's costs of a kind are on, taken from the first such cost; the parent semantic otherwise. */
+        private long semantic(DecisionTree of, Class<? extends Cost> kind, long fallback) {
+            ImmutableList<? extends Cost> costs = of.nodesOfType(kind);
             return costs.isEmpty() ? fallback : costs.get(0).measure().semanticNid();
         }
     }
