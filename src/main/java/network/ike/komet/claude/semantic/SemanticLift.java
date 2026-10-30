@@ -138,9 +138,9 @@ public final class SemanticLift {
             obs.onInstanceEmitted(instance, instances.size() - 1);
             return true;
         };
-        Consumer<ComponentSlot> onDiscovered = slot -> {
+        Consumer<ComponentValue> onDiscovered = componentValue -> {
             try {
-                obs.onSlotDiscovered(slot);
+                obs.onValueDiscovered(componentValue);
             } catch (RuntimeException ignored) {
                 // a UI callback must never break the lift
             }

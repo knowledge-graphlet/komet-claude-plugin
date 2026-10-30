@@ -65,19 +65,19 @@ public final class SemanticGrounding implements Grounder {
     }
 
     @Override
-    public Optional<ComponentSlot.Grounded> ground(String id, ComponentSlot.Kind requiredKind) {
+    public Optional<ComponentValue.Grounded> ground(String id, ComponentValue.Kind requiredKind) {
         long nid = resolveRaw(id);
         if (Nid.isNone(nid)) {
             return Optional.empty();
         }
-        ComponentSlot.Kind kind;
+        ComponentValue.Kind kind;
         try {
             kind = kindOf(nid);
         } catch (RuntimeException notResolvable) {
             return Optional.empty();
         }
         if (kind == null) {
-            // A stamp or other non-referenceable entity; not a valid component slot filler.
+            // A stamp or other non-referenceable entity; not a valid component field value.
             return Optional.empty();
         }
         // Active-only grounding: a retired (or absent) component never grounds.
@@ -143,35 +143,35 @@ public final class SemanticGrounding implements Grounder {
      * The component kind of a nid from the entity hierarchy, or {@code null} when the entity is
      * neither concept, semantic, nor pattern. Throws when the nid resolves to no entity.
      */
-    private static ComponentSlot.Kind kindOf(long nid) {
+    private static ComponentValue.Kind kindOf(long nid) {
         Entity<?> entity = EntityHandle.getEntityOrThrow(nid);
         if (entity instanceof ConceptEntity) {
-            return ComponentSlot.Kind.CONCEPT;
+            return ComponentValue.Kind.CONCEPT;
         }
         if (entity instanceof SemanticEntity) {
-            return ComponentSlot.Kind.SEMANTIC;
+            return ComponentValue.Kind.SEMANTIC;
         }
         if (entity instanceof PatternEntity) {
-            return ComponentSlot.Kind.PATTERN;
+            return ComponentValue.Kind.PATTERN;
         }
         return null;
     }
 
     /**
-     * Builds the grounded slot of a component. Its key and its identifier come from the public
+     * Builds the grounded value of a component. Its key and its identifier come from the public
      * id — the durable, coordinate-independent round-trip key — and never from the nid
      * ({@code IKE-Network/ike-issues#1170}).
      *
-     * @return the grounded slot, or empty when the store has no public id for the component
+     * @return the grounded value, or empty when the store has no public id for the component
      */
-    private Optional<ComponentSlot.Grounded> build(long nid, ComponentSlot.Kind kind) {
+    private Optional<ComponentValue.Grounded> build(long nid, ComponentValue.Kind kind) {
         Optional<PublicId> publicId = ComponentText.publicId(nid);
         if (publicId.isEmpty()) {
             return Optional.empty();
         }
         String label = ComponentText.fullyQualifiedName(view, nid);
         String identifier = publicId.get().leastUuid().toString();
-        return Optional.of(new ComponentSlot.Grounded(
+        return Optional.of(new ComponentValue.Grounded(
                 nid, kind, ComponentText.publicIdKey(publicId.get()), identifier, label));
     }
 }

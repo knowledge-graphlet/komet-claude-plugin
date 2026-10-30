@@ -27,9 +27,9 @@ import java.util.Objects;
  * with a priority) are made unrepresentable rather than merely discouraged. See
  * {@code anf-structural-definition}.
  *
- * <p>Every concept reference is an {@link AnfSlot} (grounded, candidate, or clarify) and
+ * <p>Every concept reference is an {@link AnfValue} (grounded, candidate, or clarify) and
  * every measured value is an {@link AnfStatement.Result}; nothing here is free text except
- * the narrative escape valve. Per IKE's no-post-coordination rule, each slot names exactly
+ * the narrative escape valve. Per IKE's no-post-coordination rule, each value names exactly
  * one pre-coordinated concept — the typed modifier fields (body site, method, laterality,
  * …) are first-class <em>circumstance</em> attributes, never refinements composed into the
  * topic. Compositional meaning belongs inside a concept's definition, not in a statement.
@@ -54,9 +54,9 @@ public sealed interface Circumstance
      * Why the performance was done or the request made — zero or more grounded purpose
      * concepts; never null (possibly empty).
      *
-     * @return the purpose slots
+     * @return the purpose values
      */
-    List<AnfSlot> purpose();
+    List<AnfValue> purpose();
 
     /**
      * The performance circumstance: the clinical detail of an action or observation that has
@@ -68,26 +68,26 @@ public sealed interface Circumstance
      * @param timing      when the determination occurred; null when not stated
      * @param purpose     why it was done; never null (possibly empty)
      * @param status      the status of the action or determination (e.g. performed, final,
-     *                    amended); a slot, or null when not stated
+     *                    amended); a value, or null when not stated
      * @param result      what was determined; null when the circumstance carries no result
      * @param healthRisk  the clinical-risk classification of the result (e.g. low, high,
-     *                    critically high); a slot, or null when not stated
+     *                    critically high); a value, or null when not stated
      * @param normalRange the reference range of normal values for the determination; null
      *                    when not stated
-     * @param bodySite    the anatomical location; a slot, or null when not stated
-     * @param method      how the determination was made; a slot, or null when not stated
-     * @param laterality  left / right / bilateral; a slot, or null when not stated
+     * @param bodySite    the anatomical location; a value, or null when not stated
+     * @param method      how the determination was made; a value, or null when not stated
+     * @param laterality  left / right / bilateral; a value, or null when not stated
      */
     record Performance(
             AnfStatement.Result timing,
-            List<AnfSlot> purpose,
-            AnfSlot status,
+            List<AnfValue> purpose,
+            AnfValue status,
             AnfStatement.Result result,
-            AnfSlot healthRisk,
+            AnfValue healthRisk,
             AnfStatement.Result normalRange,
-            AnfSlot bodySite,
-            AnfSlot method,
-            AnfSlot laterality) implements Circumstance {
+            AnfValue bodySite,
+            AnfValue method,
+            AnfValue laterality) implements Circumstance {
 
         /** Defensively copies {@code purpose}. */
         public Performance {
@@ -99,26 +99,26 @@ public sealed interface Circumstance
      * The request circumstance: the clinical detail of something asked for or ordered. The
      * {@code requestedResult} is the result sought; {@code repetition} carries a
      * frequency/duration schedule; {@code conditionalTrigger} carries the conditions for
-     * execution as concept slots (the nested associated-statement form is deferred). Only
+     * execution as concept values (the nested associated-statement form is deferred). Only
      * relevant attributes are populated; absent attributes are null/empty.
      *
      * @param timing             when execution is requested; null when not stated
      * @param purpose            the clinical indication; never null (possibly empty)
-     * @param priority           routine / urgent / stat; a slot, or null when not stated
+     * @param priority           routine / urgent / stat; a value, or null when not stated
      * @param requestedResult    the result sought; null when not stated
      * @param repetition         the frequency/duration schedule; null when not stated
-     * @param conditionalTrigger conditions for execution, each a concept slot; never null
+     * @param conditionalTrigger conditions for execution, each a concept value; never null
      *                           (possibly empty)
-     * @param method             how the request should be carried out; a slot, or null
+     * @param method             how the request should be carried out; a value, or null
      */
     record Request(
             AnfStatement.Result timing,
-            List<AnfSlot> purpose,
-            AnfSlot priority,
+            List<AnfValue> purpose,
+            AnfValue priority,
             AnfStatement.Result requestedResult,
             Repetition repetition,
-            List<AnfSlot> conditionalTrigger,
-            AnfSlot method) implements Circumstance {
+            List<AnfValue> conditionalTrigger,
+            AnfValue method) implements Circumstance {
 
         /** Defensively copies {@code purpose} and {@code conditionalTrigger}. */
         public Request {
@@ -140,7 +140,7 @@ public sealed interface Circumstance
      */
     record Narrative(
             AnfStatement.Result timing,
-            List<AnfSlot> purpose,
+            List<AnfValue> purpose,
             String text) implements Circumstance {
 
         /**

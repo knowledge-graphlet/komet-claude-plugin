@@ -34,7 +34,7 @@ import java.util.function.Consumer;
  * <p>{@code emit_semantic} is the generalization of the narrative lift's {@code emit_anf}: rather
  * than a hand-written ANF schema, it builds one property per pattern field, branching by the
  * field's {@link FieldFamily} — component references get the three-way grounded/candidate/clarify
- * slot, collections an array of slots, literals a typed scalar, and structured datatypes a
+ * value, collections an array of values, literals a typed scalar, and structured datatypes a
  * clarify-only placeholder (deferred in v1). Every component reference is grounded through the
  * injected {@link Grounder}, which validates existence, active status, and the field's required
  * kind; an id that does not resolve (or resolves to the wrong kind) is rejected back to the model.
@@ -68,26 +68,26 @@ public final class SemanticTools {
      * @return the tool to add to the lift's tool list
      */
     public static AnthropicTool emitSemantic(PatternFields fields, Grounder grounder, InstanceSink sink) {
-        return emitSemantic(fields, grounder, sink, slot -> {
+        return emitSemantic(fields, grounder, sink, componentValue -> {
         });
     }
 
     /**
-     * Creates the {@code emit_semantic} tool that also reports each slot it grounds, proposes, or
+     * Creates the {@code emit_semantic} tool that also reports each value it grounds, proposes, or
      * surfaces, for a live inventory.
      *
      * @param fields       the bound pattern's field metadata; must not be null
      * @param grounder     grounds each component reference; must not be null
      * @param sink         receives each validated instance; must not be null
-     * @param onDiscovered receives each slot as an instance validates; a null callback is a no-op
+     * @param onDiscovered receives each value as an instance validates; a null callback is a no-op
      * @return the tool to add to the lift's tool list
      */
     public static AnthropicTool emitSemantic(PatternFields fields, Grounder grounder, InstanceSink sink,
-                                             Consumer<ComponentSlot> onDiscovered) {
+                                             Consumer<ComponentValue> onDiscovered) {
         Objects.requireNonNull(fields, "fields");
         Objects.requireNonNull(grounder, "grounder");
         Objects.requireNonNull(sink, "sink");
-        Consumer<ComponentSlot> discovered = (onDiscovered == null) ? slot -> {
+        Consumer<ComponentValue> discovered = (onDiscovered == null) ? componentValue -> {
         } : onDiscovered;
         return new EmitSemanticTool(fields, buildSchema(fields), grounder, sink, discovered);
     }
@@ -135,7 +135,7 @@ public final class SemanticTools {
     // ── emit_semantic ───────────────────────────────────────────────────────
 
     private record EmitSemanticTool(PatternFields fields, Map<String, Object> schema, Grounder grounder,
-                                    InstanceSink sink, Consumer<ComponentSlot> onDiscovered)
+                                    InstanceSink sink, Consumer<ComponentValue> onDiscovered)
             implements AnthropicTool {
 
         @Override
@@ -165,7 +165,7 @@ public final class SemanticTools {
         public String execute(Map<String, Object> input) {
             Map<String, Object> in = (input == null) ? Map.of() : input;
             List<String> unresolved = new ArrayList<>();
-            List<ComponentSlot> discovered = new ArrayList<>();
+            List<ComponentValue> discovered = new ArrayList<>();
             List<SemanticInstance.FieldValue> values = new ArrayList<>();
 
             for (PatternFields.FieldMeta field : fields.fields()) {
@@ -190,8 +190,8 @@ public final class SemanticTools {
                     new SemanticInstance(fields.patternNid(), fields.patternLabel(), values);
             boolean recorded = sink.record(instance);
             if (recorded) {
-                for (ComponentSlot slot : discovered) {
-                    fireDiscovered(slot);
+                for (ComponentValue componentValue : discovered) {
+                    fireDiscovered(componentValue);
                 }
                 return "recorded";
             }
@@ -200,30 +200,30 @@ public final class SemanticTools {
 
         /** Parses one field's value by its datatype family; null when the field carries nothing usable. */
         private SemanticFieldValue parseField(PatternFields.FieldMeta field, Object raw,
-                                              List<String> unresolved, List<ComponentSlot> discovered) {
+                                              List<String> unresolved, List<ComponentValue> discovered) {
             FieldFamily family = field.family();
             if (family.isComponentReference()) {
-                ComponentSlot slot = parseSlot(asMap(raw), family.requiredKind(), field.meaningLabel(),
+                ComponentValue componentValue = parseComponentValue(asMap(raw), family.requiredKind(), field.meaningLabel(),
                         unresolved, discovered);
-                return (slot == null) ? null : new SemanticFieldValue.Component(slot);
+                return (componentValue == null) ? null : new SemanticFieldValue.Component(componentValue);
             }
             if (family.isComponentCollection()) {
                 List<Object> items = asList(raw);
                 if (items == null) {
                     return null;
                 }
-                List<ComponentSlot> slots = new ArrayList<>();
+                List<ComponentValue> componentValues = new ArrayList<>();
                 for (Object item : items) {
                     Map<String, Object> itemMap = asMap(item);
                     if (itemMap != null) {
-                        ComponentSlot slot = parseSlot(itemMap, null, field.meaningLabel(),
+                        ComponentValue componentValue = parseComponentValue(itemMap, null, field.meaningLabel(),
                                 unresolved, discovered);
-                        if (slot != null) {
-                            slots.add(slot);
+                        if (componentValue != null) {
+                            componentValues.add(componentValue);
                         }
                     }
                 }
-                return slots.isEmpty() ? null : new SemanticFieldValue.Components(slots);
+                return componentValues.isEmpty() ? null : new SemanticFieldValue.Components(componentValues);
             }
             return switch (family) {
                 case STRING -> new SemanticFieldValue.StringValue(raw.toString());
@@ -243,16 +243,16 @@ public final class SemanticTools {
             };
         }
 
-        /** Parses a component slot: exactly one of grounded_component_id, candidate, or clarify. */
-        private ComponentSlot parseSlot(Map<String, Object> slotMap, ComponentSlot.Kind requiredKind,
+        /** Parses a component field: exactly one of grounded_component_id, candidate, or clarify. */
+        private ComponentValue parseComponentValue(Map<String, Object> componentValueMap, ComponentValue.Kind requiredKind,
                                         String fieldLabel, List<String> unresolved,
-                                        List<ComponentSlot> discovered) {
-            if (slotMap == null) {
+                                        List<ComponentValue> discovered) {
+            if (componentValueMap == null) {
                 return null;
             }
-            String groundedId = str(slotMap, "grounded_component_id");
+            String groundedId = str(componentValueMap, "grounded_component_id");
             if (groundedId != null && !groundedId.isBlank()) {
-                Optional<ComponentSlot.Grounded> grounded = grounder.ground(groundedId, requiredKind);
+                Optional<ComponentValue.Grounded> grounded = grounder.ground(groundedId, requiredKind);
                 if (grounded.isPresent()) {
                     discovered.add(grounded.get());
                     return grounded.get();
@@ -260,20 +260,20 @@ public final class SemanticTools {
                 unresolved.add(groundedId);
                 return null;
             }
-            Map<String, Object> candidateMap = asMap(slotMap.get("candidate"));
+            Map<String, Object> candidateMap = asMap(componentValueMap.get("candidate"));
             if (candidateMap != null) {
                 String label = str(candidateMap, "provisional_label");
                 if (label == null || label.isBlank()) {
                     return null;
                 }
                 String text = str(candidateMap, "text");
-                ComponentSlot.Candidate candidate = new ComponentSlot.Candidate(
+                ComponentValue.Candidate candidate = new ComponentValue.Candidate(
                         (text == null || text.isBlank()) ? label : text, label,
                         strList(candidateMap.get("nearest_match_ids")));
                 discovered.add(candidate);
                 return candidate;
             }
-            ComponentSlot.Clarify clarify = parseClarify(asMap(slotMap.get("clarify")), fieldLabel);
+            ComponentValue.Clarify clarify = parseClarify(asMap(componentValueMap.get("clarify")), fieldLabel);
             if (clarify != null) {
                 discovered.add(clarify);
             }
@@ -281,21 +281,21 @@ public final class SemanticTools {
         }
 
         /** A clarify-only value for a structured (deferred) field, or null when not supplied. */
-        private SemanticFieldValue parseDeferred(Map<String, Object> slotMap, String fieldLabel,
+        private SemanticFieldValue parseDeferred(Map<String, Object> componentValueMap, String fieldLabel,
                                                  Object dataType) {
-            if (slotMap == null) {
+            if (componentValueMap == null) {
                 return null;
             }
-            ComponentSlot.Clarify clarify = parseClarify(asMap(slotMap.get("clarify")), fieldLabel);
+            ComponentValue.Clarify clarify = parseClarify(asMap(componentValueMap.get("clarify")), fieldLabel);
             if (clarify == null) {
                 // Default the gap explanation when the model filled the field without a clarify.
-                clarify = new ComponentSlot.Clarify(fieldLabel,
+                clarify = new ComponentValue.Clarify(fieldLabel,
                         "datatype " + dataType + " is not supported in v1; left for a later phase");
             }
             return new SemanticFieldValue.Deferred(clarify);
         }
 
-        private static ComponentSlot.Clarify parseClarify(Map<String, Object> clarifyMap, String fieldLabel) {
+        private static ComponentValue.Clarify parseClarify(Map<String, Object> clarifyMap, String fieldLabel) {
             if (clarifyMap == null) {
                 return null;
             }
@@ -303,12 +303,12 @@ public final class SemanticTools {
             if (question == null || question.isBlank()) {
                 return null;
             }
-            return new ComponentSlot.Clarify(fieldLabel, question);
+            return new ComponentValue.Clarify(fieldLabel, question);
         }
 
-        private void fireDiscovered(ComponentSlot slot) {
+        private void fireDiscovered(ComponentValue componentValue) {
             try {
-                onDiscovered.accept(slot);
+                onDiscovered.accept(componentValue);
             } catch (RuntimeException ignored) {
                 // a UI callback must never break the tool loop
             }
@@ -331,13 +331,13 @@ public final class SemanticTools {
         String prefix = field.meaningLabel() + " — " + field.purposeLabel() + ". ";
         FieldFamily family = field.family();
         if (family.isComponentReference()) {
-            return slotSchema(prefix + kindHint(family));
+            return componentValueSchema(prefix + kindHint(family));
         }
         if (family.isComponentCollection()) {
             return obj("type", "array",
                     "description", prefix + "An array of component references; each member must be an "
                             + "existing component.",
-                    "items", slotSchema("A member component reference."));
+                    "items", componentValueSchema("A member component reference."));
         }
         return switch (family) {
             case STRING -> obj("type", "string", "description", prefix + "A string value.");
@@ -348,8 +348,8 @@ public final class SemanticTools {
         };
     }
 
-    /** A three-way concept-slot schema: exactly one of grounded_component_id, candidate, or clarify. */
-    private static Map<String, Object> slotSchema(String description) {
+    /** A three-way concept-value schema: exactly one of grounded_component_id, candidate, or clarify. */
+    private static Map<String, Object> componentValueSchema(String description) {
         return obj(
                 "type", "object",
                 "description", description + " Supply EXACTLY ONE of: grounded_component_id (an SCTID or "

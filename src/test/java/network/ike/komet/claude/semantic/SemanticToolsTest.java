@@ -34,30 +34,30 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Store-free tests of the runtime {@code emit_semantic} schema builder and its parse/ground/assemble
  * logic, driven by a fake {@link Grounder}. These gate each datatype-family branch — the
  * high-blast-radius piece of the semantic lift — without needing a datastore: schema generation per
- * family, grounded/candidate/clarify slots, kind enforcement, rejection of unresolved ids, literal
+ * family, grounded/candidate/clarify values, kind enforcement, rejection of unresolved ids, literal
  * coercion, collections, omitted fields, and idempotent emit.
  */
 class SemanticToolsTest {
 
     /** A fake grounder backed by id → kind, mimicking existence + kind enforcement, no store. */
     private static final class FakeGrounder implements Grounder {
-        private final Map<String, ComponentSlot.Kind> known = new HashMap<>();
+        private final Map<String, ComponentValue.Kind> known = new HashMap<>();
 
-        FakeGrounder with(String id, ComponentSlot.Kind kind) {
+        FakeGrounder with(String id, ComponentValue.Kind kind) {
             known.put(id, kind);
             return this;
         }
 
         @Override
-        public Optional<ComponentSlot.Grounded> ground(String id, ComponentSlot.Kind requiredKind) {
-            ComponentSlot.Kind kind = known.get(id);
+        public Optional<ComponentValue.Grounded> ground(String id, ComponentValue.Kind requiredKind) {
+            ComponentValue.Kind kind = known.get(id);
             if (kind == null) {
                 return Optional.empty();
             }
             if (requiredKind != null && requiredKind != kind) {
                 return Optional.empty();
             }
-            return Optional.of(new ComponentSlot.Grounded(id.hashCode(), kind, "pub-" + id, id, "Label " + id));
+            return Optional.of(new ComponentValue.Grounded(id.hashCode(), kind, "pub-" + id, id, "Label " + id));
         }
     }
 
@@ -107,7 +107,7 @@ class SemanticToolsTest {
         assertEquals("object", schema.get("type"));
         Map<String, Object> props = child(schema, "properties");
 
-        // Component reference → three-way slot object.
+        // Component reference → three-way value object.
         Map<String, Object> condition = child(props, "condition");
         assertEquals("object", condition.get("type"));
         Map<String, Object> condProps = child(condition, "properties");
@@ -121,7 +121,7 @@ class SemanticToolsTest {
         assertEquals("integer", child(props, "count").get("type"));
         assertEquals("boolean", child(props, "active").get("type"));
 
-        // Collection → array of slots.
+        // Collection → array of values.
         assertEquals("array", child(props, "members").get("type"));
         assertTrue(child(child(props, "members"), "items").containsKey("properties"));
 
@@ -135,7 +135,7 @@ class SemanticToolsTest {
     @Test
     void groundedConceptIsRecordedAndFullyGrounded() {
         RecordingSink sink = new RecordingSink();
-        FakeGrounder grounder = new FakeGrounder().with("73211009", ComponentSlot.Kind.CONCEPT);
+        FakeGrounder grounder = new FakeGrounder().with("73211009", ComponentValue.Kind.CONCEPT);
         AnthropicTool tool = SemanticTools.emitSemantic(mixedPattern(), grounder, sink);
 
         String result = tool.execute(input("condition", input("grounded_component_id", "73211009")));
@@ -148,8 +148,8 @@ class SemanticToolsTest {
         SemanticInstance.FieldValue field = instance.fields().get(0);
         assertEquals(0, field.index());
         assertTrue(field.value() instanceof SemanticFieldValue.Component component
-                && component.slot() instanceof ComponentSlot.Grounded grounded
-                && grounded.kind() == ComponentSlot.Kind.CONCEPT);
+                && component.componentValue() instanceof ComponentValue.Grounded grounded
+                && grounded.kind() == ComponentValue.Kind.CONCEPT);
         assertTrue(instance.fullyGrounded());
     }
 
@@ -157,7 +157,7 @@ class SemanticToolsTest {
     void conceptOnlyFieldRejectsASemanticReferent() {
         RecordingSink sink = new RecordingSink();
         // "SEM-1" exists but is a SEMANTIC; the condition field is concept-only → rejected.
-        FakeGrounder grounder = new FakeGrounder().with("SEM-1", ComponentSlot.Kind.SEMANTIC);
+        FakeGrounder grounder = new FakeGrounder().with("SEM-1", ComponentValue.Kind.SEMANTIC);
         AnthropicTool tool = SemanticTools.emitSemantic(mixedPattern(), grounder, sink);
 
         String result = tool.execute(input("condition", input("grounded_component_id", "SEM-1")));
@@ -169,15 +169,15 @@ class SemanticToolsTest {
     @Test
     void genericComponentFieldAcceptsASemanticReferent() {
         RecordingSink sink = new RecordingSink();
-        FakeGrounder grounder = new FakeGrounder().with("SEM-1", ComponentSlot.Kind.SEMANTIC);
+        FakeGrounder grounder = new FakeGrounder().with("SEM-1", ComponentValue.Kind.SEMANTIC);
         AnthropicTool tool = SemanticTools.emitSemantic(mixedPattern(), grounder, sink);
 
         String result = tool.execute(input("medication", input("grounded_component_id", "SEM-1")));
 
         assertEquals("recorded", result);
-        ComponentSlot slot = ((SemanticFieldValue.Component) sink.recorded.get(0).fields().get(0).value()).slot();
-        assertInstanceOf(ComponentSlot.Grounded.class, slot);
-        assertEquals(ComponentSlot.Kind.SEMANTIC, ((ComponentSlot.Grounded) slot).kind());
+        ComponentValue componentValue = ((SemanticFieldValue.Component) sink.recorded.get(0).fields().get(0).value()).componentValue();
+        assertInstanceOf(ComponentValue.Grounded.class, componentValue);
+        assertEquals(ComponentValue.Kind.SEMANTIC, ((ComponentValue.Grounded) componentValue).kind());
     }
 
     @Test
@@ -202,10 +202,10 @@ class SemanticToolsTest {
 
         SemanticInstance instance = sink.recorded.get(0);
         assertEquals(2, instance.fields().size());
-        assertTrue(((SemanticFieldValue.Component) instance.fields().get(0).value()).slot()
-                instanceof ComponentSlot.Candidate);
-        assertTrue(((SemanticFieldValue.Component) instance.fields().get(1).value()).slot()
-                instanceof ComponentSlot.Clarify);
+        assertTrue(((SemanticFieldValue.Component) instance.fields().get(0).value()).componentValue()
+                instanceof ComponentValue.Candidate);
+        assertTrue(((SemanticFieldValue.Component) instance.fields().get(1).value()).componentValue()
+                instanceof ComponentValue.Clarify);
         assertFalse(instance.fullyGrounded(), "a candidate or clarify leaves the instance not fully grounded");
     }
 
@@ -229,8 +229,8 @@ class SemanticToolsTest {
     void componentCollectionGroundsEachMember() {
         RecordingSink sink = new RecordingSink();
         FakeGrounder grounder = new FakeGrounder()
-                .with("73211009", ComponentSlot.Kind.CONCEPT)
-                .with("SEM-1", ComponentSlot.Kind.SEMANTIC);
+                .with("73211009", ComponentValue.Kind.CONCEPT)
+                .with("SEM-1", ComponentValue.Kind.SEMANTIC);
         AnthropicTool tool = SemanticTools.emitSemantic(mixedPattern(), grounder, sink);
 
         tool.execute(input("members", List.of(
@@ -239,13 +239,13 @@ class SemanticToolsTest {
 
         SemanticFieldValue value = sink.recorded.get(0).fields().get(0).value();
         assertInstanceOf(SemanticFieldValue.Components.class, value);
-        assertEquals(2, ((SemanticFieldValue.Components) value).slots().size());
+        assertEquals(2, ((SemanticFieldValue.Components) value).componentValues().size());
     }
 
     @Test
     void omittedFieldsAreAbsentFromTheInstance() {
         RecordingSink sink = new RecordingSink();
-        FakeGrounder grounder = new FakeGrounder().with("73211009", ComponentSlot.Kind.CONCEPT);
+        FakeGrounder grounder = new FakeGrounder().with("73211009", ComponentValue.Kind.CONCEPT);
         AnthropicTool tool = SemanticTools.emitSemantic(mixedPattern(), grounder, sink);
 
         tool.execute(input("condition", input("grounded_component_id", "73211009")));
@@ -257,7 +257,7 @@ class SemanticToolsTest {
     @Test
     void duplicateEmitIsIdempotent() {
         RecordingSink sink = new RecordingSink();
-        FakeGrounder grounder = new FakeGrounder().with("73211009", ComponentSlot.Kind.CONCEPT);
+        FakeGrounder grounder = new FakeGrounder().with("73211009", ComponentValue.Kind.CONCEPT);
         AnthropicTool tool = SemanticTools.emitSemantic(mixedPattern(), grounder, sink);
 
         tool.execute(input("condition", input("grounded_component_id", "73211009")));

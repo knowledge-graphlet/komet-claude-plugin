@@ -21,7 +21,7 @@ import java.util.Objects;
 /**
  * The grounded value of one <em>component-reference</em> field of a lifted semantic — the
  * sealed, three-way outcome of resolving a single reference against the open knowledge base.
- * It is the generalization of the narrative lift's concept slot from a concept to <em>any</em>
+ * It is the generalization of the narrative lift's concept value from a concept to <em>any</em>
  * component: a {@link Grounded} reference carries the {@link Kind} of the component it resolved
  * to (concept, semantic, or pattern), so a field's allowed kind can be enforced and a
  * semantic reference is never silently canonicalized up to its enclosing concept.
@@ -29,10 +29,10 @@ import java.util.Objects;
  * <p>The three states keep the lift honest: a reference is either resolved against an existing,
  * active component ({@link Grounded}), an explicit terminology gap ({@link Candidate}), or an
  * explicit narrative ambiguity ({@link Clarify}) — never a guessed identifier. Literal-valued
- * fields (string, number, boolean) do not use a slot at all; see {@link SemanticFieldValue}.
+ * fields (string, number, boolean) do not use a component value at all; see {@link SemanticFieldValue}.
  */
-public sealed interface ComponentSlot permits ComponentSlot.Grounded, ComponentSlot.Candidate,
-        ComponentSlot.Clarify {
+public sealed interface ComponentValue permits ComponentValue.Grounded, ComponentValue.Candidate,
+        ComponentValue.Clarify {
 
     /**
      * The kind of component a {@link Grounded} reference resolved to — the discriminator a
@@ -55,9 +55,9 @@ public sealed interface ComponentSlot permits ComponentSlot.Grounded, ComponentS
      * @param label      the component's fully-specified or preferred name
      */
     record Grounded(long nid, Kind kind, String publicId, String identifier, String label)
-            implements ComponentSlot {
+            implements ComponentValue {
         /**
-         * Validates the grounded slot.
+         * Validates the grounded value.
          *
          * @throws NullPointerException if {@code kind}, {@code publicId}, {@code identifier}, or
          *                              {@code label} is null
@@ -79,9 +79,9 @@ public sealed interface ComponentSlot permits ComponentSlot.Grounded, ComponentS
      * @param nearestMatches   identifiers of the nearest existing components (evidence), possibly empty
      */
     record Candidate(String text, String provisionalLabel, List<String> nearestMatches)
-            implements ComponentSlot {
+            implements ComponentValue {
         /**
-         * Validates and defensively copies the candidate slot.
+         * Validates and defensively copies the candidate value.
          *
          * @throws NullPointerException if {@code text} or {@code provisionalLabel} is null
          */
@@ -101,9 +101,9 @@ public sealed interface ComponentSlot permits ComponentSlot.Grounded, ComponentS
      * @param field    the field that could not be settled (the field's meaning label)
      * @param question the question to put to the author
      */
-    record Clarify(String field, String question) implements ComponentSlot {
+    record Clarify(String field, String question) implements ComponentValue {
         /**
-         * Validates the clarify slot.
+         * Validates the clarify value.
          *
          * @throws NullPointerException if {@code field} or {@code question} is null
          */

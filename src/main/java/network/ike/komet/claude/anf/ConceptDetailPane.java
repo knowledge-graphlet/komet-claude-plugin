@@ -33,10 +33,10 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * The inline detail view for one {@link AnfSlot}: it makes the grounded-vs-proposed distinction
+ * The inline detail view for one {@link AnfValue}: it makes the grounded-vs-proposed distinction
  * unmistakable by showing, for a grounded concept, its real descriptions and stated/inferred
- * axioms; for a proposed {@link AnfSlot.Candidate}, only its provisional data with an explicit
- * "no concept yet"; and for an {@link AnfSlot.Clarify}, the open question. A grounded concept
+ * axioms; for a proposed {@link AnfValue.Candidate}, only its provisional data with an explicit
+ * "no concept yet"; and for an {@link AnfValue.Clarify}, the open question. A grounded concept
  * always has descriptions and (usually) axioms; a proposal never fabricates them — that absence is
  * the anti-hallucination guarantee made visible.
  *
@@ -57,27 +57,27 @@ public final class ConceptDetailPane {
     }
 
     /**
-     * Renders the detail for a slot.
+     * Renders the detail for a value.
      *
-     * @param slot the slot to inspect; must not be null
+     * @param conceptValue the value to inspect; must not be null
      * @param view the view (for live descriptions, axioms, and identicon badges); may be null, in
      *             which case a grounded concept renders presentation-only with no descriptions/axioms
      * @return a node for the detail pane
      */
-    public static Node render(AnfSlot slot, ViewProperties view) {
+    public static Node render(AnfValue conceptValue, ViewProperties view) {
         VBox box = new VBox(8);
         box.setPadding(new Insets(10));
-        switch (slot) {
-            case AnfSlot.Grounded g -> renderGrounded(box, g, view);
-            case AnfSlot.Candidate c -> renderCandidate(box, c, view);
-            case AnfSlot.Clarify c -> renderClarify(box, c);
+        switch (conceptValue) {
+            case AnfValue.Grounded g -> renderGrounded(box, g, view);
+            case AnfValue.Candidate c -> renderCandidate(box, c, view);
+            case AnfValue.Clarify c -> renderClarify(box, c);
         }
         return box;
     }
 
     // ── Grounded: real descriptions + axioms ─────────────────────────────────
 
-    private static void renderGrounded(VBox box, AnfSlot.Grounded g, ViewProperties view) {
+    private static void renderGrounded(VBox box, AnfValue.Grounded g, ViewProperties view) {
         box.getChildren().add(header((view != null)
                 ? new KonceptBadge(g.nid(), view)
                 : new Label(g.label()), "Grounded concept · " + g.identifier()));
@@ -174,7 +174,7 @@ public final class ConceptDetailPane {
 
     // ── Candidate: provisional, unmistakably not a concept ───────────────────
 
-    private static void renderCandidate(VBox box, AnfSlot.Candidate c, ViewProperties view) {
+    private static void renderCandidate(VBox box, AnfValue.Candidate c, ViewProperties view) {
         Label badge = new Label(c.provisionalLabel());
         badge.setStyle(PROPOSED_STYLE + " -fx-font-weight: bold;");
         box.getChildren().add(header(badge, "Candidate — no concept yet (awaiting curation)"));
@@ -186,7 +186,7 @@ public final class ConceptDetailPane {
         if (!c.nearestMatches().isEmpty()) {
             box.getChildren().add(section("Nearest existing concepts"));
             for (String id : c.nearestMatches()) {
-                Optional<AnfSlot.Grounded> match = (view == null)
+                Optional<AnfValue.Grounded> match = (view == null)
                         ? Optional.empty()
                         : network.ike.komet.claude.tools.GraphTools.resolveConcept(id, view.calculator());
                 box.getChildren().add(match.isPresent() && view != null
@@ -199,7 +199,7 @@ public final class ConceptDetailPane {
 
     // ── Clarify: the open question ───────────────────────────────────────────
 
-    private static void renderClarify(VBox box, AnfSlot.Clarify c) {
+    private static void renderClarify(VBox box, AnfValue.Clarify c) {
         Label badge = new Label("? " + c.field());
         badge.setStyle("-fx-text-fill: #6a4c93; -fx-font-weight: bold;");
         box.getChildren().add(header(badge, "Clarify — a question for the author"));

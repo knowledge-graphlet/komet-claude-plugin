@@ -40,9 +40,9 @@ import network.ike.komet.claude.block.Tokens;
  * topic::                     k:Key[label] &#64;id=&lt;identifier&gt;
  * subject_of_information::     k:Key[label] &#64;id=&lt;identifier&gt;
  * result::                    [1,1] k:Presence[] &#64;id=705057003
- * status:: health_risk:: body_site:: method:: laterality::   (performance slots)
+ * status:: health_risk:: body_site:: method:: laterality::   (performance attributes)
  * normal_range::              [lo,hi] k:Unit[label] &#64;id=&lt;identifier&gt;
- * requested_result:: priority::                              (request slots)
+ * requested_result:: priority::                              (request attributes)
  * repetition_period_start:: …_period_duration:: …_event_separation:: …_event_duration:: …_event_frequency::
  * conditional_trigger::       (repeated, one per list element)
  * purpose::                   (repeated, any kind)
@@ -51,7 +51,7 @@ import network.ike.komet.claude.block.Tokens;
  * --
  * </pre>
  *
- * <h2>Slot encoding (the sealed three-way)</h2>
+ * <h2>Value encoding (the sealed three-way)</h2>
  * <ul>
  *   <li><b>Grounded</b> — {@code k:Key[label] @id=<uuid,uuid,…>}; the {@code @id} is the concept's
  *       {@code PublicId} UUID array (comma-joined), the durable identity the badge/identicon is drawn
@@ -64,11 +64,11 @@ import network.ike.komet.claude.block.Tokens;
  * </ul>
  *
  * <h2>Losslessness</h2>
- * Round-trips by identity, not label: a grounded slot's {@code nid}/{@code label} are view-derived
+ * Round-trips by identity, not label: a grounded value's {@code nid}/{@code label} are view-derived
  * and recomputed from the live store on parse (house rule); the written {@code @id} is the stable
  * key. Candidate and clarify fields round-trip verbatim. A result's interval (bounds, inclusivity,
  * unbounded {@code ±inf}) and its measure semantic round-trip. A grounded {@code @id} that no longer
- * resolves (or an offline parse with no view) becomes an explicit unresolved {@link AnfSlot.Clarify}
+ * resolves (or an offline parse with no view) becomes an explicit unresolved {@link AnfValue.Clarify}
  * marker carrying the dead identifier — never a silent drop. Narrative text is carried as text and
  * stays text. The deferred envelope axes (subject of record, author, time) are not modeled, so they
  * are not emitted.
@@ -79,19 +79,19 @@ public final class AnfAdoc {
     }
 
     /**
-     * Re-resolves a written identifier (SCTID or UUID) back to a grounded slot against the live
+     * Re-resolves a written identifier (SCTID or UUID) back to a grounded value against the live
      * store. Decouples {@link AnfAdoc} from the graph tools so the serializer/parser is pure and
      * hermetically testable; the host supplies {@code id -> GraphTools.resolveConcept(id, view)}.
      */
     @FunctionalInterface
     public interface ConceptResolver {
         /**
-         * Resolves an identifier to a grounded slot.
+         * Resolves an identifier to a grounded value.
          *
          * @param identifier the written SCTID or UUID
-         * @return the grounded slot, or empty if it does not resolve
+         * @return the grounded value, or empty if it does not resolve
          */
-        Optional<AnfSlot.Grounded> resolve(String identifier);
+        Optional<AnfValue.Grounded> resolve(String identifier);
     }
 
     private static final String OPEN = "--";
@@ -108,26 +108,26 @@ public final class AnfAdoc {
         StringBuilder sb = new StringBuilder();
         sb.append("[anf,type=").append(s.statementType().name().toLowerCase(Locale.ROOT)).append("]\n");
         sb.append(OPEN).append('\n');
-        appendSlot(sb, "topic", s.topic());
-        appendSlot(sb, "subject_of_information", s.subjectOfInformation());
+        appendConceptValue(sb, "topic", s.topic());
+        appendConceptValue(sb, "subject_of_information", s.subjectOfInformation());
         switch (s.circumstance()) {
             case Circumstance.Performance p -> {
                 appendResult(sb, "result", p.result());
-                appendSlot(sb, "status", p.status());
-                appendSlot(sb, "health_risk", p.healthRisk());
+                appendConceptValue(sb, "status", p.status());
+                appendConceptValue(sb, "health_risk", p.healthRisk());
                 appendResult(sb, "normal_range", p.normalRange());
-                appendSlot(sb, "body_site", p.bodySite());
-                appendSlot(sb, "method", p.method());
-                appendSlot(sb, "laterality", p.laterality());
+                appendConceptValue(sb, "body_site", p.bodySite());
+                appendConceptValue(sb, "method", p.method());
+                appendConceptValue(sb, "laterality", p.laterality());
                 appendShared(sb, p.timing(), p.purpose());
             }
             case Circumstance.Request r -> {
                 appendResult(sb, "requested_result", r.requestedResult());
-                appendSlot(sb, "priority", r.priority());
-                appendSlot(sb, "method", r.method());
+                appendConceptValue(sb, "priority", r.priority());
+                appendConceptValue(sb, "method", r.method());
                 appendRepetition(sb, r.repetition());
-                for (AnfSlot trigger : r.conditionalTrigger()) {
-                    appendSlot(sb, "conditional_trigger", trigger);
+                for (AnfValue trigger : r.conditionalTrigger()) {
+                    appendConceptValue(sb, "conditional_trigger", trigger);
                 }
                 appendShared(sb, r.timing(), r.purpose());
             }
@@ -140,10 +140,10 @@ public final class AnfAdoc {
         return sb.toString();
     }
 
-    private static void appendShared(StringBuilder sb, AnfStatement.Result timing, List<AnfSlot> purpose) {
+    private static void appendShared(StringBuilder sb, AnfStatement.Result timing, List<AnfValue> purpose) {
         appendResult(sb, "timing", timing);
-        for (AnfSlot p : purpose) {
-            appendSlot(sb, "purpose", p);
+        for (AnfValue p : purpose) {
+            appendConceptValue(sb, "purpose", p);
         }
     }
 
@@ -158,23 +158,23 @@ public final class AnfAdoc {
         appendResult(sb, "repetition_event_frequency", rep.eventFrequency());
     }
 
-    private static void appendSlot(StringBuilder sb, String name, AnfSlot slot) {
-        if (slot != null) {
-            sb.append(name).append(":: ").append(slotToString(slot)).append('\n');
+    private static void appendConceptValue(StringBuilder sb, String name, AnfValue conceptValue) {
+        if (conceptValue != null) {
+            sb.append(name).append(":: ").append(conceptValueToString(conceptValue)).append('\n');
         }
     }
 
     private static void appendResult(StringBuilder sb, String name, AnfStatement.Result r) {
         if (r != null) {
             sb.append(name).append(":: ").append(interval(r)).append(' ')
-                    .append(slotToString(r.measureSemantic())).append('\n');
+                    .append(conceptValueToString(r.measureSemantic())).append('\n');
         }
     }
 
-    private static String slotToString(AnfSlot slot) {
-        return switch (slot) {
-            case AnfSlot.Grounded g -> Tokens.concept(g.label(), g.publicId());
-            case AnfSlot.Candidate c -> {
+    private static String conceptValueToString(AnfValue conceptValue) {
+        return switch (conceptValue) {
+            case AnfValue.Grounded g -> Tokens.concept(g.label(), g.publicId());
+            case AnfValue.Candidate c -> {
                 StringBuilder cb = new StringBuilder("candidate[").append(c.provisionalLabel())
                         .append("] disp=").append(c.disposition().name());
                 if (!c.nearestMatches().isEmpty()) {
@@ -185,7 +185,7 @@ public final class AnfAdoc {
                 }
                 yield cb.toString();
             }
-            case AnfSlot.Clarify c -> "clarify[" + c.field() + "] " + quote(c.question());
+            case AnfValue.Clarify c -> "clarify[" + c.field() + "] " + quote(c.question());
         };
     }
 
@@ -210,13 +210,13 @@ public final class AnfAdoc {
     private static final Pattern CLARIFY = Pattern.compile("^clarify\\[(.*?)\\]\\s*(\".*\")\\s*$");
 
     /**
-     * Reads an ANF-in-AsciiDoc block back to a validated statement. Grounded slots re-resolve
+     * Reads an ANF-in-AsciiDoc block back to a validated statement. Grounded values re-resolve
      * through {@code resolver}; a written identifier that no longer resolves — or an offline parse
      * ({@code resolver == null}, used by structural tests) — becomes an explicit unresolved
-     * {@link AnfSlot.Clarify} marker carrying the dead identifier, never a silent drop.
+     * {@link AnfValue.Clarify} marker carrying the dead identifier, never a silent drop.
      *
      * @param block    the {@code [anf]} block text
-     * @param resolver re-resolves a written identifier to a grounded slot; null for an offline,
+     * @param resolver re-resolves a written identifier to a grounded value; null for an offline,
      *                 structure-only parse
      * @return the reconstructed statement, or null if the block has no recognizable type
      */
@@ -254,22 +254,22 @@ public final class AnfAdoc {
             return null;
         }
 
-        AnfSlot topic = firstSlot(raw, "topic", resolver);
-        AnfSlot subject = firstSlot(raw, "subject_of_information", resolver);
+        AnfValue topic = firstConceptValue(raw, "topic", resolver);
+        AnfValue subject = firstConceptValue(raw, "subject_of_information", resolver);
         Circumstance circumstance = switch (type) {
             case PERFORMANCE -> new Circumstance.Performance(
-                    firstResult(raw, "timing", resolver), slotList(raw, "purpose", resolver),
-                    firstSlot(raw, "status", resolver), firstResult(raw, "result", resolver),
-                    firstSlot(raw, "health_risk", resolver), firstResult(raw, "normal_range", resolver),
-                    firstSlot(raw, "body_site", resolver), firstSlot(raw, "method", resolver),
-                    firstSlot(raw, "laterality", resolver));
+                    firstResult(raw, "timing", resolver), conceptValueList(raw, "purpose", resolver),
+                    firstConceptValue(raw, "status", resolver), firstResult(raw, "result", resolver),
+                    firstConceptValue(raw, "health_risk", resolver), firstResult(raw, "normal_range", resolver),
+                    firstConceptValue(raw, "body_site", resolver), firstConceptValue(raw, "method", resolver),
+                    firstConceptValue(raw, "laterality", resolver));
             case REQUEST -> new Circumstance.Request(
-                    firstResult(raw, "timing", resolver), slotList(raw, "purpose", resolver),
-                    firstSlot(raw, "priority", resolver), firstResult(raw, "requested_result", resolver),
-                    parseRepetition(raw, resolver), slotList(raw, "conditional_trigger", resolver),
-                    firstSlot(raw, "method", resolver));
+                    firstResult(raw, "timing", resolver), conceptValueList(raw, "purpose", resolver),
+                    firstConceptValue(raw, "priority", resolver), firstResult(raw, "requested_result", resolver),
+                    parseRepetition(raw, resolver), conceptValueList(raw, "conditional_trigger", resolver),
+                    firstConceptValue(raw, "method", resolver));
             case NARRATIVE -> new Circumstance.Narrative(
-                    firstResult(raw, "timing", resolver), slotList(raw, "purpose", resolver),
+                    firstResult(raw, "timing", resolver), conceptValueList(raw, "purpose", resolver),
                     firstText(raw, "text"));
         };
         return new AnfStatement(type, topic, subject, circumstance);
@@ -280,24 +280,24 @@ public final class AnfAdoc {
         return (values == null || values.isEmpty()) ? "" : unquote(values.get(0));
     }
 
-    private static AnfSlot firstSlot(Map<String, List<String>> raw, String name, ConceptResolver resolver) {
+    private static AnfValue firstConceptValue(Map<String, List<String>> raw, String name, ConceptResolver resolver) {
         List<String> values = raw.get(name);
-        return (values == null || values.isEmpty()) ? null : parseSlot(values.get(0), resolver);
+        return (values == null || values.isEmpty()) ? null : parseConceptValue(values.get(0), resolver);
     }
 
-    private static List<AnfSlot> slotList(Map<String, List<String>> raw, String name, ConceptResolver resolver) {
+    private static List<AnfValue> conceptValueList(Map<String, List<String>> raw, String name, ConceptResolver resolver) {
         List<String> values = raw.get(name);
         if (values == null) {
             return List.of();
         }
-        List<AnfSlot> slots = new ArrayList<>();
+        List<AnfValue> conceptValues = new ArrayList<>();
         for (String value : values) {
-            AnfSlot slot = parseSlot(value, resolver);
-            if (slot != null) {
-                slots.add(slot);
+            AnfValue conceptValue = parseConceptValue(value, resolver);
+            if (conceptValue != null) {
+                conceptValues.add(conceptValue);
             }
         }
-        return slots;
+        return conceptValues;
     }
 
     private static AnfStatement.Result firstResult(Map<String, List<String>> raw, String name, ConceptResolver resolver) {
@@ -317,34 +317,34 @@ public final class AnfAdoc {
         return new Circumstance.Repetition(ps, pd, es, ed, ef);
     }
 
-    private static AnfSlot parseSlot(String value, ConceptResolver resolver) {
+    private static AnfValue parseConceptValue(String value, ConceptResolver resolver) {
         if (value == null || value.isBlank()) {
             return null;
         }
         Matcher candidate = CANDIDATE.matcher(value);
         if (candidate.matches()) {
             String label = candidate.group(1);
-            AnfSlot.Disposition disposition = parseDisposition(candidate.group(2));
+            AnfValue.Disposition disposition = parseDisposition(candidate.group(2));
             List<String> nearest = (candidate.group(3) == null || candidate.group(3).isBlank())
                     ? List.of() : List.of(candidate.group(3).split(";"));
             String text = (candidate.group(4) == null) ? label : unquote(candidate.group(4));
-            return new AnfSlot.Candidate(text, label, nearest, disposition);
+            return new AnfValue.Candidate(text, label, nearest, disposition);
         }
         Matcher clarify = CLARIFY.matcher(value);
         if (clarify.matches()) {
-            return new AnfSlot.Clarify(clarify.group(1), unquote(clarify.group(2)));
+            return new AnfValue.Clarify(clarify.group(1), unquote(clarify.group(2)));
         }
         Optional<Tokens.Concept> grounded = Tokens.concept(value);
         if (grounded.isPresent() && grounded.get().identifier().isPresent()) {
             String label = grounded.get().label();
             String id = grounded.get().identifier().get();
             if (resolver != null) {
-                Optional<AnfSlot.Grounded> resolved = resolver.resolve(id);
+                Optional<AnfValue.Grounded> resolved = resolver.resolve(id);
                 if (resolved != null && resolved.isPresent()) {
                     return resolved.get();
                 }
             }
-            return new AnfSlot.Clarify("unresolved", "unresolved identifier: " + id + " [" + label + "]");
+            return new AnfValue.Clarify("unresolved", "unresolved identifier: " + id + " [" + label + "]");
         }
         return null;
     }
@@ -359,7 +359,7 @@ public final class AnfAdoc {
             return null;
         }
         Tokens.Interval interval = prefix.get().interval();
-        AnfSlot measure = parseSlot(prefix.get().rest(), resolver);
+        AnfValue measure = parseConceptValue(prefix.get().rest(), resolver);
         if (measure == null) {
             return null;
         }
@@ -367,14 +367,14 @@ public final class AnfAdoc {
                 interval.includeLower(), interval.includeUpper(), measure);
     }
 
-    private static AnfSlot.Disposition parseDisposition(String s) {
+    private static AnfValue.Disposition parseDisposition(String s) {
         if (s == null) {
-            return AnfSlot.Disposition.PENDING;
+            return AnfValue.Disposition.PENDING;
         }
         try {
-            return AnfSlot.Disposition.valueOf(s.trim());
+            return AnfValue.Disposition.valueOf(s.trim());
         } catch (IllegalArgumentException e) {
-            return AnfSlot.Disposition.PENDING;
+            return AnfValue.Disposition.PENDING;
         }
     }
 }

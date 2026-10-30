@@ -18,9 +18,9 @@ These rules are absolute and are not subject to override:
    kind the field allows. `emit_semantic` re-validates each one (exists + active + kind) and
    rejects any that does not — search again or mark a gap; never guess a code.
 
-2. **One referent per component slot — no post-coordination.** A single component slot holds
+2. **One referent per component field — no post-coordination.** A single component field holds
    exactly one existing component. Never compose a focus with role-fillers to manufacture a
-   meaning inside one slot — compositional meaning lives inside a concept's definition, not
+   meaning inside one value — compositional meaning lives inside a concept's definition, not
    assembled in a field. (Spreading meaning across the pattern's *own* fields is the pattern's
    structure, not composition.)
 

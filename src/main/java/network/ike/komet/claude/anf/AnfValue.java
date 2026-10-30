@@ -18,8 +18,8 @@ package network.ike.komet.claude.anf;
 import java.util.List;
 
 /**
- * One slot of a lifted ANF statement — the sealed, three-way outcome of grounding
- * a single clinical term against the open knowledge base. The slot is the unit
+ * One value of a lifted ANF statement — the sealed, three-way outcome of grounding
+ * a single clinical term against the open knowledge base. The value is the unit
  * that keeps the lift honest: a term is either resolved, an explicit terminology
  * gap, or an explicit narrative ambiguity, never a guess.
  *
@@ -28,7 +28,7 @@ import java.util.List;
  * <em>clinical-content</em> question the narrative leaves open. See the design
  * topics {@code dev-anf-candidate-concepts} and {@code dev-anf-narrative-lift}.
  */
-public sealed interface AnfSlot permits AnfSlot.Grounded, AnfSlot.Candidate, AnfSlot.Clarify {
+public sealed interface AnfValue permits AnfValue.Grounded, AnfValue.Candidate, AnfValue.Clarify {
 
     /**
      * A term resolved to an existing, active concept in the knowledge base.
@@ -43,9 +43,9 @@ public sealed interface AnfSlot permits AnfSlot.Grounded, AnfSlot.Candidate, Anf
      *                   grounding contract, not the durable key
      * @param label      the concept's fully-specified or preferred name
      */
-    record Grounded(long nid, String publicId, String identifier, String label) implements AnfSlot {
+    record Grounded(long nid, String publicId, String identifier, String label) implements AnfValue {
         /**
-         * Validates the grounded slot.
+         * Validates the grounded value.
          *
          * @throws NullPointerException if {@code publicId}, {@code identifier} or {@code label} is null
          */
@@ -68,9 +68,9 @@ public sealed interface AnfSlot permits AnfSlot.Grounded, AnfSlot.Candidate, Anf
      * @param disposition     the candidate's current disposition
      */
     record Candidate(String text, String provisionalLabel, List<String> nearestMatches,
-                     Disposition disposition) implements AnfSlot {
+                     Disposition disposition) implements AnfValue {
         /**
-         * Validates and defensively copies the candidate slot.
+         * Validates and defensively copies the candidate value.
          *
          * @throws NullPointerException if {@code text}, {@code provisionalLabel}, or
          *                              {@code disposition} is null
@@ -91,9 +91,9 @@ public sealed interface AnfSlot permits AnfSlot.Grounded, AnfSlot.Candidate, Anf
      * @param field    the ANF field that could not be settled (e.g. {@code laterality})
      * @param question the question to put to the author
      */
-    record Clarify(String field, String question) implements AnfSlot {
+    record Clarify(String field, String question) implements AnfValue {
         /**
-         * Validates the clarify slot.
+         * Validates the clarify value.
          *
          * @throws NullPointerException if {@code field} or {@code question} is null
          */

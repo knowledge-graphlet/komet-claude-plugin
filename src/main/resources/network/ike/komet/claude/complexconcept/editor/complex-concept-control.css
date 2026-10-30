@@ -1,0 +1,63 @@
+/* The complex concept control: the DiTree control's rows and styles (read-only-ditree-control.css,
+   ditree-control.css) with accent bars and rows for a complex concept's specification. */
+
+/* Clause accent bars, beside the axiom kinds' and the ANF statement's. */
+.complex-concept-control .ditree-clause-bar.cc-specification { -fx-background-color: #2E3240; }
+.complex-concept-control .ditree-clause-bar.cc-uniform       { -fx-background-color: #2F9E44; }
+.complex-concept-control .ditree-clause-bar.cc-focused       { -fx-background-color: #7048E8; }
+.complex-concept-control .ditree-clause-bar.cc-row           { -fx-background-color: #b8c1d0; }
+
+/* A row's name, ahead of its value. */
+.complex-concept-control .cc-row-label {
+    -fx-font-family: "Noto Sans";
+    -fx-font-size: 0.916667em; /* 11px */
+    -fx-text-fill: #5A6170;
+    -fx-padding: 0 4 0 2;
+}
+.complex-concept-control .cc-unstated {
+    -fx-text-fill: #8a93a6;
+    -fx-font-style: italic;
+}
+
+/* Choices that exclude each other: one segmented control each. */
+.complex-concept-control .cc-segmented {
+    -fx-padding: 0 4 0 8;
+}
+.complex-concept-control .cc-segment {
+    -fx-background-color: #b8c1d0, white;
+    -fx-background-insets: 0, 1 0 1 1;
+    -fx-background-radius: 0;
+    -fx-padding: 1 8 1 8;
+    -fx-font-size: 0.916667em;
+    -fx-text-fill: #2E3240;
+    -fx-cursor: hand;
+}
+.complex-concept-control .cc-segment:first-child { -fx-background-radius: 4 0 0 4; }
+.complex-concept-control .cc-segment:last-child {
+    -fx-background-radius: 0 4 4 0;
+    -fx-background-insets: 0, 1;
+}
+.complex-concept-control .cc-segment:selected {
+    -fx-background-color: #2E3240, #2E3240;
+    -fx-text-fill: white;
+}
+
+/* The definition and each prerequisite sit inline in their rows. */
+.complex-concept-control .cc-nested-definition,
+.complex-concept-control .cc-nested-statement {
+    -fx-padding: 0;
+}
+
+/* Under the tree: what the specification still lacks, and the last refused edit. */
+.complex-concept-control .cc-status {
+    -fx-padding: 6 0 0 6;
+    -fx-spacing: 2;
+}
+.complex-concept-control .cc-missing {
+    -fx-text-fill: #5A6170;
+    -fx-font-size: 0.916667em;
+}
+.complex-concept-control .cc-refusal {
+    -fx-text-fill: #C92A2A;
+    -fx-font-size: 0.916667em;
+}

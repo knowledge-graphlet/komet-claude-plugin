@@ -41,7 +41,7 @@ import java.util.Objects;
  *                             unstructured narrative; must match the {@code circumstance}
  *                             kind
  * @param topic                the clinical topic — exactly one pre-coordinated concept (a
- *                             {@link AnfSlot.Grounded}, or an {@link AnfSlot.Candidate} when
+ *                             {@link AnfValue.Grounded}, or an {@link AnfValue.Candidate} when
  *                             none exists yet); carries no polarity, subject, context, or
  *                             temporality; may be null only for a pure narrative statement
  * @param subjectOfInformation who or what the statement is about when that is not the subject
@@ -53,8 +53,8 @@ import java.util.Objects;
  */
 public record AnfStatement(
         Type statementType,
-        AnfSlot topic,
-        AnfSlot subjectOfInformation,
+        AnfValue topic,
+        AnfValue subjectOfInformation,
         Circumstance circumstance) {
 
     /**
@@ -103,7 +103,7 @@ public record AnfStatement(
      */
     public record Result(Double lowerBound, Double upperBound,
                          boolean includeLowerBound, boolean includeUpperBound,
-                         AnfSlot measureSemantic) {
+                         AnfValue measureSemantic) {
         /**
          * Validates the result.
          *

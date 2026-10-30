@@ -23,21 +23,21 @@ import network.ike.komet.claude.anthropic.AskListener;
  * and a growing inventory of grounded concepts <em>as</em> the lift runs rather than
  * only at the end.
  *
- * <p>Discovery is typed to the three-way {@link AnfSlot} from the start. The Demo&nbsp;0
- * lift only ever delivers {@link AnfSlot.Grounded} values, but Candidate and Clarify
- * slots will flow through the same channel with no signature change.
+ * <p>Discovery is typed to the three-way {@link AnfValue} from the start. The Demo&nbsp;0
+ * lift only ever delivers {@link AnfValue.Grounded} values, but Candidate and Clarify
+ * values will flow through the same channel with no signature change.
  */
 public interface AnfLiftListener extends AskListener {
 
     /**
-     * Fired when the lift grounds, proposes, or surfaces a slot — as the model confirms a
+     * Fired when the lift grounds, proposes, or surfaces a value — as the model confirms a
      * concept with the {@code concept} tool, and as {@code emit_anf} validates a statement.
-     * The slot may be a {@link AnfSlot.Grounded}, an {@link AnfSlot.Candidate}, or an
-     * {@link AnfSlot.Clarify}.
+     * The value may be a {@link AnfValue.Grounded}, an {@link AnfValue.Candidate}, or an
+     * {@link AnfValue.Clarify}.
      *
-     * @param slot the discovered slot
+     * @param conceptValue the discovered value
      */
-    default void onSlotDiscovered(AnfSlot slot) {
+    default void onValueDiscovered(AnfValue conceptValue) {
     }
 
     /**

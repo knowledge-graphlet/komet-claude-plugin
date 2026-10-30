@@ -164,12 +164,12 @@ public final class AnfLift {
             }
 
             @Override
-            public void onSlotDiscovered(AnfSlot slot) {
-                if (slot instanceof AnfSlot.Grounded grounded) {
+            public void onValueDiscovered(AnfValue conceptValue) {
+                if (conceptValue instanceof AnfValue.Grounded grounded) {
                     LOG.info("ANF discovered nid={} id={} label={}",
                             grounded.nid(), grounded.identifier(), grounded.label());
                 }
-                obs.onSlotDiscovered(slot);
+                obs.onValueDiscovered(conceptValue);
             }
 
             @Override
@@ -195,11 +195,15 @@ public final class AnfLift {
             }
         };
 
-        Consumer<AnfSlot> onDiscovered = combined::onSlotDiscovered;
-        // The sink accumulates every emitted statement and de-duplicates structurally-equal
-        // ones (a duplicate emit is idempotent), fanning each newly-recorded statement out to
-        // the listener so the UI can render it as it lands.
-        AnfTools.StatementSink sink = statement -> {
+        Consumer<AnfValue> onDiscovered = combined::onValueDiscovered;
+        // The sink writes every emitted statement through the ANF expression builder and reads
+        // it back (IKE-Network/ike-issues#1312), so what is recorded is what the statement tree
+        // holds and a statement the builder refuses never lands; then it de-duplicates
+        // structurally-equal ones (a duplicate emit is idempotent), fanning each newly-recorded
+        // statement out to the listener so the UI can render it as it lands.
+        AnfProjection.Grounding grounding = AnfProjection.grounding(view);
+        AnfTools.StatementSink sink = emitted -> {
+            AnfStatement statement = AnfProjection.through(emitted, grounding);
             if (statements.contains(statement)) {
                 return false;
             }

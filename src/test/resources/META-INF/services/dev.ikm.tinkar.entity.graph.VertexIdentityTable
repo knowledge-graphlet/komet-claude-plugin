@@ -1,0 +1,4 @@
+# Test-classpath registration of the ANF and complex concept identity tables, which the module
+# declaration provides for the module run (IKE-Network/ike-issues#1312).
+network.ike.komet.claude.anf.model.AnfIdentityTable
+network.ike.komet.claude.complexconcept.model.ComplexConceptIdentityTable

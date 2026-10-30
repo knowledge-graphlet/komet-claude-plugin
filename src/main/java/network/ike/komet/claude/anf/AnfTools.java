@@ -17,6 +17,7 @@ package network.ike.komet.claude.anf;
 
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import network.ike.komet.claude.anthropic.AnthropicTool;
+import network.ike.komet.claude.anf.model.AnfRefusal;
 import network.ike.komet.claude.tools.GraphTools;
 
 import java.util.ArrayList;
@@ -43,8 +44,8 @@ import java.util.function.Supplier;
  *
  * <p>A compound narrative yields several statements: the model calls {@code emit_anf} once
  * per independent clinical assertion, and each call validates and records exactly one
- * statement. Each concept slot is the sealed three-way {@link AnfSlot} — grounded, an
- * explicit terminology-gap {@link AnfSlot.Candidate}, or a narrative {@link AnfSlot.Clarify}
+ * statement. Each concept value is the sealed three-way {@link AnfValue} — grounded, an
+ * explicit terminology-gap {@link AnfValue.Candidate}, or a narrative {@link AnfValue.Clarify}
  * — so an ungroundable meaning becomes an honest gap, never a guess.
  */
 public final class AnfTools {
@@ -64,7 +65,8 @@ public final class AnfTools {
     @FunctionalInterface
     public interface StatementSink {
         /**
-         * Records a validated statement.
+         * Records a validated statement. The lift's sink writes it through the ANF expression
+         * builder first, and throws {@link AnfRefusal} when the builder refuses it.
          *
          * @param statement the statement to record
          * @return {@code true} if newly recorded; {@code false} if a structurally-equal
@@ -82,25 +84,25 @@ public final class AnfTools {
      * @return the tool to add to the lift's tool list
      */
     public static AnthropicTool emitAnf(Supplier<ViewCalculator> viewSupplier, StatementSink sink) {
-        return emitAnf(viewSupplier, sink, slot -> {
+        return emitAnf(viewSupplier, sink, conceptValue -> {
         });
     }
 
     /**
-     * Creates the {@code emit_anf} tool that also reports each slot it grounds, proposes, or
+     * Creates the {@code emit_anf} tool that also reports each value it grounds, proposes, or
      * surfaces, for a live inventory.
      *
      * @param viewSupplier supplies the current {@link ViewCalculator}; must not be null
      * @param sink         receives each validated statement; must not be null
-     * @param onDiscovered receives each slot (grounded, candidate, or clarify) as a statement
+     * @param onDiscovered receives each value (grounded, candidate, or clarify) as a statement
      *                     validates; a null callback is treated as a no-op
      * @return the tool to add to the lift's tool list
      */
     public static AnthropicTool emitAnf(Supplier<ViewCalculator> viewSupplier, StatementSink sink,
-                                        Consumer<AnfSlot> onDiscovered) {
+                                        Consumer<AnfValue> onDiscovered) {
         Objects.requireNonNull(viewSupplier, "viewSupplier");
         Objects.requireNonNull(sink, "sink");
-        return new EmitAnfTool(viewSupplier, sink, (onDiscovered == null) ? slot -> {
+        return new EmitAnfTool(viewSupplier, sink, (onDiscovered == null) ? conceptValue -> {
         } : onDiscovered);
     }
 
@@ -151,7 +153,7 @@ public final class AnfTools {
 
     /** The {@code emit_anf} tool implementation. */
     private record EmitAnfTool(Supplier<ViewCalculator> viewSupplier, StatementSink sink,
-                               Consumer<AnfSlot> onDiscovered)
+                               Consumer<AnfValue> onDiscovered)
             implements AnthropicTool {
 
         @Override
@@ -168,9 +170,9 @@ public final class AnfTools {
                     + "TOP LEVEL — not nested under a 'circumstance' object; subject_of_information ONLY when "
                     + "the statement is about someone "
                     + "other than the subject of record (a relative for family history, a fetus, a donor "
-                    + "organ). Reference EXACTLY ONE pre-coordinated concept per slot — never compose a focus "
+                    + "organ). Reference EXACTLY ONE pre-coordinated concept per attribute — never compose a focus "
                     + "plus role-fillers in a statement; IKE does not post-coordinate, and compositional "
-                    + "meaning lives inside a concept's definition, not the statement. Each concept slot "
+                    + "meaning lives inside a concept's definition, not the statement. Each concept value "
                     + "accepts ONE of grounded_concept_id, candidate, or clarify: use a candidate when a "
                     + "clear meaning has no concept yet (a terminology gap), a clarify when the narrative "
                     + "itself is ambiguous — never invent a code, and never put a code in a candidate. Every "
@@ -205,8 +207,8 @@ public final class AnfTools {
             }
 
             List<String> unresolved = new ArrayList<>();
-            AnfSlot topic = parseSlot(map(in, "topic"), v, unresolved);
-            AnfSlot subjectOfInformation = parseSlot(map(in, "subject_of_information"), v, unresolved);
+            AnfValue topic = parseConceptValue(map(in, "topic"), v, unresolved);
+            AnfValue subjectOfInformation = parseConceptValue(map(in, "subject_of_information"), v, unresolved);
 
             // The circumstance fields are read from the TOP LEVEL: the model reliably emits a flat
             // object and was dropping a nested `circumstance` wrapper (sending it as an empty string).
@@ -214,25 +216,25 @@ public final class AnfTools {
             Circumstance circumstance = switch (type) {
                 case PERFORMANCE -> new Circumstance.Performance(
                         parseMeasure(map(in, "timing"), v, unresolved),
-                        parseSlotList(list(in, "purpose"), v, unresolved),
-                        parseSlot(map(in, "status"), v, unresolved),
+                        parseConceptValueList(list(in, "purpose"), v, unresolved),
+                        parseConceptValue(map(in, "status"), v, unresolved),
                         parseMeasure(map(in, "result"), v, unresolved),
-                        parseSlot(map(in, "health_risk"), v, unresolved),
+                        parseConceptValue(map(in, "health_risk"), v, unresolved),
                         parseMeasure(map(in, "normal_range"), v, unresolved),
-                        parseSlot(map(in, "body_site"), v, unresolved),
-                        parseSlot(map(in, "method"), v, unresolved),
-                        parseSlot(map(in, "laterality"), v, unresolved));
+                        parseConceptValue(map(in, "body_site"), v, unresolved),
+                        parseConceptValue(map(in, "method"), v, unresolved),
+                        parseConceptValue(map(in, "laterality"), v, unresolved));
                 case REQUEST -> new Circumstance.Request(
                         parseMeasure(map(in, "timing"), v, unresolved),
-                        parseSlotList(list(in, "purpose"), v, unresolved),
-                        parseSlot(map(in, "priority"), v, unresolved),
+                        parseConceptValueList(list(in, "purpose"), v, unresolved),
+                        parseConceptValue(map(in, "priority"), v, unresolved),
                         parseMeasure(map(in, "requested_result"), v, unresolved),
                         parseRepetition(map(in, "repetition"), v, unresolved),
-                        parseSlotList(list(in, "conditional_trigger"), v, unresolved),
-                        parseSlot(map(in, "method"), v, unresolved));
+                        parseConceptValueList(list(in, "conditional_trigger"), v, unresolved),
+                        parseConceptValue(map(in, "method"), v, unresolved));
                 case NARRATIVE -> new Circumstance.Narrative(
                         parseMeasure(map(in, "timing"), v, unresolved),
-                        parseSlotList(list(in, "purpose"), v, unresolved),
+                        parseConceptValueList(list(in, "purpose"), v, unresolved),
                         textOf(str(in, "text")));
             };
 
@@ -240,7 +242,7 @@ public final class AnfTools {
                 return "These identifiers did not resolve to a concept in the knowledge base: "
                         + String.join(", ", new LinkedHashSet<>(unresolved))
                         + ". Search for the correct concepts and call emit_anf again — do not invent codes. "
-                        + "If a meaning is genuinely missing, emit that slot as a candidate instead.";
+                        + "If a meaning is genuinely missing, emit that value as a candidate instead.";
             }
             if (type != AnfStatement.Type.NARRATIVE && topic == null) {
                 return "topic is required for a performance or request statement; supply a grounded, "
@@ -256,7 +258,15 @@ public final class AnfTools {
             } catch (RuntimeException e) {
                 return "Invalid statement: " + e.getMessage();
             }
-            boolean recorded = sink.record(statement);
+            boolean recorded;
+            try {
+                recorded = sink.record(statement);
+            } catch (AnfRefusal refusal) {
+                // The sink writes through the ANF expression builder; a refusal is the model's
+                // to repair, so it comes back as the tool's answer rather than an error.
+                return "The statement was refused: " + refusal.getMessage()
+                        + ". Correct it and call emit_anf again.";
+            }
             return recorded ? "recorded" : "This statement was already recorded; do not emit it again.";
         }
 
@@ -268,23 +278,23 @@ public final class AnfTools {
             }
         }
 
-        // ── Slot / measure parsing (instance: they fire the discovery callback) ──
+        // ── Value / measure parsing (instance: they fire the discovery callback) ──
 
         /**
-         * Parses a three-way concept slot: a {@code grounded_concept_id} (validated), a
+         * Parses a three-way concept value: a {@code grounded_concept_id} (validated), a
          * {@code candidate} (built without grounding), or a {@code clarify}. Returns null when
-         * the slot is absent or malformed; a grounded id that fails to resolve is recorded in
+         * the value is absent or malformed; a grounded id that fails to resolve is recorded in
          * {@code unresolved} (so the caller rejects the emit) and returns null.
          */
-        private AnfSlot parseSlot(Map<String, Object> slotMap, ViewCalculator v, List<String> unresolved) {
-            if (slotMap == null) {
+        private AnfValue parseConceptValue(Map<String, Object> conceptValueMap, ViewCalculator v, List<String> unresolved) {
+            if (conceptValueMap == null) {
                 return null;
             }
-            String groundedId = str(slotMap, "grounded_concept_id");
+            String groundedId = str(conceptValueMap, "grounded_concept_id");
             if (groundedId != null && !groundedId.isBlank()) {
                 return ground(groundedId, v, unresolved);
             }
-            Map<String, Object> candidateMap = map(slotMap, "candidate");
+            Map<String, Object> candidateMap = map(conceptValueMap, "candidate");
             if (candidateMap != null) {
                 String label = str(candidateMap, "provisional_label");
                 if (label == null || label.isBlank()) {
@@ -292,36 +302,36 @@ public final class AnfTools {
                 }
                 String text = str(candidateMap, "text");
                 List<String> nearest = groundedEvidence(list(candidateMap, "nearest_match_ids"), v);
-                AnfSlot.Candidate candidate = new AnfSlot.Candidate(
+                AnfValue.Candidate candidate = new AnfValue.Candidate(
                         (text == null || text.isBlank()) ? label : text, label, nearest,
-                        AnfSlot.Disposition.PENDING);
+                        AnfValue.Disposition.PENDING);
                 fireDiscovered(candidate);
                 return candidate;
             }
-            Map<String, Object> clarifyMap = map(slotMap, "clarify");
+            Map<String, Object> clarifyMap = map(conceptValueMap, "clarify");
             if (clarifyMap != null) {
                 String field = str(clarifyMap, "field");
                 String question = str(clarifyMap, "question");
                 if (field == null || field.isBlank() || question == null || question.isBlank()) {
                     return null;
                 }
-                AnfSlot.Clarify clarify = new AnfSlot.Clarify(field, question);
+                AnfValue.Clarify clarify = new AnfValue.Clarify(field, question);
                 fireDiscovered(clarify);
                 return clarify;
             }
             return null;
         }
 
-        /** Grounds an id to a {@link AnfSlot.Grounded}; on failure records it and returns null. */
-        private AnfSlot ground(String id, ViewCalculator v, List<String> unresolved) {
-            Optional<AnfSlot.Grounded> grounded = GraphTools.resolveConcept(id, v);
+        /** Grounds an id to a {@link AnfValue.Grounded}; on failure records it and returns null. */
+        private AnfValue ground(String id, ViewCalculator v, List<String> unresolved) {
+            Optional<AnfValue.Grounded> grounded = GraphTools.resolveConcept(id, v);
             if (grounded.isEmpty()) {
                 unresolved.add(id);
                 return null;
             }
-            AnfSlot.Grounded slot = grounded.get();
-            fireDiscovered(slot);
-            return slot;
+            AnfValue.Grounded conceptValue = grounded.get();
+            fireDiscovered(conceptValue);
+            return conceptValue;
         }
 
         /** Resolves a candidate's nearest-match ids to identifiers, dropping any that do not resolve. */
@@ -338,31 +348,31 @@ public final class AnfTools {
             return kept;
         }
 
-        /** Parses a list of concept slots, skipping malformed entries. */
-        private List<AnfSlot> parseSlotList(List<Object> items, ViewCalculator v, List<String> unresolved) {
+        /** Parses a list of concept values, skipping malformed entries. */
+        private List<AnfValue> parseConceptValueList(List<Object> items, ViewCalculator v, List<String> unresolved) {
             if (items == null) {
                 return List.of();
             }
-            List<AnfSlot> slots = new ArrayList<>();
+            List<AnfValue> conceptValues = new ArrayList<>();
             for (Object item : items) {
-                Map<String, Object> slotMap = asMap(item);
-                if (slotMap != null) {
-                    AnfSlot slot = parseSlot(slotMap, v, unresolved);
-                    if (slot != null) {
-                        slots.add(slot);
+                Map<String, Object> conceptValueMap = asMap(item);
+                if (conceptValueMap != null) {
+                    AnfValue conceptValue = parseConceptValue(conceptValueMap, v, unresolved);
+                    if (conceptValue != null) {
+                        conceptValues.add(conceptValue);
                     }
                 }
             }
-            return slots;
+            return conceptValues;
         }
 
-        /** Parses a measure (bounds + a grounded measure-semantic slot); null when absent. */
+        /** Parses a measure (bounds + a grounded measure-semantic value); null when absent. */
         private AnfStatement.Result parseMeasure(Map<String, Object> measureMap, ViewCalculator v,
                                                  List<String> unresolved) {
             if (measureMap == null) {
                 return null;
             }
-            AnfSlot measure = parseSlot(map(measureMap, "measure_semantic"), v, unresolved);
+            AnfValue measure = parseConceptValue(map(measureMap, "measure_semantic"), v, unresolved);
             if (measure == null) {
                 return null;
             }
@@ -388,10 +398,10 @@ public final class AnfTools {
                     parseMeasure(map(repetitionMap, "event_frequency"), v, unresolved));
         }
 
-        /** Reports a discovered slot to the callback, never letting a callback error break grounding. */
-        private void fireDiscovered(AnfSlot slot) {
+        /** Reports a discovered value to the callback, never letting a callback error break grounding. */
+        private void fireDiscovered(AnfValue conceptValue) {
             try {
-                onDiscovered.accept(slot);
+                onDiscovered.accept(conceptValue);
             } catch (RuntimeException ignored) {
                 // a UI callback must never break the tool loop
             }
@@ -498,8 +508,8 @@ public final class AnfTools {
         return obj("type", "string", "description", description);
     }
 
-    /** A three-way concept-slot schema: exactly one of grounded_concept_id, candidate, or clarify. */
-    private static Map<String, Object> slotSchema(String description) {
+    /** A three-way concept-value schema: exactly one of grounded_concept_id, candidate, or clarify. */
+    private static Map<String, Object> conceptValueSchema(String description) {
         return obj(
                 "type", "object",
                 "description", description + " Supply EXACTLY ONE of: grounded_concept_id (an SCTID or UUID "
@@ -531,7 +541,7 @@ public final class AnfTools {
                                 "required", List.of("field", "question"))));
     }
 
-    /** A measure schema: an interval with a grounded measure-semantic slot. */
+    /** A measure schema: an interval with a grounded measure-semantic value. */
     private static Map<String, Object> measureSchema(String description) {
         return obj(
                 "type", "object",
@@ -541,7 +551,7 @@ public final class AnfTools {
                         "upper_bound", obj("type", "number"),
                         "include_lower_bound", obj("type", "boolean"),
                         "include_upper_bound", obj("type", "boolean"),
-                        "measure_semantic", slotSchema("The grounded unit or scale concept that makes the "
+                        "measure_semantic", conceptValueSchema("The grounded unit or scale concept that makes the "
                                 + "value meaningful. For a presence/absence result this is the 'Presence "
                                 + "(property) (qualifier value)' concept (a qualifier value, NOT a unit such as "
                                 + "percent, mg/dL, or a count).")),
@@ -559,31 +569,31 @@ public final class AnfTools {
                                     + "uses priority/requested_result/repetition/conditional_trigger/method; "
                                     + "narrative uses text. timing and purpose apply to any kind. Do not mix "
                                     + "fields across kinds."),
-                    "topic", slotSchema("The clinical topic — exactly one pre-coordinated concept, with no "
+                    "topic", conceptValueSchema("The clinical topic — exactly one pre-coordinated concept, with no "
                             + "polarity (that is the result), no subject (that is subject_of_information), and no "
                             + "timing or status (those are separate fields). Never compose a focus plus "
                             + "role-fillers."),
-                    "subject_of_information", slotSchema("Optional. Who or what the statement is about when "
+                    "subject_of_information", conceptValueSchema("Optional. Who or what the statement is about when "
                             + "that is not the subject of record — a family-member relationship (family history), "
                             + "a fetus, a donor organ. Omit for the subject of record."),
                     "timing", measureSchema("Optional (any kind). When the circumstance occurred or is "
                             + "requested."),
                     "purpose", obj("type", "array",
                             "description", "Optional (any kind). Why it was done or requested.",
-                            "items", slotSchema("A purpose concept.")),
-                    "status", slotSchema("Performance. The status of the action or determination (e.g. "
+                            "items", conceptValueSchema("A purpose concept.")),
+                    "status", conceptValueSchema("Performance. The status of the action or determination (e.g. "
                             + "performed, final, amended)."),
                     "result", measureSchema("Performance. What was determined. Presence is [1, no upper bound] "
                             + "on the Presence scale; absence is [0,0]."),
-                    "health_risk", slotSchema("Performance. The clinical-risk classification of the result "
+                    "health_risk", conceptValueSchema("Performance. The clinical-risk classification of the result "
                             + "(e.g. low, high, critically high)."),
                     "normal_range", measureSchema("Performance. The reference range of normal values for the "
                             + "determination."),
-                    "body_site", slotSchema("Performance. The anatomical location."),
-                    "method", slotSchema("Performance or request. How the determination is made or the "
+                    "body_site", conceptValueSchema("Performance. The anatomical location."),
+                    "method", conceptValueSchema("Performance or request. How the determination is made or the "
                             + "request carried out."),
-                    "laterality", slotSchema("Performance. Left, right, or bilateral."),
-                    "priority", slotSchema("Request. routine / urgent / stat."),
+                    "laterality", conceptValueSchema("Performance. Left, right, or bilateral."),
+                    "priority", conceptValueSchema("Request. routine / urgent / stat."),
                     "requested_result", measureSchema("Request. The result sought."),
                     "repetition", obj("type", "object",
                             "description", "Request. A frequency/duration schedule.",
@@ -595,7 +605,7 @@ public final class AnfTools {
                                     "event_frequency", measureSchema("How often events occur."))),
                     "conditional_trigger", obj("type", "array",
                             "description", "Request. Conditions for execution, each a concept.",
-                            "items", slotSchema("A condition concept.")),
+                            "items", conceptValueSchema("A condition concept.")),
                     "text", strProp("Narrative. The unstructured content.")),
             "required", List.of("statement_type"));
 }

@@ -38,7 +38,7 @@ every clinical term with the tools first.** Your training data holds an old,
 partial, possibly wrong snapshot of SNOMED CT and other terminologies; the
 knowledge base in front of the user is the source of truth. So: `search` for a
 term, confirm the match with `concept`, and use only the identifier the tool
-returned. If a term does not resolve, **do not invent a code** — mark that slot
+returned. If a term does not resolve, **do not invent a code** — mark that value
 as a *clarify* (see below). An honest gap is correct; a fabricated code is the
 single most harmful thing you can do here.
 
@@ -77,7 +77,7 @@ Each statement is an envelope with exactly these parts:
   plus a grounded **measureSemantic** concept (the unit / coordinate system). A
   number without a measure semantic is not a result — ground the unit too.
 
-Each concept slot — the topic, the subject of information, every modifier, and a
+Each concept value — the topic, the subject of information, every modifier, and a
 measure's semantic — is supplied as **one of three** forms: a
 `grounded_concept_id` (an SCTID/UUID the tools returned), a **candidate** (a
 clear meaning the knowledge base lacks), or a **clarify** (a narrative
@@ -88,7 +88,7 @@ Five invariants are non-negotiable:
 
 1. **Topic purity** — no polarity, no subject, no context, no temporality in the
    topic.
-2. **No post-coordination** — every slot references exactly one pre-coordinated
+2. **No post-coordination** — every value references exactly one pre-coordinated
    concept. Never assemble a focus plus role-fillers in a statement; IKE
    pre-coordinates. Compositional meaning lives inside a concept's *definition*,
    not in the statement.
@@ -120,9 +120,9 @@ on Presence — there is no measurement, so do **not** invent a quantitative uni
 the result is presence. Use a real unit only when the narrative carries an actual
 measured value (e.g. "HbA1c 7.2 %").
 
-### One concept per slot — never post-coordinate
+### One concept per attribute — never post-coordinate
 
-IKE does not post-coordinate. Every slot — topic, subject of information, the
+IKE does not post-coordinate. Every value — topic, subject of information, the
 result's measure semantic, each modifier — names **exactly one** pre-coordinated
 concept. Never assemble a focus concept with role-fillers to express a meaning in
 the statement. If a single concept captures the meaning, use it. If the meaning
@@ -184,7 +184,7 @@ Emit **one `emit_anf` call per statement** — a compound narrative becomes seve
 calls, one per independent assertion. Every `grounded_concept_id` you pass must be
 one the tools returned for you; the tool re-validates each id against the live
 store and will **reject any unresolved id** back to you — when that happens,
-`search` again and correct it, or emit that slot as a **candidate** (a clear
+`search` again and correct it, or emit that value as a **candidate** (a clear
 meaning the store lacks) or a **clarify** (a narrative ambiguity); never invent a
 code. A statement whose topic you cannot ground is emitted with a candidate or
 clarify topic — **never omit the statement**. When you have emitted every
@@ -206,7 +206,7 @@ the subject of information.
 the meaning is clear but unrepresented, emit it as a **candidate** — its
 provisional label and any nearest existing matches — for curation to propose and
 pre-coordinate later. If instead the *narrative* is ambiguous, emit a **clarify**.
-Either way the statement stays one concept per slot; you never compose a
+Either way the statement stays one concept per attribute; you never compose a
 focus-plus-role-filler expression or invent a code.
 
 **Two statements from one narrative.** *"BP 120/85 sitting."* A blood pressure is

@@ -39,13 +39,13 @@ import java.util.function.Function;
  * Komet {@link KonceptBadge} atom (identicon + name + taxonomic status glyph, and a
  * Komet-concept <em>drag source</em>), so an ANF concept drags into Komet's concept
  * viewers exactly as a concept dragged from anywhere else in Komet; candidate and
- * clarify slots render as distinct badges so the three-way honesty of the lift stays
+ * clarify values render as distinct badges so the three-way honesty of the lift stays
  * visible.
  *
- * <p>When an {@link Editor} is supplied, each concept slot is also a <em>drop
+ * <p>When an {@link Editor} is supplied, each concept value is also a <em>drop
  * target</em>: dropping a Komet concept onto it substitutes that concept for the one
  * the lift proposed (re-resolving the dropped concept through the editor and
- * rebuilding the statement for that slot's position).
+ * rebuilding the statement for that value's position).
  */
 public final class AnfStatementView {
 
@@ -75,7 +75,7 @@ public final class AnfStatementView {
     /**
      * Renders a statement. Grounded concept chips are Komet concept drag sources
      * whenever {@code view} is non-null. When {@code editor} is non-null, each concept
-     * slot also accepts a dropped Komet concept and substitutes it for the proposed one.
+     * value also accepts a dropped Komet concept and substitutes it for the proposed one.
      *
      * @param s      the validated statement; must not be null
      * @param view   the view for live, draggable badges; null renders presentation-only
@@ -90,12 +90,12 @@ public final class AnfStatementView {
 
         if (s.topic() != null) {
             box.getChildren().add(row("Topic",
-                    slotNode(s.topic(), view, editor, g -> withTopic(s, g),
+                    conceptValueNode(s.topic(), view, editor, g -> withTopic(s, g),
                             s.statementType() == AnfStatement.Type.NARRATIVE)));
         }
         if (s.subjectOfInformation() != null) {
             box.getChildren().add(row("Subject",
-                    slotNode(s.subjectOfInformation(), view, editor, g -> withSubject(s, g), true)));
+                    conceptValueNode(s.subjectOfInformation(), view, editor, g -> withSubject(s, g), true)));
         }
         renderCircumstance(box, s, view, editor);
         return box;
@@ -103,8 +103,8 @@ public final class AnfStatementView {
 
     /**
      * Renders the statement's circumstance — exhaustively over the sealed {@link Circumstance}
-     * kind, so a new kind is a compile error here. Single concept-slot fields are drop targets
-     * that substitute the slot; list and timing fields render their chips (draggable) without
+     * kind, so a new kind is a compile error here. Single concept-value fields are drop targets
+     * that substitute the value; list and timing fields render their chips (draggable) without
      * substitution.
      */
     private static void renderCircumstance(VBox box, AnfStatement s, ViewProperties view, Editor editor) {
@@ -114,11 +114,11 @@ public final class AnfStatementView {
                     box.getChildren().add(measureRow("Result", p.result(), view, editor,
                             m -> perfResult(s, p, m)));
                 }
-                addSlotRow(box, "Status", p.status(), view, editor, g -> perfStatus(s, p, g));
-                addSlotRow(box, "Body site", p.bodySite(), view, editor, g -> perfBodySite(s, p, g));
-                addSlotRow(box, "Method", p.method(), view, editor, g -> perfMethod(s, p, g));
-                addSlotRow(box, "Laterality", p.laterality(), view, editor, g -> perfLaterality(s, p, g));
-                addSlotRow(box, "Health risk", p.healthRisk(), view, editor, g -> perfHealthRisk(s, p, g));
+                addConceptValueRow(box, "Status", p.status(), view, editor, g -> perfStatus(s, p, g));
+                addConceptValueRow(box, "Body site", p.bodySite(), view, editor, g -> perfBodySite(s, p, g));
+                addConceptValueRow(box, "Method", p.method(), view, editor, g -> perfMethod(s, p, g));
+                addConceptValueRow(box, "Laterality", p.laterality(), view, editor, g -> perfLaterality(s, p, g));
+                addConceptValueRow(box, "Health risk", p.healthRisk(), view, editor, g -> perfHealthRisk(s, p, g));
                 if (p.normalRange() != null) {
                     box.getChildren().add(measureRow("Normal range", p.normalRange(), view, editor,
                             m -> perfNormalRange(s, p, m)));
@@ -131,8 +131,8 @@ public final class AnfStatementView {
                     box.getChildren().add(measureRow("Requested", r.requestedResult(), view, editor,
                             m -> reqRequestedResult(s, r, m)));
                 }
-                addSlotRow(box, "Priority", r.priority(), view, editor, g -> reqPriority(s, r, g));
-                addSlotRow(box, "Method", r.method(), view, editor, g -> reqMethod(s, r, g));
+                addConceptValueRow(box, "Priority", r.priority(), view, editor, g -> reqPriority(s, r, g));
+                addConceptValueRow(box, "Method", r.method(), view, editor, g -> reqMethod(s, r, g));
                 addListRow(box, "Triggers", r.conditionalTrigger(), view);
                 renderRepetition(box, r.repetition(), view);
                 addListRow(box, "Purpose", r.purpose(), view);
@@ -146,11 +146,11 @@ public final class AnfStatementView {
         }
     }
 
-    /** Adds a labelled row for a single concept slot, droppable to substitute it, when present. */
-    private static void addSlotRow(VBox box, String labelText, AnfSlot slot, ViewProperties view,
-                                   Editor editor, Function<AnfSlot.Grounded, AnfStatement> rebuild) {
-        if (slot != null) {
-            box.getChildren().add(row(labelText, slotNode(slot, view, editor, rebuild, true)));
+    /** Adds a labelled row for a single concept value, droppable to substitute it, when present. */
+    private static void addConceptValueRow(VBox box, String labelText, AnfValue conceptValue, ViewProperties view,
+                                   Editor editor, Function<AnfValue.Grounded, AnfStatement> rebuild) {
+        if (conceptValue != null) {
+            box.getChildren().add(row(labelText, conceptValueNode(conceptValue, view, editor, rebuild, true)));
         }
     }
 
@@ -158,7 +158,7 @@ public final class AnfStatementView {
     private static HBox measureRow(String labelText, AnfStatement.Result result, ViewProperties view,
                                    Editor editor, Function<AnfStatement.Result, AnfStatement> rebuild) {
         return row(labelText, label(interval(result), ""),
-                slotNode(result.measureSemantic(), view, editor,
+                conceptValueNode(result.measureSemantic(), view, editor,
                         g -> rebuild.apply(withMeasureSemantic(result, g)), false));
     }
 
@@ -171,13 +171,13 @@ public final class AnfStatementView {
         }
     }
 
-    /** Adds a labelled row of chips for a list of slots (draggable, not substitutable), when non-empty. */
-    private static void addListRow(VBox box, String labelText, java.util.List<AnfSlot> slots,
+    /** Adds a labelled row of chips for a list of values (draggable, not substitutable), when non-empty. */
+    private static void addListRow(VBox box, String labelText, java.util.List<AnfValue> conceptValues,
                                    ViewProperties view) {
-        if (slots != null && !slots.isEmpty()) {
-            Node[] chips = new Node[slots.size()];
-            for (int i = 0; i < slots.size(); i++) {
-                chips[i] = chipFor(slots.get(i), view);
+        if (conceptValues != null && !conceptValues.isEmpty()) {
+            Node[] chips = new Node[conceptValues.size()];
+            for (int i = 0; i < conceptValues.size(); i++) {
+                chips[i] = chipFor(conceptValues.get(i), view);
             }
             box.getChildren().add(row(labelText, chips));
         }
@@ -197,11 +197,11 @@ public final class AnfStatementView {
 
     // ── Statement rebuilders for drop-to-substitute (records are immutable) ──────
 
-    private static AnfStatement withTopic(AnfStatement s, AnfSlot.Grounded topic) {
+    private static AnfStatement withTopic(AnfStatement s, AnfValue.Grounded topic) {
         return new AnfStatement(s.statementType(), topic, s.subjectOfInformation(), s.circumstance());
     }
 
-    private static AnfStatement withSubject(AnfStatement s, AnfSlot.Grounded subject) {
+    private static AnfStatement withSubject(AnfStatement s, AnfValue.Grounded subject) {
         return new AnfStatement(s.statementType(), s.topic(), subject, s.circumstance());
     }
 
@@ -209,12 +209,12 @@ public final class AnfStatementView {
         return new AnfStatement(s.statementType(), s.topic(), s.subjectOfInformation(), circumstance);
     }
 
-    private static AnfStatement.Result withMeasureSemantic(AnfStatement.Result r, AnfSlot.Grounded m) {
+    private static AnfStatement.Result withMeasureSemantic(AnfStatement.Result r, AnfValue.Grounded m) {
         return new AnfStatement.Result(r.lowerBound(), r.upperBound(),
                 r.includeLowerBound(), r.includeUpperBound(), m);
     }
 
-    private static AnfStatement perfStatus(AnfStatement s, Circumstance.Performance p, AnfSlot.Grounded v) {
+    private static AnfStatement perfStatus(AnfStatement s, Circumstance.Performance p, AnfValue.Grounded v) {
         return withCircumstance(s, new Circumstance.Performance(p.timing(), p.purpose(), v, p.result(),
                 p.healthRisk(), p.normalRange(), p.bodySite(), p.method(), p.laterality()));
     }
@@ -224,7 +224,7 @@ public final class AnfStatementView {
                 p.healthRisk(), p.normalRange(), p.bodySite(), p.method(), p.laterality()));
     }
 
-    private static AnfStatement perfHealthRisk(AnfStatement s, Circumstance.Performance p, AnfSlot.Grounded v) {
+    private static AnfStatement perfHealthRisk(AnfStatement s, Circumstance.Performance p, AnfValue.Grounded v) {
         return withCircumstance(s, new Circumstance.Performance(p.timing(), p.purpose(), p.status(), p.result(),
                 v, p.normalRange(), p.bodySite(), p.method(), p.laterality()));
     }
@@ -235,22 +235,22 @@ public final class AnfStatementView {
                 p.healthRisk(), v, p.bodySite(), p.method(), p.laterality()));
     }
 
-    private static AnfStatement perfBodySite(AnfStatement s, Circumstance.Performance p, AnfSlot.Grounded v) {
+    private static AnfStatement perfBodySite(AnfStatement s, Circumstance.Performance p, AnfValue.Grounded v) {
         return withCircumstance(s, new Circumstance.Performance(p.timing(), p.purpose(), p.status(), p.result(),
                 p.healthRisk(), p.normalRange(), v, p.method(), p.laterality()));
     }
 
-    private static AnfStatement perfMethod(AnfStatement s, Circumstance.Performance p, AnfSlot.Grounded v) {
+    private static AnfStatement perfMethod(AnfStatement s, Circumstance.Performance p, AnfValue.Grounded v) {
         return withCircumstance(s, new Circumstance.Performance(p.timing(), p.purpose(), p.status(), p.result(),
                 p.healthRisk(), p.normalRange(), p.bodySite(), v, p.laterality()));
     }
 
-    private static AnfStatement perfLaterality(AnfStatement s, Circumstance.Performance p, AnfSlot.Grounded v) {
+    private static AnfStatement perfLaterality(AnfStatement s, Circumstance.Performance p, AnfValue.Grounded v) {
         return withCircumstance(s, new Circumstance.Performance(p.timing(), p.purpose(), p.status(), p.result(),
                 p.healthRisk(), p.normalRange(), p.bodySite(), p.method(), v));
     }
 
-    private static AnfStatement reqPriority(AnfStatement s, Circumstance.Request r, AnfSlot.Grounded v) {
+    private static AnfStatement reqPriority(AnfStatement s, Circumstance.Request r, AnfValue.Grounded v) {
         return withCircumstance(s, new Circumstance.Request(r.timing(), r.purpose(), v, r.requestedResult(),
                 r.repetition(), r.conditionalTrigger(), r.method()));
     }
@@ -261,7 +261,7 @@ public final class AnfStatementView {
                 r.repetition(), r.conditionalTrigger(), r.method()));
     }
 
-    private static AnfStatement reqMethod(AnfStatement s, Circumstance.Request r, AnfSlot.Grounded v) {
+    private static AnfStatement reqMethod(AnfStatement s, Circumstance.Request r, AnfValue.Grounded v) {
         return withCircumstance(s, new Circumstance.Request(r.timing(), r.purpose(), r.priority(),
                 r.requestedResult(), r.repetition(), r.conditionalTrigger(), v));
     }
@@ -274,12 +274,12 @@ public final class AnfStatementView {
      */
     public interface Editor {
         /**
-         * Resolves a dropped concept nid to a grounded slot in the host's view.
+         * Resolves a dropped concept nid to a grounded value in the host's view.
          *
          * @param conceptNid the dropped concept's nid
-         * @return the grounded slot, or null if it does not resolve
+         * @return the grounded value, or null if it does not resolve
          */
-        AnfSlot.Grounded resolve(long conceptNid);
+        AnfValue.Grounded resolve(long conceptNid);
 
         /**
          * Receives the statement after a STRUCTURAL change (drop substitution, load), to store and
@@ -308,44 +308,44 @@ public final class AnfStatementView {
         /**
          * Opens a concept's detail (descriptions + axioms) for a clicked field.
          *
-         * @param slot the grounded slot to inspect
+         * @param conceptValue the grounded value to inspect
          */
-        void showDetail(AnfSlot slot);
+        void showDetail(AnfValue conceptValue);
     }
 
     /**
-     * The node for a concept slot: an editable {@link KlConceptField} when an {@link Editor} is
-     * present and the slot is grounded (clear to empty, type to re-search, drop to substitute, click
+     * The node for a concept value: an editable {@link KlConceptField} when an {@link Editor} is
+     * present and the value is grounded (clear to empty, type to re-search, drop to substitute, click
      * for detail); otherwise the existing drop-substitutable badge (read-only contexts, or
-     * candidate/clarify slots which have no concept to edit).
+     * candidate/clarify values which have no concept to edit).
      *
-     * @param slot      the slot to render
+     * @param conceptValue      the value to render
      * @param view      the view for live badges/search
      * @param editor    the editor, or null for read-only
-     * @param rebuild   rebuilds the statement for this slot position; receives a grounded concept,
+     * @param rebuild   rebuilds the statement for this value position; receives a grounded concept,
      *                  or {@code null} when the field is cleared
      * @param clearable whether the field offers the clear (X) — false for a typed topic / a unit
-     * @return the slot node
+     * @return the value node
      */
-    private static Node slotNode(AnfSlot slot, ViewProperties view, Editor editor,
-                                 Function<AnfSlot.Grounded, AnfStatement> rebuild, boolean clearable) {
-        if (editor != null && editor.completer() != null && slot instanceof AnfSlot.Grounded grounded) {
+    private static Node conceptValueNode(AnfValue conceptValue, ViewProperties view, Editor editor,
+                                 Function<AnfValue.Grounded, AnfStatement> rebuild, boolean clearable) {
+        if (editor != null && editor.completer() != null && conceptValue instanceof AnfValue.Grounded grounded) {
             return conceptField(grounded, view, editor, rebuild, clearable);
         }
-        return droppable(chipFor(slot, view), editor, rebuild);
+        return droppable(chipFor(conceptValue, view), editor, rebuild);
     }
 
-    /** Builds an editable {@link KlConceptField} bound to a slot position. */
-    private static KlConceptField conceptField(AnfSlot.Grounded slot, ViewProperties view, Editor editor,
-                                               Function<AnfSlot.Grounded, AnfStatement> rebuild, boolean clearable) {
+    /** Builds an editable {@link KlConceptField} bound to a value position. */
+    private static KlConceptField conceptField(AnfValue.Grounded conceptValue, ViewProperties view, Editor editor,
+                                               Function<AnfValue.Grounded, AnfStatement> rebuild, boolean clearable) {
         KlConceptField field = new KlConceptField();
         field.viewPropertiesProperty().set(view);
         field.completerProperty().set(editor.completer());
         field.iconSizeProperty().set(CHIP_ICON_PX);
         field.setClearable(clearable);
-        field.setValue(new KlConceptField.Value.Concept(slot.nid(), slot.label()));
+        field.setValue(new KlConceptField.Value.Concept(conceptValue.nid(), conceptValue.label()));
         field.onSelectedProperty().set(concept -> {
-            AnfSlot.Grounded grounded = editor.resolve(concept.nid());
+            AnfValue.Grounded grounded = editor.resolve(concept.nid());
             if (grounded != null) {
                 editor.onFieldEdited(rebuild.apply(grounded));
                 // Normalize the displayed value to the resolved label (quiet — fires no callback).
@@ -355,7 +355,7 @@ public final class AnfStatementView {
         field.onClearedProperty().set(() -> editor.onFieldEdited(rebuild.apply(null)));
         field.onDetailProperty().set(value -> {
             if (value instanceof KlConceptField.Value.Concept concept) {
-                AnfSlot.Grounded grounded = editor.resolve(concept.nid());
+                AnfValue.Grounded grounded = editor.resolve(concept.nid());
                 if (grounded != null) {
                     editor.showDetail(grounded);
                 }
@@ -365,18 +365,18 @@ public final class AnfStatementView {
     }
 
     /**
-     * Renders a slot as a chip node, reused by the statement card and the discovered-
+     * Renders a value as a chip node, reused by the statement card and the discovered-
      * concept inventory list. A grounded concept becomes the shared {@link KonceptBadge}
      * atom (a Komet concept drag source; presentation-only when {@code view} is null);
-     * candidate and clarify slots become distinct labelled badges.
+     * candidate and clarify values become distinct labelled badges.
      *
-     * @param s    the slot to render
+     * @param s    the value to render
      * @param view the view for a live, draggable badge; null renders presentation-only
      * @return the chip node
      */
-    public static Node chipFor(AnfSlot s, ViewProperties view) {
+    public static Node chipFor(AnfValue s, ViewProperties view) {
         return switch (s) {
-            case AnfSlot.Grounded g -> {
+            case AnfValue.Grounded g -> {
                 KonceptBadge badge = (view != null)
                         ? new KonceptBadge(g.nid(), view)
                         : new KonceptBadge(PrimitiveData.publicId(g.nid()), g.label());
@@ -384,9 +384,9 @@ public final class AnfStatementView {
                 badge.setStyle(CHIP_FONT_STYLE);
                 yield badge;
             }
-            case AnfSlot.Candidate c -> badge(c.provisionalLabel(),
+            case AnfValue.Candidate c -> badge(c.provisionalLabel(),
                     CANDIDATE_STYLE + CHIP_FONT_STYLE, "candidate · " + c.disposition());
-            case AnfSlot.Clarify c -> badge("? " + c.field(), CLARIFY_STYLE + CHIP_FONT_STYLE, c.question());
+            case AnfValue.Clarify c -> badge("? " + c.field(), CLARIFY_STYLE + CHIP_FONT_STYLE, c.question());
         };
     }
 
@@ -434,15 +434,15 @@ public final class AnfStatementView {
     }
 
     /**
-     * Wraps a slot node as a concept drop target when {@code editor} is non-null, using
+     * Wraps a value node as a concept drop target when {@code editor} is non-null, using
      * Komet's {@link DropHelper}: a dropped Komet concept is resolved and {@code rebuild}
      * produces the substituted statement, which the editor stores and re-renders.
      */
-    private static Node droppable(Node node, Editor editor, Function<AnfSlot.Grounded, AnfStatement> rebuild) {
+    private static Node droppable(Node node, Editor editor, Function<AnfValue.Grounded, AnfStatement> rebuild) {
         if (editor != null && node instanceof Region region) {
             new DropHelper(region,
                     dragboard -> KometClipboard.conceptNid(dragboard).ifPresent(nid -> {
-                        AnfSlot.Grounded grounded = editor.resolve(nid);
+                        AnfValue.Grounded grounded = editor.resolve(nid);
                         if (grounded != null) {
                             editor.onEdited(rebuild.apply(grounded));
                         }

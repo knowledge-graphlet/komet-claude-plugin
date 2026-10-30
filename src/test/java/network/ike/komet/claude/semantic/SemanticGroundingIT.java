@@ -41,7 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * Integration tests for {@link SemanticGrounding} against the IKE starter set — the live,
  * datastore-backed counterpart to the store-free {@link SemanticToolsTest}. Loads the starter
  * dataset into an ephemeral store and confirms the kind-aware grounding the unit tests faked:
- * a concept grounds as {@link ComponentSlot.Kind#CONCEPT}, a pattern as {@code PATTERN}, a
+ * a concept grounds as {@link ComponentValue.Kind#CONCEPT}, a pattern as {@code PATTERN}, a
  * semantic as {@code SEMANTIC} <em>without</em> being canonicalized up to its concept, a field's
  * required kind is enforced, and an unresolvable id never grounds.
  *
@@ -82,26 +82,26 @@ class SemanticGroundingIT {
 
     @Test
     void groundsAConceptAsConcept() {
-        Optional<ComponentSlot.Grounded> grounded = grounder.ground(uuidOf(KernelConcept.ENGLISH_LANGUAGE), null);
+        Optional<ComponentValue.Grounded> grounded = grounder.ground(uuidOf(KernelConcept.ENGLISH_LANGUAGE), null);
         assertTrue(grounded.isPresent(), "English Language should ground");
-        assertEquals(ComponentSlot.Kind.CONCEPT, grounded.get().kind());
+        assertEquals(ComponentValue.Kind.CONCEPT, grounded.get().kind());
         assertEquals(KernelConcept.ENGLISH_LANGUAGE.nid(), grounded.get().nid());
     }
 
     @Test
     void groundsAPatternAsPattern() {
-        Optional<ComponentSlot.Grounded> grounded = grounder.ground(uuidOf(KernelPattern.DESCRIPTION_PATTERN), null);
+        Optional<ComponentValue.Grounded> grounded = grounder.ground(uuidOf(KernelPattern.DESCRIPTION_PATTERN), null);
         assertTrue(grounded.isPresent(), "Description Pattern should ground");
-        assertEquals(ComponentSlot.Kind.PATTERN, grounded.get().kind());
+        assertEquals(ComponentValue.Kind.PATTERN, grounded.get().kind());
         assertEquals(KernelPattern.DESCRIPTION_PATTERN.nid(), grounded.get().nid());
     }
 
     @Test
     void groundsASemanticAsSemanticAndDoesNotWalkUpToItsConcept() {
         long semanticNid = aDescriptionSemanticNid();
-        Optional<ComponentSlot.Grounded> grounded = grounder.ground(uuidOf(semanticNid), null);
+        Optional<ComponentValue.Grounded> grounded = grounder.ground(uuidOf(semanticNid), null);
         assertTrue(grounded.isPresent(), "a description semantic should ground");
-        assertEquals(ComponentSlot.Kind.SEMANTIC, grounded.get().kind());
+        assertEquals(ComponentValue.Kind.SEMANTIC, grounded.get().kind());
         assertEquals(semanticNid, grounded.get().nid(),
                 "a semantic must NOT be canonicalized up to its enclosing concept");
     }
@@ -109,14 +109,14 @@ class SemanticGroundingIT {
     @Test
     void aConceptOnlyFieldRejectsASemanticReferent() {
         long semanticNid = aDescriptionSemanticNid();
-        assertTrue(grounder.ground(uuidOf(semanticNid), ComponentSlot.Kind.CONCEPT).isEmpty(),
+        assertTrue(grounder.ground(uuidOf(semanticNid), ComponentValue.Kind.CONCEPT).isEmpty(),
                 "a semantic must not satisfy a concept-only field");
     }
 
     @Test
     void aConceptOnlyFieldAcceptsAConceptButNotUnderASemanticConstraint() {
-        assertTrue(grounder.ground(uuidOf(KernelConcept.ENGLISH_LANGUAGE), ComponentSlot.Kind.CONCEPT).isPresent());
-        assertTrue(grounder.ground(uuidOf(KernelConcept.ENGLISH_LANGUAGE), ComponentSlot.Kind.SEMANTIC).isEmpty(),
+        assertTrue(grounder.ground(uuidOf(KernelConcept.ENGLISH_LANGUAGE), ComponentValue.Kind.CONCEPT).isPresent());
+        assertTrue(grounder.ground(uuidOf(KernelConcept.ENGLISH_LANGUAGE), ComponentValue.Kind.SEMANTIC).isEmpty(),
                 "a concept must not satisfy a semantic-only field");
     }
 

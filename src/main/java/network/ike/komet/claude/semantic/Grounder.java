@@ -18,7 +18,7 @@ package network.ike.komet.claude.semantic;
 import java.util.Optional;
 
 /**
- * Resolves a component identifier to a grounded slot, validating existence, active status, and —
+ * Resolves a component identifier to a grounded value, validating existence, active status, and —
  * when the field constrains it — the component's kind. This is the anti-hallucination boundary of
  * the semantic lift, abstracted behind an interface so the {@code emit_semantic} tool can be
  * unit-tested with a fake grounder (no store) and driven in production by a live
@@ -34,8 +34,8 @@ public interface Grounder {
      * @param id           the SCTID, UUID, or comma-joined {@code PublicId} UUID array to resolve
      * @param requiredKind the kind the field constrains the referent to, or {@code null} when the
      *                     field accepts any component kind (the generic and collection families)
-     * @return the grounded slot, or {@link Optional#empty()} when the id does not resolve, is
+     * @return the grounded value, or {@link Optional#empty()} when the id does not resolve, is
      *         retired, or is of the wrong kind
      */
-    Optional<ComponentSlot.Grounded> ground(String id, ComponentSlot.Kind requiredKind);
+    Optional<ComponentValue.Grounded> ground(String id, ComponentValue.Kind requiredKind);
 }

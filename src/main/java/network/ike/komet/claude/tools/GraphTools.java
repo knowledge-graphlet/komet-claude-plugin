@@ -43,7 +43,7 @@ import dev.ikm.tinkar.provider.search.Searcher;
 import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.KernelPattern;
 import dev.ikm.tinkar.terms.State;
-import network.ike.komet.claude.anf.AnfSlot;
+import network.ike.komet.claude.anf.AnfValue;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.koncept.ComponentText;
 import network.ike.komet.claude.koncept.DefinitionText;
@@ -77,7 +77,7 @@ public final class GraphTools {
     private static final int DEFAULT_LIMIT = 50;
 
     private final Supplier<ViewCalculator> viewSupplier;
-    private final Consumer<AnfSlot> onDiscovered;
+    private final Consumer<AnfValue> onDiscovered;
 
     /**
      * Creates the tool set with no concept-discovery callback.
@@ -86,7 +86,7 @@ public final class GraphTools {
      *                     active window's view); must not be null
      */
     public GraphTools(Supplier<ViewCalculator> viewSupplier) {
-        this(viewSupplier, slot -> {
+        this(viewSupplier, conceptValue -> {
         });
     }
 
@@ -94,13 +94,13 @@ public final class GraphTools {
      * Creates the tool set that reports each concept it confirms.
      *
      * @param viewSupplier supplies the current {@link ViewCalculator}; must not be null
-     * @param onDiscovered receives a grounded slot whenever the {@code concept} tool
+     * @param onDiscovered receives a grounded value whenever the {@code concept} tool
      *                     confirms a concept, so a UI can show a live inventory; a
      *                     null callback is treated as a no-op
      */
-    public GraphTools(Supplier<ViewCalculator> viewSupplier, Consumer<AnfSlot> onDiscovered) {
+    public GraphTools(Supplier<ViewCalculator> viewSupplier, Consumer<AnfValue> onDiscovered) {
         this.viewSupplier = Objects.requireNonNull(viewSupplier, "viewSupplier");
-        this.onDiscovered = (onDiscovered == null) ? slot -> {
+        this.onDiscovered = (onDiscovered == null) ? conceptValue -> {
         } : onDiscovered;
     }
 
@@ -1021,8 +1021,8 @@ public final class GraphTools {
      * semantic) walks up to the component it describes via
      * {@link SemanticEntity#topEnclosingComponentNid()}; a concept is returned unchanged. Full-text
      * search matches description semantics, and an identifier the model offers may be a description's —
-     * but a description is not a valid ANF slot filler and cannot be dropped onto a concept target, so
-     * every grounded slot must be the concept itself. This is the "a description walks up to its
+     * but a description is not a valid ANF value and cannot be dropped onto a concept target, so
+     * every grounded value must be the concept itself. This is the "a description walks up to its
      * concept" rule applied at the grounding boundary.
      *
      * @param nid any component nid
@@ -1041,16 +1041,16 @@ public final class GraphTools {
     }
 
     /**
-     * Resolves an SCTID or UUID to a grounded ANF slot, or empty when the concept is
+     * Resolves an SCTID or UUID to a grounded ANF value, or empty when the concept is
      * not present in the active view. Reuses the same existence-gated resolution as
-     * the read-only tools, so a grounded slot is always a real, named concept — the
+     * the read-only tools, so a grounded value is always a real, named concept — the
      * anti-hallucination guarantee the narrative lift depends on.
      *
      * @param id the SCTID or concept UUID to resolve
      * @param v  the active view calculator (may be null)
-     * @return the grounded slot, or {@link Optional#empty()} if unresolved
+     * @return the grounded value, or {@link Optional#empty()} if unresolved
      */
-    public static Optional<AnfSlot.Grounded> resolveConcept(String id, ViewCalculator v) {
+    public static Optional<AnfValue.Grounded> resolveConcept(String id, ViewCalculator v) {
         if (v == null) {
             return Optional.empty();
         }
@@ -1081,17 +1081,17 @@ public final class GraphTools {
     }
 
     /**
-     * Builds a grounded slot from an already-resolved nid: its fully specified name
+     * Builds a grounded value from an already-resolved nid: its fully specified name
      * (falling back to the preferred description) and its best identifier (SCTID when
      * present, else the first public UUID).
      *
      * @param v   the active view calculator
      * @param nid the resolved concept nid
-     * @return the grounded slot
-     * @throws IllegalStateException if the store has no public id for the concept; a slot's key
+     * @return the grounded value
+     * @throws IllegalStateException if the store has no public id for the concept; a value's key
      *                               is the public id, never the nid
      */
-    public static AnfSlot.Grounded groundedOf(ViewCalculator v, long nid) {
+    public static AnfValue.Grounded groundedOf(ViewCalculator v, long nid) {
         long conceptNid = toConceptNid(nid);
         String label = ComponentText.fullyQualifiedName(v, conceptNid);
         // The durable round-trip key is the public id; a concept without one cannot be grounded.
@@ -1099,12 +1099,12 @@ public final class GraphTools {
                 new IllegalStateException("A concept the store has no public id for cannot be grounded"));
         String sctid = ComponentText.sctid(v, conceptNid).orElse(null);
         String identifier = sctid != null ? sctid : publicId.leastUuid().toString();
-        return new AnfSlot.Grounded(conceptNid, ComponentText.publicIdKey(publicId), identifier, label);
+        return new AnfValue.Grounded(conceptNid, ComponentText.publicIdKey(publicId), identifier, label);
     }
 
     /**
      * Full-text searches concepts for an interactive type-ahead, returning concept-canonical grounded
-     * slots (description hits walk up to their concept, deduped). Reuses the same resolution the
+     * values (description hits walk up to their concept, deduped). Reuses the same resolution the
      * assistant's {@code search} tool does, so a typed field and the lift ground identically.
      *
      * @param query the search text
@@ -1112,11 +1112,11 @@ public final class GraphTools {
      * @param max   the maximum number of concepts to return
      * @return the matching grounded concepts, in score order (never null)
      */
-    public static List<AnfSlot.Grounded> searchConcepts(String query, ViewCalculator v, int max) {
+    public static List<AnfValue.Grounded> searchConcepts(String query, ViewCalculator v, int max) {
         if (v == null || query == null || query.isBlank() || max <= 0) {
             return List.of();
         }
-        List<AnfSlot.Grounded> rows = new java.util.ArrayList<>();
+        List<AnfValue.Grounded> rows = new java.util.ArrayList<>();
         Searcher searcher = null;
         try {
             searcher = new Searcher();
@@ -1145,10 +1145,10 @@ public final class GraphTools {
         return rows;
     }
 
-    /** Reports a discovered slot to the callback, never letting a callback error break a tool. */
-    private void fireDiscovered(AnfSlot slot) {
+    /** Reports a discovered value to the callback, never letting a callback error break a tool. */
+    private void fireDiscovered(AnfValue conceptValue) {
         try {
-            onDiscovered.accept(slot);
+            onDiscovered.accept(conceptValue);
         } catch (RuntimeException ignored) {
             // a UI callback must never break the tool loop
         }

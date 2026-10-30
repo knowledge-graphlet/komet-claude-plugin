@@ -1,2 +1,5 @@
 network.ike.komet.claude.stamp.EditDocumentBlock
+network.ike.komet.claude.anf.AddAnfStatement
+network.ike.komet.claude.anf.EditAnfStatement
+network.ike.komet.claude.complexconcept.PromoteToComplexConcept
 network.ike.komet.claude.stamp.EditDocumentSentence

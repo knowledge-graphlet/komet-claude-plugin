@@ -19,20 +19,20 @@ import network.ike.komet.claude.anthropic.AskListener;
 
 /**
  * The semantic lift's observer: an {@link AskListener} (turn / tool / usage / done / error)
- * extended with structured slot discovery and per-instance emission, so a UI can show live
+ * extended with structured value discovery and per-instance emission, so a UI can show live
  * progress and a growing inventory <em>as</em> the lift runs. Callbacks fire on the worker thread;
  * a UI consumer marshals to the FX thread itself.
  */
 public interface SemanticLiftListener extends AskListener {
 
     /**
-     * Fired when the lift grounds, proposes, or surfaces a slot as {@code emit_semantic} validates
-     * an instance. The slot may be {@link ComponentSlot.Grounded}, {@link ComponentSlot.Candidate},
-     * or {@link ComponentSlot.Clarify}.
+     * Fired when the lift grounds, proposes, or surfaces a value as {@code emit_semantic} validates
+     * an instance. The value may be {@link ComponentValue.Grounded}, {@link ComponentValue.Candidate},
+     * or {@link ComponentValue.Clarify}.
      *
-     * @param slot the discovered slot
+     * @param componentValue the discovered value
      */
-    default void onSlotDiscovered(ComponentSlot slot) {
+    default void onValueDiscovered(ComponentValue componentValue) {
     }
 
     /**

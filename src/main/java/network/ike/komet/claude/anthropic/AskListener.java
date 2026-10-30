@@ -23,7 +23,7 @@ import java.util.Map;
  * wall-clock timing and token/cache usage, plus a terminal completion or error.
  *
  * <p>It carries no knowledge of any tool's domain — discovery of domain objects
- * (for example grounded ANF slots) is wired separately into the tools themselves —
+ * (for example grounded ANF values) is wired separately into the tools themselves —
  * so this interface stays in the generic client package and never depends on a
  * feature package.
  *

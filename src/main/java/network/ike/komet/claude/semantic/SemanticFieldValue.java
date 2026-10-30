@@ -21,7 +21,7 @@ import java.util.Objects;
 /**
  * The value filled into one field of a lifted semantic, sealed by the field's datatype family.
  * A component-reference field carries a {@link Component} (or {@link Components} for a
- * collection) whose slot is grounded, a candidate, or a clarify; a literal field carries the
+ * collection) whose value is grounded, a candidate, or a clarify; a literal field carries the
  * corresponding scalar; a field whose datatype is not yet supported carries a {@link Deferred}
  * holding the clarify that explains the gap. The variant a field uses is fixed by its
  * {@link FieldFamily} — the value form the datatype dictates.
@@ -32,8 +32,8 @@ public sealed interface SemanticFieldValue permits SemanticFieldValue.Component,
         SemanticFieldValue.BooleanValue, SemanticFieldValue.Deferred {
 
     /**
-     * Whether this value is fully grounded — for a component value, its slot is a
-     * {@link ComponentSlot.Grounded}; for a collection, every slot is; for a literal, always true;
+     * Whether this value is fully grounded — for a component reference, its value is a
+     * {@link ComponentValue.Grounded}; for a collection, every value is; for a literal, always true;
      * for a deferred value, never. Used to report whether a lifted instance is complete or still
      * carries gaps.
      *
@@ -44,42 +44,42 @@ public sealed interface SemanticFieldValue permits SemanticFieldValue.Component,
     /**
      * A single component reference.
      *
-     * @param slot the grounded / candidate / clarify slot; never null
+     * @param componentValue the grounded / candidate / clarify value; never null
      */
-    record Component(ComponentSlot slot) implements SemanticFieldValue {
+    record Component(ComponentValue componentValue) implements SemanticFieldValue {
         /**
          * Validates the component value.
          *
-         * @throws NullPointerException if {@code slot} is null
+         * @throws NullPointerException if {@code componentValue} is null
          */
         public Component {
-            Objects.requireNonNull(slot, "slot");
+            Objects.requireNonNull(componentValue, "componentValue");
         }
 
         @Override
         public boolean grounded() {
-            return slot instanceof ComponentSlot.Grounded;
+            return componentValue instanceof ComponentValue.Grounded;
         }
     }
 
     /**
      * An ordered or unordered collection of component references (the set/list datatypes).
      *
-     * @param slots the member slots, in emit order; never null (defensively copied)
+     * @param componentValues the member values, in emit order; never null (defensively copied)
      */
-    record Components(List<ComponentSlot> slots) implements SemanticFieldValue {
+    record Components(List<ComponentValue> componentValues) implements SemanticFieldValue {
         /**
          * Validates and defensively copies the collection value.
          *
-         * @throws NullPointerException if {@code slots} is null
+         * @throws NullPointerException if {@code componentValues} is null
          */
         public Components {
-            slots = List.copyOf(Objects.requireNonNull(slots, "slots"));
+            componentValues = List.copyOf(Objects.requireNonNull(componentValues, "componentValues"));
         }
 
         @Override
         public boolean grounded() {
-            return slots.stream().allMatch(s -> s instanceof ComponentSlot.Grounded);
+            return componentValues.stream().allMatch(s -> s instanceof ComponentValue.Grounded);
         }
     }
 
@@ -146,7 +146,7 @@ public sealed interface SemanticFieldValue permits SemanticFieldValue.Component,
      *
      * @param clarify the clarify explaining why the field was not filled; never null
      */
-    record Deferred(ComponentSlot.Clarify clarify) implements SemanticFieldValue {
+    record Deferred(ComponentValue.Clarify clarify) implements SemanticFieldValue {
         /**
          * Validates the deferred value.
          *

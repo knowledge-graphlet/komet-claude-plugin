@@ -226,7 +226,7 @@ public final class MarkdownEditPane extends BorderPane {
 
     /**
      * Detaches the two-state View|Edit switch for host placement: the pane drops its own
-     * toolbar row and the host slots the returned segmented control into its layout (for
+     * toolbar row and the host places the returned segmented control into its layout (for
      * example a mode strip above the body), instead of a whole row spent on one control.
      * Mode behavior stays this pane's.
      *

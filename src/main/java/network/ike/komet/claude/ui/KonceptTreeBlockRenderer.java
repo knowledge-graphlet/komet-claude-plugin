@@ -332,7 +332,7 @@ final class KonceptTreeBlockRenderer implements BlockRenderer {
                     ? KonceptChips.chip(row.cell.pid(), row.cell.sctid(), viewProperties, base, typography)
                     : KonceptChips.chip(row.cell.pid(), row.cell.sctid(), viewCalc, base, typography);
             if (content instanceof KonceptBadge badge) {
-                // Stacked siblings: reserve the status-cluster slot so the identicons seat on
+                // Stacked siblings: reserve the status cluster's space so the identicons seat on
                 // one column — the DISCLOSURE_WIDTH precedent, one level deeper (ike-issues#1049).
                 badge.setStatusSlotReserved(true);
             }

@@ -28,7 +28,7 @@ import java.util.stream.Collectors;
  *
  * <p>Only fields the request spoke to carry a value; a field left untouched simply has no entry.
  * Every component reference in the instance was validated against the live store when the
- * {@code emit_semantic} tool accepted it, so a grounded slot is always a real, active component.
+ * {@code emit_semantic} tool accepted it, so a grounded value is always a real, active component.
  *
  * @param patternNid   the bound pattern's native identifier
  * @param patternLabel the bound pattern's display label
@@ -95,9 +95,9 @@ public record SemanticInstance(long patternNid, String patternLabel, List<FieldV
 
     private static String describeValue(SemanticFieldValue value) {
         return switch (value) {
-            case SemanticFieldValue.Component component -> describeSlot(component.slot());
-            case SemanticFieldValue.Components components -> components.slots().stream()
-                    .map(SemanticInstance::describeSlot).collect(Collectors.joining("; ", "[", "]"));
+            case SemanticFieldValue.Component component -> describeComponentValue(component.componentValue());
+            case SemanticFieldValue.Components components -> components.componentValues().stream()
+                    .map(SemanticInstance::describeComponentValue).collect(Collectors.joining("; ", "[", "]"));
             case SemanticFieldValue.StringValue string -> "\"" + string.value() + "\"";
             case SemanticFieldValue.IntegerValue integer -> Long.toString(integer.value());
             case SemanticFieldValue.FloatValue real -> Double.toString(real.value());
@@ -106,12 +106,12 @@ public record SemanticInstance(long patternNid, String patternLabel, List<FieldV
         };
     }
 
-    private static String describeSlot(ComponentSlot slot) {
-        return switch (slot) {
-            case ComponentSlot.Grounded grounded ->
+    private static String describeComponentValue(ComponentValue componentValue) {
+        return switch (componentValue) {
+            case ComponentValue.Grounded grounded ->
                     grounded.label() + " [" + grounded.kind() + " " + grounded.identifier() + "]";
-            case ComponentSlot.Candidate candidate -> "candidate: " + candidate.provisionalLabel();
-            case ComponentSlot.Clarify clarify -> "clarify: " + clarify.question();
+            case ComponentValue.Candidate candidate -> "candidate: " + candidate.provisionalLabel();
+            case ComponentValue.Clarify clarify -> "clarify: " + clarify.question();
         };
     }
 }

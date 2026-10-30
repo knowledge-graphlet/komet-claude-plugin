@@ -33,11 +33,11 @@ class FieldFamilyTest {
     @Test
     void conceptAndSemanticFieldsPinTheirKind() {
         assertEquals(FieldFamily.CONCEPT_REF, FieldFamily.of(FieldDataType.CONCEPT));
-        assertEquals(ComponentSlot.Kind.CONCEPT, FieldFamily.of(FieldDataType.CONCEPT).requiredKind());
+        assertEquals(ComponentValue.Kind.CONCEPT, FieldFamily.of(FieldDataType.CONCEPT).requiredKind());
         assertEquals(FieldFamily.SEMANTIC_REF, FieldFamily.of(FieldDataType.SEMANTIC));
-        assertEquals(ComponentSlot.Kind.SEMANTIC, FieldFamily.of(FieldDataType.SEMANTIC).requiredKind());
+        assertEquals(ComponentValue.Kind.SEMANTIC, FieldFamily.of(FieldDataType.SEMANTIC).requiredKind());
         assertEquals(FieldFamily.PATTERN_REF, FieldFamily.of(FieldDataType.PATTERN));
-        assertEquals(ComponentSlot.Kind.PATTERN, FieldFamily.of(FieldDataType.PATTERN).requiredKind());
+        assertEquals(ComponentValue.Kind.PATTERN, FieldFamily.of(FieldDataType.PATTERN).requiredKind());
     }
 
     @Test

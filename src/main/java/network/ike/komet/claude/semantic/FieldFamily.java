@@ -32,11 +32,11 @@ import dev.ikm.tinkar.component.FieldDataType;
 public enum FieldFamily {
 
     /** A field constrained to a concept reference ({@code CONCEPT_FIELD}). */
-    CONCEPT_REF(ComponentSlot.Kind.CONCEPT),
+    CONCEPT_REF(ComponentValue.Kind.CONCEPT),
     /** A field constrained to a semantic reference ({@code SEMANTIC_FIELD_TYPE}). */
-    SEMANTIC_REF(ComponentSlot.Kind.SEMANTIC),
+    SEMANTIC_REF(ComponentValue.Kind.SEMANTIC),
     /** A field constrained to a pattern reference (declared via a pattern datatype, if any). */
-    PATTERN_REF(ComponentSlot.Kind.PATTERN),
+    PATTERN_REF(ComponentValue.Kind.PATTERN),
     /** A generic component reference ({@code COMPONENT_FIELD}); any component kind is accepted. */
     COMPONENT_REF(null),
     /** An unordered set of component references ({@code COMPONENT_ID_SET_FIELD}). */
@@ -54,9 +54,9 @@ public enum FieldFamily {
     /** A structured or otherwise unsupported value (tree, graph, instant, image …) — deferred. */
     DEFERRED(null);
 
-    private final ComponentSlot.Kind requiredKind;
+    private final ComponentValue.Kind requiredKind;
 
-    FieldFamily(ComponentSlot.Kind requiredKind) {
+    FieldFamily(ComponentValue.Kind requiredKind) {
         this.requiredKind = requiredKind;
     }
 
@@ -65,9 +65,9 @@ public enum FieldFamily {
      * the family accepts any component kind (the generic and collection families) or is not a
      * reference family at all.
      *
-     * @return the required {@link ComponentSlot.Kind}, or {@code null} for "any / not applicable"
+     * @return the required {@link ComponentValue.Kind}, or {@code null} for "any / not applicable"
      */
-    public ComponentSlot.Kind requiredKind() {
+    public ComponentValue.Kind requiredKind() {
         return requiredKind;
     }
 

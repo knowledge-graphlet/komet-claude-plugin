@@ -1,0 +1,352 @@
+// ANF and complex concept test fixture: blood pressure (IKE-Network/ike-issues#1312)
+// Proven well formed by AnfFixtureTest. Every [anf] block carries an id so a test can name it.
+= Blood Pressure -- ANF and Complex Concept Fixture
+
+The first test document for interactive ANF statement and complex concept work.
+It pairs a clinical narrative with the statements a lift of it should produce,
+and with the complex concept those statements promote to and expand from.
+Nothing clinical here is new: every value comes from the sources below,
+and every place this document departs from them says so.
+
+== Sources
+
+* Narrative and statements 1 to 7: kompendium topic `anf-example-blood-pressure`
+  (`knowledge-kompendium/anf`, `topics/src/docs/asciidoc/topics/anf/example-blood-pressure.adoc`).
+* Complex concept: ike-lab-documents topic `anf-complex-concept-examples`,
+  Example 1, Sitting Systolic Blood Pressure (Focused)
+  (`topics/src/docs/asciidoc/topics/anf/complex-concept-examples.adoc`).
+
+== Conventions
+
+* Each `[anf]` block is in the `AnfAdoc` grammar.
+  A grounded value names its concept by the SCTID the source gives, in `@id`;
+  the key and the label in `k:Key[label]` are human aids the codec does not trust.
+* A concept the source names with no identifier is a `candidate[...]` value:
+  a clear meaning the knowledge base does not carry yet.
+  Where a lifted statement's topic is the nearest existing concept, `near=` names it;
+  that pointer is this fixture's, not the source's.
+* `status::` is the codec's key for the performance's disposition attribute.
+* Presence is `[1,1]` on the Presence scale, SCTID 705057003; absence is `[0,0]`.
+* The `[anf]` record carries the topic, the subject of information and the circumstance.
+  The subject of record, the authors, the participants and the associated statements
+  are beyond it, so each section lists them in a table beside the block.
+
+[#narrative]
+== Clinical Narrative
+
+Verbatim from the kompendium.
+
+[example]
+====
+*Blood Pressure* +
+Patient Name: James Doe +
+Patient Identifier: 6594-86214 +
+Date of Encounter: August 15, 2024 +
+Clinician: Dr. Hannah Smith (ID# 47-3659)
+
+A 62-year-old man presented to his doctor's office for routine checkup.
+He had a Systolic Blood Pressure of 120 mmHg,
+and a Diastolic Blood Pressure of 85 mmHg,
+taken on Right Brachial Artery,
+using BP cuff adult size.
+Patient in sitting position for at least 5 minutes,
+urinated not more than 30 minutes prior to measurement.
+The patient was asked to take his blood pressure weekly at home
+for 4 weeks using home blood pressure cuff.
+====
+
+== Expected Statements
+
+A lift of the narrative produces these seven statements.
+
+=== Statement 1: Male
+
+[anf#bp-1-male,type=performance]
+--
+topic:: k:Male[Male (finding)] @id=248153007
+subject_of_information:: k:Patient[Patient] @id=116154003
+result:: [1,1] k:Presence[Presence] @id=705057003
+status:: k:Performed[Performed] @id=398166005
+--
+
+CORRECTED: the kompendium writes this result as `[1, INF] Countable Quantity`
+(UUID 053d3845-e2f7-503c-8a39-e93a8db78224).
+Here it is presence, `[1,1]` on the Presence scale, as the structural definition writes it.
+
+=== Statement 2: Chronological Age
+
+[anf#bp-2-chronological-age,type=performance]
+--
+topic:: k:CurrentChronologicalAge[Current chronological age] @id=424144002
+result:: [62,62] k:Year[Year] @id=258707000
+status:: k:Performed[Performed] @id=398166005
+--
+
+=== Statement 3: Systolic BP
+
+[anf#bp-3-systolic-bp,type=performance]
+--
+topic:: k:SystolicBloodPressure[Systolic blood pressure] @id=271649006
+result:: [120,120] k:MmHg[mmHg] @id=259018001
+status:: k:Performed[Performed] @id=398166005
+--
+
+=== Statement 4: Diastolic BP
+
+[anf#bp-4-diastolic-bp,type=performance]
+--
+topic:: k:DiastolicBloodPressure[Diastolic blood pressure] @id=271650006
+result:: [85,85] k:MmHg[mmHg] @id=259018001
+status:: k:Performed[Performed] @id=398166005
+--
+
+=== Statement 5: Sitting Position
+
+An associated statement of statements 3 and 4.
+
+[anf#bp-5-sitting-position,type=performance]
+--
+topic:: k:SittingPosition[Sitting position] @id=33586001
+result:: [5,inf) k:Minute[Minute] @id=1156209001
+status:: k:Performed[Performed] @id=398166005
+--
+
+=== Statement 6: Micturition Finding
+
+An associated statement of statements 3 and 4.
+
+[anf#bp-6-micturition-finding,type=performance]
+--
+topic:: k:MicturitionFinding[Micturition finding] @id=252041008
+result:: [0,30] k:Minute[Minute] @id=1156209001
+status:: k:Performed[Performed] @id=398166005
+--
+
+DERIVED: the kompendium gives no table for this statement.
+It says only that the statement "follows the same structural pattern" as statement 5.
+So the topic is the SCTID the kompendium's association tables give,
+the result is the narrative's "not more than 30 minutes" on statement 5's minute unit,
+and the disposition is statement 5's.
+The lower bound, zero inclusive, is this fixture's reading.
+
+=== Statement 7: Blood Pressure Procedure (Request)
+
+[anf#bp-7-blood-pressure-request,type=request]
+--
+topic:: k:BloodPressureTaking[Blood pressure taking] @id=46973005
+priority:: k:Routine[Routine] @id=50811001
+method:: candidate[Blood pressure recorded by patient at home (procedure)] disp=PENDING
+repetition_period_start:: [1,1] k:Week[Week] @id=258705008
+repetition_period_duration:: [4,4] k:Week[Week] @id=258705008
+repetition_event_separation:: [1,1] k:Week[Week] @id=258705008
+repetition_event_frequency:: [0,inf) k:Week[Week] @id=258705008
+--
+
+The kompendium writes the frequency as `[0, INF) per Week` under the week SCTID.
+
+=== Beyond the Record
+
+What the kompendium tables give that the `[anf]` record does not carry.
+
+[cols="2,2,3", options="header"]
+|===
+| Statement | Attribute | Value
+
+| all but <<bp-6-micturition-finding>>
+| subject of record
+| Patient 6594-86214, role Patient (SCTID 116154003)
+
+| all but <<bp-6-micturition-finding>>, which has no table
+| author
+| Practitioner 47-3659 (no identifier given)
+
+| <<bp-1-male>>, <<bp-2-chronological-age>>
+| participant
+| Patient 6594-86214 (SCTID 116154003)
+
+| <<bp-3-systolic-bp>>, <<bp-4-diastolic-bp>>
+| participant
+| Practitioner 47-3659 (SCTID 158965000) and patient 6594-86214 (SCTID 116154003)
+
+| <<bp-5-sitting-position>>
+| participant
+| Practitioner 47-3659 (SCTID 158965000)
+
+| <<bp-7-blood-pressure-request>>
+| requested participant
+| Patient 6594-86214 (SCTID 116154003)
+
+| <<bp-3-systolic-bp>>, <<bp-4-diastolic-bp>>
+| associated statements
+| <<bp-5-sitting-position>> and <<bp-6-micturition-finding>>; the kompendium names no association type
+|===
+
+[#complex-concept]
+== Expected Complex Concept: Sitting Systolic Blood Pressure
+
+A focused expansion: a provided value applies to one phenomenon, the focus,
+and holds only under fixed prerequisites.
+
+=== Clinical Input
+
+The statement a promotion produces, and the one an expansion starts from.
+The source's input is the code LOINC 8459-0 (Systolic blood pressure -- sitting) with the value 120 mmHg.
+
+[anf#ssbp-input,type=performance]
+--
+topic:: candidate[Sitting systolic blood pressure] disp=PENDING text="LOINC 8459-0 (Systolic blood pressure -- sitting)"
+result:: [120,121) k:MmHg[mmHg] @id=259018001
+--
+
+=== Specification
+
+[cols="2,3", options="header"]
+|===
+| Part | Value
+
+| definition
+| Not given by the source.
+
+| expansion
+| Focused.
+
+| focus
+| Systolic blood pressure observation, identified here with statement 3's topic, SCTID 271649006
+
+| prerequisite association
+| Precondition (the starter set's precondition association)
+|===
+
+=== Expansion
+
+The focus statement, with the provided value:
+
+[anf#ssbp-focus,type=performance]
+--
+topic:: k:SystolicBloodPressure[Systolic blood pressure] @id=271649006
+result:: [120,121) k:MmHg[mmHg] @id=259018001
+--
+
+The prerequisites, each an ANF statement held by value, each a precondition of the focus:
+
+[anf#ssbp-prerequisite-seated-position,type=performance]
+--
+topic:: candidate[Seated position with feet flat on floor] disp=PENDING near=33586001
+result:: [1,1] k:Presence[Presence] @id=705057003
+--
+
+[anf#ssbp-prerequisite-seated-duration,type=performance]
+--
+topic:: candidate[Seated duration] disp=PENDING near=33586001
+result:: [5,inf) k:Minute[Minute] @id=1156209001
+--
+
+[anf#ssbp-prerequisite-recent-voiding,type=performance]
+--
+topic:: candidate[Recent voiding] disp=PENDING near=252041008
+result:: [1,1] k:Presence[Presence] @id=705057003
+--
+
+The source gives no unit identifiers.
+The fixture uses the kompendium's: mmHg 259018001, minute 1156209001, and Presence 705057003.
+
+[#link]
+== Link Between the Statements and the Complex Concept
+
+[cols="3,2,4", options="header"]
+|===
+| Statement | Lift produces it | Relation to the complex concept
+
+| <<bp-1-male>>
+| yes
+| none
+
+| <<bp-2-chronological-age>>
+| yes
+| none
+
+| <<bp-3-systolic-bp>>
+| yes
+| Promotes, with <<bp-5-sitting-position>> and <<bp-6-micturition-finding>>, to <<ssbp-input>>.
+  It is the statement <<ssbp-focus>> expands to: same topic, but the value differs (see the open questions).
+
+| <<bp-4-diastolic-bp>>
+| yes
+| None. It shares statements 5 and 6, but the source gives no sitting diastolic complex concept.
+
+| <<bp-5-sitting-position>>
+| yes
+| Promotes to two prerequisites: <<ssbp-prerequisite-seated-position>> (the position)
+  and <<ssbp-prerequisite-seated-duration>> (its duration, the same `[5,inf)` minutes).
+
+| <<bp-6-micturition-finding>>
+| yes
+| Promotes to <<ssbp-prerequisite-recent-voiding>>.
+  The prerequisite is presence; the lifted statement carries the 30 minute window.
+
+| <<bp-7-blood-pressure-request>>
+| yes
+| none
+
+| <<ssbp-input>>
+| no: the narrative names no LOINC code
+| The promoted statement. It expands to <<ssbp-focus>> and the three prerequisites.
+|===
+
+[#concepts]
+== Concepts a Test Knowledge Base Must Carry
+
+Every grounded identifier the blocks above use.
+None is in the starter set; all are SNOMED CT, so a test needs the snomedct-kb test artifact,
+or concepts minted under the SNOMED UUIDs, as AnfFixtureTest does.
+
+[cols="1,2", options="header"]
+|===
+| Identifier | Label
+| 248153007 | Male (finding)
+| 116154003 | Patient
+| 705057003 | Presence
+| 398166005 | Performed
+| 424144002 | Current chronological age
+| 258707000 | Year
+| 271649006 | Systolic blood pressure
+| 271650006 | Diastolic blood pressure
+| 259018001 | mmHg
+| 33586001 | Sitting position
+| 1156209001 | Minute
+| 252041008 | Micturition finding
+| 46973005 | Blood pressure taking
+| 50811001 | Routine
+| 258705008 | Week
+|===
+
+Beyond the record, the tables above also cite 158965000 (practitioner),
+which a test of the subject of record and participants would need.
+
+Concepts the sources name with no identifier:
+Practitioner 47-3659 (the author), Blood pressure recorded by patient at home (procedure),
+Sitting systolic blood pressure (LOINC 8459-0, no SCTID),
+Seated position with feet flat on floor, Seated duration, and Recent voiding.
+
+[#open-questions]
+== Open Questions the Sources Leave
+
+. Statement 6 has no table in the kompendium; its result is derived (see the statement).
+. The complex concept's focus value is `[120, 121)` mmHg; the kompendium's statement 3 is `[120, 120]`.
+  The two sources disagree on how a provided whole number is written.
+. The complex concept splits "sitting" into a position and a duration;
+  the kompendium has one statement whose topic is the position and whose result is the duration.
+. "Recent voiding" is presence with no window; the narrative and statement 6 carry "not more than 30 minutes".
+. "Systolic blood pressure observation" is identified here with SCTID 271649006, the kompendium's systolic topic.
+. The narrative's body site (right brachial artery) and device (adult BP cuff, home BP cuff)
+  are in none of the kompendium's statements, so they are not here either.
+. The repetition's period start is written as a duration, `1 Week`,
+  where the request control topic defines it as a time stamp;
+  the frequency's unit is the week SCTID, a time unit, for a rate per week.
+. The kompendium names no association type for statements 5 and 6.
+  The complex concept says precondition,
+  but the starter set's statement associations have no precondition type.
+. The ike-lab-documents copy of the blood pressure example differs:
+  statement 5's result is `[-5, 0] Minute`,
+  and statement 4's topic is 271649006, the systolic SCTID.
+  This fixture follows the kompendium.

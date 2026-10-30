@@ -103,8 +103,8 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
     private ScrollPane formalPane;
     private VBox cards;
     private Label progressLabel;
-    private ListView<AnfSlot> inventoryView;
-    private final ObservableList<AnfSlot> inventory = FXCollections.observableArrayList();
+    private ListView<AnfValue> inventoryView;
+    private final ObservableList<AnfValue> inventory = FXCollections.observableArrayList();
     private final Set<Long> seenNids = new HashSet<>();
     private final List<AnfStatement> statements = new ArrayList<>();
     private ComboBox<LiftRecord> recallBox;
@@ -122,7 +122,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
 
     /**
      * The drop-substitution editor for the statement card at {@code index}: dropping a Komet
-     * concept on one of its slots replaces that concept and re-renders only that card.
+     * concept on one of its values replaces that concept and re-renders only that card.
      *
      * @param index the statement's position in {@link #statements}
      * @return an editor bound to that card
@@ -130,9 +130,9 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
     private AnfStatementView.Editor editorFor(int index) {
         return new AnfStatementView.Editor() {
             @Override
-            public AnfSlot.Grounded resolve(long conceptNid) {
+            public AnfValue.Grounded resolve(long conceptNid) {
                 ViewCalculator view = viewCalculator();
-                // Active-only grounding (#739): dropping a retired concept onto a slot is rejected.
+                // Active-only grounding (#739): dropping a retired concept onto a value is rejected.
                 if (view == null || !GraphTools.isActive(view, conceptNid)) {
                     return null;
                 }
@@ -164,8 +164,8 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
             }
 
             @Override
-            public void showDetail(AnfSlot slot) {
-                AnfArea.this.showDetail(slot);
+            public void showDetail(AnfValue conceptValue) {
+                AnfArea.this.showDetail(conceptValue);
             }
         };
     }
@@ -181,7 +181,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
                 }
                 searchExecutor.submit(() -> {
                     List<KlConceptField.Completer.Result> rows = new ArrayList<>();
-                    for (AnfSlot.Grounded grounded : GraphTools.searchConcepts(query, view, max)) {
+                    for (AnfValue.Grounded grounded : GraphTools.searchConcepts(query, view, max)) {
                         rows.add(new KlConceptField.Completer.Result(grounded.nid(), grounded.label()));
                     }
                     Platform.runLater(() -> onResults.accept(rows));
@@ -282,9 +282,9 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         inventoryView.setCellFactory(view -> new ConceptCell());
         inventoryView.setPlaceholder(new Label("Concepts appear here as they are grounded."));
         inventoryView.getSelectionModel().selectedItemProperty().addListener(
-                (obs, old, slot) -> {
-                    if (slot != null) {
-                        showDetail(slot);
+                (obs, old, conceptValue) -> {
+                    if (conceptValue != null) {
+                        showDetail(conceptValue);
                     }
                 });
         VBox conceptsPane = new VBox(2, sectionTitle("Concepts"), inventoryView);
@@ -339,8 +339,8 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
     }
 
     /** Opens the inline detail (descriptions + axioms for grounded; provisional data for proposed). */
-    private void showDetail(AnfSlot slot) {
-        detailPane.setContent(ConceptDetailPane.render(slot, toolViewProperties));
+    private void showDetail(AnfValue conceptValue) {
+        detailPane.setContent(ConceptDetailPane.render(conceptValue, toolViewProperties));
     }
 
     /** Re-resolves a written identifier against the current view, for parsing a history lift's blocks. */
@@ -363,8 +363,8 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
             AnfStatement statement = AnfAdoc.parse(block, resolver);
             if (statement != null) {
                 appendCard(statement);
-                for (AnfSlot slot : slotsOf(statement)) {
-                    addConcept(slot);
+                for (AnfValue conceptValue : conceptValuesOf(statement)) {
+                    addConcept(conceptValue);
                 }
             }
         }
@@ -403,55 +403,55 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         return new HBox(5, g, t);
     }
 
-    /** All concept slots of a statement, for repopulating the inventory when a lift is reloaded. */
-    private static List<AnfSlot> slotsOf(AnfStatement s) {
-        List<AnfSlot> slots = new ArrayList<>();
-        addSlot(slots, s.topic());
-        addSlot(slots, s.subjectOfInformation());
+    /** All concept values of a statement, for repopulating the inventory when a lift is reloaded. */
+    private static List<AnfValue> conceptValuesOf(AnfStatement s) {
+        List<AnfValue> conceptValues = new ArrayList<>();
+        addConceptValue(conceptValues, s.topic());
+        addConceptValue(conceptValues, s.subjectOfInformation());
         switch (s.circumstance()) {
             case Circumstance.Performance p -> {
-                addMeasure(slots, p.result());
-                addSlot(slots, p.status());
-                addSlot(slots, p.healthRisk());
-                addMeasure(slots, p.normalRange());
-                addSlot(slots, p.bodySite());
-                addSlot(slots, p.method());
-                addSlot(slots, p.laterality());
-                slots.addAll(p.purpose());
-                addMeasure(slots, p.timing());
+                addMeasure(conceptValues, p.result());
+                addConceptValue(conceptValues, p.status());
+                addConceptValue(conceptValues, p.healthRisk());
+                addMeasure(conceptValues, p.normalRange());
+                addConceptValue(conceptValues, p.bodySite());
+                addConceptValue(conceptValues, p.method());
+                addConceptValue(conceptValues, p.laterality());
+                conceptValues.addAll(p.purpose());
+                addMeasure(conceptValues, p.timing());
             }
             case Circumstance.Request r -> {
-                addMeasure(slots, r.requestedResult());
-                addSlot(slots, r.priority());
-                addSlot(slots, r.method());
-                slots.addAll(r.conditionalTrigger());
-                slots.addAll(r.purpose());
-                addMeasure(slots, r.timing());
+                addMeasure(conceptValues, r.requestedResult());
+                addConceptValue(conceptValues, r.priority());
+                addConceptValue(conceptValues, r.method());
+                conceptValues.addAll(r.conditionalTrigger());
+                conceptValues.addAll(r.purpose());
+                addMeasure(conceptValues, r.timing());
                 if (r.repetition() != null) {
-                    addMeasure(slots, r.repetition().periodStart());
-                    addMeasure(slots, r.repetition().periodDuration());
-                    addMeasure(slots, r.repetition().eventSeparation());
-                    addMeasure(slots, r.repetition().eventDuration());
-                    addMeasure(slots, r.repetition().eventFrequency());
+                    addMeasure(conceptValues, r.repetition().periodStart());
+                    addMeasure(conceptValues, r.repetition().periodDuration());
+                    addMeasure(conceptValues, r.repetition().eventSeparation());
+                    addMeasure(conceptValues, r.repetition().eventDuration());
+                    addMeasure(conceptValues, r.repetition().eventFrequency());
                 }
             }
             case Circumstance.Narrative n -> {
-                slots.addAll(n.purpose());
-                addMeasure(slots, n.timing());
+                conceptValues.addAll(n.purpose());
+                addMeasure(conceptValues, n.timing());
             }
         }
-        return slots;
+        return conceptValues;
     }
 
-    private static void addSlot(List<AnfSlot> slots, AnfSlot slot) {
-        if (slot != null) {
-            slots.add(slot);
+    private static void addConceptValue(List<AnfValue> conceptValues, AnfValue conceptValue) {
+        if (conceptValue != null) {
+            conceptValues.add(conceptValue);
         }
     }
 
-    private static void addMeasure(List<AnfSlot> slots, AnfStatement.Result result) {
+    private static void addMeasure(List<AnfValue> conceptValues, AnfStatement.Result result) {
         if (result != null) {
-            slots.add(result.measureSemantic());
+            conceptValues.add(result.measureSemantic());
         }
     }
 
@@ -491,8 +491,8 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
             }
 
             @Override
-            public void onSlotDiscovered(AnfSlot slot) {
-                Platform.runLater(() -> addConcept(slot));
+            public void onValueDiscovered(AnfValue conceptValue) {
+                Platform.runLater(() -> addConcept(conceptValue));
             }
 
             @Override
@@ -592,7 +592,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
 
     /**
      * Re-persists the currently shown lift after an edit: re-serializes the in-memory statements to
-     * ANF-in-adoc and overwrites the lift's file (and its in-memory record), so a slot edit survives a
+     * ANF-in-adoc and overwrites the lift's file (and its in-memory record), so a value edit survives a
      * restart. The recall listener is suppressed while the history list is updated so the in-place
      * replacement does not reload the card and discard a sibling field mid-edit.
      */
@@ -684,14 +684,14 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         progressLabel.setText(seconds + "s · " + (activity == null ? "" : activity));
     }
 
-    /** Adds a discovered slot to the inventory, de-duplicating grounded concepts by nid. */
-    private void addConcept(AnfSlot slot) {
-        if (slot instanceof AnfSlot.Grounded grounded) {
+    /** Adds a discovered value to the inventory, de-duplicating grounded concepts by nid. */
+    private void addConcept(AnfValue conceptValue) {
+        if (conceptValue instanceof AnfValue.Grounded grounded) {
             if (seenNids.add(grounded.nid())) {
-                inventory.add(slot);
+                inventory.add(conceptValue);
             }
         } else {
-            inventory.add(slot);
+            inventory.add(conceptValue);
         }
     }
 
@@ -705,7 +705,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
     }
 
     /**
-     * Renders an inventory row as the slot's shared Koncept badge, draggable on the
+     * Renders an inventory row as the value's shared Koncept badge, draggable on the
      * FIRST click. A KonceptBadge graphic inside a ListView only receives DRAG_DETECTED
      * after the row is first selected (the cell swallows the initial press), so the drag
      * is wired at the CELL with a capturing event filter. The filter also runs — and
@@ -714,7 +714,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
      * how the card chips drag: the {@link KonceptBadge} convention is a no-offset drag
      * view, which sits below and right of the pointer so it never hides the cursor.
      */
-    private final class ConceptCell extends ListCell<AnfSlot> {
+    private final class ConceptCell extends ListCell<AnfValue> {
         ConceptCell() {
             addEventFilter(MouseEvent.DRAG_DETECTED, this::startConceptDrag);
         }
@@ -726,15 +726,15 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
          * row is first selected; the cell's filter runs ahead of that on the first click.
          */
         private void startConceptDrag(MouseEvent event) {
-            if (getItem() instanceof AnfSlot.Grounded grounded
+            if (getItem() instanceof AnfValue.Grounded grounded
                     && getGraphic() instanceof KonceptBadge badge) {
                 KonceptDragSource.start(this, badge, grounded.nid(), event);
             }
         }
 
         @Override
-        protected void updateItem(AnfSlot item, boolean empty) {
-            AnfSlot previous = getItem();
+        protected void updateItem(AnfValue item, boolean empty) {
+            AnfValue previous = getItem();
             super.updateItem(item, empty);
             setText(null);
             if (empty || item == null) {

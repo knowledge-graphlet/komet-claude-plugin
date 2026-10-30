@@ -1,0 +1,259 @@
+// ANF and complex concept test fixture: PERRLA (IKE-Network/ike-issues#1312)
+// Proven well formed by AnfFixtureTest. Every [anf] block carries an id so a test can name it.
+= PERRLA -- ANF and Complex Concept Fixture
+
+A test document for interactive ANF statement and complex concept work.
+It pairs two PERRLA narratives with the statements a lift of each should produce,
+and with the complex concept PERRLA expands into.
+Nothing clinical here is new: every value comes from the sources below,
+and every place this document departs from them says so.
+
+== Sources
+
+* Narratives and statements: kompendium topic `anf-example-bilateral-assessment`
+  (`knowledge-kompendium/anf`, `topics/src/docs/asciidoc/topics/anf/example-bilateral-assessment.adoc`),
+  Example 1, PERRLA -- Pupils Equal (Qualitative), and Example 2, PERRLA -- Pupils Equal (Quantitative).
+* Complex concept: ike-lab-documents topic `anf-complex-concept-examples`,
+  Example 2, PERRLA (Uniform AND)
+  (`topics/src/docs/asciidoc/topics/anf/complex-concept-examples.adoc`).
+
+== Conventions
+
+The conventions are those of `blood-pressure.adoc`:
+`@id` is the SCTID the source gives,
+a concept with no identifier is a `candidate[...]` value,
+`status::` is the codec's key for the disposition,
+and presence is `[1,1]` on the Presence scale, SCTID 705057003.
+The kompendium places the pupil in the context as `location`;
+the performance's attribute for it is the body site, `body_site::`.
+
+== Example 1: Pupils Equal (Qualitative)
+
+[#narrative-1]
+=== Clinical Narrative
+
+Verbatim from the kompendium.
+
+[example]
+====
+*Neurological Examination* +
+Clinical narrative: "PERRLA" +
+Element isolated: "Pupils equal" (assessed without measurement)
+====
+
+=== Expected Statement
+
+A lift of the narrative produces one statement.
+
+[anf#perrla-1-pupils-equal,type=performance]
+--
+topic:: k:PupilDiameter[Pupil diameter] @id=363926002
+result:: [1,1] candidate[Bilateral symmetry assessment] disp=PENDING
+status:: k:Performed[Performed] @id=398166005
+method:: candidate[Visual inspection] disp=PENDING
+--
+
+CORRECTED: the kompendium writes this result as `[1, INF) Bilateral symmetry assessment = True (symmetric)`.
+Here it is `[1,1]`.
+The measure semantic stays the source's comparative unit,
+which carries its measurement basis (the contralateral anatomical structure).
+
+== Example 2: Pupils Equal (Quantitative)
+
+[#narrative-2]
+=== Clinical Narrative
+
+Verbatim from the kompendium.
+
+[example]
+====
+*Neurological Examination* +
+Clinical narrative: "Pupils equal, both 4mm"
+====
+
+=== Expected Statements
+
+A lift of the narrative produces three statements:
+one absolute measurement per pupil, and a comparison.
+
+[anf#perrla-2-right-pupil,type=performance]
+--
+topic:: k:PupilDiameter[Pupil diameter] @id=363926002
+result:: [4,4] k:Mm[mm] @id=258673006
+status:: k:Performed[Performed] @id=398166005
+body_site:: k:RightPupilStructure[Right pupil structure] @id=726701002
+--
+
+[anf#perrla-2-left-pupil,type=performance]
+--
+topic:: k:PupilDiameter[Pupil diameter] @id=363926002
+result:: [4,4] k:Mm[mm] @id=258673006
+status:: k:Performed[Performed] @id=398166005
+body_site:: k:LeftPupilStructure[Left pupil structure] @id=726700001
+--
+
+[anf#perrla-2-bilateral-symmetry,type=performance]
+--
+topic:: k:PupilDiameter[Pupil diameter] @id=363926002
+result:: [1,1] candidate[Bilateral symmetry assessment] disp=PENDING
+status:: k:Performed[Performed] @id=398166005
+--
+
+CORRECTED: the kompendium writes this result as `[1, INF) Bilateral symmetry assessment = True (symmetric)`.
+Here it is `[1,1]`, on the same comparative unit.
+
+=== Beyond the Record
+
+What the kompendium tables give that the `[anf]` record does not carry.
+
+[cols="2,2,3", options="header"]
+|===
+| Statement | Attribute | Value
+
+| <<perrla-1-pupils-equal>>
+| subject of record, author
+| "Patient identifier" and "Practitioner identifier", placeholders with no identifier
+
+| <<perrla-2-bilateral-symmetry>>
+| associated statements
+| <<perrla-2-right-pupil>> and <<perrla-2-left-pupil>>; the kompendium names no association type
+|===
+
+[#complex-concept]
+== Expected Complex Concept: PERRLA
+
+A uniform AND expansion: the provided value distributes to every member.
+
+=== Clinical Input
+
+The statement a promotion produces, and the one an expansion starts from.
+The source's input is the code "PERRLA assessment" with the value `[1, 1]` (present/true -- all normal).
+
+[anf#perrla-cc-input,type=performance]
+--
+topic:: candidate[PERRLA assessment] disp=PENDING
+result:: [1,1] k:Presence[Presence] @id=705057003
+--
+
+=== Specification
+
+[cols="2,3", options="header"]
+|===
+| Part | Value
+
+| definition
+| Not given by the source.
+
+| expansion
+| Uniform.
+
+| conjunction
+| AND (the starter set's AND conjunction)
+
+| measurement domain
+| Presence, SCTID 705057003
+
+| members
+| Pupil equality assessment, Pupil roundness assessment, Light reactivity assessment, Accommodation assessment
+
+| member association
+| "Component" in the source; the starter set has no such concept, and a member carries no association
+|===
+
+=== Expansion
+
+One statement per member, each with the distributed value:
+
+[anf#perrla-cc-member-equality,type=performance]
+--
+topic:: candidate[Pupil equality assessment] disp=PENDING near=363926002
+result:: [1,1] k:Presence[Presence] @id=705057003
+--
+
+[anf#perrla-cc-member-roundness,type=performance]
+--
+topic:: candidate[Pupil roundness assessment] disp=PENDING
+result:: [1,1] k:Presence[Presence] @id=705057003
+--
+
+[anf#perrla-cc-member-light-reactivity,type=performance]
+--
+topic:: candidate[Light reactivity assessment] disp=PENDING
+result:: [1,1] k:Presence[Presence] @id=705057003
+--
+
+[anf#perrla-cc-member-accommodation,type=performance]
+--
+topic:: candidate[Accommodation assessment] disp=PENDING
+result:: [1,1] k:Presence[Presence] @id=705057003
+--
+
+[#link]
+== Link Between the Statements and the Complex Concept
+
+[cols="3,2,4", options="header"]
+|===
+| Statement | Lift produces it | Relation to the complex concept
+
+| <<perrla-1-pupils-equal>>
+| yes, from narrative 1
+| The pupil equality member, <<perrla-cc-member-equality>>, in another form:
+  the topic pupil diameter on the comparative unit, where the member is pupil equality on presence.
+
+| <<perrla-2-right-pupil>>
+| yes, from narrative 2
+| None: an absolute measurement the comparison rests on.
+
+| <<perrla-2-left-pupil>>
+| yes, from narrative 2
+| None: an absolute measurement the comparison rests on.
+
+| <<perrla-2-bilateral-symmetry>>
+| yes, from narrative 2
+| The pupil equality member, <<perrla-cc-member-equality>>, in the same other form as <<perrla-1-pupils-equal>>.
+
+| <<perrla-cc-input>>
+| no: the kompendium's lift isolates "pupils equal" instead
+| The promoted statement. It expands to the four member statements,
+  <<perrla-cc-member-equality>>, <<perrla-cc-member-roundness>>,
+  <<perrla-cc-member-light-reactivity>> and <<perrla-cc-member-accommodation>>.
+|===
+
+[#concepts]
+== Concepts a Test Knowledge Base Must Carry
+
+Every grounded identifier the blocks above use.
+None is in the starter set; all are SNOMED CT, so a test needs the snomedct-kb test artifact,
+or concepts minted under the SNOMED UUIDs, as AnfFixtureTest does.
+
+[cols="1,2", options="header"]
+|===
+| Identifier | Label
+| 363926002 | Pupil diameter
+| 398166005 | Performed
+| 258673006 | mm
+| 726701002 | Right pupil structure
+| 726700001 | Left pupil structure
+| 705057003 | Presence
+|===
+
+Concepts the sources name with no identifier:
+Bilateral symmetry assessment (a comparative unit), Visual inspection,
+PERRLA assessment, Pupil equality assessment, Pupil roundness assessment,
+Light reactivity assessment, and Accommodation assessment.
+
+[#open-questions]
+== Open Questions the Sources Leave
+
+. Is "symmetric" presence on the Presence scale, or a value on the comparative unit?
+  The kompendium writes it on the comparative unit; the structural definition puts presence on the Presence scale.
+  This fixture keeps the comparative unit and corrects only the interval.
+. For the narrative "PERRLA", the kompendium's lift isolates one element, pupils equal,
+  while the complex concept treats PERRLA as a compound code that expands to four members.
+  Which one a lift should produce, or whether it should produce the compound and offer the expansion, is open.
+. Equality is a pupil diameter statement on a comparative unit in the kompendium,
+  and a "Pupil equality assessment" topic on presence in the complex concept.
+. Only pupil equality has kompendium statements; roundness, light reactivity and accommodation have none.
+. The kompendium places the pupil as `location` in the context; this fixture writes it as the body site.
+. Example 1's `semantic` row is the result's measure semantic; Example 2's `semantic` rows repeat the unit.
+. The member association "Component" has no concept, and the complex concept builder's members carry no association.

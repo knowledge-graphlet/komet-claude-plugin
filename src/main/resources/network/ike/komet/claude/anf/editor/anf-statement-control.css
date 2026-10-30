@@ -1,0 +1,85 @@
+/* The ANF statement control: the DiTree control's rows and styles (read-only-ditree-control.css,
+   ditree-control.css) with accent bars and rows for the statement's clauses and attributes. */
+
+/* Clause accent bars, beside the axiom kinds' (necessary #FF4E08, sufficient #5EC200,
+   role group #009BFF, role #FF9100, feature #956AFF). */
+.anf-statement-control .ditree-clause-bar.anf-statement   { -fx-background-color: #2E3240; }
+.anf-statement-control .ditree-clause-bar.anf-context     { -fx-background-color: #00A3A3; }
+.anf-statement-control .ditree-clause-bar.anf-circumstance { -fx-background-color: #D6336C; }
+.anf-statement-control .ditree-clause-bar.anf-repetition  { -fx-background-color: #E67700; }
+.anf-statement-control .ditree-clause-bar.anf-attribute   { -fx-background-color: #b8c1d0; }
+
+/* An attribute's name, ahead of its value. */
+.anf-statement-control .anf-attribute-label {
+    -fx-font-family: "Noto Sans";
+    -fx-font-size: 0.916667em; /* 11px */
+    -fx-text-fill: #5A6170;
+    -fx-padding: 0 4 0 2;
+}
+
+/* A value the lift could not ground: its candidate or question, in amber, as the surface marks
+   other unpublished work. */
+.anf-statement-control .anf-provisional {
+    -fx-text-fill: #B26B00;
+    -fx-font-style: italic;
+}
+.anf-statement-control .anf-unstated {
+    -fx-text-fill: #8a93a6;
+    -fx-font-style: italic;
+}
+
+/* The statement kind: one segmented control. */
+.anf-statement-control .anf-kind-control {
+    -fx-padding: 0 0 0 8;
+}
+.anf-statement-control .anf-kind-segment {
+    -fx-background-color: #b8c1d0, white;
+    -fx-background-insets: 0, 1 0 1 1;
+    -fx-background-radius: 0;
+    -fx-padding: 1 8 1 8;
+    -fx-font-size: 0.916667em;
+    -fx-text-fill: #2E3240;
+    -fx-cursor: hand;
+}
+.anf-statement-control .anf-kind-segment:first-child { -fx-background-radius: 4 0 0 4; }
+.anf-statement-control .anf-kind-segment:last-child {
+    -fx-background-radius: 0 4 4 0;
+    -fx-background-insets: 0, 1;
+}
+.anf-statement-control .anf-kind-segment:selected {
+    -fx-background-color: #2E3240, #2E3240;
+    -fx-text-fill: white;
+}
+
+/* Bracket glyphs toggle a bound open or closed. */
+.anf-statement-control .anf-bracket { -fx-cursor: hand; }
+
+/* A nested logical expression sits inline in its attribute row. */
+.anf-statement-control .anf-nested-expression {
+    -fx-padding: 0;
+}
+
+/* A clause taking a dropped concept. */
+.anf-statement-control .ditree-clause-header:drop-target {
+    -fx-background-color: #009BFF, #e3f2ff;
+    -fx-background-insets: 0, 1;
+    -fx-background-radius: 4px, 3px;
+}
+
+.anf-statement-control .anf-narrative-text {
+    -fx-pref-width: 320px;
+}
+
+/* Under the tree: what the statement still lacks, and the last refused edit. */
+.anf-statement-control .anf-status {
+    -fx-padding: 6 0 0 6;
+    -fx-spacing: 2;
+}
+.anf-statement-control .anf-missing {
+    -fx-text-fill: #5A6170;
+    -fx-font-size: 0.916667em;
+}
+.anf-statement-control .anf-refusal {
+    -fx-text-fill: #C92A2A;
+    -fx-font-size: 0.916667em;
+}

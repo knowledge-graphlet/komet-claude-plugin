@@ -106,6 +106,14 @@ module komet.claude {
     // ServiceLoader, so the package must be exported for that access to be legal —
     // exactly as network.ike.komet.claude is for the other area factories.
     exports network.ike.komet.claude.anf;
+    // The ANF expression stack (IKE-Network/ike-issues#1312): the statement as a tree in the
+    // starter set's ANF statement pattern, its typed adaptors, builder and identity table.
+    exports network.ike.komet.claude.anf.model;
+    // The ANF statement editor, a control hosts embed (the document surface, a card, a tool).
+    exports network.ike.komet.claude.anf.editor;
+    exports network.ike.komet.claude.complexconcept.model;
+    // The complex concept editor, a control hosts embed (the document surface, a card, a tool).
+    exports network.ike.komet.claude.complexconcept.editor;
     // The Semantic Lift area lives here; exported for the same reflective Factory instantiation
     // the layout engine's SupplementalAreaRenderer uses (as for network.ike.komet.claude.anf).
     exports network.ike.komet.claude.semantic;
@@ -162,6 +170,9 @@ module komet.claude {
     // tests find them through META-INF/services, which lists the same classes.
     provides dev.ikm.komet.actions.KometAction
             with network.ike.komet.claude.stamp.EditDocumentBlock,
+                 network.ike.komet.claude.anf.AddAnfStatement,
+                 network.ike.komet.claude.anf.EditAnfStatement,
+                 network.ike.komet.claude.complexconcept.PromoteToComplexConcept,
                  network.ike.komet.claude.stamp.EditDocumentSentence;
 
     // The plugin's help book (AsciiDoc in this jar, under META-INF/komet-help) and the viewer that
@@ -179,6 +190,13 @@ module komet.claude {
     // journal's Trash lists and Komet empties as it quits.
     provides dev.ikm.komet.layout.trash.KlTrashProvider
             with network.ike.komet.claude.trash.PluginTrashProvider;
+
+    // The identity tables of ANF statement and complex concept specification trees, which
+    // tinkar-core's write path correlates by
+    // (IKE-Network/ike-issues#1310, #1312).
+    provides dev.ikm.tinkar.entity.graph.VertexIdentityTable
+            with network.ike.komet.claude.anf.model.AnfIdentityTable,
+                 network.ike.komet.claude.complexconcept.model.ComplexConceptIdentityTable;
 
     // Evrete accesses the rule class via MethodHandles. Like komet/rules (an
     // `open module`), the rule package must be opened UNQUALIFIED — a qualified
