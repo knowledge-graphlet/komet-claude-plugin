@@ -25,10 +25,17 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
  */
 class StampedDocumentTermsTest {
 
-    /** The engine names a trailer's kind by the same identity the set declares, so git and graph agree. */
+    /**
+     * The engine names a trailer's kind by the same identity the set declares, so git and graph agree.
+     * A retraction has no concept of its own in the graph: it retires what it retracts (IKE-Network/ike-issues#1300).
+     */
     @Test
     void engineKindsAreTheSetsConcepts() {
         for (design.knowledge.stamp.adoc.model.AnnotationKind kind : design.knowledge.stamp.adoc.model.AnnotationKind.values()) {
+            if (kind == design.knowledge.stamp.adoc.model.AnnotationKind.RETRACTION) {
+                org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> StampedDocumentTerms.kind(kind));
+                continue;
+            }
             assertEquals(kind.uuid(), StampedDocumentTerms.kind(kind).publicId().asUuidArray()[0], kind.name());
         }
     }

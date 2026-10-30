@@ -182,6 +182,341 @@ public final class DocumentEditor {
         return editBlock(anchor, block, blockText, edit.getAuthorNidForChanges(), edit.getDefaultPathNid());
     }
 
+    // ── adding and deleting blocks (IKE-Network/ike-issues#806, #1300) ──────────
+
+    /**
+     * Inserts a new paragraph or listing after one block of a document, as the same kind of pending
+     * edit a block edit is: the new lines are provisional elements, the new block a provisional block
+     * holding them, and the parent block gets a pending version with the new block among its members
+     * where the text puts it, a blank line before it as AsciiDoc separates blocks. The export then
+     * carries the block in place, the person's commit records it, and {@link #settle} cancels the
+     * provisional elements in favour of the identities the commit gives the lines, as it does for a
+     * line inserted by an edit.
+     *
+     * <p>The block to insert after must hold lines and no blocks, so the new block's place is
+     * unambiguous: it follows that block's last line and shares its parent in the text, which is
+     * checked by parsing the result, so a text that would form two blocks, or a listing without its
+     * delimiters, is refused before anything is written.
+     *
+     * @param anchor the document anchor's id
+     * @param after  the nid of the block to insert after, whose members are all lines
+     * @param kind   {@link Block.Kind#PARAGRAPH} or {@link Block.Kind#LISTING}
+     * @param text   the new block's text, one line per line
+     * @param edit   the edit coordinate whose author and path the edit is written under
+     * @return what the insertion did: the new block's nid and the lines added
+     * @throws IllegalArgumentException when the block is not one of the document's, holds child blocks, the
+     *                                  kind is neither, or the text does not form exactly one block of that kind
+     */
+    public static synchronized Edit addBlock(PublicId anchor, long after, Block.Kind kind, String text, EditCoordinate edit) {
+        return addBlock(anchor, after, kind, text, edit.getAuthorNidForChanges(), edit.getDefaultPathNid());
+    }
+
+    private static Edit addBlock(PublicId anchor, long after, Block.Kind kind, String text, long authorNid, long pathNid) {
+        DocumentVocabulary.requirePresent();
+        if (kind != Block.Kind.PARAGRAPH && kind != Block.Kind.LISTING) {
+            throw new IllegalArgumentException("A new block is a paragraph or a listing, not a " + kind.name().toLowerCase());
+        }
+        List<String> newLines = text == null ? List.of() : text.lines().toList();
+        if (newLines.isEmpty() || newLines.stream().allMatch(String::isBlank)) {
+            throw new IllegalArgumentException("A new block has at least one line of text");
+        }
+        GitDocumentMaterializer.StoredDocument document = GitDocumentMaterializer.load(anchor, true)
+                .orElseThrow(() -> new IllegalArgumentException("The store holds no document " + anchor.idString()));
+        Leaf leaf = leaf(document, after);
+        List<String> file = document.lines().stream().map(GitDocumentMaterializer.StoredLine::text).toList();
+        int at = leaf.end() + 1;                                 // the new lines go after the block's last line
+        List<String> inserted = new ArrayList<>();
+        inserted.add("");
+        inserted.addAll(newLines);
+        List<String> edited = new ArrayList<>(file.subList(0, at));
+        edited.addAll(inserted);
+        edited.addAll(file.subList(at, file.size()));
+        // The structure the text will have: the old blocks with one more of the kind right after the
+        // chosen one, covering exactly the new lines; and the stored structure must be the text's.
+        Document before = IkeDialectParser.parse(file);
+        Document parsed = IkeDialectParser.parse(edited);
+        List<GitDocumentMaterializer.StoredBlock> stored = new DocumentOutline(document).nodes().stream().map(DocumentOutline.Node::block).toList();
+        List<Block> oldBlocks = before.blocks();
+        if (oldBlocks.size() != stored.size() || !sameKinds(oldBlocks, stored)) {
+            throw new IllegalArgumentException("The stored structure disagrees with the document's text; rebuild it from git");
+        }
+        int index = -1;
+        for (int i = 0; i < oldBlocks.size(); i++) {
+            if (stored.get(i).nid() == after) {
+                index = i;
+            }
+        }
+        List<Block> newBlocks = parsed.blocks();
+        if (newBlocks.size() != oldBlocks.size() + 1) {
+            throw new IllegalArgumentException("The text does not form exactly one " + kind.name().toLowerCase() + " block");
+        }
+        for (int i = 0; i < newBlocks.size(); i++) {
+            Block expected = i <= index ? oldBlocks.get(i) : i == index + 1 ? null : oldBlocks.get(i - 1);
+            if (expected == null) {
+                Block added = newBlocks.get(i);
+                if (added.kind() != kind || added.firstLine() != at + 2 || added.lastLine() != at + 1 + newLines.size()) {
+                    throw new IllegalArgumentException("The text does not form one " + kind.name().toLowerCase() + " block after the chosen one"
+                            + (added.kind() == kind ? "" : "; it reads as a " + added.kind().name().toLowerCase()));
+                }
+            } else if (expected.kind() != newBlocks.get(i).kind()) {
+                throw new IllegalArgumentException("The text would change the document's structure");
+            }
+        }
+        Block added = newBlocks.get(index + 1);
+        // The new block's parent as the text has it, and the member of that parent it follows.
+        Block parsedParent = parentOf(parsed.root(), added);
+        int parentIndex = newBlocks.indexOf(parsedParent);
+        GitDocumentMaterializer.StoredBlock parent = stored.get(parentIndex <= index ? parentIndex : parentIndex - 1);
+        long follows = childOfContaining(document, parent, after);
+
+        Transaction transaction = pending(anchor).orElseGet(() -> {
+            Transaction made = Transaction.make("Edit document " + anchor.idString());
+            made.externalBasis(GIT_BASIS + document.commit());
+            return made;
+        });
+        long anchorNid = EntityService.get().nidForPublicId(anchor);
+        boolean vertices = VertexReader.isVertexDocument(anchor);
+        long manifestNid = vertices ? 0 : manifestNid(anchor);
+        SemanticEntityVersion head = GitDocumentMaterializer.latest(semantic(vertices ? anchorNid : manifestNid), true);
+        StampEntity<?> stamp = transaction.getStamp(State.ACTIVE, Long.MAX_VALUE, authorNid, head.moduleNid(), pathNid);
+        if (vertices) {
+            return addVertices(transaction, stamp, document, parent, follows, added, kind, edited, at, newLines.size(), anchorNid);
+        }
+        List<Long> lineNids = new ArrayList<>();
+        for (String line : inserted) {
+            lineNids.add(writeNew(transaction, PublicIds.newRandom(), IkePattern.PROSE_ELEMENT_PATTERN.publicId(), anchorNid, stamp,
+                    Lists.immutable.of(line)));
+        }
+        List<Long> members = lineNids.subList(1, lineNids.size());   // the blank separator is the document's, not the block's
+        PublicId blockId = PublicIds.newRandom();
+        long blockNid = writeNew(transaction, blockId, IkePattern.DOCUMENT_BLOCK_PATTERN.publicId(), anchorNid, stamp,
+                Lists.immutable.of(AsciiDocModelTerms.kind(kind), added.level(), added.title(), added.parameters(),
+                        LongIds.list.of(members.stream().mapToLong(Long::longValue).toArray())));
+        List<Long> manifest = new ArrayList<>(document.lines().stream().map(GitDocumentMaterializer.StoredLine::nid).toList());
+        manifest.addAll(at, lineNids);
+        writeVersion(transaction, manifestNid, stamp, Lists.immutable.of(LongIds.list.of(manifest.stream().mapToLong(Long::longValue).toArray())));
+        SemanticEntityVersion parentHead = GitDocumentMaterializer.latest(semantic(parent.nid()), true);
+        List<Object> parentFields = new ArrayList<>(parentHead.fieldValues().castToList());
+        List<Long> parentMembers = new ArrayList<>(parent.members());
+        parentMembers.add(parentMembers.indexOf(follows) + 1, blockNid);
+        parentFields.set(4, LongIds.list.of(parentMembers.stream().mapToLong(Long::longValue).toArray()));
+        writeVersion(transaction, parent.nid(), stamp, Lists.immutable.ofAll(parentFields));
+        return new Edit(blockNid, 0, newLines.size(), 0);
+    }
+
+    /**
+     * The insertion over vertices (IKE-Network/ike-issues#1313): a vertex per new line with the
+     * meaning and properties its text has, a block vertex whose Members are the text lines and whose
+     * Content, when sentences are stored, is their sentences, and a pending version of the parent
+     * whose Members hold the blank line and the new block right after the member the text follows.
+     */
+    private static Edit addVertices(Transaction transaction, StampEntity<?> stamp, GitDocumentMaterializer.StoredDocument document,
+                                    GitDocumentMaterializer.StoredBlock parent, long follows, Block added, Block.Kind kind,
+                                    List<String> edited, int at, int count, long anchorNid) {
+        List<LineRoles.Role> roles = LineRoles.of(IkeDialectParser.parse(edited));
+        long patternNid = semantic(anchorNid).patternNid();
+        PublicId pattern = EntityHandle.get(patternNid).expectEntity().publicId();
+        List<Long> lineNids = new ArrayList<>();
+        for (int i = at; i < at + 1 + count; i++) {
+            LineRoles.Role role = roles.get(i);
+            PublicId id = PublicIds.newRandom();
+            lineNids.add(writeNew(transaction, id, pattern, anchorNid, stamp,
+                    Lists.immutable.of(VertexMaterializer.value(id.asUuidArray()[0], role.meaning(), role.properties()))));
+        }
+        long blank = lineNids.getFirst();
+        List<Long> members = lineNids.subList(1, lineNids.size());
+        Map<ConceptFacade, Object> properties = new java.util.LinkedHashMap<>();
+        if (added.level() != 0) {
+            properties.put(IkeConcept.DOCUMENT_ELEMENT_LEVEL, added.level());
+        }
+        if (!added.title().isEmpty()) {
+            properties.put(IkeConcept.DOCUMENT_ELEMENT_TITLE, added.title());
+        }
+        if (!added.parameters().isEmpty()) {
+            properties.put(IkeConcept.DOCUMENT_ELEMENT_PARAMETERS, added.parameters());
+        }
+        properties.put(IkeConcept.DOCUMENT_ELEMENT_MEMBERS, LongIds.list.of(members.stream().mapToLong(Long::longValue).toArray()));
+        if (VertexMaterializer.segmentsAvailable()) {
+            long[] content = editSentences(transaction, stamp, List.of(), edited, at + 1, count, pattern, anchorNid);
+            if (content.length > 0) {
+                properties.put(IkeConcept.BLOCK_CONTENT, LongIds.list.of(content));
+            }
+        }
+        PublicId blockId = PublicIds.newRandom();
+        long blockNid = writeNew(transaction, blockId, pattern, anchorNid, stamp,
+                Lists.immutable.of(VertexMaterializer.value(blockId.asUuidArray()[0], AsciiDocModelTerms.kind(kind), properties)));
+        List<Long> tree = new ArrayList<>(parent.tree());
+        int place = tree.indexOf(follows) + 1;
+        tree.add(place, blockNid);
+        tree.add(place, blank);
+        writeBlockMembers(transaction, stamp, document, parent.nid(), tree);
+        return new Edit(blockNid, 0, count, 0);
+    }
+
+    /**
+     * Removes one block whose members are all lines: its lines leave the document, the blank line
+     * that separated it goes with them, the block gets a pending inactive version, and the parent a
+     * pending version without it. The export omits the block, the person's commit records the
+     * removal, and {@link #settle} leaves the commit's own retirement of the lines standing, as it
+     * does for a line an edit removed. Not a relaxation of {@link #editBlock}: an edit keeps at least
+     * one line; this is the verb that removes the block.
+     *
+     * @param anchor the document anchor's id
+     * @param block  the nid of the block to delete, whose members are all lines
+     * @param edit   the edit coordinate whose author and path the edit is written under
+     * @return what the deletion did: the block's nid and the lines removed
+     * @throws IllegalArgumentException when the block is not one of the document's, or holds child blocks
+     */
+    public static synchronized Edit deleteBlock(PublicId anchor, long block, EditCoordinate edit) {
+        return deleteBlock(anchor, block, edit.getAuthorNidForChanges(), edit.getDefaultPathNid());
+    }
+
+    private static Edit deleteBlock(PublicId anchor, long block, long authorNid, long pathNid) {
+        DocumentVocabulary.requirePresent();
+        GitDocumentMaterializer.StoredDocument document = GitDocumentMaterializer.load(anchor, true)
+                .orElseThrow(() -> new IllegalArgumentException("The store holds no document " + anchor.idString()));
+        Leaf leaf = leaf(document, block);
+        List<GitDocumentMaterializer.StoredLine> lines = document.lines();
+        List<String> file = lines.stream().map(GitDocumentMaterializer.StoredLine::text).toList();
+        // The block's lines and one blank beside them: the one before, else the one after, so no double blank is left.
+        int blankAt = leaf.start() > 0 && file.get(leaf.start() - 1).isBlank() ? leaf.start() - 1
+                : leaf.end() + 1 < file.size() && file.get(leaf.end() + 1).isBlank() ? leaf.end() + 1 : -1;
+        Set<Long> removed = new java.util.HashSet<>(leaf.block().members());
+        if (blankAt >= 0) {
+            removed.add(lines.get(blankAt).nid());
+        }
+        List<String> edited = new ArrayList<>();
+        for (GitDocumentMaterializer.StoredLine line : lines) {
+            if (!removed.contains(line.nid())) {
+                edited.add(line.text());
+            }
+        }
+        List<GitDocumentMaterializer.StoredBlock> stored = new DocumentOutline(document).nodes().stream().map(DocumentOutline.Node::block).toList();
+        List<Block> oldBlocks = IkeDialectParser.parse(file).blocks();
+        if (oldBlocks.size() != stored.size() || !sameKinds(oldBlocks, stored)) {
+            throw new IllegalArgumentException("The stored structure disagrees with the document's text; rebuild it from git");
+        }
+        List<Block.Kind> expected = new ArrayList<>();
+        for (int i = 0; i < stored.size(); i++) {
+            if (stored.get(i).nid() != block) {
+                expected.add(oldBlocks.get(i).kind());
+            }
+        }
+        if (!IkeDialectParser.parse(edited).blocks().stream().map(Block::kind).toList().equals(expected)) {
+            throw new IllegalArgumentException("Removing the block would change the structure of what remains");
+        }
+        GitDocumentMaterializer.StoredBlock parent = parentOf(document, block)
+                .orElseThrow(() -> new IllegalArgumentException("Block " + block + " has no parent in " + anchor.idString()));
+
+        Transaction transaction = pending(anchor).orElseGet(() -> {
+            Transaction made = Transaction.make("Edit document " + anchor.idString());
+            made.externalBasis(GIT_BASIS + document.commit());
+            return made;
+        });
+        long anchorNid = EntityService.get().nidForPublicId(anchor);
+        boolean vertices = VertexReader.isVertexDocument(anchor);
+        long manifestNid = vertices ? 0 : manifestNid(anchor);
+        SemanticEntityVersion head = GitDocumentMaterializer.latest(semantic(vertices ? anchorNid : manifestNid), true);
+        StampEntity<?> stamp = transaction.getStamp(State.ACTIVE, Long.MAX_VALUE, authorNid, head.moduleNid(), pathNid);
+        StampEntity<?> retiring = transaction.getStamp(State.INACTIVE, Long.MAX_VALUE, authorNid, head.moduleNid(), pathNid);
+        SemanticEntityVersion blockHead = GitDocumentMaterializer.latest(semantic(block), true);
+        writeVersion(transaction, block, retiring, blockHead.fieldValues());
+        if (vertices) {
+            // the blank may sit in another block's tree than the parent's: between two sections, in the root's
+            for (GitDocumentMaterializer.StoredBlock holder : document.blocks().values()) {
+                if (holder.nid() == block) {
+                    continue;                                    // the deleted block keeps its lines; its inactive version is written above
+                }
+                if (holder.tree().stream().anyMatch(removed::contains) || holder.members().contains(block)) {
+                    List<Long> tree = new ArrayList<>(holder.tree());
+                    tree.removeAll(removed);
+                    tree.remove(Long.valueOf(block));
+                    writeBlockMembers(transaction, stamp, document, holder.nid(), tree);
+                }
+            }
+            return new Edit(block, 0, 0, leaf.block().members().size());
+        }
+        List<Long> manifest = new ArrayList<>(lines.stream().map(GitDocumentMaterializer.StoredLine::nid).toList());
+        manifest.removeAll(removed);
+        writeVersion(transaction, manifestNid, stamp, Lists.immutable.of(LongIds.list.of(manifest.stream().mapToLong(Long::longValue).toArray())));
+        SemanticEntityVersion parentHead = GitDocumentMaterializer.latest(semantic(parent.nid()), true);
+        List<Object> parentFields = new ArrayList<>(parentHead.fieldValues().castToList());
+        List<Long> parentMembers = new ArrayList<>(parent.members());
+        parentMembers.remove(Long.valueOf(block));
+        parentFields.set(4, LongIds.list.of(parentMembers.stream().mapToLong(Long::longValue).toArray()));
+        writeVersion(transaction, parent.nid(), stamp, Lists.immutable.ofAll(parentFields));
+        return new Edit(block, 0, 0, leaf.block().members().size());
+    }
+
+    /** A block whose members are all lines, with where they sit in the document: {@code start} to {@code end}, 0-based. */
+    private record Leaf(GitDocumentMaterializer.StoredBlock block, int start, int end) { }
+
+    /** @throws IllegalArgumentException when the block is not the document's, holds blocks, or its lines are not contiguous */
+    private static Leaf leaf(GitDocumentMaterializer.StoredDocument document, long block) {
+        GitDocumentMaterializer.StoredBlock stored = document.blocks().get(block);
+        if (stored == null) {
+            throw new IllegalArgumentException("Block " + block + " is not a block of " + document.anchor().idString());
+        }
+        List<Long> manifest = document.lines().stream().map(GitDocumentMaterializer.StoredLine::nid).toList();
+        if (stored.members().isEmpty() || !Set.copyOf(manifest).containsAll(stored.members())) {
+            throw new IllegalArgumentException("A " + stored.kind().name().toLowerCase() + " block holding other blocks is not edited as text");
+        }
+        int start = manifest.indexOf(stored.members().getFirst());
+        for (int i = 0; i < stored.members().size(); i++) {
+            if (start + i >= manifest.size() || manifest.get(start + i).longValue() != stored.members().get(i)) {
+                throw new IllegalArgumentException("The block's lines are not contiguous in the document");
+            }
+        }
+        return new Leaf(stored, start, start + stored.members().size() - 1);
+    }
+
+    private static boolean sameKinds(List<Block> parsed, List<GitDocumentMaterializer.StoredBlock> stored) {
+        for (int i = 0; i < parsed.size(); i++) {
+            if (parsed.get(i).kind() != stored.get(i).kind()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** The parsed block whose children hold {@code child}. */
+    private static Block parentOf(Block root, Block child) {
+        for (Block block : root.flatten()) {
+            if (block.children().contains(child)) {
+                return block;
+            }
+        }
+        throw new IllegalArgumentException("The new block has no parent in the text");
+    }
+
+    /** The stored block whose members hold {@code child}. */
+    private static Optional<GitDocumentMaterializer.StoredBlock> parentOf(GitDocumentMaterializer.StoredDocument document, long child) {
+        return document.blocks().values().stream().filter(b -> b.members().contains(child) || b.tree().contains(child)).findFirst();
+    }
+
+    /** The member of {@code parent} that is, or holds, {@code block}: what a block inserted after {@code block} follows in the parent. */
+    private static long childOfContaining(GitDocumentMaterializer.StoredDocument document, GitDocumentMaterializer.StoredBlock parent, long block) {
+        long current = block;
+        while (!parent.members().contains(current) && !parent.tree().contains(current)) {
+            GitDocumentMaterializer.StoredBlock up = parentOf(document, current)
+                    .orElseThrow(() -> new IllegalArgumentException("The block to insert after is not inside the new block's parent"));
+            current = up.nid();
+        }
+        return current;
+    }
+
+    /** A pending version of a block vertex with new Members, its meaning and other properties kept. */
+    private static void writeBlockMembers(Transaction transaction, StampEntity<?> stamp, GitDocumentMaterializer.StoredDocument document,
+                                          long block, List<Long> members) {
+        EntityVertex vertex = vertexOf(GitDocumentMaterializer.latest(semantic(block), true));
+        Map<ConceptFacade, Object> properties = new java.util.LinkedHashMap<>();
+        vertex.properties().forEachKeyValue((key, value) -> properties.put(EntityProxy.Concept.make(key), value));
+        properties.put(IkeConcept.DOCUMENT_ELEMENT_MEMBERS, LongIds.list.of(members.stream().mapToLong(Long::longValue).toArray()));
+        PublicId id = EntityHandle.get(block).expectEntity().publicId();
+        writeVersion(transaction, block, stamp, Lists.immutable.of(VertexMaterializer.value(id.asUuidArray()[0],
+                EntityProxy.Concept.make(vertex.getMeaningNid()), properties)));
+    }
+
     /** The edit under an author and path given directly: the edit coordinate's, or, on a rebase, the edit's own. */
     private static Edit editBlock(PublicId anchor, long block, String text, long authorNid, long pathNid) {
         DocumentVocabulary.requirePresent();
@@ -551,7 +886,12 @@ public final class DocumentEditor {
         long anchorNid = EntityService.get().nidForPublicId(anchor);
         long baseTime = baseTime(anchorNid, base);
         List<Long> edited = editedBlocks(pending);
-        if (baseTime != Long.MIN_VALUE && !edited.isEmpty() && edited.stream().noneMatch(b -> touchedSince(b, baseTime))) {
+        // A block added or deleted leaves a pending version on a block that holds blocks; such an edit
+        // is not carried forward onto a foreign commit, since it is not a block's text: it is settled
+        // against the commit, and what the commit did not carry is reported.
+        boolean textual = edited.stream().allMatch(b -> Set.copyOf(pending.lines().stream().map(GitDocumentMaterializer.StoredLine::nid).toList())
+                .containsAll(pending.blocks().get(b).members()));
+        if (baseTime != Long.MIN_VALUE && !edited.isEmpty() && textual && edited.stream().noneMatch(b -> touchedSince(b, baseTime))) {
             return rebase(anchor, transaction.get(), pending, edited);
         }
         List<String> committedLines = committed.lines().stream().map(GitDocumentMaterializer.StoredLine::text).toList();
@@ -785,21 +1125,26 @@ public final class DocumentEditor {
         for (int k = 0; k < edited.size(); k++) {
             String b = "b." + k + ".";
             List<Long> members = pending.blocks().get(edited.get(k)).members();
+            int first = indexOf(order, members.getFirst());
+            int last = indexOf(order, members.getLast());
+            if (first < 0 || last < 0 || members.stream().anyMatch(m -> pending.line(m).isEmpty())) {
+                continue;                                        // a block holding blocks, left pending by an insertion or deletion: not a text to restore
+            }
             kept.put(b + "id", uuidOf(edited.get(k)));
             kept.put(b + "kind", pending.blocks().get(edited.get(k)).kind().name());
             kept.put(b + "author", uuidOf(manifest.stamp().authorNid()));
             kept.put(b + "path", uuidOf(manifest.stamp().pathNid()));
             kept.put(b + "size", Integer.toString(members.size()));
-            int first = indexOf(order, members.getFirst());
-            int last = indexOf(order, members.getLast());
+            // The committed lines the block sat between, with text: a blank line is too common to
+            // anchor on, since a commit may pair it with another blank on either side of an insertion.
             for (int i = first - 1; i >= 0; i--) {
-                if (order.get(i).latest().time() != Long.MAX_VALUE) {
+                if (order.get(i).latest().time() != Long.MAX_VALUE && !order.get(i).text().isBlank()) {
                     kept.put(b + "after", uuidOf(order.get(i).nid()));
                     break;
                 }
             }
             for (int i = last + 1; i < order.size(); i++) {
-                if (order.get(i).latest().time() != Long.MAX_VALUE) {
+                if (order.get(i).latest().time() != Long.MAX_VALUE && !order.get(i).text().isBlank()) {
                     kept.put(b + "before", uuidOf(order.get(i).nid()));
                     break;
                 }

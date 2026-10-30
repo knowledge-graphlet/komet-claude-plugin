@@ -19,6 +19,7 @@ import design.knowledge.stamp.adoc.git.AnnotationCommit;
 import design.knowledge.stamp.adoc.git.GitRepo;
 import design.knowledge.stamp.adoc.model.Annotation;
 import design.knowledge.stamp.adoc.model.AnnotationKind;
+import design.knowledge.stamp.adoc.model.AnnotationTarget;
 import design.knowledge.stamp.adoc.model.LineRange;
 import design.knowledge.stamp.adoc.model.StampRecord;
 import network.ike.komet.claude.anthropic.AnthropicTool;
@@ -41,9 +42,9 @@ import java.util.function.Supplier;
  * The assistant's provenance tools ({@code IKE-Network/ike-issues#468}), registered beside the
  * graph tools. {@code stamp_lines} answers who introduced the lines of a committed file and
  * who has affirmed, refuted or commented on them; {@code propose_annotation} prepares an
- * annotation — the hashed {@code Annotation:} trailers and the text — and hands it to the
- * Stamped Document card for the person to confirm with a signed commit
- * (IKE-Network/ike-issues#1300). The assistant never writes the commit itself: an affirmation
+ * annotation — the hashed {@code Annotation:} trailers and the text — or a retraction of an
+ * earlier annotation commit, and hands it to the Stamped Document card for the person to confirm
+ * with a signed commit (IKE-Network/ike-issues#1300). The assistant never writes the commit itself: an affirmation
  * or refutation is a person's non-repudiable statement, signed with their key, and a tool
  * signing it on their behalf would record an act they did not perform.
  *
@@ -147,10 +148,14 @@ public final class StampTools {
                         + "reviewed the lines and stands behind them), a refutation (they dispute them, with the reason "
                         + "as text), or a comment (no stance) — compute the Annotation: trailers (kind, path, line "
                         + "range, anchoring revision, content hash) and hand them with the text to the Stamped Document "
-                        + "card, which asks the person to confirm with a signed commit. Nothing is recorded until they "
+                        + "card, which asks the person to confirm with a signed commit. Or prepare a retraction: kind "
+                        + "retract with commit, the SHA of an earlier annotation commit as stamp_lines lists it, withdraws "
+                        + "every annotation that commit recorded, so its lines read as before it (a judgment it had replaced "
+                        + "does not come back; a later annotation stands). Nothing is recorded until they "
                         + "confirm; you cannot and must not annotate on their behalf, because an annotation is their "
                         + "signed statement. Use it only when the person asks to affirm, concur with, sign off, "
-                        + "dispute, refute or comment on lines they have reviewed, after showing them what the lines "
+                        + "dispute, refute or comment on lines they have reviewed, or to take back, withdraw or retract an "
+                        + "annotation of theirs, after showing them what the lines "
                         + "say. Ranges are 1-based and inclusive; omit them to propose for the lines selected in the "
                         + "card. An annotation is a signed git commit in the file's repository, so the card needs a "
                         + "working tree for the document (its Repository panel shows one); without one, say so and point "
@@ -162,14 +167,16 @@ public final class StampTools {
                 return obj("type", "object",
                         "properties", obj(
                                 "file", strProp("Path of the committed file, absolute or relative to the open card's repository root. Omit for the card's file."),
-                                "kind", obj("type", "string", "enum", List.of("affirm", "refute", "comment"),
-                                        "description", "affirm: the person stands behind the lines; refute: they dispute them; comment: no stance."),
+                                "kind", obj("type", "string", "enum", List.of("affirm", "refute", "comment", "retract"),
+                                        "description", "affirm: the person stands behind the lines; refute: they dispute them; comment: no stance; "
+                                                + "retract: withdraw an earlier annotation commit named by commit."),
+                                "commit", strProp("For retract: the SHA (7 or more hex digits) of the annotation commit to withdraw, as stamp_lines lists it."),
                                 "ranges", obj("type", "array",
                                         "description", "The line ranges the person reviewed. Omit to use the card's selection.",
                                         "items", obj("type", "object",
                                                 "properties", obj("from", intProp("First line, 1-based."), "to", intProp("Last line, inclusive.")),
                                                 "required", List.of("from", "to"))),
-                                "text", strProp("The annotation text in the person's words, which becomes the commit body; required to refute. They can edit it in the confirmation.")),
+                                "text", strProp("The annotation text in the person's words, which becomes the commit body; required to refute, and to retract (why). They can edit it in the confirmation.")),
                         "required", List.of("kind"));
             }
 
@@ -181,6 +188,9 @@ public final class StampTools {
                     if (kind == AnnotationKind.REFUTATION && (text == null || text.isBlank())) {
                         throw new IllegalArgumentException("a refutation needs text: the person's reason for disputing the lines");
                     }
+                    if (kind == AnnotationKind.RETRACTION && (text == null || text.isBlank())) {
+                        throw new IllegalArgumentException("a retraction needs text: the person's reason for withdrawing the annotation");
+                    }
                     StampedDocumentCard open = card.get();
                     if (str(input, "file") == null && open != null && !hasWorkingTree(open) && open.shown().isPresent()) {
                         throw new IllegalArgumentException(noWorkingTree(open)
@@ -189,6 +199,9 @@ public final class StampTools {
                                 + "panel, then propose again.");
                     }
                     Target target = Target.resolve(open, str(input, "file"));
+                    if (kind == AnnotationKind.RETRACTION) {
+                        return proposeRetraction(open, target, str(input, "commit"), text);
+                    }
                     List<int[]> ranges = input.get("ranges") == null && open != null && str(input, "file") == null
                             ? open.selectedLineNumbers() : ranges(input);
                     if (ranges.isEmpty()) {
@@ -225,13 +238,48 @@ public final class StampTools {
         };
     }
 
+    /**
+     * A retraction: the commit named must be an annotation commit still in force on the file, as the
+     * walker reads it; the trailer names it in full, and the card asks the person to confirm.
+     */
+    static String proposeRetraction(StampedDocumentCard open, Target target, String commit, String text) throws IOException {
+        if (commit == null || commit.strip().length() < 7 || !commit.strip().matches("[0-9a-fA-F]{7,40}")) {
+            throw new IllegalArgumentException("a retraction names the annotation commit to withdraw: pass commit, its SHA of 7 or more hex digits, as stamp_lines lists it");
+        }
+        String wanted = commit.strip().toLowerCase(Locale.ROOT);
+        Report report = Report.read(target);
+        List<StampRecord> matches = report.bridge().stamps().stamps().values().stream()
+                .filter(r -> r.commitSha().startsWith(wanted))
+                .filter(r -> !r.affirmed().isEmpty() || !r.refuted().isEmpty() || !r.commented().isEmpty())
+                .toList();
+        if (matches.size() != 1) {
+            throw new IllegalArgumentException(matches.isEmpty()
+                    ? "no annotation in force on " + target.relative() + " was recorded by commit " + wanted + "; stamp_lines lists the STAMPs that affirmed, refuted or commented"
+                    : wanted + " names " + matches.size() + " commits; give more digits");
+        }
+        StampRecord retracted = matches.getFirst();
+        Annotation annotation = Annotation.of(AnnotationKind.RETRACTION, new AnnotationTarget.Commit(retracted.commitSha()));
+        boolean handedOff = open != null && open.showsFile(target.root(), target.relative());
+        if (handedOff) {
+            open.proposeRetraction(retracted.commitSha(), text);
+        }
+        return "Prepared the retraction of " + retracted.commitSha().substring(0, 7) + " (" + retracted.summary() + ", by " + retracted.author().name()
+                + "):\n" + annotation.trailer()
+                + (handedOff
+                    ? "\n\nThe Stamped Document card is asking the person to confirm the retraction with a signed commit. Nothing is "
+                      + "recorded until they do; tell them the confirmation is waiting in the card."
+                    : "\n\nNo Stamped Document card shows this file, so nothing was handed off. Ask the person to open "
+                      + target.relative() + " in a Stamped Document card, select a line the annotation covers, and choose Retract… from its menu.");
+    }
+
     /** The tool's kind word as an annotation kind. */
     static AnnotationKind kind(String word) {
         return switch (word == null ? "" : word.strip().toLowerCase(Locale.ROOT)) {
             case "affirm", "affirmation" -> AnnotationKind.AFFIRMATION;
             case "refute", "refutation" -> AnnotationKind.REFUTATION;
             case "comment" -> AnnotationKind.COMMENT;
-            default -> throw new IllegalArgumentException("kind must be affirm, refute or comment, not " + word);
+            case "retract", "retraction" -> AnnotationKind.RETRACTION;
+            default -> throw new IllegalArgumentException("kind must be affirm, refute, comment or retract, not " + word);
         };
     }
 

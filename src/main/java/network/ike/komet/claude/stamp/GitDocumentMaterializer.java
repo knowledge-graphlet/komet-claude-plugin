@@ -31,6 +31,7 @@ import dev.ikm.tinkar.common.id.LongIdList;
 import dev.ikm.tinkar.common.id.LongIds;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
+import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.entity.Entity;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
@@ -175,9 +176,15 @@ public final class GitDocumentMaterializer {
             for (CommitEvent event : history.events()) {
                 boolean contentRecorded = !event.touchesFile() || recorded.contains(event.commit().sha());
                 List<Semantic> pendingAnnotations = new ArrayList<>();
+                List<Semantic> retractions = new ArrayList<>();
                 for (CommitEvent.AnnotationEvent a : event.annotations()) {
-                    Semantic proxy = Semantic.make(PublicIds.of(a.annotation().id() != null ? a.annotation().id()
-                            : Uuid5.of(GitIdentityAdapter.NAMESPACE, "annotation:" + documentId.key() + ":" + event.commit().sha() + ":" + a.index())));
+                    if (a.kind() == AnnotationKind.RETRACTION) {
+                        // a retraction writes no semantic of its own: it retires what it withdraws (#1300)
+                        pendingAnnotations.add(null);
+                        retractions.addAll(retractable(a, ref -> annotationProxy("annotation:" + documentId.key(), ref)));
+                        continue;
+                    }
+                    Semantic proxy = annotationProxy("annotation:" + documentId.key(), new CommitEvent.AnnotationRef(event.commit().sha(), a.index(), a.annotation().id()));
                     pendingAnnotations.add(!onlyNew || DocumentVocabulary.entityAbsent(proxy) ? proxy : null);
                 }
                 for (CommitEvent.Line line : event.introduced()) {
@@ -187,7 +194,7 @@ public final class GitDocumentMaterializer {
                     lastText.put(line.id(), line.text());
                 }
                 Snapshot now = event.touchesFile() ? snapshot(adapter, documentId, event.manifest(), lastText) : null;
-                if (contentRecorded && pendingAnnotations.stream().allMatch(java.util.Objects::isNull)) {
+                if (contentRecorded && pendingAnnotations.stream().allMatch(java.util.Objects::isNull) && retractions.isEmpty()) {
                     structure.adopt(now);
                     skipped++;
                     continue;                                    // already in the store
@@ -251,6 +258,7 @@ public final class GitDocumentMaterializer {
                     }
                     writer.commit();
                 }
+                annotations += retract(stamp, event.commit().sha(), retractions);
                 if (!contentRecorded && (!event.retired().isEmpty() || !retirements.isEmpty())) {
                     // A retired line, block or reference gets an inactive version under the retiring
                     // commit's STAMP, so the graph records the withdrawal where git recorded it.
@@ -420,6 +428,76 @@ public final class GitDocumentMaterializer {
      * in the history; when none matches — an anchor the walk could not place — the latest
      * source version stands in.
      */
+    /**
+     * The semantic an annotation became, named as git names the annotation: its own id when the
+     * trailer carried one, else a UUID5 of the commit SHA and the trailer's position under the
+     * document's key; the identity both materializers mint when they write it.
+     *
+     * @param prefix the materializer's key prefix with the document's key, {@code annotation:<key>} or {@code vertex-annotation:<key>}
+     * @param ref    the annotation as git names it
+     * @return the semantic's proxy
+     */
+    static Semantic annotationProxy(String prefix, CommitEvent.AnnotationRef ref) {
+        return Semantic.make(PublicIds.of(ref.id() != null ? ref.id()
+                : Uuid5.of(GitIdentityAdapter.NAMESPACE, prefix + ":" + ref.commitSha() + ":" + ref.index())));
+    }
+
+    /**
+     * The annotation semantics a retraction withdraws that the store holds and still has in force:
+     * what writing the retraction retires. One already retired, or one the store never wrote, is
+     * left alone, so a second run converges.
+     *
+     * @param retraction the retraction event
+     * @param proxy      names the semantic of one annotation reference
+     * @return the semantics to retire
+     */
+    static List<Semantic> retractable(CommitEvent.AnnotationEvent retraction, java.util.function.Function<CommitEvent.AnnotationRef, Semantic> proxy) {
+        List<Semantic> targets = new ArrayList<>();
+        for (CommitEvent.AnnotationRef ref : retraction.retracts()) {
+            Semantic semantic = proxy.apply(ref);
+            if (!PrimitiveData.get().hasPublicId(semantic.publicId())) {
+                continue;
+            }
+            if (EntityHandle.get(semantic.nid()).orNull() instanceof SemanticEntity<?> entity) {
+                @SuppressWarnings("unchecked")
+                SemanticEntityVersion latest = latest((SemanticEntity<SemanticEntityVersion>) entity);
+                if (latest != null && latest.active()) {
+                    targets.add(semantic);
+                }
+            }
+        }
+        return targets;
+    }
+
+    /**
+     * Writes the retraction into the graph: each retracted annotation semantic gets an inactive
+     * version, its fields as made, under the retraction commit's STAMP, so the withdrawal is
+     * recorded where git recorded it, by whom and when, as a retired line is recorded under the
+     * commit that removed it (dev-annotation-trailer).
+     *
+     * @param stamp   the retraction commit's STAMP
+     * @param sha     the retraction commit's SHA, for the writer's name
+     * @param targets the annotation semantics to retire; nothing is written for none
+     * @return how many were retired
+     */
+    static int retract(GitStampTerms.GitStamp stamp, String sha, List<Semantic> targets) {
+        if (targets.isEmpty()) {
+            return 0;
+        }
+        try (StampedWriter writer = StampedWriter.open("git-retract " + sha.substring(0, 7), State.INACTIVE,
+                stamp.time(), stamp.author(), stamp.module(), stamp.path())) {
+            for (Semantic target : targets) {
+                @SuppressWarnings("unchecked")
+                SemanticEntity<SemanticEntityVersion> entity = (SemanticEntity<SemanticEntityVersion>) EntityHandle.get(target.nid()).expectSemantic();
+                SemanticEntityVersion made = latest(entity);
+                writer.semantic(target.publicId(), EntityHandle.get(entity.patternNid()).expectEntity().publicId(),
+                        PrimitiveData.publicId(entity.referencedComponentNid()), made.fieldValues().toArray());
+            }
+            writer.commit();
+        }
+        return targets.size();
+    }
+
     static long reviewedStampNid(Semantic source, String sha) {
         Entity<? extends EntityVersion> entity = EntityHandle.get(source.nid()).expectEntity();
         SemanticEntityVersion latest = null;
@@ -614,7 +692,12 @@ public final class GitDocumentMaterializer {
         }
 
         private List<StampEntity<?>> of(AnnotationKind kind) {
-            return annotations.stream().filter(a -> a.kind() == kind).<StampEntity<?>>map(StoredAnnotation::stamp).toList();
+            return inForce().stream().filter(a -> a.kind() == kind).<StampEntity<?>>map(StoredAnnotation::stamp).toList();
+        }
+
+        /** @return the annotations in force: those not retracted; a retracted one stays in {@link #annotations()} as history */
+        public List<StoredAnnotation> inForce() {
+            return annotations.stream().filter(a -> !a.retracted()).toList();
         }
     }
 
@@ -625,8 +708,20 @@ public final class GitDocumentMaterializer {
      * @param stamp         the annotation's own STAMP: who and when
      * @param reviewedStamp the nid of the STAMP of the version the annotator saw
      * @param text          the annotation text, possibly empty
+     * @param retractedBy   the STAMP of the retraction that withdrew it (who and when), or {@code null} while it is in force
      */
-    public record StoredAnnotation(AnnotationKind kind, StampEntity<?> stamp, long reviewedStamp, String text) { }
+    public record StoredAnnotation(AnnotationKind kind, StampEntity<?> stamp, long reviewedStamp, String text, StampEntity<?> retractedBy) {
+
+        /** An annotation in force. */
+        public StoredAnnotation(AnnotationKind kind, StampEntity<?> stamp, long reviewedStamp, String text) {
+            this(kind, stamp, reviewedStamp, text, null);
+        }
+
+        /** @return whether a retraction withdrew it */
+        public boolean retracted() {
+            return retractedBy != null;
+        }
+    }
 
     /**
      * One structural element as read from the store.
@@ -1123,8 +1218,24 @@ public final class GitDocumentMaterializer {
         for (SemanticEntity<SemanticEntityVersion> a : EntityService.get()
                 .semanticsForComponentOfPattern(anchorNid, IkePattern.ANNOTATION_PATTERN.nid()).toList()) {
             SemanticEntityVersion v = latest(a);
-            if (v == null || !v.active()) {
+            if (v == null) {
                 continue;
+            }
+            StampEntity<?> retractedBy = null;
+            if (!v.active()) {
+                // Retracted: the inactive version is the retraction's, under its commit's STAMP; the
+                // annotation as made is the last active version before it.
+                SemanticEntityVersion made = null;
+                for (SemanticEntityVersion version : a.versions()) {
+                    if (!version.canceled() && version.time() != Long.MAX_VALUE && version.active() && (made == null || version.time() > made.time())) {
+                        made = version;
+                    }
+                }
+                if (made == null) {
+                    continue;
+                }
+                retractedBy = v.stamp();
+                v = made;
             }
             Object kindValue = v.fieldValues().get(0);
             Optional<AnnotationKind> kind = kindValue instanceof dev.ikm.tinkar.component.Component c
@@ -1134,7 +1245,7 @@ public final class GitDocumentMaterializer {
             }
             long reviewed = v.fieldValues().get(1) instanceof dev.ikm.tinkar.component.Component c
                     ? EntityService.get().nidForPublicId(c.publicId()) : 0;
-            StoredAnnotation stored = new StoredAnnotation(kind.get(), v.stamp(), reviewed, String.valueOf(v.fieldValues().get(3)));
+            StoredAnnotation stored = new StoredAnnotation(kind.get(), v.stamp(), reviewed, String.valueOf(v.fieldValues().get(3)), retractedBy);
             for (long nid : ((LongIdList) v.fieldValues().get(2)).toArray()) {
                 seen.add(new Seen(stored, nid));
             }
@@ -1144,8 +1255,11 @@ public final class GitDocumentMaterializer {
         for (Seen s : seen) {
             List<StoredAnnotation> on = byElement.computeIfAbsent(s.element(), k -> new ArrayList<>());
             StoredAnnotation a = s.annotation();
-            if (a.kind() != AnnotationKind.COMMENT) {            // a later stance by the same annotator replaces the earlier one
-                on.removeIf(o -> o.kind() != AnnotationKind.COMMENT && o.stamp().authorNid() == a.stamp().authorNid());
+            // A later stance by the same annotator replaces the earlier one, and a retracted stance
+            // still did so when it was made: a retraction takes back only its target, so what the
+            // target superseded does not come back (dev-annotation-trailer).
+            if (a.kind().judgment()) {
+                on.removeIf(o -> o.kind().judgment() && o.stamp().authorNid() == a.stamp().authorNid());
             }
             on.add(a);
         }

@@ -963,7 +963,7 @@ final class DocumentGraphView {
                 box.getChildren().add(badge);
                 box.getChildren().add(caption(node.stamp().time() == Long.MAX_VALUE ? "uncommitted" : DAY.format(Instant.ofEpochMilli(node.stamp().time())), "#8a8782"));
             }
-            if (host.layer(Layer.ANNOTATION_MARKS) && node.line() != null && !node.line().annotations().isEmpty()) {
+            if (host.layer(Layer.ANNOTATION_MARKS) && node.line() != null && !node.line().inForce().isEmpty()) {
                 Label mark = new Label(DocumentSurfaceView.mark(node.line()));
                 mark.setFont(SMALL);
                 mark.setStyle(DocumentSurfaceView.markStyle(node.line()));

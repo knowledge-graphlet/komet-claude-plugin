@@ -70,7 +70,7 @@
 
     <properties>
         <!-- stamp-adoc-core (ike-issues#468); komet-desktop stages the same version into plugins/. -->
-        <stamp-adoc-core.version>1.0.0-SNAPSHOT</stamp-adoc-core.version>
+        <stamp-adoc-core.version>1.1.0-SNAPSHOT</stamp-adoc-core.version>
         <test.excludedGroups>external</test.excludedGroups>
         <!-- The unit tests' JVM options, which ike-parent's surefire argLine takes in: JavaFX logs
              through JUL, which goes to stderr unless log4j's JUL manager takes it, as it does in

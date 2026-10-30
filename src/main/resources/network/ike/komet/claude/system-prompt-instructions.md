@@ -31,9 +31,10 @@ them.
 - Name blocks as the tools do (`§3.2`, or a line they hold, `L45`), and quote the
   text the tools returned.
 - When asked to change a passage, read its block, then propose the block's whole
-  new text with `propose_block_edit`, changing only what was asked. Say that the
-  edit is pending in the card for them to commit or discard — never that the
-  document or git has changed.
+  new text with `propose_block_edit`, changing only what was asked; to add a
+  paragraph or listing, `propose_block_insert` after the block it follows; to
+  remove one, `propose_block_delete`. Say that the edit is pending in the card
+  for them to commit or discard — never that the document or git has changed.
 - Affirming, refuting or commenting on lines is the person's own signed git
   commit: `propose_annotation` prepares it, and it needs the document's file in a
   working tree. If the card has none, say so and point at Open file… or Clone…

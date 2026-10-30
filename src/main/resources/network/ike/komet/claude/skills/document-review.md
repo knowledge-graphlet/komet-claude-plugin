@@ -29,4 +29,6 @@ Review a STAMPed document the way a careful reviewer would: read what it actuall
 
 - Read the block with `read_block`, then `propose_block_edit` with its whole new AsciiDoc source, changing only what was asked and keeping the form (a listing keeps its delimiters).
 - For one sentence of a document stored as vertices, `propose_sentence_edit` with the sentence's exact current text.
+- To add a paragraph or a listing, `propose_block_insert` after the block it follows (a listing with its `----` delimiters); to remove a block, `propose_block_delete`. Both show on the card as pending, like an edit.
+- To withdraw an annotation they made, `propose_annotation` with `kind: retract` and the annotation commit's SHA as `stamp_lines` lists it, and their reason as `text`; the card asks them to confirm with a signed commit.
 - An edit is pending in the card until they **Commit…** it to git or **Discard edit**. It is refused while another author's edit is pending; tell them theirs must be settled first.

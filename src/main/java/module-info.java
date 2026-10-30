@@ -173,7 +173,9 @@ module komet.claude {
                  network.ike.komet.claude.anf.AddAnfStatement,
                  network.ike.komet.claude.anf.EditAnfStatement,
                  network.ike.komet.claude.complexconcept.PromoteToComplexConcept,
-                 network.ike.komet.claude.stamp.EditDocumentSentence;
+                 network.ike.komet.claude.stamp.EditDocumentSentence,
+                 network.ike.komet.claude.stamp.AddDocumentBlock,
+                 network.ike.komet.claude.stamp.DeleteDocumentBlock;
 
     // The plugin's help book (AsciiDoc in this jar, under META-INF/komet-help) and the viewer that
     // renders help in a card's help drawer, found by the card through PluggableService.

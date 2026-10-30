@@ -26,6 +26,7 @@ import design.knowledge.stamp.adoc.identity.GitIdentityAdapter;
 import design.knowledge.stamp.adoc.identity.Identity;
 import design.knowledge.stamp.adoc.identity.Uuid5;
 import design.knowledge.stamp.adoc.model.CommitEvent;
+import design.knowledge.stamp.adoc.model.AnnotationKind;
 import design.knowledge.stamp.adoc.model.LineId;
 import design.knowledge.stamp.adoc.model.SegmentId;
 import design.knowledge.stamp.adoc.model.StampHistory;
@@ -209,9 +210,17 @@ public final class VertexMaterializer {
             for (CommitEvent event : history.events()) {
                 boolean contentRecorded = !event.touchesFile() || recorded.contains(event.commit().sha());
                 List<Semantic> pendingAnnotations = new ArrayList<>();
+                List<Semantic> retractions = new ArrayList<>();
                 for (CommitEvent.AnnotationEvent a : event.annotations()) {
-                    Semantic proxy = Semantic.make(PublicIds.of(a.annotation().id() != null ? a.annotation().id()
-                            : Uuid5.of(GitIdentityAdapter.NAMESPACE, "vertex-annotation:" + key + ":" + event.commit().sha() + ":" + a.index())));
+                    if (a.kind() == AnnotationKind.RETRACTION) {
+                        // a retraction writes no semantic of its own: it retires what it withdraws (#1300)
+                        pendingAnnotations.add(null);
+                        retractions.addAll(GitDocumentMaterializer.retractable(a,
+                                ref -> GitDocumentMaterializer.annotationProxy("vertex-annotation:" + key, ref)));
+                        continue;
+                    }
+                    Semantic proxy = GitDocumentMaterializer.annotationProxy("vertex-annotation:" + key,
+                            new CommitEvent.AnnotationRef(event.commit().sha(), a.index(), a.annotation().id()));
                     pendingAnnotations.add(!onlyNew || GitStampVocabulary.entityAbsent(proxy) ? proxy : null);
                 }
                 for (CommitEvent.Line line : event.introduced()) {
@@ -220,7 +229,7 @@ public final class VertexMaterializer {
                 for (CommitEvent.Line line : event.retexted()) {
                     lastText.put(line.id(), line.text());
                 }
-                if (contentRecorded && pendingAnnotations.stream().allMatch(java.util.Objects::isNull)) {
+                if (contentRecorded && pendingAnnotations.stream().allMatch(java.util.Objects::isNull) && retractions.isEmpty()) {
                     if (event.touchesFile() && patternWritten) {
                         adopt(last, snapshot(key, patternId, root, event.manifest(), lastText, segments ? event.segments() : null));
                     }
@@ -278,6 +287,7 @@ public final class VertexMaterializer {
                     }
                     writer.commit();
                 }
+                annotations += GitDocumentMaterializer.retract(stamp, event.commit().sha(), retractions);
                 if (now != null) {
                     List<Written> retired = new ArrayList<>();
                     for (Map.Entry<String, Written> e : last.entrySet()) {

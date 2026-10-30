@@ -16,6 +16,7 @@
 package network.ike.komet.claude.stamp;
 
 import dev.ikm.komet.actions.KometActionResult;
+import design.knowledge.stamp.adoc.dialect.Block;
 import dev.ikm.komet.actions.KometActions;
 import dev.ikm.komet.terms.KometConcept;
 import dev.ikm.tinkar.common.id.PublicId;
@@ -72,7 +73,7 @@ public final class DocumentGraphTools {
      */
     public static List<AnthropicTool> tools(StampTools.CardLocator card, Supplier<ViewCalculator> view) {
         return List.of(readDocument(card, view), readBlock(card, view), findInDocument(card, view), proposeBlockEdit(card, view),
-                proposeSentenceEdit(card, view));
+                proposeSentenceEdit(card, view), proposeBlockInsert(card, view), proposeBlockDelete(card, view));
     }
 
     // ── the document addressed ────────────────────────────────────────────────
@@ -331,7 +332,7 @@ public final class DocumentGraphTools {
                         + "read_block: the text replaces its AsciiDoc source lines exactly, one line per line (a listing keeps its "
                         + "---- delimiters). Only blocks that hold lines and no blocks can be edited (paragraphs, list items, listings, "
                         + "table rows). Refused when another author's edit of the document is pending: theirs is settled first. "
-                        + "Inserting or deleting whole blocks is not supported; propose the neighbouring block's new text instead.",
+                        + "To add a whole paragraph or listing use propose_block_insert; to remove one, propose_block_delete.",
                 obj("type", "object", "properties", obj(
                         "block", strProp("The block's path (§3.2) or a line it holds (L45), as read_document or read_block shows it."),
                         "text", strProp("The block's new AsciiDoc source, one line per line."),
@@ -371,6 +372,116 @@ public final class DocumentGraphTools {
                             + ". It is pending under " + StampNames.name(v, edit.getAuthorNidForChanges())
                             + (opened.card() != null ? "; the card shows it with the edited badge" : "; open the document in a Stamped Document card to see it")
                             + ". Nothing is in git until the person commits it (Commit…); Discard edit withdraws it.";
+                });
+    }
+
+    // ── propose_block_insert ──────────────────────────────────────────────────
+
+    static AnthropicTool proposeBlockInsert(StampTools.CardLocator card, Supplier<ViewCalculator> view) {
+        return new Tool("propose_block_insert",
+                "Propose a new paragraph or listing block of a STAMPed document, inserted right after a chosen block: the "
+                        + "new lines and the block land as an uncommitted insertion under the Komet assistant's name — the same "
+                        + "insertion the card's Add paragraph after… makes for a person — so the card shows the new block pending "
+                        + "with the edited mark and the person commits it in git (Commit…) or discards it (Discard edit). Nothing "
+                        + "reaches git until they commit; say so. The block to insert after must hold lines and no blocks (a "
+                        + "paragraph, a list item, a listing): read the document first with read_document to pick it; the new block "
+                        + "becomes its next sibling, after a blank line. The text is the block's AsciiDoc source, one line per line; "
+                        + "a listing includes its ---- delimiters. A text that would form two blocks is refused. Refused when "
+                        + "another author's edit of the document is pending: theirs is settled first.",
+                obj("type", "object", "properties", obj(
+                        "after", strProp("The block to insert after: its path (§3.2) or a line it holds (L45), as read_document shows it."),
+                        "kind", obj("type", "string", "enum", List.of("paragraph", "listing"),
+                                "description", "paragraph: prose lines; listing: a ---- delimited source block, delimiters included in the text."),
+                        "text", strProp("The new block's AsciiDoc source, one line per line."),
+                        "document", strProp("The document's name or recorded path. Omit for the card's document.")),
+                        "required", List.of("after", "kind", "text")),
+                input -> {
+                    String text = str(input, "text");
+                    if (text == null || text.isBlank()) {
+                        throw new IllegalArgumentException("text is empty; a new block has at least one line");
+                    }
+                    Block.Kind kind = switch (str(input, "kind") == null ? "" : str(input, "kind").strip().toLowerCase(Locale.ROOT)) {
+                        case "paragraph" -> Block.Kind.PARAGRAPH;
+                        case "listing" -> Block.Kind.LISTING;
+                        default -> throw new IllegalArgumentException("kind must be paragraph or listing, not " + str(input, "kind"));
+                    };
+                    StampedDocumentCard c = card.get();
+                    Opened opened = open(c, str(input, "document"));
+                    ViewCalculator v = viewOf(view, c);
+                    DocumentOutline graph = new DocumentOutline(opened.document());
+                    DocumentOutline.Node node = graph.find(str(input, "after"))
+                            .orElseThrow(() -> new IllegalArgumentException("no block " + str(input, "after") + " in " + opened.name()));
+                    if (!node.editable()) {
+                        throw new IllegalArgumentException("§" + node.path() + " is a " + node.block().kind()
+                                + (node.blocks() > 0 ? " holding " + node.blocks() + " block(s); insert after one of them" : " with no lines of its own"));
+                    }
+                    EditCoordinateRecord edit = assistantCoordinate(c);
+                    OptionalLong pending = DocumentEditor.pendingAuthor(opened.anchor());
+                    if (pending.isPresent() && pending.getAsLong() != edit.getAuthorNidForChanges()) {
+                        return "Not proposed: an edit of " + opened.name() + " by " + StampNames.name(v, pending.getAsLong())
+                                + " is pending in the card. A change is never made on top of a change nobody has settled: ask them to "
+                                + "commit it in git (Commit…) or discard it (Discard edit), then propose again.";
+                    }
+                    KometActionResult result = KometActions.expect(KometConcept.ADD_DOCUMENT_BLOCK)
+                            .perform(AddDocumentBlock.input(node.block().nid(), kind, text.endsWith("\n") ? text : text + "\n"), v, edit);
+                    if (!result.completed()) {
+                        return "Not proposed: " + result.message();
+                    }
+                    if (c != null && opened.card() != null) {
+                        reopen(c, opened.anchor());
+                    }
+                    return "Proposed after §" + node.path() + " of " + opened.name() + ": " + result.message()
+                            + ". It is pending under " + StampNames.name(v, edit.getAuthorNidForChanges())
+                            + (opened.card() != null ? "; the card shows the new block with the edited mark" : "; open the document in a Stamped Document card to see it")
+                            + ". Nothing is in git until the person commits it (Commit…); Discard edit withdraws it.";
+                });
+    }
+
+    // ── propose_block_delete ──────────────────────────────────────────────────
+
+    static AnthropicTool proposeBlockDelete(StampTools.CardLocator card, Supplier<ViewCalculator> view) {
+        return new Tool("propose_block_delete",
+                "Propose removing one block of a STAMPed document: its lines leave the document as an uncommitted deletion under "
+                        + "the Komet assistant's name — the same deletion the card's Delete block… makes for a person — so the card "
+                        + "shows the document without it, pending with the edited badge, and the person commits it in git (Commit…) "
+                        + "or discards it (Discard edit). Nothing reaches git until they commit; say so. Only blocks that hold "
+                        + "lines and no blocks can be deleted (paragraphs, list items, listings); a section is emptied block by "
+                        + "block. Read the block first with read_block and tell the person what goes. Refused when another author's "
+                        + "edit of the document is pending: theirs is settled first.",
+                obj("type", "object", "properties", obj(
+                        "block", strProp("The block's path (§3.2) or a line it holds (L45), as read_document or read_block shows it."),
+                        "document", strProp("The document's name or recorded path. Omit for the card's document.")),
+                        "required", List.of("block")),
+                input -> {
+                    StampedDocumentCard c = card.get();
+                    Opened opened = open(c, str(input, "document"));
+                    ViewCalculator v = viewOf(view, c);
+                    DocumentOutline graph = new DocumentOutline(opened.document());
+                    DocumentOutline.Node node = graph.find(str(input, "block"))
+                            .orElseThrow(() -> new IllegalArgumentException("no block " + str(input, "block") + " in " + opened.name()));
+                    if (!node.editable()) {
+                        throw new IllegalArgumentException("§" + node.path() + " is a " + node.block().kind()
+                                + (node.blocks() > 0 ? " holding " + node.blocks() + " block(s); delete those first" : " with no lines of its own"));
+                    }
+                    EditCoordinateRecord edit = assistantCoordinate(c);
+                    OptionalLong pending = DocumentEditor.pendingAuthor(opened.anchor());
+                    if (pending.isPresent() && pending.getAsLong() != edit.getAuthorNidForChanges()) {
+                        return "Not proposed: an edit of " + opened.name() + " by " + StampNames.name(v, pending.getAsLong())
+                                + " is pending in the card. A change is never made on top of a change nobody has settled: ask them to "
+                                + "commit it in git (Commit…) or discard it (Discard edit), then propose again.";
+                    }
+                    KometActionResult result = KometActions.expect(KometConcept.DELETE_DOCUMENT_BLOCK)
+                            .perform(DeleteDocumentBlock.input(node.block().nid()), v, edit);
+                    if (!result.completed()) {
+                        return "Not proposed: " + result.message();
+                    }
+                    if (c != null && opened.card() != null) {
+                        reopen(c, opened.anchor());
+                    }
+                    return "Proposed for §" + node.path() + " of " + opened.name() + ": " + result.message()
+                            + ". It is pending under " + StampNames.name(v, edit.getAuthorNidForChanges())
+                            + (opened.card() != null ? "; the card shows the document without the block, with the edited badge" : "; open the document in a Stamped Document card to see it")
+                            + ". Nothing is in git until the person commits it (Commit…); Discard edit brings the block back.";
                 });
     }
 

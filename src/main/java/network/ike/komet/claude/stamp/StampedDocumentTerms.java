@@ -38,6 +38,8 @@ public final class StampedDocumentTerms {
             case AFFIRMATION -> IkeConcept.AFFIRMATION;
             case REFUTATION -> IkeConcept.REFUTATION;
             case COMMENT -> IkeConcept.UNCATEGORIZED_COMMENT;
+            // A retraction is recorded as an inactive version of what it retracts, never as an annotation of its own.
+            case RETRACTION -> throw new IllegalArgumentException("a retraction has no annotation concept of its own; it retires its target");
         };
     }
 }

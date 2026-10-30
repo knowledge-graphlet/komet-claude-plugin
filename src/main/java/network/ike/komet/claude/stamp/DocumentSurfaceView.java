@@ -123,6 +123,12 @@ final class DocumentSurfaceView {
         /** Saves an in-place edit of a block as the person's pending edit. */
         void saveEdit(StoredBlock block, String text);
 
+        /** Asks for a new block's text and adds it after the block the selection starts in, as the person's pending edit. */
+        default void addBlockAfterSelection(Block.Kind kind) { }
+
+        /** Asks to confirm, then deletes the block the selection starts in, as the person's pending edit. */
+        default void deleteSelectedBlock() { }
+
         /** Shows the history of the selected lines, pinned until closed. */
         void showHistory();
 
@@ -242,6 +248,9 @@ final class DocumentSurfaceView {
     private final PauseTransition hoverDelay = new PauseTransition(Duration.millis(350));
     private final ContextMenu menu = new ContextMenu();
     private final MenuItem editItem = new MenuItem("Edit block");
+    private final MenuItem addParagraphItem = new MenuItem("Add paragraph after…");
+    private final MenuItem addListingItem = new MenuItem("Add listing after…");
+    private final MenuItem deleteItem = new MenuItem("Delete block…");
     private final Label headerTitle = new Label();
     private final Label headerSection = new Label();
     private final VBox header = new VBox(1, headerTitle, headerSection);
@@ -595,7 +604,11 @@ final class DocumentSurfaceView {
         }
     }
 
-    /** The line's annotation mark: refuted, affirmed, commented, or none. */
+    /**
+     * The line's annotation mark: refuted, affirmed, commented, or none. A retracted annotation
+     * leaves no mark: the line reads as it did before the annotation, back in the review queue if
+     * nothing else affirms it; the popover still names what was withdrawn.
+     */
     static String mark(StoredLine line) {
         if (!line.refuters().isEmpty()) {
             return "✗";
@@ -603,7 +616,7 @@ final class DocumentSurfaceView {
         if (!line.affirmers().isEmpty()) {
             return "✓";
         }
-        return line.annotations().isEmpty() ? " " : "…";
+        return line.inForce().isEmpty() ? " " : "…";
     }
 
     static String markStyle(StoredLine line) {
@@ -1447,7 +1460,7 @@ final class DocumentSurfaceView {
         if (layers.contains(Layer.ANNOTATION_MARKS)) {
             long affirmed = lines.stream().filter(l -> !l.affirmers().isEmpty()).count();
             long refuted = lines.stream().filter(l -> !l.refuters().isEmpty()).count();
-            long commented = lines.stream().filter(l -> l.annotations().stream().anyMatch(a -> a.kind() == AnnotationKind.COMMENT)).count();
+            long commented = lines.stream().filter(l -> l.inForce().stream().anyMatch(a -> a.kind() == AnnotationKind.COMMENT)).count();
             if (refuted > 0) {
                 marginalia.getChildren().add(mark("✗ " + refuted, "#c62828", refuted + " of " + lines.size() + " line(s) refuted"));
             }
@@ -1659,7 +1672,11 @@ final class DocumentSurfaceView {
                     host.selectionChanged();
                 }
             }
-            editItem.setDisable(editableBlockOfSelection().isEmpty() || editing != null);
+            boolean structural = editableBlockOfSelection().isEmpty() || editing != null;
+            editItem.setDisable(structural);
+            addParagraphItem.setDisable(structural);
+            addListingItem.setDisable(structural);
+            deleteItem.setDisable(structural);
             menu.show(rta, e.getScreenX(), e.getScreenY());
             e.consume();
         });
@@ -1784,12 +1801,27 @@ final class DocumentSurfaceView {
         MenuItem comment = new MenuItem("Comment…");
         comment.setId("stampedDocumentComment");
         comment.setOnAction(e -> host.annotate(AnnotationKind.COMMENT));
+        MenuItem retract = new MenuItem("Retract…");
+        retract.setId("stampedDocumentRetract");
+        retract.setOnAction(e -> host.annotate(AnnotationKind.RETRACTION));
         editItem.setId("stampedDocumentEditBlock");
         editItem.setOnAction(e -> editSelectedBlock());
+        addParagraphItem.setId("stampedDocumentAddParagraph");
+        addParagraphItem.setOnAction(e -> host.addBlockAfterSelection(Block.Kind.PARAGRAPH));
+        addListingItem.setId("stampedDocumentAddListing");
+        addListingItem.setOnAction(e -> host.addBlockAfterSelection(Block.Kind.LISTING));
+        deleteItem.setId("stampedDocumentDeleteBlock");
+        deleteItem.setOnAction(e -> host.deleteSelectedBlock());
         MenuItem history = new MenuItem("Show history");
         history.setId("stampedDocumentShowHistory");
         history.setOnAction(e -> host.showHistory());
-        menu.getItems().addAll(affirm, refute, comment, new SeparatorMenuItem(), editItem, history);
+        menu.getItems().addAll(affirm, refute, comment, retract, new SeparatorMenuItem(), editItem, addParagraphItem, addListingItem, deleteItem,
+                new SeparatorMenuItem(), history);
+    }
+
+    /** @return the editable block the selection starts in, for the host's structural verbs */
+    Optional<StoredBlock> selectedEditableBlock() {
+        return editableBlockOfSelection().map(a -> a.block);
     }
 
     /** The editable block the selection starts in, if it starts in one. */

@@ -39,8 +39,9 @@ import java.util.function.Function;
  * The provenance of one line, as the hover popover and the history dialog show it
  * (ike-lab-documents topic {@code dev-stamped-document-surface}): the introducing STAMP's
  * identicon, author, date and state; the commit's short SHA and subject when the repository is
- * known; the latest STAMP when a later commit changed the line; and the annotations in force,
- * each with its kind, author and text. Names come through {@link StampNames}, never a nid.
+ * known; the latest STAMP when a later commit changed the line; the annotations in force,
+ * each with its kind, author and text; and, greyed, an annotation a retraction withdrew, with
+ * who withdrew it and when. Names come through {@link StampNames}, never a nid.
  */
 final class ProvenancePopover {
 
@@ -83,7 +84,7 @@ final class ProvenancePopover {
         if (latest != null && introduced != null && latest.nid() != introduced.nid()) {
             box.getChildren().add(stampRow(latest, latest.time() == Long.MAX_VALUE ? "Edited in Komet, uncommitted" : "Latest", view, summaries, identicon));
         }
-        if (line.annotations().isEmpty()) {
+        if (line.inForce().isEmpty()) {
             Label none = new Label(introduced == null || introduced.time() == Long.MAX_VALUE ? "" : "Not yet affirmed.");
             none.setFont(SMALL);
             none.setStyle("-fx-text-fill: #8a8782;");
@@ -97,24 +98,36 @@ final class ProvenancePopover {
         return box;
     }
 
-    /** @return "✓ Affirmed by Name on date: text", coloured by kind */
+    /** @return "✓ Affirmed by Name on date: text", coloured by kind; greyed with "retracted by Name on date" once withdrawn */
     static Label annotationRow(StoredAnnotation annotation, ViewCalculator view) {
+        Label label = new Label(annotationText(annotation, view));
+        label.setWrapText(true);
+        label.setFont(BODY);
+        label.setStyle(annotation.retracted() ? "-fx-text-fill: #8a8782;" : switch (annotation.kind()) {
+            case AFFIRMATION -> "-fx-text-fill: #2e7d32;";
+            case REFUTATION -> "-fx-text-fill: #c62828;";
+            case COMMENT, RETRACTION -> "-fx-text-fill: #5f6b7a;";
+        });
+        return label;
+    }
+
+    /** The row's words, as the popover and the tests read them. */
+    static String annotationText(StoredAnnotation annotation, ViewCalculator view) {
         String who = annotation.stamp() == null ? "someone" : StampNames.name(view, annotation.stamp().authorNid());
         String when = annotation.stamp() == null ? "" : " on " + MOMENT.format(Instant.ofEpochMilli(annotation.stamp().time()));
         String head = switch (annotation.kind()) {
-            case AFFIRMATION -> "✓ Affirmed";
-            case REFUTATION -> "✗ Refuted";
-            case COMMENT -> "… Commented on";
+            case AFFIRMATION -> annotation.retracted() ? "↶ Affirmation" : "✓ Affirmed";
+            case REFUTATION -> annotation.retracted() ? "↶ Refutation" : "✗ Refuted";
+            case COMMENT -> annotation.retracted() ? "↶ Comment" : "… Commented on";
+            case RETRACTION -> "↶ Retraction";
         };
-        Label label = new Label(head + " by " + who + when + (annotation.text() == null || annotation.text().isBlank() ? "" : ": " + annotation.text()));
-        label.setWrapText(true);
-        label.setFont(BODY);
-        label.setStyle(switch (annotation.kind()) {
-            case AFFIRMATION -> "-fx-text-fill: #2e7d32;";
-            case REFUTATION -> "-fx-text-fill: #c62828;";
-            case COMMENT -> "-fx-text-fill: #5f6b7a;";
-        });
-        return label;
+        String text = annotation.text() == null || annotation.text().isBlank() ? "" : ": " + annotation.text();
+        if (annotation.retracted()) {
+            String byWhom = StampNames.name(view, annotation.retractedBy().authorNid());
+            return head + " by " + who + when + ", retracted by " + byWhom + " on "
+                    + MOMENT.format(Instant.ofEpochMilli(annotation.retractedBy().time())) + text;
+        }
+        return head + " by " + who + when + text;
     }
 
     private static Node stampRow(StampEntity<?> stamp, String role, ViewCalculator view, CommitSummaries summaries, Function<StampEntity<?>, Image> identicon) {

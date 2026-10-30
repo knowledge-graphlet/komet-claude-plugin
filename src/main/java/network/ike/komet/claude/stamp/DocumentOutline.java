@@ -253,6 +253,7 @@ public final class DocumentOutline {
         }
         for (StoredAnnotation a : line.annotations()) {
             out.append(indent).append("      ").append(word(a.kind())).append(' ').append(describe.stamp(a.stamp()))
+                    .append(a.retracted() ? ", retracted by " + describe.stamp(a.retractedBy()) : "")
                     .append(a.text() == null || a.text().isBlank() ? "" : ": " + oneLine(a.text())).append('\n');
         }
         for (StoredReference r : document.references().getOrDefault(line.nid(), List.of())) {
@@ -263,9 +264,10 @@ public final class DocumentOutline {
 
     private static String marks(StoredLine line) {
         StringBuilder m = new StringBuilder();
-        long affirmed = line.annotations().stream().filter(a -> a.kind() == AnnotationKind.AFFIRMATION).count();
-        long refuted = line.annotations().stream().filter(a -> a.kind() == AnnotationKind.REFUTATION).count();
-        long commented = line.annotations().stream().filter(a -> a.kind() == AnnotationKind.COMMENT).count();
+        long affirmed = line.inForce().stream().filter(a -> a.kind() == AnnotationKind.AFFIRMATION).count();
+        long refuted = line.inForce().stream().filter(a -> a.kind() == AnnotationKind.REFUTATION).count();
+        long commented = line.inForce().stream().filter(a -> a.kind() == AnnotationKind.COMMENT).count();
+        long retracted = line.annotations().stream().filter(StoredAnnotation::retracted).count();
         if (affirmed > 0) {
             m.append(" ✓").append(affirmed > 1 ? Long.toString(affirmed) : "");
         }
@@ -274,6 +276,9 @@ public final class DocumentOutline {
         }
         if (commented > 0) {
             m.append(" …").append(commented > 1 ? Long.toString(commented) : "");
+        }
+        if (retracted > 0) {
+            m.append(" ↶").append(retracted > 1 ? Long.toString(retracted) : "");
         }
         if (line.latest() != null && line.latest().time() == Long.MAX_VALUE) {
             m.append(" ✎");
@@ -286,6 +291,7 @@ public final class DocumentOutline {
             case AFFIRMATION -> "affirmed by";
             case REFUTATION -> "refuted by";
             case COMMENT -> "commented on by";
+            case RETRACTION -> "retracted by";
         };
     }
 
@@ -346,12 +352,12 @@ public final class DocumentOutline {
             if (line.introduced() != null) {
                 byStamp.merge(describe.stamp(line.introduced()), 1, Integer::sum);
             }
-            if (line.annotations().stream().anyMatch(a -> a.kind() == AnnotationKind.AFFIRMATION)) {
+            if (!line.affirmers().isEmpty()) {
                 affirmed++;
             } else if (line.introduced() != null) {
                 queued++;
             }
-            if (line.annotations().stream().anyMatch(a -> a.kind() == AnnotationKind.REFUTATION)) {
+            if (!line.refuters().isEmpty()) {
                 refuted++;
             }
         }
@@ -365,7 +371,7 @@ public final class DocumentOutline {
             out.append("Line ").append(first).append(" is beyond the document's ").append(lines.size()).append(" lines.\n");
             return out.toString();
         }
-        out.append("Lines ").append(first).append('-').append(last).append(" (line  stamp  ✓=affirmed ✗=refuted …=commented ✎=uncommitted  text):\n");
+        out.append("Lines ").append(first).append('-').append(last).append(" (line  stamp  ✓=affirmed ✗=refuted …=commented ↶=retracted ✎=uncommitted  text):\n");
         for (int i = first; i <= last; i++) {
             line(lines.get(i - 1), false, describe, "", out);
         }

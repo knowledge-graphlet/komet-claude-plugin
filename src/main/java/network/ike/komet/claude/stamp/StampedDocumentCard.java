@@ -19,6 +19,8 @@ import design.knowledge.stamp.adoc.git.AnnotationCommit;
 import design.knowledge.stamp.adoc.git.GitRepo;
 import design.knowledge.stamp.adoc.model.Annotation;
 import design.knowledge.stamp.adoc.model.AnnotationKind;
+import design.knowledge.stamp.adoc.model.AnnotationTarget;
+import design.knowledge.stamp.adoc.dialect.Block;
 import design.knowledge.stamp.adoc.model.LineRange;
 import dev.ikm.komet.actions.KometActions;
 import dev.ikm.komet.layout.KlArea;
@@ -43,6 +45,7 @@ import javafx.scene.Node;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
+import javafx.scene.control.ChoiceDialog;
 import javafx.scene.control.CheckMenuItem;
 import javafx.scene.control.ChoiceBox;
 import javafx.scene.control.ComboBox;
@@ -1689,7 +1692,144 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
 
     @Override
     public void annotate(AnnotationKind kind) {
+        if (kind == AnnotationKind.RETRACTION) {
+            retractSelection();
+            return;
+        }
         annotateSelection(kind, null, null);
+    }
+
+    /**
+     * The assistant's hand-off of a retraction ({@link StampTools}): open the same confirmation
+     * the context menu's Retract… opens for the named annotation commit, with the reason prefilled
+     * for the person to edit. The person's click is the retraction; nothing is written here.
+     *
+     * @param sha  the annotation commit to withdraw, in full
+     * @param text the reason the person gave, or {@code null}
+     */
+    public void proposeRetraction(String sha, String text) {
+        Platform.runLater(() -> confirmRetraction(sha, shownPath, "The assistant prepared this retraction at your request.", text));
+    }
+
+    /**
+     * Retract… on the selection: the annotations in force on the selected lines are the choices,
+     * each by the commit that recorded it; one is confirmed outright, several are chosen from.
+     */
+    private void retractSelection() {
+        if (shown == null) {
+            statusLine.setText("Choose a document first.");
+            return;
+        }
+        Optional<DocumentAssembly.Located> located = located();
+        if (located.isEmpty()) {
+            statusLine.setText("Select a line an annotation covers, then choose Retract… from its menu.");
+            return;
+        }
+        DocumentAssembly.Member member = located.get().member();
+        Map<String, String> choices = new LinkedHashMap<>();
+        for (int o = located.get().local().min(); o <= located.get().local().max() && o < member.document().lines().size(); o++) {
+            for (GitDocumentMaterializer.StoredAnnotation annotation : member.document().lines().get(o).inForce()) {
+                if (annotation.stamp() == null) {
+                    continue;
+                }
+                summaries.sha(annotation.stamp().nid()).ifPresent(sha ->
+                        choices.putIfAbsent(sha, sha.substring(0, 7) + "  " + ProvenancePopover.annotationText(annotation, view())));
+            }
+        }
+        if (choices.isEmpty()) {
+            statusLine.setText("No annotation is in force on the selected lines; there is nothing to retract.");
+            return;
+        }
+        if (choices.size() == 1) {
+            confirmRetraction(choices.keySet().iterator().next(), member.path(), null, null);
+            return;
+        }
+        ChoiceDialog<String> choose = new ChoiceDialog<>(choices.values().iterator().next(), choices.values());
+        choose.setTitle("Retract Annotation");
+        choose.setHeaderText("Which annotation of the selected lines do you withdraw? A retraction withdraws every annotation its commit recorded.");
+        choose.getDialogPane().setId("stampedDocumentRetractChoice");
+        choose.initOwner(window());
+        choose.showAndWait().ifPresent(label -> choices.entrySet().stream().filter(e -> e.getValue().equals(label)).findFirst()
+                .ifPresent(e -> confirmRetraction(e.getKey(), member.path(), null, null)));
+    }
+
+    /**
+     * Confirms and writes a retraction: the person's own empty commit with one {@code Annotation:}
+     * trailer naming the annotation commit, the reason as its body, signed or not as they choose;
+     * then the commit is re-read into the store, where the retracted annotation gets an inactive
+     * version and its lines read as before it.
+     */
+    private void confirmRetraction(String sha, String memberPath, String headerNote, String initialText) {
+        if (shown == null) {
+            statusLine.setText("Choose a document first.");
+            return;
+        }
+        if (repoRoot == null || memberPath == null || !Files.isRegularFile(repoRoot.resolve(memberPath))) {
+            Optional<Path> chosen = workingTree(memberPath == null ? shownPath : memberPath);
+            if (chosen.isEmpty()) {
+                return;
+            }
+        }
+        Annotation annotation = Annotation.of(AnnotationKind.RETRACTION, new AnnotationTarget.Commit(sha));
+        String about = summaries.records().containsKey(sha)
+                ? sha.substring(0, 7) + " (" + summaries.records().get(sha).summary() + ", by " + summaries.records().get(sha).author().name() + ")"
+                : sha.substring(0, 7);
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+        confirm.setTitle("Retract Annotation");
+        confirm.getDialogPane().setId("stampedDocumentRetractionDialog");
+        confirm.setHeaderText((headerNote == null ? "" : headerNote + "\n")
+                + "Withdraw the annotation recorded as commit " + about + " as an empty commit?\n"
+                + "Every annotation that commit recorded on this file loses force; a judgment it had replaced does not come back, "
+                + "and later annotations stand.");
+        TextArea text = new TextArea(initialText == null ? "" : initialText);
+        text.setId("stampedDocumentRetractionText");
+        text.setPromptText("Why do you withdraw it? (required)");
+        text.setWrapText(true);
+        text.setPrefRowCount(4);
+        Label details = new Label(AnnotationCommit.subject(List.of(annotation)) + "\n\n" + annotation.trailer()
+                + "\n\nThe text becomes the commit body. Signing (-S) gives the retraction non-repudiation.");
+        details.setId("stampedDocumentRetractionTrailer");
+        details.setWrapText(true);
+        confirm.getDialogPane().setContent(new VBox(8, text, details));
+        ButtonType signed = new ButtonType("Signed Commit");
+        ButtonType unsigned = new ButtonType("Unsigned Commit");
+        confirm.getButtonTypes().setAll(signed, unsigned, ButtonType.CANCEL);
+        for (ButtonType type : List.of(signed, unsigned)) {
+            confirm.getDialogPane().lookupButton(type).disableProperty().bind(text.textProperty().isEmpty());
+        }
+        confirm.initOwner(window());
+        Optional<ButtonType> choice = confirm.showAndWait();
+        if (choice.isEmpty() || choice.get() == ButtonType.CANCEL) {
+            return;
+        }
+        boolean sign = choice.get() == signed;
+        String body = text.getText();
+        Path root = repoRoot;
+        Path file = Path.of(memberPath == null ? shownPath : memberPath);
+        PublicId anchor = shown.anchor();
+        statusLine.setText("Writing retraction commit …");
+        CompletableFuture.supplyAsync(() -> {
+            try {
+                AnnotationCommit.Result result = AnnotationCommit.write(root, List.of(annotation), body, sign);
+                if (result.ok()) {
+                    GitDocumentMaterializer.materialize(root, root.resolve(file), true);   // the retraction reaches the store: the annotation retires
+                }
+                return result;
+            } catch (IOException e) {
+                return new AnnotationCommit.Result(false, "", e.getMessage());
+            }
+        }).whenComplete((result, failure) -> Platform.runLater(() -> {
+            if (failure != null) {
+                statusLine.setText("Retraction not written: " + failure.getMessage());
+                LOG.warn("Retraction commit failed in {}", root, failure);
+            } else if (result.ok()) {
+                open(anchor, "Retraction recorded as commit " + result.sha().substring(0, Math.min(7, result.sha().length()))
+                        + " and read into the store.", null);
+            } else {
+                statusLine.setText("Retraction not written: " + result.output());
+                LOG.warn("Retraction commit failed in {}: {}", root, result.output());
+            }
+        }));
     }
 
     /**
@@ -2120,6 +2260,91 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
                     }
                     surface.cancelEdit();
                     open(anchor);
+                }));
+    }
+
+    /**
+     * Add paragraph after… / Add listing after…: asks for the new block's text and performs the
+     * starter set's {@code Add document block} action off the FX thread, so the new block lands as the
+     * person's pending edit after the block the selection starts in; the card then re-reads the
+     * document and shows the new lines with the edited mark.
+     */
+    @Override
+    public void addBlockAfterSelection(Block.Kind kind) {
+        if (shown == null) {
+            statusLine.setText("Choose a document first.");
+            return;
+        }
+        Optional<StoredBlock> after = surface.selectedEditableBlock();
+        if (after.isEmpty()) {
+            statusLine.setText("Select a line of a paragraph or listing; the new " + kind.name().toLowerCase() + " goes after its block.");
+            return;
+        }
+        Dialog<String> dialog = new Dialog<>();
+        dialog.setTitle("Add " + (kind == Block.Kind.LISTING ? "Listing" : "Paragraph"));
+        dialog.getDialogPane().setId("stampedDocumentAddBlockDialog");
+        dialog.setHeaderText("The new " + kind.name().toLowerCase() + "'s AsciiDoc source, one line per line"
+                + (kind == Block.Kind.LISTING ? ", ---- delimiters included" : "")
+                + ". It goes after the selected block, as your pending edit, uncommitted until you commit the document in git.");
+        TextArea text = new TextArea();
+        text.setId("stampedDocumentAddBlockText");
+        text.setWrapText(true);
+        text.setPrefRowCount(6);
+        text.setPrefColumnCount(72);
+        dialog.getDialogPane().setContent(text);
+        dialog.getDialogPane().getButtonTypes().setAll(ButtonType.OK, ButtonType.CANCEL);
+        dialog.getDialogPane().lookupButton(ButtonType.OK).disableProperty().bind(text.textProperty().isEmpty());
+        dialog.setResultConverter(button -> button == ButtonType.OK ? text.getText() : null);
+        dialog.initOwner(window());
+        dialog.showAndWait().filter(t -> !t.isBlank()).ifPresent(t -> performStructural("Adding the block", KometConcept.ADD_DOCUMENT_BLOCK,
+                AddDocumentBlock.input(after.get().nid(), kind, t.endsWith("\n") ? t : t + "\n")));
+    }
+
+    /** Delete block…: confirms, then performs the starter set's {@code Delete document block} action on the block the selection starts in. */
+    @Override
+    public void deleteSelectedBlock() {
+        if (shown == null) {
+            statusLine.setText("Choose a document first.");
+            return;
+        }
+        Optional<StoredBlock> block = surface.selectedEditableBlock();
+        if (block.isEmpty()) {
+            statusLine.setText("Select a line of a paragraph or listing to delete its block.");
+            return;
+        }
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+        confirm.setTitle("Delete Block");
+        confirm.getDialogPane().setId("stampedDocumentDeleteBlockDialog");
+        confirm.setHeaderText("Delete this " + block.get().kind().name().toLowerCase() + " of " + block.get().members().size()
+                + " line" + (block.get().members().size() == 1 ? "" : "s") + "?\nIt leaves the document as your pending edit: Commit… records "
+                + "the removal in git, Discard edit brings it back.");
+        confirm.initOwner(window());
+        Optional<ButtonType> choice = confirm.showAndWait();
+        if (choice.isEmpty() || choice.get() != ButtonType.OK) {
+            return;
+        }
+        performStructural("Deleting the block", KometConcept.DELETE_DOCUMENT_BLOCK, DeleteDocumentBlock.input(block.get().nid()));
+    }
+
+    /** Performs an action that changes the document's structure off the FX thread and re-reads the document. */
+    private void performStructural(String doing, dev.ikm.tinkar.terms.ConceptFacade action, dev.ikm.komet.actions.KometActionInput input) {
+        PublicId anchor = shown.anchor();
+        EditCoordinateRecord edit = editCoordinate();
+        ViewCalculator view = view();
+        statusLine.setText(doing + " …");
+        CompletableFuture.supplyAsync(() -> KometActions.expect(action).perform(input, view, edit))
+                .whenComplete((result, failure) -> Platform.runLater(() -> {
+                    if (failure != null) {
+                        Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
+                        statusLine.setText(doing + " failed: " + cause.getMessage());
+                        LOG.warn("{} of {} failed", doing, anchor, cause);
+                        return;
+                    }
+                    if (!result.completed()) {
+                        statusLine.setText(doing + " refused: " + result.message());
+                        return;
+                    }
+                    open(anchor, "Pending: " + result.message(), null);
                 }));
     }
 

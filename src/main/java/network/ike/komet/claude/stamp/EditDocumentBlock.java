@@ -123,8 +123,8 @@ public final class EditDocumentBlock implements KometAction {
                 + "; uncommitted until you commit the document in git.");
     }
 
-    /** The block's uncommitted version, the one the edit wrote. */
-    private static Optional<SemanticEntityVersion> pendingVersion(long block) {
+    /** The block's uncommitted version, the one the edit wrote; the add and delete actions read theirs the same way. */
+    static Optional<SemanticEntityVersion> pendingVersion(long block) {
         if (!(EntityHandle.get(block).orNull() instanceof SemanticEntity<?> semantic)) {
             return Optional.empty();
         }
