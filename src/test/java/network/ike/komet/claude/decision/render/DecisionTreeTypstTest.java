@@ -28,9 +28,10 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+
+import network.ike.komet.claude.stamp.print.TypstCompiler;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -104,9 +105,10 @@ class DecisionTreeTypstTest {
 
     /** Compiles the fragment with the typst binary on the path, where there is one. */
     private static void compiles(String name, String fragment) throws IOException, InterruptedException {
-        Path typst = List.of(System.getenv().getOrDefault("PATH", "").split(java.io.File.pathSeparator)).stream()
-                .map(dir -> Path.of(dir, "typst")).filter(Files::isExecutable).findFirst().orElse(null);
-        assumeTrue(typst != null, "no typst binary on the path");
+        // The print pipeline's own lookup: the path, then the login shell, then the usual
+        // install folders — a CI agent's launchd environment has no Homebrew bin on its path.
+        Path typst = TypstCompiler.locate().orElse(null);
+        assumeTrue(typst != null, "no typst binary on the path or in the usual folders");
         Path dir = Files.createTempDirectory("decision-typst");
         Path page = dir.resolve(name);
         Files.writeString(page, "#set page(width: auto, height: auto, margin: 12pt)\n" + fragment, StandardCharsets.UTF_8);
