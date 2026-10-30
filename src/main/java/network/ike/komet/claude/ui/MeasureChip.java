@@ -111,10 +111,13 @@ final class MeasureChip extends StackPane {
                 + DecisionFigureText.shown(bounds.upper(), computed, money) + (bounds.upperOpen() ? ")" : "]");
     }
 
-    /** Lines that say what the number means and how it was arrived at, put before the rest of the tooltip. */
+    /**
+     * Lines that say what the number means and how it was arrived at. They replace the chip's own
+     * unit and derivation lines, which they cover; only the invitation to try another value stays.
+     */
     void explain(List<String> lines) {
         List<String> all = new ArrayList<>(lines);
-        all.addAll(tip);
+        tip.stream().filter(line -> line.startsWith("Click")).forEach(all::add);
         tip = all;
         retip();
     }
