@@ -490,6 +490,9 @@ public final class ClaudeCard extends AbstractHostCard {
         // Pattern proposals: a pattern written uncommitted, its concepts resolved
         // against the open knowledge base, for the person to publish from Unpublished Changes.
         all.addAll(new network.ike.komet.claude.authoring.PatternProposalTools(viewProperties).tools());
+        // Semantic proposals (komet-desktop#210): an instance of a pattern on a concept, a pattern or a
+        // semantic, written uncommitted with every field valued, for the person to publish from Unpublished Changes.
+        all.addAll(new network.ike.komet.claude.authoring.SemanticProposalTools(viewProperties).tools());
         // Composition (ike-issues#1304): what the open knowledge base is made of, read from the records
         // its build wrote into it — the Knowledge Base Composition card's text, without the card open.
         all.addAll(network.ike.komet.claude.composition.KnowledgeBaseCompositionTools.tools(safeView));

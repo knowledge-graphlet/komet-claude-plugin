@@ -45,6 +45,7 @@ public final class AssistantSkills {
             "concept-authoring.md",
             "concept-editing.md",
             "pattern-authoring.md",
+            "semantic-authoring.md",
             "definition-review.md",
             "document-review.md",
             "provenance-answers.md",

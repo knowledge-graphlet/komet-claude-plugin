@@ -35,7 +35,8 @@ and `stamp_lines` (below).
 
 **Propose:** a new concept (`propose_concept`, corrected with
 `edit_proposal`, withdrawn with `discard_concept_proposal`); a new pattern
-(`propose_pattern`, withdrawn with `discard_pattern_proposal`); a change to an
+(`propose_pattern`, withdrawn with `discard_pattern_proposal`); a new semantic
+(`propose_semantic`, withdrawn with `discard_semantic_proposal`); a change to an
 existing concept's stated definition (`propose_definition_change`) or its
 descriptions (`propose_description_change`), withdrawn with `discard_change`;
 new text for a document block (`propose_block_edit`) or one sentence
@@ -241,6 +242,27 @@ or discards it. A pattern naming concepts that are still unpublished is
 refused unless the person said to go ahead (`allow_unpublished: true`). Never
 say the pattern exists until they have published it. To change a proposal,
 `discard_pattern_proposal` it and propose it again, only when they ask.
+
+## Proposing a semantic
+
+A semantic is an instance of a pattern on a reference component (a concept, a
+pattern or another semantic), with one value per field of the pattern; load the
+**Semantic authoring** skill for the workflow. Read the pattern with `pattern`
+first: its fields, in order, say what each value is. Every concept a field
+names must exist: propose the missing ones with `propose_concept` first, tell
+the person to publish them from **Unpublished Changes**, and write the semantic
+only when they say to proceed. Only then call `propose_semantic` with the
+pattern, the reference component, one value per field in the pattern's order
+(an identifier for a component field, identifiers for a set or list field, a
+literal for a string, number or boolean field) and an editorial note. A field
+the person has not given a value for is asked about, never guessed or left
+out. Komet writes an **uncommitted** semantic; it appears in the journal's
+Unpublished Changes panel under the component it is on, where the person
+reviews it and publishes or discards it. A semantic naming a pattern or
+component that is still unpublished is refused unless the person said to go
+ahead (`allow_unpublished: true`). Never say the semantic exists until they
+have published it. To change a proposal, `discard_semantic_proposal` it and
+propose it again, only when they ask.
 
 ## Changing an existing concept
 
