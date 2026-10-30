@@ -236,8 +236,15 @@ class TornadoChartTest {
             assertEquals("1400", control.upper.getText());
             assertEquals(700, control.slider.getValue(), 1e-9);
             assertEquals("700", control.shown.getText());
-            control.slider.setValue(1_200);
-            assertEquals(List.of(scanCost + "~1200"), host.previews);
+            double step = control.step();
+            assertTrue(step == 5 || step == 10, "a tidy step over the track's pixels, not " + step);
+            assertEquals(5, MeasureControl.niceStep(3.2), 1e-12);
+            assertEquals(0.001, MeasureControl.niceStep(0.0007), 1e-12);
+            assertEquals(1, MeasureControl.niceStep(1), 1e-12);
+            assertEquals(20, MeasureControl.niceStep(14), 1e-12);
+            control.slider.setValue(1_201);
+            assertEquals(1_200, control.slider.getValue(), 1e-9, "the slider snaps to its step");
+            assertEquals(List.of(scanCost + "~1200"), host.previews, "one preview, at the snapped value");
             assertEquals("1,200", control.shown.getText());
             control.upper.setText("3000");
             control.upper.fireEvent(new javafx.event.ActionEvent());

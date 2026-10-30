@@ -28,6 +28,7 @@ import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import network.ike.komet.claude.decision.Bounds;
 import network.ike.komet.claude.decision.DecisionTreeEdits;
+import network.ike.komet.claude.decision.render.DecisionFigureText;
 
 import java.util.Optional;
 
@@ -55,6 +56,9 @@ final class MeasureControl extends VBox {
     final Label shown;
     final Button apply;
     private final Listener listener;
+    /** The slider's resolution: one tidy step per whole pixel of its track, never finer. */
+    private double step = 1;
+    private boolean snapping;
 
     /**
      * @param name   what the value is
@@ -108,14 +112,77 @@ final class MeasureControl extends VBox {
         ((Label) foot.getChildren().get(0)).setFont(Font.font(base * 0.85));
 
         getChildren().addAll(title, how, bounds, slider, foot);
+        restep();
         show(slider.getValue());
+        slider.widthProperty().addListener((obs, was, now) -> restep());
         slider.valueProperty().addListener((obs, was, now) -> {
-            show(now.doubleValue());
-            listener.preview(now.doubleValue());
+            if (snapping) {
+                return;
+            }
+            double snapped = snap(now.doubleValue());
+            if (snapped != now.doubleValue()) {
+                snapping = true;
+                try {
+                    slider.setValue(snapped);
+                } finally {
+                    snapping = false;
+                }
+            }
+            show(snapped);
+            listener.preview(snapped);
         });
         lower.setOnAction(e -> rerange());
         upper.setOnAction(e -> rerange());
-        apply.setOnAction(e -> listener.commit(TornadoChart.rounded(slider.getValue())));
+        apply.setOnAction(e -> listener.commit(snap(slider.getValue())));
+    }
+
+    /**
+     * The step the slider moves by: the range over the track's whole pixels, rounded up to one,
+     * two or five of a power of ten. A slider two hundred pixels wide over 350..1,400 steps by
+     * ten; a value it hands on is never finer than the pointer could have set.
+     */
+    private void restep() {
+        double width = slider.getWidth() > 0 ? slider.getWidth() : slider.getPrefWidth();
+        double pixels = Math.max(1, width - 16);
+        step = niceStep((slider.getMax() - slider.getMin()) / pixels);
+        slider.setBlockIncrement(step);
+        if (!snapping) {
+            double snapped = snap(slider.getValue());
+            if (snapped != slider.getValue()) {
+                snapping = true;
+                try {
+                    slider.setValue(snapped);
+                } finally {
+                    snapping = false;
+                }
+                show(snapped);
+            }
+        }
+    }
+
+    /** One, two or five of a power of ten, the least no smaller than the raw step. */
+    static double niceStep(double raw) {
+        if (!(raw > 0) || Double.isInfinite(raw)) {
+            return 1;
+        }
+        double magnitude = Math.pow(10, Math.floor(Math.log10(raw)));
+        double mantissa = raw / magnitude;
+        double nice = mantissa <= 1 ? 1 : mantissa <= 2 ? 2 : mantissa <= 5 ? 5 : 10;
+        return nice * magnitude;
+    }
+
+    /** The value at the nearest multiple of the step, within the slider's range, free of binary noise. */
+    double snap(double value) {
+        double min = slider.getMin();
+        double max = slider.getMax();
+        double at = Math.round(value / step) * step;
+        at = Math.max(min, Math.min(max, at));
+        return Double.parseDouble(DecisionFigureText.atStep(at, step).replace(",", ""));
+    }
+
+    /** The slider's step; for a test. */
+    double step() {
+        return step;
     }
 
     private static TextField field(double value, double base) {
@@ -126,7 +193,7 @@ final class MeasureControl extends VBox {
     }
 
     private void show(double value) {
-        shown.setText(TornadoChart.value(value));
+        shown.setText(DecisionFigureText.atStep(value, step));
     }
 
     /** Reads the two bound fields and moves the slider's range to them, holding its value within. */
@@ -146,8 +213,9 @@ final class MeasureControl extends VBox {
         slider.setMin(min);
         slider.setMax(max);
         slider.setMajorTickUnit(Math.max((max - min) / 4, 1e-9));
-        slider.setValue(value);
-        show(value);
+        restep();
+        slider.setValue(snap(value));
+        show(slider.getValue());
     }
 
     /** The slider's range, as typed or as it began. */

@@ -30,6 +30,7 @@ import network.ike.komet.claude.block.Tokens;
 import network.ike.komet.claude.decision.Bounds;
 import network.ike.komet.claude.decision.DecisionTreeEdits;
 import network.ike.komet.claude.decision.Measure;
+import network.ike.komet.claude.decision.render.DecisionFigureText;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -50,6 +51,7 @@ final class MeasureChip extends StackPane {
 
     private final Label text;
     private final HBox row;
+    private List<String> tip = List.of();
 
     /**
      * @param word    what the measure is: p, money, health, or the parameter's quantity word
@@ -61,7 +63,8 @@ final class MeasureChip extends StackPane {
      */
     MeasureChip(String word, Optional<Bounds> bounds, Measure measure, Identities ids, double base,
                 Consumer<Bounds> onEdit) {
-        String shown = bounds.map(Bounds::toString).orElse("?");
+        boolean computed = measure.derived() || !measure.stated();
+        String shown = bounds.map(b -> shown(b, computed, "money".equals(word))).orElse("?");
         text = new Label(word.isEmpty() ? shown : word + " " + shown);
         text.setFont(Font.font(base * 0.9));
         text.setTextFill(bounds.isPresent() ? INK : GAP);
@@ -95,9 +98,36 @@ final class MeasureChip extends StackPane {
             Bounds current = bounds.orElse(Bounds.point(0));
             setOnMouseClicked(e -> open(current, base, onEdit));
         }
+        this.tip = tip;
+        retip();
+    }
+
+    /** The bounds as the chip prints them: a stated number as written, a computed one no wider than it earns. */
+    static String shown(Bounds bounds, boolean computed, boolean money) {
+        if (bounds.isPoint()) {
+            return DecisionFigureText.shown(bounds.lower(), computed, money);
+        }
+        return (bounds.lowerOpen() ? "(" : "[") + DecisionFigureText.shown(bounds.lower(), computed, money) + ", "
+                + DecisionFigureText.shown(bounds.upper(), computed, money) + (bounds.upperOpen() ? ")" : "]");
+    }
+
+    /** Lines that say what the number means and how it was arrived at, put before the rest of the tooltip. */
+    void explain(List<String> lines) {
+        List<String> all = new ArrayList<>(lines);
+        all.addAll(tip);
+        tip = all;
+        retip();
+    }
+
+    private void retip() {
         if (!tip.isEmpty()) {
             Tooltip.install(this, new Tooltip(String.join("\n", tip)));
         }
+    }
+
+    /** The tooltip's text; for a test. */
+    String explained() {
+        return String.join("\n", tip);
     }
 
     /** Opens the field, as a click does; for a test. */

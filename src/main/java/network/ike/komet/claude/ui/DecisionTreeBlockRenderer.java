@@ -391,9 +391,31 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             scroll.setPrefViewportHeight(diagram.prefHeight(-1));
             diagram.drawnHeightProperty().addListener((obs, was, now) -> scroll.setPrefViewportHeight(now.doubleValue()));
             top.getChildren().add(scroll);
+            top.getChildren().add(legend(rollback));
             if (lastSweep != null) {
                 markFlips(lastSweep);
             }
+        }
+
+        /** One line beneath the drawing saying what its numbers are. */
+        private Label legend(Rollback rollback) {
+            String moneyUnit = unitName(rollback.coordinate().moneySemantic(), "money");
+            String healthUnit = unitName(rollback.coordinate().healthSemantic(), "healthy years");
+            Label legend = new Label("⇒ is the expected cost per patient from that point on, in " + moneyUnit
+                    + ", with a year of healthy life priced at " + money(rollback.coordinate().healthPrice())
+                    + ". p is the share who go that way; money and health are what a branch costs, health in " + healthUnit
+                    + ". The heavy run is the alternative chosen. Hover a number for its working.");
+            legend.setId("decision-tree-legend");
+            legend.setWrapText(true);
+            legend.setFont(Font.font(base * 0.78));
+            legend.setTextFill(javafx.scene.paint.Color.web("#666"));
+            legend.setPadding(new Insets(2, 0, 4, 0));
+            return legend;
+        }
+
+        private String unitName(long nid, String fallback) {
+            String label = nid == 0 ? null : ids.label(nid);
+            return label == null || label.isBlank() ? fallback : label;
         }
 
         /** The title row: what the tree decides, its value, and the health price the reader may move. */
@@ -458,6 +480,8 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                 boolean editable = editable(index);
                 MeasureChip chip = new MeasureChip("", derivations.bounds(index), parameter.measure(), ids, base,
                         editable ? bounds -> edit(index, bounds) : null);
+                chip.explain(DecisionTreeDiagram.explain("", parameter.measure(), derivations.bounds(index), derivations, ids,
+                        drawn.terms().shareAtNode()));
                 chip.onHover(on -> hover(index, on));
                 parameterChips.put(index, chip);
                 item.getChildren().add(chip);

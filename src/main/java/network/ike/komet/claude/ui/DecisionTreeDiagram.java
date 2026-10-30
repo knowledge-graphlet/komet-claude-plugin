@@ -38,6 +38,7 @@ import javafx.scene.shape.Polyline;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import network.ike.komet.claude.block.Identities;
+import org.eclipse.collections.api.list.ImmutableList;
 import network.ike.komet.claude.decision.Bounds;
 import network.ike.komet.claude.decision.DecisionElement;
 import network.ike.komet.claude.decision.DecisionElement.Alternative;
@@ -210,8 +211,8 @@ final class DecisionTreeDiagram extends Region {
         Label valueLabel = label(value.map(bounds -> "⇒ " + DecisionTreeBlockRenderer.money(bounds))
                 .orElse("⇒ ?"), true, value.isPresent() ? INK : GAP);
         markChanged(index, value, valueLabel);
+        explainValue(valueLabel, index, working(node));
         if (findingsAt.containsKey(index)) {
-            valueLabel.setTooltip(new Tooltip(String.join("\n", findingsAt.get(index))));
             shape.setStroke(GAP);
             shape.getStrokeDashArray().setAll(3.0, 3.0);
         }
@@ -289,6 +290,7 @@ final class DecisionTreeDiagram extends Region {
             Label valueLabel = label(value.map(bounds -> "⇒ " + DecisionTreeBlockRenderer.money(bounds))
                     .orElse("⇒ ?"), true, value.isPresent() ? (chosen ? CHOSEN : INK) : GAP);
             markChanged(index, value, valueLabel);
+            explainValue(valueLabel, index, working(branch));
             above.getChildren().add(valueLabel);
         }
         if (chosen) {
@@ -368,9 +370,158 @@ final class DecisionTreeDiagram extends Region {
         Optional<Bounds> bounds = derivations.bounds(vertexIndex);
         boolean editable = !measure.derived() && host.editable(vertexIndex);
         MeasureChip chip = new MeasureChip(word, bounds, measure, ids, base, editable ? b -> host.edit(vertexIndex, b) : null);
+        chip.explain(explain(word, measure, bounds, derivations, ids, tree.terms().shareAtNode()));
         chip.onHover(on -> host.hover(vertexIndex, on));
         chips.put(vertexIndex, chip);
         return chip;
+    }
+
+    // ── What the numbers mean ────────────────────────────────────────────────
+
+    /**
+     * What a measure's number means and, when it was computed, how: the lines a chip's tooltip
+     * opens with. A share is the share of those at its chance who go that way; a cost is what is
+     * paid on the branch, in its unit; a parameter is an assumption stated once under the root.
+     */
+    static List<String> explain(String word, Measure measure, Optional<Bounds> bounds, Derivations derivations,
+                                Identities ids, long shareSemantic) {
+        List<String> lines = new ArrayList<>();
+        boolean share = measure.semanticNid() == shareSemantic;
+        String unit = !share && measure.semanticNid() != 0 && ids != null ? ids.label(measure.semanticNid()) : null;
+        String in = unit == null || unit.isBlank() ? "" : ", in " + unit;
+        lines.add(switch (word) {
+            case "p" -> "The share of those at this chance who go this way";
+            case "money" -> "Money paid on this branch" + in;
+            case "health" -> "Healthy life lost on this branch" + in;
+            default -> "A model assumption, stated once under the root" + in;
+        });
+        if (measure.derived()) {
+            lines.add(bounds.map(b -> working(word, measure, b, derivations, ids)).orElse("Not determinable"));
+        } else if (measure.stated()) {
+            lines.add("Stated in the block" + (bounds.isPresent() && !bounds.get().isPoint() ? ", as an interval" : ""));
+        }
+        return lines;
+    }
+
+    /** How a derived measure's number was arrived at: its kind over its operands' values, and the result. */
+    private static String working(String word, Measure measure, Bounds result, Derivations derivations, Identities ids) {
+        long from = measure.derivedFrom().getAsLong();
+        String shown = MeasureChip.shown(result, true, "money".equals(word));
+        if (measure.operands().isEmpty()) {
+            return "Reads " + name(ids, from) + " = " + shown;
+        }
+        List<String> terms = new ArrayList<>();
+        measure.operands().forEach(nid -> {
+            boolean stated = derivations.parameters().anySatisfy(p -> p.quantity().orElse(0) == nid && p.measure().stated());
+            terms.add(name(ids, nid) + " " + derivations.quantity(nid).map(b -> MeasureChip.shown(b, !stated, false)).orElse("?"));
+        });
+        return name(ids, from) + " of " + String.join(", ", terms) + " = " + shown;
+    }
+
+    private static String name(Identities ids, long nid) {
+        String label = ids == null ? null : ids.label(nid);
+        return label == null || label.isBlank() ? "a quantity" : label;
+    }
+
+    /** The lines a rolled-back value's tooltip carries: what moved, what ⇒ means, its working, and any finding. */
+    private void explainValue(Label valueLabel, int index, String working) {
+        List<String> lines = new ArrayList<>();
+        if (valueLabel.getTooltip() != null) {
+            lines.add(valueLabel.getTooltip().getText());
+        }
+        lines.add("⇒ the expected cost per patient from here on, in " + moneyUnit());
+        lines.add(working);
+        if (findingsAt.containsKey(index)) {
+            lines.addAll(findingsAt.get(index));
+        }
+        valueLabel.setTooltip(new Tooltip(String.join("\n", lines)));
+    }
+
+    private String moneyUnit() {
+        return name(ids, rollback.coordinate().moneySemantic());
+    }
+
+    private String nodeName(DecisionElement element) {
+        return element.concept().isPresent() ? name(ids, element.concept().getAsLong()) : "?";
+    }
+
+    private static String money(Optional<Bounds> bounds) {
+        return bounds.map(DecisionTreeBlockRenderer::money).orElse("?");
+    }
+
+    /** How a node's value was rolled back: the least alternative, the expectation over events, or the costs at an end. */
+    private String working(DecisionElement.Node node) {
+        return switch (node) {
+            case DecisionElement.Decision decision -> {
+                List<String> terms = new ArrayList<>();
+                for (Alternative alternative : decision.alternatives()) {
+                    terms.add(nodeName(alternative) + " " + money(rollback.value(alternative.vertexIndex())));
+                }
+                OptionalInt chosen = rollback.chosen(decision.vertexIndex());
+                String choice = decision.alternatives().stream()
+                        .filter(a -> chosen.isPresent() && a.vertexIndex() == chosen.getAsInt())
+                        .map(this::nodeName).findFirst().orElse("left open");
+                yield "The least of its alternatives: " + String.join(", ", terms) + " → " + choice;
+            }
+            case DecisionElement.Chance chance -> {
+                List<String> terms = new ArrayList<>();
+                Bounds others = Bounds.point(0);
+                for (Event event : chance.events()) {
+                    Optional<Bounds> p = event.residual() ? Optional.empty()
+                            : event.probability().flatMap(probability -> derivations.bounds(probability.vertexIndex()));
+                    if (p.isPresent()) {
+                        others = others.plus(p.get());
+                    }
+                }
+                Bounds remainder = others.complement().clip(0, 1);
+                for (Event event : chance.events()) {
+                    Optional<Bounds> p = event.residual() ? Optional.of(remainder)
+                            : event.probability().flatMap(probability -> derivations.bounds(probability.vertexIndex()));
+                    terms.add(p.map(b -> MeasureChip.shown(b, true, false)).orElse("?") + " × "
+                            + money(rollback.value(event.vertexIndex())) + " (" + nodeName(event) + ")");
+                }
+                yield "Expected over its events: " + String.join(" + ", terms) + " = " + money(rollback.value(chance.vertexIndex()));
+            }
+            case Outcome outcome -> outcome.costs().isEmpty() ? "No cost at this end"
+                    : "At this end: " + ownCosts(outcome.costs());
+            case Branch branch -> working(branch);
+        };
+    }
+
+    /** How a branch's value was rolled back: its own costs, plus what follows it. */
+    private String working(Branch branch) {
+        String own = branch.costs().isEmpty() ? "No cost of its own" : "Its own costs: " + ownCosts(branch.costs());
+        Optional<DecisionElement.Node> next = branch.next();
+        if (next.isEmpty()) {
+            return own + "; nothing follows";
+        }
+        return own + "; plus " + money(rollback.value(next.get().vertexIndex())) + " that follows = "
+                + money(rollback.value(branch.vertexIndex()));
+    }
+
+    /** The costs a node carries, each priced, and their sum. */
+    private String ownCosts(ImmutableList<Cost> costs) {
+        List<String> terms = new ArrayList<>();
+        Bounds total = Bounds.point(0);
+        boolean whole = true;
+        for (Cost cost : costs) {
+            Optional<Bounds> bounds = derivations.bounds(cost.vertexIndex());
+            if (bounds.isEmpty()) {
+                terms.add((cost instanceof MoneyCost ? "money" : "health") + " ?");
+                whole = false;
+                continue;
+            }
+            if (cost instanceof MoneyCost) {
+                terms.add("money " + DecisionTreeBlockRenderer.money(bounds.get()));
+                total = total.plus(bounds.get());
+            } else {
+                Bounds price = rollback.coordinate().healthPrice();
+                terms.add("health " + MeasureChip.shown(bounds.get(), cost.measure().derived(), false) + " × "
+                        + DecisionTreeBlockRenderer.money(price) + " a healthy year");
+                total = total.plus(bounds.get().times(price));
+            }
+        }
+        return String.join(" + ", terms) + " = " + (whole ? DecisionTreeBlockRenderer.money(total) : "?");
     }
 
     private Shape glyphFor(DecisionElement.Node node, boolean folded) {
@@ -609,6 +760,11 @@ final class DecisionTreeDiagram extends Region {
     /** Whether a rejected alternative is barred, for a test. */
     boolean barred(int branchVertex) {
         return bars.containsKey(branchVertex);
+    }
+
+    /** A node's value label, or the line that holds it at a terminal; for a test. */
+    Optional<Node> valueOf(int nodeVertex) {
+        return Optional.ofNullable(valueLabels.get(nodeVertex));
     }
 
     /** The chip of a measure's value line, for a test. */
