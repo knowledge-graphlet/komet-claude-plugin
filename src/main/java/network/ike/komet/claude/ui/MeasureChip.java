@@ -79,7 +79,7 @@ final class MeasureChip extends StackPane {
         if (measure.derived()) {
             text.setTextFill(bounds.isPresent() ? DERIVED : GAP);
             text.setStyle("-fx-font-style: italic;");
-            StringBuilder from = new StringBuilder("derived from ");
+            StringBuilder from = new StringBuilder(measure.operands().isEmpty() ? "reads " : "derived from ");
             from.append(ids == null ? "a derivation" : ids.label(measure.derivedFrom().getAsLong()));
             if (!measure.operands().isEmpty()) {
                 List<String> names = new ArrayList<>();

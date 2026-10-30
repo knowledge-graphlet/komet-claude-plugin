@@ -272,11 +272,15 @@ public final class DecisionTree extends ProfiledTree<DecisionElement> {
             findings.add(new ProfileFinding(vertexIndex, "a measure has no bounds and no derivation"));
         }
         if (measure.derived()) {
-            if (!terms.isDerivationKind(measure.derivedFrom().getAsLong())) {
+            long from = measure.derivedFrom().getAsLong();
+            if (terms.isDerivationKind(from)) {
+                if (measure.operands().isEmpty()) {
+                    findings.add(new ProfileFinding(vertexIndex, "a derived measure names no operands"));
+                }
+            } else if (!measure.operands().isEmpty()) {
                 findings.add(new ProfileFinding(vertexIndex, "a derivation names no kind the evaluator can run"));
-            }
-            if (measure.operands().isEmpty()) {
-                findings.add(new ProfileFinding(vertexIndex, "a derived measure names no operands"));
+            } else if (!hasParameterFor(from)) {
+                findings.add(new ProfileFinding(vertexIndex, "a measure reads a quantity the tree has no parameter for"));
             }
         }
         if (measure.semanticNid() == 0) {
@@ -286,6 +290,12 @@ public final class DecisionTree extends ProfiledTree<DecisionElement> {
                 && measure.derivedFrom().isEmpty()) {
             findings.add(new ProfileFinding(vertexIndex, "a derived measure names nothing it is derived from"));
         }
+    }
+
+    /** Whether the tree states or derives a parameter for a quantity. */
+    private boolean hasParameterFor(long quantity) {
+        return nodesOfType(Parameter.class).anySatisfy(parameter ->
+                parameter.quantity().isPresent() && parameter.quantity().getAsLong() == quantity);
     }
 
     @SafeVarargs

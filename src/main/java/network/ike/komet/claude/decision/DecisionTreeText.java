@@ -80,7 +80,8 @@ import java.util.UUID;
  * vertex writes its own identity as {@code @vertex}, so a block parsed and written again holds
  * the same vertices and a revised number is a new version of one of them. A stated measure
  * writes in the ANF interval grammar; a derived one writes {@code from} its kind {@code of} the
- * quantities it reads; a cost or a parameter with a money or health semantic names it after
+ * quantities it reads, and one that takes a parameter's value as it is writes {@code from} that
+ * quantity alone; a cost or a parameter with a money or health semantic names it after
  * {@code in}. Nothing computed is written.
  *
  * <p><b>Deterministic emission.</b> Parameters first under the root, then measures, then nodes,
@@ -208,8 +209,10 @@ public final class DecisionTreeText {
         if (measure.derived()) {
             sb.append(" from");
             concept(sb, ids, measure.derivedFrom());
-            sb.append(" of");
-            measure.operands().forEach(nid -> concept(sb, ids, OptionalLong.of(nid)));
+            if (!measure.operands().isEmpty()) {
+                sb.append(" of");
+                measure.operands().forEach(nid -> concept(sb, ids, OptionalLong.of(nid)));
+            }
         }
         boolean share = measure.semanticNid() == tree.terms().shareAtNode();
         if (!share && measure.semanticNid() != 0) {
@@ -456,8 +459,11 @@ public final class DecisionTreeText {
             UUID vertexId = vertexId(line);
             DecisionTree.Builder.Handle measure;
             if (derivation != null) {
-                long kindNid = derivationKind(line, derivation);
-                if (operands.isEmpty()) {
+                // from a quantity alone, with nothing after of, reads that parameter as it is
+                boolean reads = operands.isEmpty() && !namesDerivationKind(derivation);
+                long kindNid = reads ? resolveConcept(line, derivation, "a quantity a measure reads")
+                        : derivationKind(line, derivation);
+                if (operands.isEmpty() && !reads) {
                     findings.add(finding(line, "a derivation reads its operands after of"));
                 }
                 if (parameter && quantity == null && !operands.isEmpty()) {
@@ -592,6 +598,17 @@ public final class DecisionTreeText {
          * name, as the documentation build reads {@code from k:Complement[] of ...} with no
          * identity at all; a kind known neither way resolves as any concept would.
          */
+        /** Whether a token after from names a derivation kind, as against a quantity read as it is. */
+        private boolean namesDerivationKind(Tokens.Concept token) {
+            if (token.identifier().isPresent()) {
+                OptionalLong stored = ids.nid(token.identifier().get().strip());
+                if (stored.isPresent() && terms.isDerivationKind(stored.getAsLong())) {
+                    return true;
+                }
+            }
+            return terms.derivationKind(token.label()).isPresent() || terms.derivationKind(token.key()).isPresent();
+        }
+
         private long derivationKind(Line line, Tokens.Concept token) {
             if (token.identifier().isPresent()) {
                 OptionalLong stored = ids.nid(token.identifier().get().strip());

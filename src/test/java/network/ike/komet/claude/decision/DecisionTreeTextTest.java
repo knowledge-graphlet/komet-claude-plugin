@@ -374,6 +374,82 @@ class DecisionTreeTextTest {
         assertTrue(DecisionTreeText.toAdoc(tree, IDS).contains("@id=q108 from k:"), "it writes back in the canonical order");
     }
 
+    @Test
+    @DisplayName("A measure written from a quantity alone reads that parameter as it is, is not swept, and writes back without of")
+    void readsAParameterAsItIs() {
+        String block = """
+                decision: k:Fix[Fix now?] @id=fix-now
+                  parameter = [0.3,0.3] k:Hazard[Failure hazard] @id=hazard
+                  parameter = [150000,150000] k:FailureCost[Cost of a failure] @id=failure-cost in k:Usd[US dollar] @id=usd
+                  alternative: k:Wait[wait] @id=wait
+                    chance: k:Fails[Fails?] @id=fails
+                      event: k:Failure[failure] @id=failure
+                        p = from k:Hazard[] @id=hazard
+                        outcome: k:Broken[broken] @id=broken
+                          money = from k:FailureCost[] @id=failure-cost in k:Usd[US dollar] @id=usd
+                      residual: k:Holds[holds] @id=holds
+                        outcome: k:Fine[fine] @id=fine
+                  alternative: k:Repair[repair] @id=repair
+                    money = [20000,20000] k:Usd[US dollar] @id=usd
+                    outcome: k:Safe[safe] @id=safe
+                """;
+        BlockIdentities ids = BlockIdentities.storeFree();
+
+        DecisionTreeText.Parsed parsed = DecisionTreeText.parse(block, T, ids);
+
+        assertEquals(1, parsed.findings().size(), () -> "only the local-symbols note: " + parsed.findings());
+        DecisionTree tree = parsed.tree().orElseThrow();
+        assertTrue(tree.check().isEmpty(), () -> "check: " + tree.check());
+        Rollback rollback = Rollback.of(tree, BlockSweep.coordinate(tree, 100_000));
+        assertTrue(rollback.findings().isEmpty(), () -> "rollback: " + rollback.findings());
+        DecisionElement.Decision root = tree.decision().orElseThrow();
+        assertEquals(0.3 * 150_000, rollback.value(root.alternatives().get(0).vertexIndex()).orElseThrow().lower(), 0.01);
+        assertEquals(root.alternatives().get(1).vertexIndex(), rollback.chosen(root.vertexIndex()).orElseThrow());
+
+        String written = DecisionTreeText.toAdoc(tree, ids);
+        assertTrue(written.matches("(?s).*probability = from k:\\S*\\[Failure hazard] @id=hazard @vertex=.*"), () -> "from the quantity alone: " + written);
+        assertTrue(written.matches("(?s).*money = from k:\\S*\\[Cost of a failure] @id=failure-cost in k:.*"), () -> written);
+        assertFalse(written.contains(" of k:"), () -> "no operands, so no of: " + written);
+        assertEquals(written, DecisionTreeText.toAdoc(DecisionTreeText.parse(written, T, ids).tree().orElseThrow(), ids),
+                "the written form is byte-stable");
+
+        DecisionTreeSensitivity sweep = BlockSweep.sweep(block, T, ids, 100_000, 4).orElseThrow();
+        long hazard = ids.nid("hazard").orElseThrow();
+        long failure = ids.nid("failure").orElseThrow();
+        DecisionTree swept = sweep.tree();
+        int hazardVertex = swept.nodesOfType(DecisionElement.Parameter.class).stream()
+                .filter(p -> p.quantity().orElse(0) == hazard).findFirst().orElseThrow().vertexIndex();
+        int failureVertex = swept.nodes().stream().filter(n -> n.concept().orElse(0) == failure).findFirst().orElseThrow().vertexIndex();
+        int readShare = swept.children(failureVertex, DecisionElement.Probability.class).get(0).vertexIndex();
+        assertTrue(sweep.swing(hazardVertex).isPresent(), "the parameter swings");
+        assertTrue(sweep.swing(readShare).isEmpty(), "the share that reads it is not swept on its own");
+    }
+
+    @Test
+    @DisplayName("A measure that reads a quantity the tree has no parameter for is a finding, not a value")
+    void readsAMissingParameter() {
+        String block = """
+                decision: k:Fix[Fix now?] @id=c1
+                  alternative: k:Wait[wait] @id=c2
+                    chance: k:Fails[Fails?] @id=c3
+                      event: k:Failure[failure] @id=c4
+                        p = from k:Hazard[] @id=q106
+                        outcome: k:Broken[broken] @id=c5
+                      residual: k:Holds[holds] @id=c6
+                        outcome: k:Fine[fine] @id=c7
+                  alternative: k:Repair[repair] @id=c8
+                    outcome: k:Safe[safe] @id=c9
+                """;
+
+        DecisionTreeText.Parsed parsed = DecisionTreeText.parse(block, T, IDS);
+
+        assertTrue(parsed.findings().isEmpty(), () -> "findings: " + parsed.findings());
+        DecisionTree tree = parsed.tree().orElseThrow();
+        assertTrue(tree.check().anySatisfy((ProfileFinding f) -> f.message().contains("no parameter for")), () -> "check: " + tree.check());
+        Rollback rollback = Rollback.of(tree, at(100_000));
+        assertTrue(rollback.findings().anySatisfy((ProfileFinding f) -> f.message().contains("no parameter for")), () -> "rollback: " + rollback.findings());
+    }
+
     private static void assertFinding(DecisionTreeText.Parsed parsed, String line, String text) {
         assertTrue(parsed.findings().anySatisfy((ProfileFinding f) ->
                         f.message().startsWith(line + ":") && f.message().contains(text)),

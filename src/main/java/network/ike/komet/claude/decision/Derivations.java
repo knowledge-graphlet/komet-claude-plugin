@@ -122,6 +122,17 @@ public final class Derivations {
     // ── The kinds ────────────────────────────────────────────────────────────
 
     private Optional<Bounds> evaluate(long kind, ImmutableLongList operands, int vertexIndex) {
+        if (operands.isEmpty() && !terms.isDerivationKind(kind)) {
+            // derived from a quantity alone: the measure takes that parameter's value as it is
+            if (!parameters.containsKey(kind)) {
+                return notDeterminable(vertexIndex, "a measure reads a quantity the tree has no parameter for");
+            }
+            Optional<Bounds> value = quantity(kind);
+            if (value.isEmpty()) {
+                return notDeterminable(vertexIndex, "the parameter a measure reads is not determinable");
+            }
+            return value;
+        }
         if (!terms.isDerivationKind(kind)) {
             return notDeterminable(vertexIndex, "a derivation names no kind the evaluator can run");
         }
