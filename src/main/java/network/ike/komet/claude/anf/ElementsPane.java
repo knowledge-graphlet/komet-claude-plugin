@@ -16,9 +16,14 @@
 package network.ike.komet.claude.anf;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
-import java.util.TreeSet;
+import java.util.Set;
+import java.util.TreeMap;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Cursor;
@@ -28,7 +33,6 @@ import javafx.scene.control.CheckBox;
 import javafx.scene.control.CheckMenuItem;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuButton;
-import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
@@ -37,30 +41,31 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Circle;
-import javafx.scene.text.Text;
-import javafx.scene.text.TextFlow;
 import network.ike.komet.claude.anf.element.ClinicalElement;
 import network.ike.komet.claude.anf.element.ElementColours;
 import network.ike.komet.claude.anf.element.ElementSet;
 import network.ike.komet.claude.anf.element.ElementState;
+import network.ike.komet.claude.anf.element.NoteSection;
 import network.ike.komet.claude.anf.element.Span;
 
 /**
- * Step one of the two-step lift on the lift region ({@code dev-anf-element-isolation}): the note
- * with each element's words underlined in its colour and the words no element covers shaded, and
- * the element list beneath it, each row the quoted words, the element sentence to edit, the
- * element's state, whether it is reviewed, and its gestures. The pane holds no lift logic: every
- * gesture computes a new {@link ElementSet} and hands it to the {@link Host}, which persists it and
- * redraws; a lift is asked of the host by element id.
+ * Step one of the two-step lift on the lift region ({@code dev-anf-element-isolation}), as a tree
+ * (KEC 2026-10-31): the note's sections, each element under the section its words are in, and
+ * under each element, when it is open, its ANF statement. A row is the quoted words, the element
+ * sentence to edit, the element's state, whether it is reviewed, and its gestures. The note itself,
+ * with each element's words marked, is the narrative above the tree, so the pane draws no copy of
+ * it. Every row is at its natural height: the region's one scroll bar scrolls the tree with the
+ * rest. The pane holds no lift logic: every gesture computes a new {@link ElementSet} and hands it
+ * to the {@link Host}, which persists it and redraws; a lift is asked of the host by element id.
  */
 final class ElementsPane extends VBox {
 
-    /** What the pane asks of the region it sits in. */
+    /** What the pane asks of the lift region. */
     interface Host {
         /** The element set changed by a gesture: persist it and redraw. */
         void changed(ElementSet set);
 
-        /** An element was selected, or none: show its statement. */
+        /** An element was selected, or none. */
         void selected(Optional<ClinicalElement> element);
 
         /** Lift these elements, in order. */
@@ -68,15 +73,30 @@ final class ElementsPane extends VBox {
 
         /** The span the author has selected in the note, when there is one. */
         Optional<Span> selection();
+
+        /** The leaf under an open element: its statement, editable, or why it has none. */
+        Node statement(ClinicalElement element);
+    }
+
+    /** A rendered statement leaf and the statement it shows, kept while the element's statement is unchanged. */
+    private record Leaf(Optional<AnfStatement> statement, Node node) {
     }
 
     private final Host host;
-    private final TextFlow note = new TextFlow();
-    private final VBox rows = new VBox();
+    private final VBox tree = new VBox(4);
     private final Label coverage = new Label();
     private final Button addFromSelection = new Button("Add from selection");
     private final Button markNotClinical = new Button("Mark not clinical");
+    private final Button expandAll = new Button("Expand all");
+    private final Button collapseAll = new Button("Collapse all");
     private final Button liftAll = new Button("Lift elements");
+    private final HBox tools = new HBox(6);
+    /** Elements whose statement is open beneath them. */
+    private final Set<String> open = new HashSet<>();
+    /** Sections closed by the author, by their key. */
+    private final Set<String> closedSections = new HashSet<>();
+    private final Map<String, Leaf> leaves = new HashMap<>();
+    private final Map<String, Node> rowNodes = new LinkedHashMap<>();
     private ElementSet set;
     private String selectedId;
     private boolean busy;
@@ -85,11 +105,8 @@ final class ElementsPane extends VBox {
     ElementsPane(Host host) {
         super(6);
         this.host = host;
-        setPadding(new Insets(4));
-        note.setId("element-note");
-        note.setLineSpacing(6);
-        note.setPadding(new Insets(6, 8, 6, 8));
-        note.setStyle("-fx-background-color: white; -fx-border-color: #e6e3ee; -fx-border-radius: 6; -fx-background-radius: 6;");
+        setPadding(new Insets(4, 0, 4, 0));
+        tree.setId("element-tree");
         coverage.setId("element-coverage");
         coverage.setWrapText(true);
         coverage.setStyle("-fx-text-fill: #8a5a00; -fx-font-size: 11;");
@@ -97,16 +114,28 @@ final class ElementsPane extends VBox {
         addFromSelection.setOnAction(e -> addFromSelection());
         markNotClinical.setId("not-clinical-button");
         markNotClinical.setOnAction(e -> markNotClinical());
+        expandAll.setId("expand-elements-button");
+        expandAll.setOnAction(e -> {
+            if (set != null) {
+                set.elements().forEach(element -> open.add(element.id()));
+                closedSections.clear();
+                rebuild();
+            }
+        });
+        collapseAll.setId("collapse-elements-button");
+        collapseAll.setOnAction(e -> {
+            open.clear();
+            rebuild();
+        });
         liftAll.setId("lift-elements-button");
         liftAll.setOnAction(e -> host.lift(set == null ? List.of() : set.toLift().stream().map(ClinicalElement::id).toList()));
         Region spring = new Region();
         HBox.setHgrow(spring, Priority.ALWAYS);
-        HBox tools = new HBox(6, addFromSelection, markNotClinical, spring, liftAll);
+        tools.getChildren().addAll(addFromSelection, markNotClinical, spring, expandAll, collapseAll, liftAll);
         tools.setAlignment(Pos.CENTER_LEFT);
-        ScrollPane scroll = new ScrollPane(rows);
-        scroll.setFitToWidth(true);
-        VBox.setVgrow(scroll, Priority.ALWAYS);
-        getChildren().addAll(note, coverage, tools, scroll);
+        tools.managedProperty().bind(tools.visibleProperty());
+        coverage.managedProperty().bind(coverage.visibleProperty());
+        getChildren().addAll(coverage, tools, tree);
         setElements(null);
     }
 
@@ -119,6 +148,10 @@ final class ElementsPane extends VBox {
         if (set != null && selectedId != null && set.element(selectedId).isEmpty()) {
             selectedId = null;
         }
+        if (set == null) {
+            open.clear();
+            leaves.clear();
+        }
         noteChanged = false;
         rebuild();
     }
@@ -126,7 +159,7 @@ final class ElementsPane extends VBox {
     void setBusy(boolean isBusy) {
         this.busy = isBusy;
         updateButtons();
-        rows.setDisable(isBusy);
+        tree.setDisable(isBusy);
     }
 
     /** The note in the editor no longer matches the narrative the elements were isolated from. */
@@ -141,28 +174,58 @@ final class ElementsPane extends VBox {
         return set == null || selectedId == null ? Optional.empty() : set.element(selectedId);
     }
 
+    /** Selects an element and opens it, and its section, so its statement shows. */
     void select(String id) {
         selectedId = id;
+        if (id != null) {
+            open.add(id);
+            set.element(id).ifPresent(e -> closedSections.remove(sectionKeyOf(e)));
+        }
         rebuild();
         host.selected(selected());
+    }
+
+    /** Selects the element whose words hold a narrative offset, if any, and answers its row. */
+    Optional<Node> selectAt(int offset) {
+        if (set == null) {
+            return Optional.empty();
+        }
+        List<ClinicalElement> over = set.at(offset);
+        if (over.isEmpty()) {
+            return Optional.empty();
+        }
+        select(over.getFirst().id());
+        return Optional.ofNullable(rowNodes.get(over.getFirst().id()));
+    }
+
+    /** The statement leaf on screen already shows {@code updated}: a field edited in place, kept as it is. */
+    void statementEditedInPlace(String id, AnfStatement updated) {
+        Leaf leaf = leaves.get(id);
+        if (leaf != null) {
+            leaves.put(id, new Leaf(Optional.of(updated), leaf.node()));
+        }
     }
 
     // ── Drawing ──────────────────────────────────────────────────────────────
 
     private void rebuild() {
-        note.getChildren().clear();
-        rows.getChildren().clear();
+        tree.getChildren().clear();
+        rowNodes.clear();
         if (set == null) {
-            Text prompt = new Text("Isolate the note's clinical elements to see each fact the lift will make a statement of.");
-            prompt.setFill(Color.web("#888"));
-            note.getChildren().add(prompt);
-            coverage.setText("");
+            Label prompt = new Label("Isolate the note's clinical elements to see each fact the lift will make a statement of.");
+            prompt.setWrapText(true);
+            prompt.setStyle("-fx-text-fill: #888;");
+            tree.getChildren().add(prompt);
+            coverage.setVisible(false);
+            tools.setVisible(false);
             updateButtons();
             return;
         }
-        drawNote();
+        coverage.setVisible(true);
+        tools.setVisible(true);
         List<Span> uncovered = set.uncovered();
         if (noteChanged) {
+            coverage.setStyle("-fx-text-fill: #8a5a00; -fx-font-size: 11;");
             coverage.setText("The note has changed since its elements were isolated: isolate again, or undo the change.");
         } else if (uncovered.isEmpty()) {
             coverage.setText("Every part of the note is accounted for.");
@@ -172,11 +235,113 @@ final class ElementsPane extends VBox {
             coverage.setText(uncovered.size() + (uncovered.size() == 1 ? " stretch" : " stretches")
                     + " of the note, shaded, support no element and are not marked not clinical.");
         }
-        int i = 0;
+        List<NoteSection> sections = NoteSection.of(set.narrative());
+        Map<Integer, List<ClinicalElement>> bySection = new TreeMap<>();
         for (ClinicalElement element : set.elements()) {
-            rows.getChildren().add(row(element, colour(i++)));
+            bySection.computeIfAbsent(sectionOf(sections, element), k -> new ArrayList<>()).add(element);
         }
+        bySection.forEach((index, elements) -> tree.getChildren().add(section(index, sections, elements)));
+        Set<String> ids = new HashSet<>();
+        set.elements().forEach(e -> ids.add(e.id()));
+        leaves.keySet().retainAll(ids);
+        open.retainAll(ids);
         updateButtons();
+    }
+
+    private static int sectionOf(List<NoteSection> sections, ClinicalElement element) {
+        int at = element.spans().getFirst().start();
+        for (int i = 0; i < sections.size(); i++) {
+            if (sections.get(i).holds(at)) {
+                return i;
+            }
+        }
+        return Math.max(0, sections.size() - 1);
+    }
+
+    private String sectionKeyOf(ClinicalElement element) {
+        List<NoteSection> sections = NoteSection.of(set.narrative());
+        int index = sectionOf(sections, element);
+        return sectionKey(index, sections.isEmpty() ? "" : sections.get(index).title());
+    }
+
+    private static String sectionKey(int index, String title) {
+        return index + ":" + title;
+    }
+
+    private Node section(int index, List<NoteSection> sections, List<ClinicalElement> elements) {
+        String title = sections.isEmpty() ? "Note" : sections.get(index).title();
+        String key = sectionKey(index, title);
+        boolean closed = closedSections.contains(key);
+        Label toggle = disclosure(!closed);
+        Label name = new Label(title);
+        name.setStyle("-fx-font-weight: bold; -fx-text-fill: #3c3489;");
+        name.setWrapText(true);
+        Label count = new Label(elements.size() + (elements.size() == 1 ? " element" : " elements"));
+        count.setStyle("-fx-text-fill: #888; -fx-font-size: 10.5;");
+        count.setMinWidth(Region.USE_PREF_SIZE);
+        HBox header = new HBox(6, toggle, name, count);
+        header.setId("element-section-" + index);
+        header.setAlignment(Pos.CENTER_LEFT);
+        header.setCursor(Cursor.HAND);
+        header.setPadding(new Insets(4, 4, 2, 0));
+        header.setOnMouseClicked(e -> {
+            if (!closedSections.remove(key)) {
+                closedSections.add(key);
+            }
+            rebuild();
+        });
+        VBox box = new VBox(2, header);
+        if (!closed) {
+            VBox children = new VBox();
+            children.setPadding(new Insets(0, 0, 0, 14));
+            for (ClinicalElement element : elements) {
+                children.getChildren().add(elementNode(element, colourOf(element.id())));
+            }
+            box.getChildren().add(children);
+        }
+        return box;
+    }
+
+    private Node elementNode(ClinicalElement element, String colour) {
+        String id = element.id();
+        boolean isOpen = open.contains(id);
+        HBox row = row(element, colour);
+        Label toggle = disclosure(isOpen);
+        toggle.setId("element-toggle-" + id);
+        toggle.setOnMouseClicked(e -> {
+            if (!open.remove(id)) {
+                open.add(id);
+            }
+            rebuild();
+            e.consume();
+        });
+        row.getChildren().addFirst(toggle);
+        rowNodes.put(id, row);
+        VBox box = new VBox(row);
+        if (isOpen) {
+            box.getChildren().add(leaf(element));
+        }
+        return box;
+    }
+
+    private Node leaf(ClinicalElement element) {
+        Leaf cached = leaves.get(element.id());
+        if (cached != null && cached.statement().equals(element.statement())) {
+            return cached.node();
+        }
+        VBox node = new VBox(host.statement(element));
+        node.setId("element-statement-" + element.id());
+        node.setPadding(new Insets(2, 4, 8, 34));
+        leaves.put(element.id(), new Leaf(element.statement(), node));
+        return node;
+    }
+
+    private static Label disclosure(boolean isOpen) {
+        Label toggle = new Label(isOpen ? "▾" : "▸");
+        toggle.setStyle("-fx-text-fill: #5e4b7e; -fx-font-size: 12;");
+        toggle.setMinWidth(12);
+        toggle.setCursor(Cursor.HAND);
+        return toggle;
     }
 
     private String colour(int index) {
@@ -192,87 +357,7 @@ final class ElementsPane extends VBox {
         return "#888888";
     }
 
-    /** The note, word by word: underlined in the colour of the element each word supports, shaded where none does. */
-    private void drawNote() {
-        String text = set.narrative();
-        TreeSet<Integer> cuts = new TreeSet<>(List.of(0, text.length()));
-        for (ClinicalElement e : set.elements()) {
-            for (Span s : e.spans()) {
-                cuts.add(s.start());
-                cuts.add(Math.min(s.end(), text.length()));
-            }
-        }
-        for (Span s : set.notClinical()) {
-            cuts.add(s.start());
-            cuts.add(Math.min(s.end(), text.length()));
-        }
-        List<Span> uncovered = set.uncovered();
-        Integer previous = null;
-        for (int cut : cuts) {
-            if (previous != null && cut > previous) {
-                piece(text, previous, cut, uncovered);
-            }
-            previous = cut;
-        }
-    }
-
-    private void piece(String text, int from, int to, List<Span> uncovered) {
-        List<ClinicalElement> over = set.at(from);
-        boolean notClinical = set.notClinical().stream().anyMatch(s -> s.contains(from));
-        boolean gap = uncovered.stream().anyMatch(s -> s.contains(from));
-        // word by word, so a long stretch wraps
-        int i = from;
-        while (i < to) {
-            int j = i;
-            while (j < to && !Character.isWhitespace(text.charAt(j))) {
-                j++;
-            }
-            if (j > i) {
-                Label word = new Label(text.substring(i, j));
-                word.setStyle(style(over, notClinical, gap));
-                if (!over.isEmpty()) {
-                    word.setCursor(Cursor.HAND);
-                    String id = over.get(0).id();
-                    word.setOnMouseClicked(e -> select(id));
-                    word.setTooltip(new Tooltip(String.join("\n", over.stream().map(ClinicalElement::sentence).toList())));
-                }
-                note.getChildren().add(word);
-            }
-            int k = j;
-            while (k < to && Character.isWhitespace(text.charAt(k))) {
-                k++;
-            }
-            if (k > j) {
-                note.getChildren().add(new Text(text.substring(j, k)));
-            }
-            i = k;
-        }
-    }
-
-    private String style(List<ClinicalElement> over, boolean notClinical, boolean gap) {
-        StringBuilder style = new StringBuilder("-fx-font-size: 13.5; -fx-padding: 0 0 1 0;");
-        if (!over.isEmpty()) {
-            String colour = colourOf(over.get(0).id());
-            boolean selected = over.stream().anyMatch(e -> e.id().equals(selectedId));
-            style.append("-fx-border-color: transparent transparent ").append(colour).append(" transparent;")
-                    .append("-fx-border-width: 0 0 ").append(selected ? 3 : 2).append(" 0;");
-            if (selected) {
-                style.append("-fx-background-color: #f4f1fb;");
-            }
-            if (over.size() > 1) {
-                style.append("-fx-border-style: solid solid segments(5, 2) solid;");
-            }
-        } else if (notClinical) {
-            style.append("-fx-text-fill: #9a9a9a;");
-        } else if (gap) {
-            style.append("-fx-background-color: #f1efe8; -fx-text-fill: #7a776d;")
-                    .append("-fx-border-color: transparent transparent #b4b2a9 transparent; -fx-border-width: 0 0 1 0;")
-                    .append("-fx-border-style: solid solid segments(3, 2) solid;");
-        }
-        return style.toString();
-    }
-
-    private Node row(ClinicalElement element, String colour) {
+    private HBox row(ClinicalElement element, String colour) {
         String id = element.id();
         boolean selected = id.equals(selectedId);
         Circle dot = new Circle(5, Color.web(colour));
@@ -425,6 +510,8 @@ final class ElementsPane extends VBox {
     private void updateButtons() {
         boolean has = set != null && !noteChanged;
         addFromSelection.setDisable(busy || !has);
+        expandAll.setDisable(set == null);
+        collapseAll.setDisable(set == null);
         markNotClinical.setDisable(busy || !has);
         liftAll.setDisable(busy || !has || !set.allAccepted() || set.toLift().isEmpty());
         liftAll.setTooltip(new Tooltip(has && !set.allAccepted()
@@ -436,12 +523,11 @@ final class ElementsPane extends VBox {
 
     private void addFromSelection() {
         host.selection().ifPresent(span -> {
+            ElementSet before = set;
             ElementSet next = set.add(span.text(set.narrative()).strip(), List.of(span));
             host.changed(next);
-            selectedId = next.elements().stream().map(ClinicalElement::id)
-                    .filter(i -> set.element(i).isEmpty()).findFirst().orElse(null);
-            rebuild();
-            host.selected(selected());
+            select(next.elements().stream().map(ClinicalElement::id)
+                    .filter(i -> before.element(i).isEmpty()).findFirst().orElse(null));
         });
     }
 
@@ -449,10 +535,10 @@ final class ElementsPane extends VBox {
         host.selection().ifPresent(span -> host.changed(set.markNotClinical(span)));
     }
 
-    /** The rows' ids, for a test. */
+    /** The rows' ids, in tree order, for a test. */
     List<String> rowIds() {
         List<String> ids = new ArrayList<>();
-        rows.getChildren().forEach(n -> ids.add(n.getId()));
+        rowNodes.values().forEach(n -> ids.add(n.getId()));
         return ids;
     }
 }

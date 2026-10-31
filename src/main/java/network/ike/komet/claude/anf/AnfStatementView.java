@@ -304,19 +304,12 @@ public final class AnfStatementView {
          * @return a completer, or null when editing is unavailable
          */
         dev.ikm.komet.layout.controls.KlConceptField.Completer completer();
-
-        /**
-         * Opens a concept's detail (descriptions + axioms) for a clicked field.
-         *
-         * @param conceptValue the grounded value to inspect
-         */
-        void showDetail(AnfValue conceptValue);
     }
 
     /**
      * The node for a concept value: an editable {@link KlConceptField} when an {@link Editor} is
-     * present and the value is grounded (clear to empty, type to re-search, drop to substitute, click
-     * for detail); otherwise the existing drop-substitutable badge (read-only contexts, or
+     * present and the value is grounded (clear to empty, type to re-search, drop to substitute,
+     * right-click for the host's menu); otherwise the existing drop-substitutable badge (read-only contexts, or
      * candidate/clarify values which have no concept to edit).
      *
      * @param conceptValue      the value to render
@@ -353,14 +346,6 @@ public final class AnfStatementView {
             }
         });
         field.onClearedProperty().set(() -> editor.onFieldEdited(rebuild.apply(null)));
-        field.onDetailProperty().set(value -> {
-            if (value instanceof KlConceptField.Value.Concept concept) {
-                AnfValue.Grounded grounded = editor.resolve(concept.nid());
-                if (grounded != null) {
-                    editor.showDetail(grounded);
-                }
-            }
-        });
         return field;
     }
 

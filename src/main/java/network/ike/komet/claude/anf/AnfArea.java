@@ -16,8 +16,13 @@
 package network.ike.komet.claude.anf;
 
 import dev.ikm.komet.framework.controls.KonceptBadge;
-import dev.ikm.komet.framework.dnd.KonceptDragSource;
 import dev.ikm.komet.framework.view.ViewProperties;
+import dev.ikm.komet.kview.events.MakeKLWindowEvent;
+import dev.ikm.komet.kview.events.ShowNavigationalPanelEvent;
+import dev.ikm.komet.layout.editor.StandardEditorWindows;
+import dev.ikm.tinkar.entity.ConceptEntity;
+import dev.ikm.tinkar.entity.EntityHandle;
+import dev.ikm.tinkar.events.EvtBusFactory;
 import dev.ikm.komet.layout.KlArea;
 import dev.ikm.komet.layout.area.AreaGridSettings;
 import dev.ikm.komet.layout.area.KlToolArea;
@@ -42,22 +47,18 @@ import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
 import javafx.application.Platform;
+import javafx.beans.binding.Bindings;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
-import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
-import javafx.scene.control.ListView;
 import javafx.scene.control.ScrollPane;
-import javafx.scene.control.SplitPane;
-import javafx.scene.control.TextArea;
 import javafx.scene.control.Tooltip;
-import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -67,11 +68,11 @@ import javafx.util.Duration;
 import javafx.util.StringConverter;
 
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
+import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -110,19 +111,21 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
 
     private KlConceptField.Completer conceptCompleter;
 
-    private TextArea narrative;
+    /** The note, editable, with its elements drawn on it. */
+    private NarrativeView narrative;
     /** The stamped document the narrative was read from, while the narrative is its text: spans then anchor to its sentences. */
     private SegmentNarrative segments;
     private Button liftButton;
     /** Step one of the two-step lift (dev-anf-element-isolation): isolates the note's clinical elements. */
     private Button isolateButton;
     private ElementsPane elementsPane;
-    private ScrollPane formalPane;
+    /** The statements of a lift in one pass, shown only when there are some. */
     private VBox cards;
     private Label progressLabel;
-    private ListView<AnfValue> inventoryView;
-    private final ObservableList<AnfValue> inventory = FXCollections.observableArrayList();
-    private final Set<Long> seenNids = new HashSet<>();
+    private Label statusLabel;
+    /** The region's one scroll bar: the narrative, the element tree and a one-pass lift's statements scroll together. */
+    private ScrollPane column;
+    private Supplier<UUID> journalTopic = () -> null;
     private final List<AnfStatement> statements = new ArrayList<>();
     private ComboBox<LiftRecord> recallBox;
     private final ObservableList<LiftRecord> history = FXCollections.observableArrayList();
@@ -130,7 +133,6 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
     private int currentLiftIndex = -1;
     /** Suppresses the recall listener while we update the history list in place (avoids a reload mid-edit). */
     private boolean suppressRecall = false;
-    private ScrollPane detailPane;
     private Timeline elapsed;
     private long liftStartNanos;
     private String activity = "";
@@ -178,11 +180,6 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
             @Override
             public KlConceptField.Completer completer() {
                 return conceptCompleter();
-            }
-
-            @Override
-            public void showDetail(AnfValue conceptValue) {
-                AnfArea.this.showDetail(conceptValue);
             }
         };
     }
@@ -242,6 +239,11 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
     }
 
     @Override
+    public void setJournalTopicSupplier(Supplier<UUID> journalTopic) {
+        this.journalTopic = journalTopic == null ? () -> null : journalTopic;
+    }
+
+    @Override
     public void setOnCloseRequest(Runnable onCloseRequest) {
         this.onCloseRequest = onCloseRequest;
     }
@@ -276,10 +278,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
                     }
                 });
 
-        narrative = new TextArea();
-        narrative.setPromptText("Paste or dictate a clinical narrative, then Lift…");
-        narrative.setWrapText(true);
-        narrative.setPrefRowCount(4);
+        narrative = new NarrativeView();
 
         liftButton = new Button("Lift in one pass");
         liftButton.setId("lift-one-pass-button");
@@ -290,13 +289,23 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         isolateButton.setTooltip(new Tooltip("Step one: find each clinical fact of the note, as a sentence tied to its words"));
         isolateButton.setOnAction(event -> isolate());
         elementsPane = new ElementsPane(new ElementsHost());
-        narrative.textProperty().addListener((obs, was, now) -> {
-            if (segments != null && !segments.narrative().equals(now == null ? "" : now.strip())) {
+        narrative.setOnEdited(() -> {
+            String now = narrative.getText().strip();
+            if (segments != null && !segments.narrative().equals(now)) {
                 // edited by hand: the text is no longer the document's, so spans are quoted again
                 segments = null;
             }
             ElementSet set = elementsPane.elements();
-            elementsPane.setNoteChanged(set != null && !set.narrative().equals(now == null ? "" : now.strip()));
+            elementsPane.setNoteChanged(set != null && !set.narrative().equals(now));
+            // restyled after the edit's own notification, never from inside it
+            Platform.runLater(this::markNarrative);
+        });
+        narrative.setOnClicked(offset -> {
+            String text = narrative.getText();
+            ElementSet set = elementsPane.elements();
+            if (set != null && set.narrative().equals(text.strip())) {
+                elementsPane.selectAt(offset - text.indexOf(set.narrative())).ifPresent(this::reveal);
+            }
         });
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
@@ -311,54 +320,36 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
 
         progressLabel = new Label();
         progressLabel.setStyle("-fx-text-fill: #666666;");
+        progressLabel.managedProperty().bind(progressLabel.textProperty().isNotEmpty());
+        progressLabel.visibleProperty().bind(progressLabel.managedProperty());
+        statusLabel = new Label();
+        statusLabel.setId("lift-status");
+        statusLabel.setWrapText(true);
+        statusLabel.setStyle("-fx-text-fill: #666666;");
+        statusLabel.managedProperty().bind(statusLabel.textProperty().isNotEmpty());
+        statusLabel.visibleProperty().bind(statusLabel.managedProperty());
 
-        // TOP: narrative full width (input and recall), with the recall + lift controls above it.
-        VBox top = new VBox(6, controls, narrative, progressLabel);
-        top.setPadding(new Insets(8));
+        VBox elementsSection = new VBox(2, sectionTitle("Clinical elements"), elementsPane);
 
-        // MIDDLE-LEFT: grounded/proposed concepts.
-        inventoryView = new ListView<>(inventory);
-        inventoryView.setCellFactory(view -> new ConceptCell());
-        inventoryView.setPlaceholder(new Label("Concepts appear here as they are grounded."));
-        inventoryView.getSelectionModel().selectedItemProperty().addListener(
-                (obs, old, conceptValue) -> {
-                    if (conceptValue != null) {
-                        showDetail(conceptValue);
-                    }
-                });
-        VBox conceptsPane = new VBox(2, sectionTitle("Concepts"), inventoryView);
-        VBox.setVgrow(inventoryView, Priority.ALWAYS);
-
-        // MIDDLE-RIGHT: the performance statement(s).
+        // A lift in one pass has no elements: its statements list here, and the section is gone when it has none.
         cards = new VBox(8);
-        cards.setPadding(new Insets(4));
-        formalPane = new ScrollPane();
-        formalPane.setFitToWidth(true);
-        setStatus("Lift a narrative to see its Analysis Normal Form.");
-        VBox statementPane = new VBox(2, sectionTitle("ANF statement"), formalPane);
-        VBox.setVgrow(formalPane, Priority.ALWAYS);
+        cards.setPadding(new Insets(4, 0, 4, 0));
+        VBox statementSection = new VBox(2, sectionTitle("ANF statements"), cards);
+        statementSection.visibleProperty().bind(Bindings.isNotEmpty(cards.getChildren()));
+        statementSection.managedProperty().bind(statementSection.visibleProperty());
 
-        VBox elementsWrap = new VBox(2, sectionTitle("Clinical elements"), elementsPane);
-        VBox.setVgrow(elementsPane, Priority.ALWAYS);
-        SplitPane middle = new SplitPane(elementsWrap, statementPane);
-        middle.setDividerPositions(0.55);
+        // One column, one scroll bar (KEC 2026-10-31): every section at its natural height.
+        VBox content = new VBox(8, controls, narrative.node(), progressLabel, statusLabel, elementsSection, statementSection);
+        content.setPadding(new Insets(8, 12, 12, 8));
+        column = new ScrollPane(content);
+        column.setId("lift-column");
+        column.setFitToWidth(true);
+        column.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
 
-        // BOTTOM: detail of the selected concept (from the Concepts list or a statement chip).
-        detailPane = new ScrollPane();
-        detailPane.setFitToWidth(true);
-        detailPane.setContent(detailPlaceholder());
-        VBox detailWrap = new VBox(2, sectionTitle("Concept detail"), detailPane);
-        VBox.setVgrow(detailPane, Priority.ALWAYS);
-
-        SplitPane bottom = new SplitPane(conceptsPane, detailWrap);
-        bottom.setDividerPositions(0.34);
-        SplitPane center = new SplitPane(middle, bottom);
-        center.setOrientation(Orientation.VERTICAL);
-        center.setDividerPositions(0.6);
-
-        pane.setTop(top);
-        pane.setCenter(center);
+        pane.setCenter(column);
         pane.setBottom(legend());
+        // every concept chip in the region offers its concept's windows on right-click
+        KonceptBadge.contributeMenuItems(pane, this::conceptMenuItems);
 
         restoreHistory();
     }
@@ -381,9 +372,45 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         }
     }
 
-    /** Opens the inline detail (descriptions + axioms for grounded; provisional data for proposed). */
-    private void showDetail(AnfValue conceptValue) {
-        detailPane.setContent(ConceptDetailPane.render(conceptValue, toolViewProperties));
+    /**
+     * What a concept chip's right-click menu offers beside copying: the concept in a KL concept
+     * window of this region's journal, or in the journal's navigator.
+     */
+    private List<MenuItem> conceptMenuItems(long nid) {
+        UUID topic = journalTopic.get();
+        if (topic == null || !(EntityHandle.get(nid).orNull() instanceof ConceptEntity<?> concept)) {
+            return List.of();
+        }
+        MenuItem window = new MenuItem("Open in concept window");
+        window.setOnAction(e -> EvtBusFactory.getDefaultEvtBus().publish(topic,
+                new MakeKLWindowEvent(this, MakeKLWindowEvent.OPEN_STANDARD_WINDOW, concept, StandardEditorWindows.CONCEPT_WINDOW)));
+        MenuItem navigator = new MenuItem("Show in navigator");
+        navigator.setOnAction(e -> EvtBusFactory.getDefaultEvtBus().publish(topic,
+                new ShowNavigationalPanelEvent(this, ShowNavigationalPanelEvent.SHOW_CONCEPT_NAVIGATIONAL_FROM_CONCEPT, concept)));
+        return List.of(window, navigator);
+    }
+
+    /** Scrolls the column so a node of it is in view, leaving it where it is when it already is. */
+    private void reveal(Node node) {
+        Platform.runLater(() -> {
+            Node content = column.getContent();
+            double contentHeight = content.getBoundsInLocal().getHeight();
+            double viewport = column.getViewportBounds().getHeight();
+            if (contentHeight <= viewport) {
+                return;
+            }
+            javafx.geometry.Bounds bounds = content.sceneToLocal(node.localToScene(node.getBoundsInLocal()));
+            double top = column.getVvalue() * (contentHeight - viewport);
+            if (bounds.getMinY() < top || bounds.getMaxY() > top + viewport) {
+                double target = Math.max(0, Math.min(bounds.getMinY() - 24, contentHeight - viewport));
+                column.setVvalue(target / (contentHeight - viewport));
+            }
+        });
+    }
+
+    /** Draws the current elements on the narrative, the selected one tinted. */
+    private void markNarrative() {
+        narrative.mark(elementsPane.elements(), elementsPane.selected().map(ClinicalElement::id));
     }
 
     /** Re-resolves a written identifier against the current view, for parsing a history lift's blocks. */
@@ -394,13 +421,10 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
                 : id -> GraphTools.resolveConcept(id, view);
     }
 
-    /** Reloads a persisted lift: re-parses its adoc blocks and rebuilds the cards + inventory. */
+    /** Reloads a persisted lift: re-parses its adoc blocks and rebuilds its elements, or its cards. */
     private void loadLift(LiftRecord record) {
-        inventory.clear();
-        seenNids.clear();
         statements.clear();
         cards.getChildren().clear();
-        detailPane.setContent(detailPlaceholder());
         AnfAdoc.ConceptResolver resolver = resolver();
         // a lift from a stamped document is read against the document's sentences as they are now
         Optional<SegmentNarrative> current = segmentNarrativeOf(record.anfBlocks());
@@ -411,11 +435,9 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
             narrative.setText(anchoring.narrative());
             segments = current.orElse(null);
             elementsPane.setElements(elements.get());
-            for (ClinicalElement element : elements.get().elements()) {
-                element.statement().ifPresent(statement -> conceptValuesOf(statement).forEach(this::addConcept));
-            }
+            markNarrative();
             currentLiftIndex = history.indexOf(record);
-            setStatus(lost.isEmpty() ? "Select an element to see its statement."
+            setStatus(lost.isEmpty() ? ""
                     : "The document has changed: " + lost.size() + (lost.size() == 1 ? " element" : " elements")
                     + " no longer found in its sentences: " + String.join("; ", lost));
             int n = elements.get().elements().size();
@@ -428,24 +450,13 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
             AnfStatement statement = AnfAdoc.parse(block, resolver);
             if (statement != null) {
                 appendCard(statement);
-                for (AnfValue conceptValue : conceptValuesOf(statement)) {
-                    addConcept(conceptValue);
-                }
             }
         }
-        formalPane.setContent(cards);
         narrative.setText(record.narrative());
+        setStatus("");
         currentLiftIndex = history.indexOf(record);
         int n = statements.size();
         setActivity(n + (n == 1 ? " statement" : " statements") + " · from history");
-    }
-
-    private Node detailPlaceholder() {
-        Label l = new Label("Select a concept to see its descriptions and axioms.");
-        l.setWrapText(true);
-        l.setPadding(new Insets(10));
-        l.setStyle("-fx-text-fill: #999999;");
-        return l;
     }
 
     /** The grounded/candidate/clarify key, as a single footer row across the bottom of the tile. */
@@ -466,52 +477,6 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         Label t = new Label(text);
         t.setStyle("-fx-text-fill: #888888; -fx-font-size: 10;");
         return new HBox(5, g, t);
-    }
-
-    /** All concept values of a statement, for repopulating the inventory when a lift is reloaded. */
-    private static List<AnfValue> conceptValuesOf(AnfStatement s) {
-        List<AnfValue> conceptValues = new ArrayList<>();
-        addConceptValue(conceptValues, s.topic());
-        addConceptValue(conceptValues, s.subjectOfInformation());
-        switch (s.circumstance()) {
-            case Circumstance.Performance p -> {
-                addMeasure(conceptValues, p.result());
-                addConceptValue(conceptValues, p.status());
-                addConceptValue(conceptValues, p.healthRisk());
-                addMeasure(conceptValues, p.normalRange());
-                addConceptValue(conceptValues, p.bodySite());
-                addConceptValue(conceptValues, p.method());
-                addConceptValue(conceptValues, p.laterality());
-                conceptValues.addAll(p.purpose());
-                addMeasure(conceptValues, p.timing());
-            }
-            case Circumstance.Request r -> {
-                addMeasure(conceptValues, r.requestedResult());
-                addConceptValue(conceptValues, r.priority());
-                addConceptValue(conceptValues, r.method());
-                conceptValues.addAll(r.conditionalTrigger());
-                conceptValues.addAll(r.purpose());
-                addMeasure(conceptValues, r.timing());
-                if (r.repetition() != null) {
-                    addMeasure(conceptValues, r.repetition().periodStart());
-                    addMeasure(conceptValues, r.repetition().periodDuration());
-                    addMeasure(conceptValues, r.repetition().eventSeparation());
-                    addMeasure(conceptValues, r.repetition().eventDuration());
-                    addMeasure(conceptValues, r.repetition().eventFrequency());
-                }
-            }
-            case Circumstance.Narrative n -> {
-                conceptValues.addAll(n.purpose());
-                addMeasure(conceptValues, n.timing());
-            }
-        }
-        return conceptValues;
-    }
-
-    private static void addConceptValue(List<AnfValue> conceptValues, AnfValue conceptValue) {
-        if (conceptValue != null) {
-            conceptValues.add(conceptValue);
-        }
     }
 
     private static void addMeasure(List<AnfValue> conceptValues, AnfStatement.Result result) {
@@ -537,12 +502,11 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         }
         setBusy(true);
         elementsPane.setElements(null);
-        inventory.clear();
-        seenNids.clear();
+        markNarrative();
+        setStatus("");
         statements.clear();
         currentLiftIndex = -1;
         cards.getChildren().clear();
-        formalPane.setContent(cards);
         startElapsed();
 
         AnfLiftListener listener = new AnfLiftListener() {
@@ -554,11 +518,6 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
             @Override
             public void onToolCall(int turn, String tool, Map<String, Object> input) {
                 Platform.runLater(() -> setActivity(activityFor(tool, input)));
-            }
-
-            @Override
-            public void onValueDiscovered(AnfValue conceptValue) {
-                Platform.runLater(() -> addConcept(conceptValue));
             }
 
             @Override
@@ -599,7 +558,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
                 stopElapsed();
                 if (!finalResult.lifted()) {
                     // The cards streamed in via onStatementEmitted; nothing landed, so show the
-                    // model's text (a clarification or an error) in place of the empty card list.
+                    // model's text (a clarification or an error).
                     String t = finalResult.assistantText();
                     setStatus((t == null || t.isBlank()) ? "No statement was produced." : t);
                 } else {
@@ -698,9 +657,8 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         // the elements' spans are offsets into exactly this text
         narrative.setText(text);
         setBusy(true);
-        inventory.clear();
-        seenNids.clear();
         statements.clear();
+        cards.getChildren().clear();
         currentLiftIndex = -1;
         setStatus("Isolating the note's clinical elements…");
         startElapsed();
@@ -737,9 +695,10 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
                 } else {
                     ElementSet set = result.elements().get();
                     elementsPane.setElements(set);
+                    markNarrative();
                     int n = set.elements().size();
                     setActivity(n + (n == 1 ? " element isolated" : " elements isolated") + " · review them, then lift");
-                    setStatus("Select an element to see its statement once it is lifted.");
+                    setStatus("");
                     persistElements(set, true);
                 }
                 setBusy(false);
@@ -780,10 +739,6 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
                         Platform.runLater(() -> setActivity(position + "/" + ids.size() + " · " + activityFor(tool, input)));
                     }
 
-                    @Override
-                    public void onValueDiscovered(AnfValue conceptValue) {
-                        Platform.runLater(() -> addConcept(conceptValue));
-                    }
                 };
                 AnfLift.Result result;
                 try {
@@ -801,9 +756,6 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
                             ElementSet next = current.lifted(id, statement);
                             elementsPane.setElements(next);
                             persistElements(next, false);
-                            if (elementsPane.selected().map(e -> e.id().equals(id)).orElse(false)) {
-                                showElement(next.element(id));
-                            }
                         }
                     });
                 }
@@ -816,26 +768,14 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         });
     }
 
-    /** Shows an element's statement in the statement pane, editable in place, or says it is not lifted. */
-    private void showElement(Optional<ClinicalElement> element) {
-        if (element.isEmpty()) {
-            setStatus("Select an element to see its statement.");
-            return;
+    /** The leaf under an open element in the tree: its statement, editable in place, or why it has none. */
+    private Node statementLeaf(ClinicalElement element) {
+        if (element.statement().isEmpty()) {
+            Label none = new Label("Not lifted yet: lift it, or lift every reviewed element.");
+            none.setStyle("-fx-text-fill: #888; -fx-font-size: 11;");
+            return none;
         }
-        ClinicalElement e = element.get();
-        if (e.statement().isEmpty()) {
-            setStatus("“" + e.sentence() + "” is not lifted yet. Lift it, or lift every reviewed element.");
-            return;
-        }
-        Label sentence = new Label(e.sentence());
-        sentence.setWrapText(true);
-        sentence.setStyle("-fx-font-size: 13; -fx-text-fill: #282040; -fx-padding: 4 4 0 4;");
-        Label state = new Label(e.state().word());
-        state.setStyle("-fx-text-fill: #888; -fx-font-size: 10.5; -fx-padding: 0 4 4 4;");
-        Node card = AnfStatementView.render(e.statement().get(), toolViewProperties, elementEditor(e.id()));
-        VBox box = new VBox(2, sentence, state, card);
-        box.setPadding(new Insets(4));
-        formalPane.setContent(box);
+        return AnfStatementView.render(element.statement().get(), toolViewProperties, elementEditor(element.id()));
     }
 
     /** The card editor of an element's statement: an edit writes back to the element and persists. */
@@ -864,22 +804,18 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
                 }
                 current.element(id).ifPresent(e -> {
                     ElementSet next = current.replace(e.withStatement(updated));
+                    if (!redraw) {
+                        // the field already shows its new value: keep the card, so a sibling field mid-edit survives
+                        elementsPane.statementEditedInPlace(id, updated);
+                    }
                     elementsPane.setElements(next);
                     persistElements(next, false);
-                    if (redraw) {
-                        showElement(next.element(id));
-                    }
                 });
             }
 
             @Override
             public KlConceptField.Completer completer() {
                 return conceptCompleter();
-            }
-
-            @Override
-            public void showDetail(AnfValue conceptValue) {
-                AnfArea.this.showDetail(conceptValue);
             }
         };
     }
@@ -922,6 +858,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         narrative.setText(read.get().narrative());
         segments = read.get();
         elementsPane.setElements(null);
+        cards.getChildren().clear();
         currentLiftIndex = -1;
         int n = read.get().sentences().size();
         setStatus(choice.path() + ": " + n + (n == 1 ? " sentence" : " sentences")
@@ -979,12 +916,17 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         public void changed(ElementSet set) {
             elementsPane.setElements(set);
             persistElements(set, false);
-            showElement(elementsPane.selected());
+            markNarrative();
         }
 
         @Override
         public void selected(Optional<ClinicalElement> element) {
-            showElement(element);
+            markNarrative();
+        }
+
+        @Override
+        public Node statement(ClinicalElement element) {
+            return statementLeaf(element);
         }
 
         @Override
@@ -994,20 +936,15 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
 
         @Override
         public Optional<Span> selection() {
-            javafx.scene.control.IndexRange range = narrative.getSelection();
             ElementSet set = elementsPane.elements();
-            if (range == null || range.getLength() == 0 || set == null) {
+            String text = narrative.getText();
+            if (set == null || !set.narrative().equals(text.strip())) {
                 return Optional.empty();
             }
-            int start = range.getStart();
-            int end = Math.min(range.getEnd(), set.narrative().length());
-            while (start < end && Character.isWhitespace(set.narrative().charAt(start))) {
-                start++;
-            }
-            while (end > start && Character.isWhitespace(set.narrative().charAt(end - 1))) {
-                end--;
-            }
-            return start < end ? Optional.of(new Span(start, end)) : Optional.empty();
+            int lead = text.indexOf(set.narrative());
+            return narrative.selection()
+                    .filter(span -> span.start() >= lead && span.end() <= lead + set.narrative().length())
+                    .map(span -> new Span(span.start() - lead, span.end() - lead));
         }
     }
 
@@ -1033,12 +970,9 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         }
     }
 
+    /** A line of status under the narrative; an empty message hides it. */
     private void setStatus(String message) {
-        Label l = new Label(message);
-        l.setWrapText(true);
-        l.setPadding(new Insets(8));
-        l.setStyle("-fx-text-fill: #666666;");
-        formalPane.setContent(l);
+        statusLabel.setText(message == null ? "" : message);
     }
 
     private void setBusy(boolean busy) {
@@ -1083,17 +1017,6 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         progressLabel.setText(seconds + "s · " + (activity == null ? "" : activity));
     }
 
-    /** Adds a discovered value to the inventory, de-duplicating grounded concepts by nid. */
-    private void addConcept(AnfValue conceptValue) {
-        if (conceptValue instanceof AnfValue.Grounded grounded) {
-            if (seenNids.add(grounded.nid())) {
-                inventory.add(conceptValue);
-            }
-        } else {
-            inventory.add(conceptValue);
-        }
-    }
-
     /** A short progress phrase for a tool call, e.g. {@code "search diabetes…"}. */
     private static String activityFor(String tool, Map<String, Object> input) {
         Object arg = null;
@@ -1101,51 +1024,6 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
             arg = input.containsKey("query") ? input.get("query") : input.get("id");
         }
         return (arg == null) ? tool + "…" : tool + " " + arg + "…";
-    }
-
-    /**
-     * Renders an inventory row as the value's shared Koncept badge, draggable on the
-     * FIRST click. A KonceptBadge graphic inside a ListView only receives DRAG_DETECTED
-     * after the row is first selected (the cell swallows the initial press), so the drag
-     * is wired at the CELL with a capturing event filter. The filter also runs — and
-     * consumes — ahead of the badge's own drag handler, so every drag (first click or
-     * repeat) takes this one path with a single, consistent pointer offset, identical to
-     * how the card chips drag: the {@link KonceptBadge} convention is a no-offset drag
-     * view, which sits below and right of the pointer so it never hides the cursor.
-     */
-    private final class ConceptCell extends ListCell<AnfValue> {
-        ConceptCell() {
-            addEventFilter(MouseEvent.DRAG_DETECTED, this::startConceptDrag);
-        }
-
-        /**
-         * Starts a concept drag via the shared {@link KonceptDragSource} (scene-guarded,
-         * unconditional payload, right-of-identicon drag view). The drag is wired at the CELL
-         * because a {@link KonceptBadge} graphic only receives {@code DRAG_DETECTED} after the
-         * row is first selected; the cell's filter runs ahead of that on the first click.
-         */
-        private void startConceptDrag(MouseEvent event) {
-            if (getItem() instanceof AnfValue.Grounded grounded
-                    && getGraphic() instanceof KonceptBadge badge) {
-                KonceptDragSource.start(this, badge, grounded.nid(), event);
-            }
-        }
-
-        @Override
-        protected void updateItem(AnfValue item, boolean empty) {
-            AnfValue previous = getItem();
-            super.updateItem(item, empty);
-            setText(null);
-            if (empty || item == null) {
-                setGraphic(null);
-            } else if (item != previous || getGraphic() == null) {
-                // Rebuild the badge ONLY when the row's concept actually changes (or the cell was empty) —
-                // not on every updateItem (scroll/layout/selection, and the list growing as a lift streams
-                // in). Recreating it each call churns nodes needlessly and lets a drag's press-target badge
-                // be swapped out mid-gesture.
-                setGraphic(AnfStatementView.chipFor(item, toolViewProperties));
-            }
-        }
     }
 
     @Override
