@@ -15,14 +15,7 @@
  */
 package network.ike.komet.claude.anf;
 
-import dev.ikm.komet.framework.controls.KonceptBadge;
 import dev.ikm.komet.framework.view.ViewProperties;
-import dev.ikm.komet.kview.events.MakeKLWindowEvent;
-import dev.ikm.komet.kview.events.ShowNavigationalPanelEvent;
-import dev.ikm.komet.layout.editor.StandardEditorWindows;
-import dev.ikm.tinkar.entity.ConceptEntity;
-import dev.ikm.tinkar.entity.EntityHandle;
-import dev.ikm.tinkar.events.EvtBusFactory;
 import dev.ikm.komet.layout.KlArea;
 import dev.ikm.komet.layout.area.AreaGridSettings;
 import dev.ikm.komet.layout.area.KlToolArea;
@@ -71,8 +64,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
-import java.util.function.Supplier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -125,7 +116,6 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
     private Label statusLabel;
     /** The region's one scroll bar: the narrative, the element tree and a one-pass lift's statements scroll together. */
     private ScrollPane column;
-    private Supplier<UUID> journalTopic = () -> null;
     private final List<AnfStatement> statements = new ArrayList<>();
     private ComboBox<LiftRecord> recallBox;
     private final ObservableList<LiftRecord> history = FXCollections.observableArrayList();
@@ -238,10 +228,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         this.toolViewProperties = viewProperties;
     }
 
-    @Override
-    public void setJournalTopicSupplier(Supplier<UUID> journalTopic) {
-        this.journalTopic = journalTopic == null ? () -> null : journalTopic;
-    }
+
 
     @Override
     public void setOnCloseRequest(Runnable onCloseRequest) {
@@ -348,8 +335,6 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
 
         pane.setCenter(column);
         pane.setBottom(legend());
-        // every concept chip in the region offers its concept's windows on right-click
-        KonceptBadge.contributeMenuItems(pane, this::conceptMenuItems);
 
         restoreHistory();
     }
@@ -370,24 +355,6 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         if (!restored.isEmpty()) {
             history.setAll(restored);
         }
-    }
-
-    /**
-     * What a concept chip's right-click menu offers beside copying: the concept in a KL concept
-     * window of this region's journal, or in the journal's navigator.
-     */
-    private List<MenuItem> conceptMenuItems(long nid) {
-        UUID topic = journalTopic.get();
-        if (topic == null || !(EntityHandle.get(nid).orNull() instanceof ConceptEntity<?> concept)) {
-            return List.of();
-        }
-        MenuItem window = new MenuItem("Open in concept window");
-        window.setOnAction(e -> EvtBusFactory.getDefaultEvtBus().publish(topic,
-                new MakeKLWindowEvent(this, MakeKLWindowEvent.OPEN_STANDARD_WINDOW, concept, StandardEditorWindows.CONCEPT_WINDOW)));
-        MenuItem navigator = new MenuItem("Show in navigator");
-        navigator.setOnAction(e -> EvtBusFactory.getDefaultEvtBus().publish(topic,
-                new ShowNavigationalPanelEvent(this, ShowNavigationalPanelEvent.SHOW_CONCEPT_NAVIGATIONAL_FROM_CONCEPT, concept)));
-        return List.of(window, navigator);
     }
 
     /** Scrolls the column so a node of it is in view, leaving it where it is when it already is. */
