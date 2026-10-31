@@ -25,7 +25,9 @@ import javafx.scene.Cursor;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.CheckBox;
+import javafx.scene.control.CheckMenuItem;
 import javafx.scene.control.Label;
+import javafx.scene.control.MenuButton;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Tooltip;
@@ -321,7 +323,8 @@ final class ElementsPane extends VBox {
         merge.setTooltip(new Tooltip("Merge with the element below: only when the two could not be true or false independently"));
         Button remove = small("✕", "element-remove-" + id, () -> host.changed(set.remove(id)));
         remove.setTooltip(new Tooltip("Remove this element; its words are then uncovered"));
-        HBox actions = new HBox(4, lift, split, merge, remove);
+        MenuButton link = linkMenu(element);
+        HBox actions = new HBox(4, lift, split, merge, link, remove);
         actions.setAlignment(Pos.CENTER_LEFT);
         if (element.state() == ElementState.STALE) {
             Button keep = small("Keep lift", "element-keep-" + id, () -> host.changed(set.replace(element.acceptLift())));
@@ -381,6 +384,34 @@ final class ElementsPane extends VBox {
         tag.setStyle("-fx-background-color: " + colours[0] + "; -fx-text-fill: " + colours[1]
                 + "; -fx-background-radius: 4; -fx-padding: 1 6 1 6; -fx-font-size: 10.5;");
         return tag;
+    }
+
+    /**
+     * The link gesture (dev-anf-element-isolation, step one): one check item per other element of
+     * the note, checked when the two are linked, so "sitting" is linked to the blood pressure it
+     * qualifies where the author sees both spans. A link is symmetric; unchecking forgets it on both.
+     */
+    private MenuButton linkMenu(ClinicalElement element) {
+        String id = element.id();
+        MenuButton menu = new MenuButton("Link");
+        menu.setId("element-link-" + id);
+        menu.setStyle("-fx-font-size: 10.5; -fx-padding: 0 2 0 2;");
+        menu.setTooltip(new Tooltip("Link this element to one it qualifies or is qualified by"));
+        int i = 0;
+        for (ClinicalElement other : set.elements()) {
+            String colour = ElementColours.of(i++);
+            if (other.id().equals(id)) {
+                continue;
+            }
+            CheckMenuItem item = new CheckMenuItem(other.sentence(), new Circle(4, Color.web(colour)));
+            item.setId("element-link-" + id + "-" + other.id());
+            item.setSelected(element.links().contains(other.id()));
+            item.selectedProperty().addListener((obs, was, is) ->
+                    host.changed(is ? set.link(id, other.id()) : set.unlink(id, other.id())));
+            menu.getItems().add(item);
+        }
+        menu.setDisable(menu.getItems().isEmpty());
+        return menu;
     }
 
     private static Button small(String text, String id, Runnable action) {

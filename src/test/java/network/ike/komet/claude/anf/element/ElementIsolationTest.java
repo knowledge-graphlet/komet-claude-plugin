@@ -166,6 +166,25 @@ class ElementIsolationTest {
     }
 
     @Test
+    void aLinkMadeByHandIsSymmetricWrittenAndUndone() {
+        ElementSet set = isolated();
+        // COVID-19 and RSV were isolated apart; the author links them by hand
+        ElementSet linked = set.link("el-6", "el-7");
+        assertEquals(List.of("el-7"), linked.element("el-6").orElseThrow().links());
+        assertEquals(List.of("el-6"), linked.element("el-7").orElseThrow().links());
+        assertEquals(linked, linked.link("el-7", "el-6"), "linking twice changes nothing");
+        // the written form carries the link both ways and reads it back
+        ElementSet read = ElementText.parse(ElementText.toBlocks(linked), NOTE, id -> Optional.empty()).orElseThrow();
+        assertEquals(List.of("el-7"), read.element("el-6").orElseThrow().links());
+        // unlinking forgets it on both, and leaves the isolation's own link alone
+        ElementSet unlinked = linked.unlink("el-7", "el-6");
+        assertTrue(unlinked.element("el-6").orElseThrow().links().isEmpty());
+        assertTrue(unlinked.element("el-7").orElseThrow().links().isEmpty());
+        assertEquals(List.of("el-3"), unlinked.element("el-4").orElseThrow().links());
+        assertEquals(unlinked, unlinked.unlink("el-6", "el-7"), "unlinking what is not linked changes nothing");
+    }
+
+    @Test
     void anElementsStateFollowsItsLift() {
         ElementSet set = isolated().lifted("el-1", statement("Chronological age"));
         ClinicalElement age = set.element("el-1").orElseThrow();

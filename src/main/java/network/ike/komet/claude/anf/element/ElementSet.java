@@ -236,6 +236,20 @@ public record ElementSet(String narrative, List<ClinicalElement> elements, List<
         return next;
     }
 
+    /** These elements with two no longer linked, each forgetting the other. */
+    public ElementSet unlink(String a, String b) {
+        ElementSet next = this;
+        for (String[] pair : new String[][] {{a, b}, {b, a}}) {
+            Optional<ClinicalElement> e = next.element(pair[0]);
+            if (e.isPresent() && e.get().links().contains(pair[1])) {
+                List<String> links = new ArrayList<>(e.get().links());
+                links.remove(pair[1]);
+                next = next.replace(e.get().withLinks(links));
+            }
+        }
+        return next;
+    }
+
     /** These elements with one lifted to a statement. */
     public ElementSet lifted(String id, AnfStatement statement) {
         return element(id).map(e -> replace(e.lifted(statement))).orElse(this);
