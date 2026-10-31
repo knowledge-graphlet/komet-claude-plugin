@@ -55,7 +55,8 @@ public final class AnfHistoryStore {
     private static final String ATTR_TITLE = ":lift-title:";
     private static final String ATTR_NARRATIVE = ":lift-narrative:";
     /** Splits a multi-block document just before each {@code [anf,type=…]} block start. */
-    private static final Pattern BLOCK_SPLIT = Pattern.compile("(?m)(?=^\\[anf,type=)");
+    /** Splits before each block: a statement or element, and an element set's not-clinical mark (dev-anf-element-isolation). */
+    private static final Pattern BLOCK_SPLIT = Pattern.compile("(?m)(?=^\\[anf(?:,type=|-not-clinical[,\\]]))");
 
     private AnfHistoryStore() {
     }

@@ -28,6 +28,11 @@ import dev.ikm.komet.preferences.KometPreferences;
 import dev.ikm.komet.preferences.PreferencesService;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import network.ike.komet.claude.anf.element.ClinicalElement;
+import javafx.scene.control.MenuItem;
+import javafx.scene.control.MenuButton;
+import network.ike.komet.claude.stamp.DocumentNarratives;
+import network.ike.komet.claude.anf.element.SegmentNarrative;
+import network.ike.komet.claude.anf.element.Anchoring;
 import network.ike.komet.claude.anf.element.ElementIsolation;
 import network.ike.komet.claude.anf.element.ElementSet;
 import network.ike.komet.claude.anf.element.ElementText;
@@ -106,6 +111,8 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
     private KlConceptField.Completer conceptCompleter;
 
     private TextArea narrative;
+    /** The stamped document the narrative was read from, while the narrative is its text: spans then anchor to its sentences. */
+    private SegmentNarrative segments;
     private Button liftButton;
     /** Step one of the two-step lift (dev-anf-element-isolation): isolates the note's clinical elements. */
     private Button isolateButton;
@@ -244,6 +251,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
 
         // Recall: a compact dropdown of past lifts, so the narrative keeps full width.
         recallBox = new ComboBox<>(history);
+        recallBox.setId("recall-box");
         recallBox.setPromptText("Recall a past lift…");
         recallBox.setMaxWidth(260);
         recallBox.setVisibleRowCount(12);
@@ -283,12 +291,22 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         isolateButton.setOnAction(event -> isolate());
         elementsPane = new ElementsPane(new ElementsHost());
         narrative.textProperty().addListener((obs, was, now) -> {
+            if (segments != null && !segments.narrative().equals(now == null ? "" : now.strip())) {
+                // edited by hand: the text is no longer the document's, so spans are quoted again
+                segments = null;
+            }
             ElementSet set = elementsPane.elements();
             elementsPane.setNoteChanged(set != null && !set.narrative().equals(now == null ? "" : now.strip()));
         });
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox controls = new HBox(8, recallBox, spacer, isolateButton, liftButton);
+        MenuButton fromDocument = new MenuButton("From document");
+        fromDocument.setId("from-document-button");
+        fromDocument.setTooltip(new Tooltip("Read a stamped document's prose as the narrative: elements then anchor to its sentences"));
+        // listed now and again each time it opens, since a document may be materialized meanwhile
+        fromDocument.setOnShowing(event -> listDocuments(fromDocument));
+        listDocuments(fromDocument);
+        HBox controls = new HBox(8, recallBox, fromDocument, spacer, isolateButton, liftButton);
         controls.setAlignment(Pos.CENTER_LEFT);
 
         progressLabel = new Label();
@@ -384,19 +402,27 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         cards.getChildren().clear();
         detailPane.setContent(detailPlaceholder());
         AnfAdoc.ConceptResolver resolver = resolver();
-        Optional<ElementSet> elements = ElementText.parse(record.anfBlocks(), record.narrative(), resolver);
+        // a lift from a stamped document is read against the document's sentences as they are now
+        Optional<SegmentNarrative> current = segmentNarrativeOf(record.anfBlocks());
+        Anchoring anchoring = current.<Anchoring>map(n -> n).orElse(Anchoring.quotes(record.narrative()));
+        List<String> lost = current.map(n -> ElementText.unresolved(record.anfBlocks(), n)).orElse(List.of());
+        Optional<ElementSet> elements = ElementText.parse(record.anfBlocks(), anchoring, resolver);
         if (elements.isPresent()) {
-            narrative.setText(record.narrative());
+            narrative.setText(anchoring.narrative());
+            segments = current.orElse(null);
             elementsPane.setElements(elements.get());
             for (ClinicalElement element : elements.get().elements()) {
                 element.statement().ifPresent(statement -> conceptValuesOf(statement).forEach(this::addConcept));
             }
             currentLiftIndex = history.indexOf(record);
-            setStatus("Select an element to see its statement.");
+            setStatus(lost.isEmpty() ? "Select an element to see its statement."
+                    : "The document has changed: " + lost.size() + (lost.size() == 1 ? " element" : " elements")
+                    + " no longer found in its sentences: " + String.join("; ", lost));
             int n = elements.get().elements().size();
             setActivity(n + (n == 1 ? " element" : " elements") + " · from history");
             return;
         }
+        segments = null;
         elementsPane.setElements(null);
         for (String block : record.anfBlocks()) {
             AnfStatement statement = AnfAdoc.parse(block, resolver);
@@ -858,12 +884,73 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         };
     }
 
+    /** How an element set's spans are written: to the document's sentences while the narrative is its text, else as quotes. */
+    private Anchoring anchoring(ElementSet set) {
+        return segments != null && segments.narrative().equals(set.narrative()) ? segments : Anchoring.quotes(set.narrative());
+    }
+
+    /** Lists the documents stored as sentences in the From document menu. */
+    private void listDocuments(MenuButton fromDocument) {
+        fromDocument.getItems().clear();
+        List<DocumentNarratives.Choice> choices;
+        try {
+            choices = DocumentNarratives.documents();
+        } catch (RuntimeException e) {
+            LOG.warn("ANF lift: the stored documents could not be listed", e);
+            choices = List.of();
+        }
+        if (choices.isEmpty()) {
+            MenuItem none = new MenuItem("No document stored as sentences");
+            none.setDisable(true);
+            fromDocument.getItems().add(none);
+        }
+        for (DocumentNarratives.Choice choice : choices) {
+            MenuItem item = new MenuItem(choice.path());
+            item.setOnAction(e -> readDocument(choice));
+            fromDocument.getItems().add(item);
+        }
+    }
+
+    /** Reads a stamped document's prose as the narrative, so the elements isolated from it anchor to its sentences. */
+    private void readDocument(DocumentNarratives.Choice choice) {
+        Optional<SegmentNarrative> read = DocumentNarratives.narrative(choice.anchor());
+        if (read.isEmpty()) {
+            setStatus(choice.path() + " holds no stored sentences: rebuild it from git with the current starter set.");
+            return;
+        }
+        segments = null;
+        narrative.setText(read.get().narrative());
+        segments = read.get();
+        elementsPane.setElements(null);
+        currentLiftIndex = -1;
+        int n = read.get().sentences().size();
+        setStatus(choice.path() + ": " + n + (n == 1 ? " sentence" : " sentences")
+                + ". Isolate its elements: their spans anchor to its sentences.");
+    }
+
+    /** The current sentences of the document a lift's segment anchors name, when the store holds it. */
+    private static Optional<SegmentNarrative> segmentNarrativeOf(List<String> blocks) {
+        for (String block : blocks) {
+            String header = block.strip().lines().findFirst().orElse("");
+            if (!header.startsWith("[") || !header.endsWith("]")) {
+                continue;
+            }
+            for (String id : SegmentNarrative.ids(ElementText.attributes(header.substring(1, header.length() - 1)).get("from"))) {
+                Optional<SegmentNarrative> found = DocumentNarratives.documentOf(id).flatMap(DocumentNarratives::narrative);
+                if (found.isPresent()) {
+                    return found;
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
     /**
      * Records an element set in the lift history as its blocks: a new history entry for a fresh
      * isolation, the current entry rewritten for a gesture or a lift.
      */
     private void persistElements(ElementSet set, boolean fresh) {
-        List<String> blocks = ElementText.toBlocks(set);
+        List<String> blocks = ElementText.toBlocks(set, anchoring(set));
         if (!fresh && currentLiftIndex >= 0 && currentLiftIndex < history.size()) {
             LiftRecord previous = history.get(currentLiftIndex);
             LiftRecord updated = new LiftRecord(set.narrative(), blocks, previous.epochMillis(), previous.title());

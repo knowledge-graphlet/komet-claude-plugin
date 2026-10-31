@@ -55,12 +55,17 @@ public final class ElementText {
 
     /** The blocks of an element set: one per element, in order, then the not-clinical marks. */
     public static List<String> toBlocks(ElementSet set) {
+        return toBlocks(set, Anchoring.quotes(set.narrative()));
+    }
+
+    /** The blocks of an element set, its spans written by {@code anchoring}: quotes, or a stamped document's sentence segments. */
+    public static List<String> toBlocks(ElementSet set, Anchoring anchoring) {
         List<String> blocks = new ArrayList<>();
         for (ClinicalElement element : set.elements()) {
-            blocks.add(toBlock(element, set.narrative()));
+            blocks.add(toBlock(element, anchoring));
         }
         if (!set.notClinical().isEmpty()) {
-            blocks.add("[" + NOT_CLINICAL + ",from=" + quoted(anchors(set.notClinical(), set.narrative())) + "]\n"
+            blocks.add("[" + NOT_CLINICAL + ",from=" + quoted(anchoring.anchors(set.notClinical())) + "]\n"
                     + DELIMITER + "\n" + DELIMITER + "\n");
         }
         return blocks;
@@ -68,11 +73,16 @@ public final class ElementText {
 
     /** One element's block. */
     public static String toBlock(ClinicalElement element, String narrative) {
+        return toBlock(element, Anchoring.quotes(narrative));
+    }
+
+    /** One element's block, its spans written by {@code anchoring}. */
+    public static String toBlock(ClinicalElement element, Anchoring anchoring) {
         StringBuilder header = new StringBuilder("[anf,type=");
         header.append(element.statement().map(s -> s.statementType().name().toLowerCase(Locale.ROOT)).orElse("performance"));
         header.append(",id=").append(element.id());
         header.append(",element=").append(quoted(element.sentence()));
-        header.append(",from=").append(quoted(anchors(element.spans(), narrative)));
+        header.append(",from=").append(quoted(anchoring.anchors(element.spans())));
         element.liftedSentence().ifPresent(s -> header.append(",lifted=").append(quoted(s)));
         if (!element.links().isEmpty()) {
             header.append(",links=").append(quoted(String.join(";", element.links())));
@@ -88,7 +98,7 @@ public final class ElementText {
 
     /** The anchors of spans, joined by {@code |}. */
     public static String anchors(List<Span> spans, String narrative) {
-        return String.join("|", spans.stream().map(s -> s.quoteAnchor(narrative)).toList());
+        return Anchoring.quotes(narrative).anchors(spans);
     }
 
     /** What lies between a block's delimiters, each line ending in a newline. */
@@ -118,6 +128,12 @@ public final class ElementText {
      * before elements, whose blocks are statements alone.
      */
     public static Optional<ElementSet> parse(List<String> blocks, String narrative, AnfAdoc.ConceptResolver resolver) {
+        return parse(blocks, Anchoring.quotes(narrative), resolver);
+    }
+
+    /** The element set the blocks hold, their spans found by {@code anchoring}; an element none of whose spans is found is left out. */
+    public static Optional<ElementSet> parse(List<String> blocks, Anchoring anchoring, AnfAdoc.ConceptResolver resolver) {
+        String narrative = anchoring.narrative();
         List<ClinicalElement> elements = new ArrayList<>();
         List<Span> notClinical = new ArrayList<>();
         boolean any = false;
@@ -129,14 +145,14 @@ public final class ElementText {
             Map<String, String> attributes = attributes(header.substring(1, header.length() - 1));
             if (attributes.containsKey(NOT_CLINICAL)) {
                 any = true;
-                notClinical.addAll(spans(attributes.get("from"), narrative));
+                notClinical.addAll(spans(attributes.get("from"), anchoring));
                 continue;
             }
             if (!attributes.containsKey("anf") || !attributes.containsKey("element")) {
                 continue;
             }
             any = true;
-            element(attributes, bodyOf(block), narrative, resolver).ifPresent(elements::add);
+            element(attributes, bodyOf(block), anchoring, resolver).ifPresent(elements::add);
         }
         return any ? Optional.of(new ElementSet(narrative, elements, notClinical)) : Optional.empty();
     }
@@ -144,7 +160,13 @@ public final class ElementText {
     /** One element from a block's attributes and body; empty when none of its spans is found in the narrative. */
     public static Optional<ClinicalElement> element(Map<String, String> attributes, String body, String narrative,
                                                     AnfAdoc.ConceptResolver resolver) {
-        List<Span> spans = spans(attributes.get("from"), narrative);
+        return element(attributes, body, Anchoring.quotes(narrative), resolver);
+    }
+
+    /** One element, its spans found by {@code anchoring}; empty when none of them is found. */
+    public static Optional<ClinicalElement> element(Map<String, String> attributes, String body, Anchoring anchoring,
+                                                    AnfAdoc.ConceptResolver resolver) {
+        List<Span> spans = spans(attributes.get("from"), anchoring);
         String sentence = attributes.getOrDefault("element", "");
         if (spans.isEmpty() || sentence.isBlank()) {
             return Optional.empty();
@@ -165,17 +187,52 @@ public final class ElementText {
 
     /** The spans a {@code from} value's anchors find in a narrative, skipping any that no longer match. */
     public static List<Span> spans(String from, String narrative) {
+        return spans(from, Anchoring.quotes(narrative));
+    }
+
+    /** The spans a {@code from} value's anchors find through {@code anchoring}, skipping any that no longer match. */
+    public static List<Span> spans(String from, Anchoring anchoring) {
         List<Span> spans = new ArrayList<>();
         if (from == null || from.isBlank()) {
             return spans;
         }
         for (String anchor : from.split("\\|(?=quote:|segment:)")) {
-            Span.resolve(anchor.strip(), narrative).ifPresent(spans::add);
+            anchoring.resolve(anchor.strip()).ifPresent(spans::add);
         }
         return spans;
     }
 
-    /** The quoted texts a {@code from} value names, for a surface with no narrative to resolve them in. */
+    /**
+     * The sentences of element blocks that {@code anchoring} no longer finds any span of: the
+     * findings of a stamped document revised since its elements were isolated.
+     */
+    public static List<String> unresolved(List<String> blocks, Anchoring anchoring) {
+        List<String> lost = new ArrayList<>();
+        for (String block : blocks) {
+            String header = block.strip().lines().findFirst().orElse("");
+            if (!header.startsWith("[") || !header.endsWith("]")) {
+                continue;
+            }
+            Map<String, String> attributes = attributes(header.substring(1, header.length() - 1));
+            if (attributes.containsKey("anf") && attributes.containsKey("element")
+                    && spans(attributes.get("from"), anchoring).isEmpty()) {
+                lost.add(attributes.get("element"));
+            }
+        }
+        return lost;
+    }
+
+    /** The anchors of a {@code from} value, as written. */
+    public static List<String> anchorsOf(String from) {
+        List<String> anchors = new ArrayList<>();
+        if (from != null && !from.isBlank()) {
+            for (String anchor : from.split("\\|(?=quote:|segment:)")) {
+                anchors.add(anchor.strip());
+            }
+        }
+        return anchors;
+    }
+
     /** A quoted span as an anchor names it: its text and which occurrence of that text it is, from 1. */
     public record Quote(String text, int occurrence) {
     }
@@ -188,7 +245,10 @@ public final class ElementText {
         }
         for (String anchor : from.split("\\|(?=quote:|segment:)")) {
             String a = anchor.strip();
-            if (a.startsWith("quote:")) {
+            Optional<String> segmentWords = SegmentNarrative.words(a);
+            if (segmentWords.isPresent()) {
+                quotes.add(new Quote(segmentWords.get(), 1));
+            } else if (a.startsWith("quote:")) {
                 String body = a.substring("quote:".length());
                 int hash = body.lastIndexOf('#');
                 boolean numbered = hash > 0 && body.substring(hash + 1).matches("\\d+");
@@ -199,6 +259,7 @@ public final class ElementText {
         return quotes;
     }
 
+    /** The quoted texts a {@code from} value names, a segment anchor's words among them, for a surface with no narrative to resolve them in. */
     public static List<String> quotes(String from) {
         List<String> quotes = new ArrayList<>();
         if (from == null || from.isBlank()) {
@@ -206,7 +267,10 @@ public final class ElementText {
         }
         for (String anchor : from.split("\\|(?=quote:|segment:)")) {
             String a = anchor.strip();
-            if (a.startsWith("quote:")) {
+            Optional<String> segmentWords = SegmentNarrative.words(a);
+            if (segmentWords.isPresent()) {
+                quotes.add(segmentWords.get());
+            } else if (a.startsWith("quote:")) {
                 String body = a.substring("quote:".length());
                 int hash = body.lastIndexOf('#');
                 quotes.add(hash > 0 && body.substring(hash + 1).matches("\\d+") ? body.substring(0, hash) : body);

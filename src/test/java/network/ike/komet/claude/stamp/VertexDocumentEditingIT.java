@@ -15,6 +15,12 @@
  */
 package network.ike.komet.claude.stamp;
 
+import network.ike.komet.claude.anf.element.ClinicalElement;
+import network.ike.komet.claude.anf.element.ElementSet;
+import network.ike.komet.claude.anf.element.ElementText;
+import network.ike.komet.claude.anf.element.SegmentNarrative;
+import network.ike.komet.claude.anf.element.Span;
+import java.util.Optional;
 import design.knowledge.stamp.adoc.dialect.Block;
 import dev.ikm.tinkar.common.id.LongIdList;
 import dev.ikm.tinkar.common.id.PublicId;
@@ -119,6 +125,59 @@ class VertexDocumentEditingIT extends DocumentEditingIT {
         assertTrue(EntityHandle.get(sentences.get(0).nid()).expectSemantic().versions().stream()
                 .noneMatch(v -> ((SemanticEntityVersion) v).uncommitted()), "the unchanged sentence gets no version");
         assertTrue(DocumentEditor.cancel(anchor));
+    }
+
+    /**
+     * A lift's spans anchored to a stamped document's sentences (dev-anf-element-isolation, "The
+     * written form"): they name their document, survive an edit of another sentence, follow their
+     * own sentence through a revision that keeps their words, and are reported when it does not.
+     */
+    @Test
+    void aLiftsSegmentAnchorsFollowTheirSentencesThroughAnEdit() throws Exception {
+        Path dir = repository("vertex-anchors", ":topic-id: anf-vertex-anchors\n= Visit\n\n"
+                + "A 62-year-old man presented for routine checkup.\nSystolic blood pressure was 120 mmHg, sitting.\n\n"
+                + "He tested negative for COVID-19 and RSV.\n");
+        PublicId anchor = GitDocumentMaterializer.materialize(dir, dir.resolve("editing.adoc")).anchor();
+        assertTrue(DocumentNarratives.documents().stream().anyMatch(c -> c.anchor().equals(anchor)), "offered to the lift");
+        SegmentNarrative before = DocumentNarratives.narrative(anchor).orElseThrow();
+        assertTrue(before.narrative().contains("A 62-year-old man presented for routine checkup. Systolic blood pressure was 120 mmHg, sitting."
+                + "\n\nHe tested negative for COVID-19 and RSV."), before.narrative());
+
+        ElementSet set = new ElementSet(before.narrative(), List.of(
+                ClinicalElement.proposed("el-1", "The patient is 62 years old.", List.of(span(before, "A 62-year-old man"))),
+                ClinicalElement.proposed("el-2", "The patient was sitting.", List.of(span(before, "sitting"))),
+                ClinicalElement.proposed("el-3", "COVID-19 is absent.", List.of(span(before, "negative for COVID-19 and RSV")))),
+                List.of());
+        List<String> blocks = ElementText.toBlocks(set, before);
+        String header = blocks.get(1).lines().findFirst().orElseThrow();
+        String sittingFrom = ElementText.attributes(header.substring(1, header.length() - 1)).get("from");
+        assertTrue(sittingFrom.startsWith("segment:"), sittingFrom);
+        assertEquals(Optional.of(anchor), DocumentNarratives.documentOf(SegmentNarrative.ids(sittingFrom).getFirst()),
+                "an anchor names its document");
+
+        long paragraph = blockStartingWith(anchor, Block.Kind.PARAGRAPH, "A 62-year-old man presented for routine checkup.");
+        List<GitDocumentMaterializer.StoredSentence> sentences = GitDocumentMaterializer.load(anchor, true).orElseThrow()
+                .sentences().get(paragraph);
+        DocumentEditor.editSentence(anchor, sentences.get(0).nid(),
+                "A 62-year-old man presented to the clinic for a routine checkup.", edit);
+        DocumentEditor.editSentence(anchor, sentences.get(1).nid(), "Systolic blood pressure, sitting, was 120 mmHg.", edit);
+        SegmentNarrative edited = DocumentNarratives.narrative(anchor).orElseThrow();
+        assertTrue(ElementText.unresolved(blocks, edited).isEmpty());
+        ElementSet followed = ElementText.parse(blocks, edited, id -> Optional.empty()).orElseThrow();
+        assertEquals(List.of(List.of("A 62-year-old man"), List.of("sitting"), List.of("negative for COVID-19 and RSV")),
+                followed.elements().stream().map(e -> e.quotes(edited.narrative())).toList(),
+                "each span follows its words: an edit elsewhere, and a revision that keeps them");
+
+        DocumentEditor.editSentence(anchor, sentences.get(1).nid(), "Systolic blood pressure was 120 mmHg.", edit);
+        assertEquals(List.of("The patient was sitting."),
+                ElementText.unresolved(blocks, DocumentNarratives.narrative(anchor).orElseThrow()),
+                "a revision that drops the words is a finding");
+        assertTrue(DocumentEditor.cancel(anchor));
+    }
+
+    private static Span span(SegmentNarrative narrative, String words) {
+        int at = narrative.narrative().indexOf(words);
+        return new Span(at, at + words.length());
     }
 
     private static EntityVertex pendingVertex(long nid) {
