@@ -181,6 +181,49 @@ What the kompendium tables give that the `[anf]` record does not carry.
 | <<bp-5-sitting-position>> and <<bp-6-micturition-finding>>; the kompendium names no association type
 |===
 
+[#elements]
+== Expected Elements
+
+The first step of a lift isolates the narrative's clinical elements, and a lift is scored against these
+in two parts (ike-lab-documents topic `dev-anf-element-isolation`, Testing):
+each isolated element is matched to an expected one by the overlap of their spans,
+then each matched element's statement is compared with the expected one.
+The kompendium isolates no elements, so the sentences and spans are this fixture's,
+one element per statement above.
+
+The scorer reads the narrative's prose, without its header lines:
+
+[#scored-narrative]
+....
+A 62-year-old man presented to his doctor's office for routine checkup.
+He had a Systolic Blood Pressure of 120 mmHg,
+and a Diastolic Blood Pressure of 85 mmHg,
+taken on Right Brachial Artery,
+using BP cuff adult size.
+Patient in sitting position for at least 5 minutes,
+urinated not more than 30 minutes prior to measurement.
+The patient was asked to take his blood pressure weekly at home
+for 4 weeks using home blood pressure cuff.
+....
+
+Each row names the element's statement, its sentence, and its spans as quote anchors, `|` between two.
+A row whose statement is _not scored_ is words the kompendium's statements leave unencoded:
+an element resting on them counts neither for nor against the lift.
+
+[cols="2,4,4", options="header"]
+|===
+| Statement | Element | From
+| <<bp-1-male>> | The patient is male. | quote:man#1
+| <<bp-2-chronological-age>> | The patient is 62 years old. | quote:62-year-old#1
+| <<bp-3-systolic-bp>> | The patient's systolic blood pressure was 120 mmHg. | quote:Systolic Blood Pressure of 120 mmHg#1
+| <<bp-4-diastolic-bp>> | The patient's diastolic blood pressure was 85 mmHg. | quote:Diastolic Blood Pressure of 85 mmHg#1
+| <<bp-5-sitting-position>> | The patient had been sitting for at least 5 minutes before the measurement. | quote:Patient in sitting position for at least 5 minutes#1
+| <<bp-6-micturition-finding>> | The patient had urinated no more than 30 minutes before the measurement. | quote:urinated not more than 30 minutes prior to measurement#1
+| <<bp-7-blood-pressure-request>> | The patient is to measure their blood pressure at home weekly for 4 weeks. | quote:The patient was asked to take his blood pressure weekly at home#1\|quote:for 4 weeks using home blood pressure cuff#1
+| not scored | The visit was a routine checkup at the doctor's office. | quote:presented to his doctor's office for routine checkup#1
+| not scored | The blood pressure was taken on the right brachial artery with an adult cuff. | quote:taken on Right Brachial Artery#1\|quote:using BP cuff adult size#1
+|===
+
 [#complex-concept]
 == Expected Complex Concept: Sitting Systolic Blood Pressure
 

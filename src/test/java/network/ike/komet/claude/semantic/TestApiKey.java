@@ -36,7 +36,7 @@ import java.util.Optional;
  * set the system property / environment variable in the build configuration); this helper already
  * supports all three, so no test change is needed when that lands.
  */
-final class TestApiKey {
+public final class TestApiKey {
 
     /** The per-OS-user preference key the Komet Assistant stores the API key under. */
     private static final String PREF_API_KEY = "network.ike.komet.claude.apiKey";
@@ -49,7 +49,7 @@ final class TestApiKey {
      *
      * @return the key if any source provides a non-blank value; otherwise empty
      */
-    static Optional<String> resolve() {
+    public static Optional<String> resolve() {
         String property = System.getProperty("anthropic.api.key");
         if (notBlank(property)) {
             return Optional.of(property.trim());
@@ -60,6 +60,14 @@ final class TestApiKey {
         }
         try {
             String preference = PreferencesService.userPreferences().get(PREF_API_KEY, "");
+            if (notBlank(preference)) {
+                return Optional.of(preference.trim());
+            }
+        } catch (Throwable preferencesUnavailable) {
+            // No preferences service in this JVM; Komet's user preferences are the Java user root, read below.
+        }
+        try {
+            String preference = java.util.prefs.Preferences.userRoot().get(PREF_API_KEY, "");
             if (notBlank(preference)) {
                 return Optional.of(preference.trim());
             }

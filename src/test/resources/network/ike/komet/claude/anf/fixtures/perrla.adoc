@@ -58,6 +58,22 @@ Here it is `[1,1]`.
 The measure semantic stays the source's comparative unit,
 which carries its measurement basis (the contralateral anatomical structure).
 
+=== Expected Elements
+
+Scored as in `blood-pressure.adoc`, on the narrative's words alone.
+The element is the kompendium's, "Pupils equal"; its sentence and span are this fixture's.
+
+[#scored-narrative-1]
+....
+PERRLA
+....
+
+[cols="2,4,4", options="header"]
+|===
+| Statement | Element | From
+| <<perrla-1-pupils-equal>> | The pupils are equal. | quote:PERRLA#1
+|===
+
 == Example 2: Pupils Equal (Quantitative)
 
 [#narrative-2]
@@ -101,6 +117,24 @@ status:: k:Performed[Performed] @id=398166005
 
 CORRECTED: the kompendium writes this result as `[1, INF) Bilateral symmetry assessment = True (symmetric)`.
 Here it is `[1,1]`, on the same comparative unit.
+
+=== Expected Elements
+
+The sentences and spans are this fixture's.
+Each pupil's measurement rests on the word naming the pupils and the shared size.
+
+[#scored-narrative-2]
+....
+Pupils equal, both 4mm
+....
+
+[cols="2,4,4", options="header"]
+|===
+| Statement | Element | From
+| <<perrla-2-right-pupil>> | The right pupil is 4 mm in diameter. | quote:Pupils#1\|quote:both 4mm#1
+| <<perrla-2-left-pupil>> | The left pupil is 4 mm in diameter. | quote:Pupils#1\|quote:both 4mm#1
+| <<perrla-2-bilateral-symmetry>> | The pupils are equal in size. | quote:Pupils equal#1
+|===
 
 === Beyond the Record
 
