@@ -73,7 +73,7 @@ public record ClinicalElement(String id, String sentence, List<Span> spans, List
     }
 
     /** Whether a statement holds a candidate concept or a clarification. */
-    static boolean needsAttention(AnfStatement statement) {
+    public static boolean needsAttention(AnfStatement statement) {
         String adoc = AnfAdoc.toAdoc(statement);
         return adoc.contains(":: candidate[") || adoc.contains(":: clarify[");
     }

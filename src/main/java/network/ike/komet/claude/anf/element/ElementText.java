@@ -176,6 +176,29 @@ public final class ElementText {
     }
 
     /** The quoted texts a {@code from} value names, for a surface with no narrative to resolve them in. */
+    /** A quoted span as an anchor names it: its text and which occurrence of that text it is, from 1. */
+    public record Quote(String text, int occurrence) {
+    }
+
+    /** The quotes of a {@code from} attribute's quote anchors, each with its occurrence; segment anchors are skipped. */
+    public static List<Quote> quoteAnchors(String from) {
+        List<Quote> quotes = new ArrayList<>();
+        if (from == null || from.isBlank()) {
+            return quotes;
+        }
+        for (String anchor : from.split("\\|(?=quote:|segment:)")) {
+            String a = anchor.strip();
+            if (a.startsWith("quote:")) {
+                String body = a.substring("quote:".length());
+                int hash = body.lastIndexOf('#');
+                boolean numbered = hash > 0 && body.substring(hash + 1).matches("\\d+");
+                quotes.add(new Quote(numbered ? body.substring(0, hash) : body,
+                        numbered ? Math.max(1, Integer.parseInt(body.substring(hash + 1))) : 1));
+            }
+        }
+        return quotes;
+    }
+
     public static List<String> quotes(String from) {
         List<String> quotes = new ArrayList<>();
         if (from == null || from.isBlank()) {

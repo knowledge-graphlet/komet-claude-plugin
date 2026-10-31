@@ -24,10 +24,12 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.function.Consumer;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import network.ike.komet.claude.block.BlockIdentities;
 import network.ike.komet.claude.block.Identities;
 import network.ike.komet.claude.anf.AnfStatement;
+import network.ike.komet.claude.anf.element.ElementLevel;
 import network.ike.komet.claude.calculator.Calculator;
 import network.ike.komet.claude.decision.ExternalQuantities;
 import network.ike.komet.claude.decision.ViewIdentities;
@@ -48,6 +50,43 @@ public final class BlockContext {
     private final Map<Long, ExternalQuantities.Value> values = new HashMap<>();
     private final List<WeakReference<Runnable>> listeners = new ArrayList<>();
     private Shared identities;
+    private final ElementSpans elementSpans = new ElementSpans();
+    private final List<WeakReference<Consumer<ElementLevel>>> levelListeners = new ArrayList<>();
+    private ElementLevel level = ElementLevel.ANF;
+
+    /** Where the document's clinical elements rest in its narrative, read before each turn renders. */
+    public ElementSpans elementSpans() {
+        return elementSpans;
+    }
+
+    /** How much of the two-step lift the document shows: one level for the whole surface. */
+    public ElementLevel elementLevel() {
+        return level;
+    }
+
+    /** Sets the level every element block of the document shows, and tells the blocks that listen. */
+    public void setElementLevel(ElementLevel newLevel) {
+        if (newLevel == null || newLevel == level) {
+            return;
+        }
+        level = newLevel;
+        List<Consumer<ElementLevel>> live = new ArrayList<>();
+        Iterator<WeakReference<Consumer<ElementLevel>>> it = levelListeners.iterator();
+        while (it.hasNext()) {
+            Consumer<ElementLevel> listener = it.next().get();
+            if (listener == null) {
+                it.remove();
+            } else {
+                live.add(listener);
+            }
+        }
+        live.forEach(listener -> listener.accept(newLevel));
+    }
+
+    /** Asks to be told when the level changes; held weakly, so the listener lives as long as its block holds it. */
+    public void listenLevel(Consumer<ElementLevel> listener) {
+        levelListeners.add(new WeakReference<>(listener));
+    }
 
     /**
      * The identities every block of the document resolves through: the view's, and beneath them

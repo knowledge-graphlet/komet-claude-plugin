@@ -42,7 +42,7 @@ import java.util.function.Function;
  *
  * @param <T> the value a segment stands for
  */
-final class SegmentedControl<T> extends HBox {
+public final class SegmentedControl<T> extends HBox {
 
     private final ToggleGroup group = new ToggleGroup();
     private final List<ToggleButton> segments = new ArrayList<>();
@@ -55,7 +55,7 @@ final class SegmentedControl<T> extends HBox {
      * @param tooltip  the tooltip of a value's segment, or {@code null} for none
      * @param id       the id of a value's segment
      */
-    SegmentedControl(List<T> options, Function<T, String> label, Function<T, String> tooltip, Function<T, String> id) {
+    public SegmentedControl(List<T> options, Function<T, String> label, Function<T, String> tooltip, Function<T, String> id) {
         this(options, label, tooltip, id, null);
     }
 
@@ -70,7 +70,7 @@ final class SegmentedControl<T> extends HBox {
      * @param id       the id of a value's segment
      * @param icon     the Ikonli icon code of a value's segment, or {@code null} to show labels
      */
-    SegmentedControl(List<T> options, Function<T, String> label, Function<T, String> tooltip, Function<T, String> id,
+    public SegmentedControl(List<T> options, Function<T, String> label, Function<T, String> tooltip, Function<T, String> id,
                      Function<T, String> icon) {
         setSpacing(0);
         getStyleClass().add("segmented");
@@ -128,7 +128,7 @@ final class SegmentedControl<T> extends HBox {
      *
      * @param compact true for icons alone
      */
-    void setCompact(boolean compact) {
+    public void setCompact(boolean compact) {
         for (ToggleButton segment : segments) {
             if (segment.getGraphic() != null) {
                 segment.setContentDisplay(compact ? ContentDisplay.GRAPHIC_ONLY : ContentDisplay.LEFT);
@@ -136,13 +136,43 @@ final class SegmentedControl<T> extends HBox {
         }
     }
 
+    /**
+     * Draws the control for a white page rather than the card's navy toolbar: white segments
+     * outlined in slate, the selected one filled slate, at the given font size. Inline, so it
+     * needs no stylesheet on the page.
+     *
+     * @param fontSize the segments' font size
+     * @return this control
+     */
+    public SegmentedControl<T> light(double fontSize) {
+        getStyleClass().remove("segmented");
+        Runnable paint = () -> {
+            for (int i = 0; i < segments.size(); i++) {
+                ToggleButton segment = segments.get(i);
+                boolean first = i == 0;
+                boolean last = i == segments.size() - 1;
+                String radius = first && last ? "5" : first ? "5 0 0 5" : last ? "0 5 5 0" : "0";
+                segment.setStyle("-fx-font-size: " + fontSize + "px; -fx-padding: 1 9 1 9;"
+                        + " -fx-background-radius: " + radius + "; -fx-border-radius: " + radius + ";"
+                        + " -fx-background-insets: 0; -fx-border-color: #9aa6b8;"
+                        + " -fx-border-width: " + (last ? "1" : "1 0 1 1") + ";"
+                        + (segment.isSelected()
+                        ? " -fx-background-color: #34465f; -fx-text-fill: white;"
+                        : " -fx-background-color: white; -fx-text-fill: #34465f;"));
+            }
+        };
+        group.selectedToggleProperty().addListener((obs, was, is) -> paint.run());
+        paint.run();
+        return this;
+    }
+
     /** @return the selected value, never null once built */
-    ReadOnlyObjectProperty<T> valueProperty() {
+    public ReadOnlyObjectProperty<T> valueProperty() {
         return value.getReadOnlyProperty();
     }
 
     /** @return the selected value */
-    T getValue() {
+    public T getValue() {
         return value.get();
     }
 
@@ -151,7 +181,7 @@ final class SegmentedControl<T> extends HBox {
      *
      * @param wanted the value to select
      */
-    void select(T wanted) {
+    public void select(T wanted) {
         int at = values.indexOf(wanted);
         if (at >= 0) {
             segments.get(at).setSelected(true);
@@ -159,7 +189,7 @@ final class SegmentedControl<T> extends HBox {
     }
 
     /** @return the selected segment's toggle, for a host that reads the group */
-    Toggle selectedToggle() {
+    public Toggle selectedToggle() {
         return group.getSelectedToggle();
     }
 }

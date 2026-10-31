@@ -38,6 +38,7 @@ import javafx.scene.shape.Circle;
 import javafx.scene.text.Text;
 import javafx.scene.text.TextFlow;
 import network.ike.komet.claude.anf.element.ClinicalElement;
+import network.ike.komet.claude.anf.element.ElementColours;
 import network.ike.komet.claude.anf.element.ElementSet;
 import network.ike.komet.claude.anf.element.ElementState;
 import network.ike.komet.claude.anf.element.Span;
@@ -66,9 +67,6 @@ final class ElementsPane extends VBox {
         /** The span the author has selected in the note, when there is one. */
         Optional<Span> selection();
     }
-
-    private static final String[] COLOURS = {"#7F77DD", "#1D9E75", "#D85A30", "#D4537E", "#378ADD", "#BA7517",
-            "#639922", "#993556"};
 
     private final Host host;
     private final TextFlow note = new TextFlow();
@@ -180,7 +178,7 @@ final class ElementsPane extends VBox {
     }
 
     private String colour(int index) {
-        return COLOURS[index % COLOURS.length];
+        return ElementColours.of(index);
     }
 
     private String colourOf(String id) {

@@ -28,6 +28,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.function.Consumer;
+import javafx.beans.property.BooleanProperty;
+import javafx.beans.property.SimpleBooleanProperty;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Cursor;
@@ -39,6 +42,7 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
+import javafx.scene.shape.Circle;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontPosture;
 import javafx.scene.text.FontWeight;
@@ -50,9 +54,12 @@ import network.ike.komet.claude.anf.AnfStatementView;
 import network.ike.komet.claude.anf.AnfValue;
 import network.ike.komet.claude.anf.Circumstance;
 import network.ike.komet.claude.anf.editor.AnfStatementControl;
+import network.ike.komet.claude.anf.element.ClinicalElement;
+import network.ike.komet.claude.anf.element.ElementLevel;
 import network.ike.komet.claude.anf.element.ElementText;
 import network.ike.komet.claude.block.Tokens;
 import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.stamp.SegmentedControl;
 import network.ike.komet.claude.tools.GraphTools;
 
 /**
@@ -105,6 +112,9 @@ final class AnfBlockRenderer implements BlockRenderer {
 
     @Override
     public List<BlockPiece> render(String info, String literal, StyleAttributeMap baseStyle) {
+        if (viewCalc != null && isNotClinical(info)) {
+            return List.of(new BlockPiece(() -> new NotClinical(info).block, ""));
+        }
         if (viewCalc == null || !isTagged(info)) {
             return List.of();
         }
@@ -119,6 +129,43 @@ final class AnfBlockRenderer implements BlockRenderer {
         }
         String first = Tokens.words(info).stream().findFirst().orElse("");
         return first.equals("anf") || first.startsWith("anf,");
+    }
+
+    /** Whether a fence marks narrative text as carrying no clinical fact, {@code anf-not-clinical from="…"}. */
+    static boolean isNotClinical(String info) {
+        return info != null && Tokens.words(info).stream().findFirst().orElse("").startsWith("anf-not-clinical");
+    }
+
+    /** A not-clinical mark: one muted line naming the words it covers, shown with the elements. */
+    private final class NotClinical {
+        final HBox row = new HBox(6);
+        /** The block node: the surface may bind its visibility to {@link #shown}, so the row inside is what this mark hides. */
+        final VBox block = new VBox(row);
+        final Consumer<ElementLevel> levelListener = this::show;
+        final BooleanProperty shown = new SimpleBooleanProperty(true);
+
+        NotClinical(String info) {
+            Label word = stateTag("not clinical", "#f1efe8", "#5f5e5a");
+            Label quote = new Label("“" + String.join(" … ", ElementText.quotes(attribute(info, "from").orElse(""))) + "”");
+            quote.setFont(Font.font(null, FontPosture.ITALIC, base * 0.9));
+            quote.setTextFill(Color.web("#888"));
+            row.getChildren().addAll(word, quote);
+            row.setAlignment(Pos.CENTER_LEFT);
+            row.setPadding(new Insets(1, 0, 1, base));
+            block.getProperties().put(MarkdownRichText.BLOCK_SHOWN, shown);
+            block.getProperties().put(MarkdownRichText.BLOCK_NO_EXPAND, Boolean.TRUE);
+            // the block is all that is kept of this mark: it holds the mark, and so its level listener
+            block.getProperties().put(NotClinical.class, this);
+            context.listenLevel(levelListener);
+            show(context.elementLevel());
+        }
+
+        private void show(ElementLevel level) {
+            boolean visible = level.shows(ElementLevel.ELEMENTS);
+            row.setVisible(visible);
+            row.setManaged(visible);
+            shown.set(visible);
+        }
     }
 
     /** The statement type the fence names, {@code type=performance|request|narrative}; performance when none. */
@@ -181,16 +228,25 @@ final class AnfBlockRenderer implements BlockRenderer {
         return String.join("\n", body) + "\n";
     }
 
-    /** One finding: folded to its line, or unfolded to the editable tree. */
+    /** One finding: folded to its line, or unfolded to the editable tree; an element's row follows the document's level. */
     private final class Finding {
         final String info;
         final String originalBody;
         final VBox column = new VBox(2);
         final HBox line = new HBox(8);
         final Label fold = new Label("▸");
+        final boolean element;
+        final List<Node> spanNodes = new ArrayList<>();
+        final List<Node> elementNodes = new ArrayList<>();
+        final List<Node> anfNodes = new ArrayList<>();
         AnfStatement statement;
         AnfStatementControl control;
+        SegmentedControl<ElementLevel> levelSwitch;
         boolean open;
+        /** Held here so the context's weak reference lives as long as this finding. */
+        final Consumer<ElementLevel> levelListener = this::show;
+        /** Whether the block shows at all: an element row hides at the Narrative level, unless it carries the switch. */
+        final BooleanProperty shown = new SimpleBooleanProperty(true);
 
         Finding(String info, String body) {
             this.info = info;
@@ -198,7 +254,7 @@ final class AnfBlockRenderer implements BlockRenderer {
             column.getStyleClass().add("anf-block");
             column.setPadding(new Insets(1, 0, 1, 0));
             column.setFillWidth(true);
-            boolean element = elementOf(info).isPresent();
+            element = elementOf(info).isPresent();
             statement = element && body.isBlank() ? null : parse(body);
             idOf(info).ifPresent(name -> {
                 if (statement != null) {
@@ -211,55 +267,148 @@ final class AnfBlockRenderer implements BlockRenderer {
             fold.setFont(Font.font(base * 0.9));
             fold.setTextFill(Color.web("#666"));
             fold.setMinWidth(base);
-            line.getChildren().add(fold);
+            if (element) {
+                Circle dot = new Circle(base * 0.32,
+                        Color.web(context.elementSpans().colour(info).orElse("#888888")));
+                spanNodes.add(dot);
+            }
             wordsOf(info).ifPresent(span -> {
                 Label narrative = new Label("“" + span + "”");
                 narrative.setFont(Font.font(null, FontPosture.ITALIC, base * 0.95));
                 narrative.setTextFill(Color.web("#333"));
-                line.getChildren().add(narrative);
-                Label arrow = new Label("→");
-                arrow.setFont(Font.font(base * 0.9));
-                arrow.setTextFill(Color.web("#888"));
-                line.getChildren().add(arrow);
+                spanNodes.add(narrative);
+                spanNodes.add(arrow());
             });
             elementOf(info).ifPresent(sentence -> {
                 Label fact = new Label(sentence);
                 fact.setFont(Font.font(base * 0.95));
                 fact.setTextFill(Color.web("#282040"));
-                line.getChildren().add(fact);
-                Label arrow = new Label("→");
-                arrow.setFont(Font.font(base * 0.9));
-                arrow.setTextFill(Color.web("#888"));
-                line.getChildren().add(arrow);
+                elementNodes.add(fact);
             });
-            if (statement == null && elementOf(info).isPresent()) {
-                line.getChildren().add(stateTag("not lifted", "#ece8f2", "#5e4b7e"));
-            } else if (statement == null) {
-                Label gap = new Label("not read as an ANF statement");
-                gap.setFont(Font.font(base * 0.9));
-                gap.setStyle("-fx-text-fill: #8a5a00;");
-                line.getChildren().add(gap);
-            } else {
-                summary(statement).forEach(line.getChildren()::add);
-                Optional<String> lifted = attribute(info, "lifted");
-                if (elementOf(info).isPresent() && lifted.isPresent() && !lifted.equals(elementOf(info))) {
-                    line.getChildren().add(stateTag("stale", "#fcebeb", "#a32d2d"));
-                }
-                idOf(info).ifPresent(name -> {
-                    Label named = new Label(name);
-                    named.setFont(Font.font(base * 0.78));
-                    named.setTextFill(Color.web("#999"));
-                    line.getChildren().add(named);
-                });
+            buildAnf();
+            if (statement != null) {
                 Tooltip tip = new Tooltip(AnfAdoc.toAdoc(statement).strip());
                 tip.setFont(Font.font("Menlo", base * 0.85));
                 Tooltip.install(line, tip);
             }
+            line.setOnMouseClicked(e -> toggle());
+            if (element && context.elementSpans().isSwitchHost(info)) {
+                column.getChildren().add(levelSwitch());
+            }
+            column.getChildren().add(line);
+            if (element) {
+                column.getProperties().put(MarkdownRichText.BLOCK_SHOWN, shown);
+                column.getProperties().put(MarkdownRichText.BLOCK_NO_EXPAND, Boolean.TRUE);
+                column.getProperties().put(Finding.class, this);
+                context.listenLevel(levelListener);
+                show(context.elementLevel());
+            } else {
+                show(ElementLevel.ANF);
+            }
+        }
+
+        /** The ANF part of the row: the statement's topic and result, its name, or why there is none. */
+        private void buildAnf() {
+            anfNodes.clear();
+            if (statement == null && element) {
+                anfNodes.add(stateTag("not lifted", "#ece8f2", "#5e4b7e"));
+                return;
+            }
+            if (statement == null) {
+                Label gap = new Label("not read as an ANF statement");
+                gap.setFont(Font.font(base * 0.9));
+                gap.setStyle("-fx-text-fill: #8a5a00;");
+                anfNodes.add(gap);
+                return;
+            }
+            anfNodes.addAll(summary(statement));
+            if (stale()) {
+                anfNodes.add(stateTag("stale", "#fcebeb", "#a32d2d"));
+            } else if (element && ClinicalElement.needsAttention(statement)) {
+                anfNodes.add(stateTag("needs attention", "#faeeda", "#854f0b"));
+            }
+            idOf(info).ifPresent(name -> {
+                Label named = new Label(name);
+                named.setFont(Font.font(base * 0.78));
+                named.setTextFill(Color.web("#999"));
+                anfNodes.add(named);
+            });
+        }
+
+        private boolean stale() {
+            Optional<String> lifted = attribute(info, "lifted");
+            return element && lifted.isPresent() && !lifted.equals(elementOf(info));
+        }
+
+        /** The element's state in a word, as the Elements level shows it beside the sentence. */
+        private Label stateWord() {
+            if (statement == null) {
+                return stateTag("not lifted", "#ece8f2", "#5e4b7e");
+            }
+            if (stale()) {
+                return stateTag("stale", "#fcebeb", "#a32d2d");
+            }
+            if (ClinicalElement.needsAttention(statement)) {
+                return stateTag("needs attention", "#faeeda", "#854f0b");
+            }
+            return stateTag("lifted", "#e1f5ee", "#0f6e56");
+        }
+
+        /** The one switch over the note: Narrative, Elements, ANF, carried by its first element. */
+        private Node levelSwitch() {
+            levelSwitch = new SegmentedControl<>(List.of(ElementLevel.values()), ElementLevel::label,
+                    ElementLevel::description, level -> "element-level-" + level.name().toLowerCase(Locale.ROOT))
+                    .light(base * 0.8);
+            levelSwitch.setId("element-level-switch");
+            levelSwitch.select(context.elementLevel());
+            levelSwitch.valueProperty().subscribe(level -> context.setElementLevel(level));
+            Label show = new Label("Show");
+            show.setFont(Font.font(base * 0.8));
+            show.setTextFill(Color.web("#666"));
+            HBox row = new HBox(6, show, levelSwitch);
+            row.setAlignment(Pos.CENTER_LEFT);
+            row.setPadding(new Insets(2, 0, 4, 0));
+            return row;
+        }
+
+        /** Lays the row out for a level: nothing at Narrative, the sentence and state at Elements, the ANF at ANF. */
+        private void show(ElementLevel level) {
+            if (levelSwitch != null && levelSwitch.getValue() != level) {
+                levelSwitch.select(level);
+            }
+            boolean visible = !element || level.shows(ElementLevel.ELEMENTS);
+            line.setVisible(visible);
+            line.setManaged(visible);
+            shown.set(visible || levelSwitch != null);
+            boolean anf = !element || level.shows(ElementLevel.ANF);
+            if (!anf && open) {
+                toggle();
+            }
+            List<Node> nodes = new ArrayList<>();
+            fold.setVisible(anf && statement != null);
+            nodes.add(fold);
+            nodes.addAll(spanNodes);
+            nodes.addAll(elementNodes);
+            if (anf) {
+                if (!elementNodes.isEmpty()) {
+                    nodes.add(arrow());
+                }
+                nodes.addAll(anfNodes);
+            } else {
+                nodes.add(stateWord());
+            }
             Region spring = new Region();
             HBox.setHgrow(spring, Priority.ALWAYS);
-            line.getChildren().add(spring);
-            line.setOnMouseClicked(e -> toggle());
-            column.getChildren().add(line);
+            nodes.add(spring);
+            line.getChildren().setAll(nodes);
+            line.setCursor(anf && statement != null ? Cursor.HAND : Cursor.DEFAULT);
+        }
+
+        private Label arrow() {
+            Label arrow = new Label("→");
+            arrow.setFont(Font.font(base * 0.9));
+            arrow.setTextFill(Color.web("#888"));
+            return arrow;
         }
 
         private AnfStatement parse(String body) {
@@ -331,6 +480,9 @@ final class AnfBlockRenderer implements BlockRenderer {
 
         /** Unfolds the statement as the editable tree, or folds it again. */
         private void toggle() {
+            if (!open && element && !context.elementLevel().shows(ElementLevel.ANF)) {
+                return;
+            }
             open = !open;
             fold.setText(open ? "▾" : "▸");
             if (!open) {
@@ -384,25 +536,8 @@ final class AnfBlockRenderer implements BlockRenderer {
 
         /** Redraws the folded line after an edit. */
         private void refold(AnfStatement edited) {
-            // keep the fold mark, the narrative words and the element sentence: everything up to the last arrow
-            int lastArrow = -1;
-            for (int i = 0; i < line.getChildren().size(); i++) {
-                if (line.getChildren().get(i) instanceof Label label && "→".equals(label.getText())) {
-                    lastArrow = i;
-                }
-            }
-            List<Node> keep = new ArrayList<>(line.getChildren().subList(0, lastArrow < 0 ? 1 : lastArrow + 1));
-            line.getChildren().setAll(keep);
-            summary(edited).forEach(line.getChildren()::add);
-            idOf(info).ifPresent(name -> {
-                Label named = new Label(name);
-                named.setFont(Font.font(base * 0.78));
-                named.setTextFill(Color.web("#999"));
-                line.getChildren().add(named);
-            });
-            Region spring = new Region();
-            HBox.setHgrow(spring, Priority.ALWAYS);
-            line.getChildren().add(spring);
+            buildAnf();
+            show(element ? context.elementLevel() : ElementLevel.ANF);
         }
     }
 

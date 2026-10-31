@@ -256,6 +256,20 @@ public final class DocumentSurface extends BorderPane {
      * block's body aligns whether or not it has marginalia.
      */
     private Node stackNode(DocumentBlock block) {
+        return followShown(block.node(), stackRow(block));
+    }
+
+    /** Lays a block out as absent while its node says it is hidden ({@link MarkdownRichText#BLOCK_SHOWN}). */
+    private static Node followShown(Node body, Node stacked) {
+        if (body != null && body.getProperties().get(MarkdownRichText.BLOCK_SHOWN)
+                instanceof javafx.beans.value.ObservableBooleanValue shown) {
+            stacked.visibleProperty().bind(shown);
+            stacked.managedProperty().bind(shown);
+        }
+        return stacked;
+    }
+
+    private Node stackRow(DocumentBlock block) {
         if (leftTracks == 0 && rightTracks == 0) {
             block.setRow(null);
             return block.node();

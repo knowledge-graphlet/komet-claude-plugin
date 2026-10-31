@@ -301,10 +301,15 @@ public final class BlockFactory {
         } else {
             return DocumentBlock.of(node, segment.plainText()); // not a region: nothing to decorate
         }
-        if (!expandableFigures) {
+        if (!expandableFigures || node.getProperties().containsKey(MarkdownRichText.BLOCK_NO_EXPAND)) {
             return DocumentBlock.of(figure, segment.plainText());
         }
-        return DocumentBlock.of(expandableFigure(figure, supplier), segment.plainText());
+        Region expandable = expandableFigure(figure, supplier);
+        Object shown = node.getProperties().get(MarkdownRichText.BLOCK_SHOWN);
+        if (shown != null) {
+            expandable.getProperties().put(MarkdownRichText.BLOCK_SHOWN, shown);
+        }
+        return DocumentBlock.of(expandable, segment.plainText());
     }
 
     /**

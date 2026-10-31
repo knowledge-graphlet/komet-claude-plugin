@@ -53,6 +53,16 @@ public final class MarkdownRichText {
     /** Default transcript base font size (px); overridable per-instance for zoom. */
     public static final double DEFAULT_BASE = 13;
 
+    /**
+     * A block node's property holding an {@code ObservableBooleanValue}: whether the block shows.
+     * A surface that stacks blocks lays a hidden one out as absent, spacing and all, so a block
+     * that hides itself, an element row at the Narrative level, leaves no gap.
+     */
+    public static final String BLOCK_SHOWN = "network.ike.komet.claude.block.shown";
+
+    /** A block node's property, present when the block is a line of text that needs no expand-to-full-surface corner. */
+    public static final String BLOCK_NO_EXPAND = "network.ike.komet.claude.block.no-expand";
+
     /** A transcript role, with its label and accent colour. */
     public enum Role {
         USER("You", Color.web("#1a56db")),
@@ -228,7 +238,9 @@ public final class MarkdownRichText {
             }
             return pieces.isEmpty() ? statements.render(info, literal, style) : pieces;
         };
-        this.renderer = new MarkdownRichTextRenderer(base, fontFamily, decorator, blocks);
+        // the note's element spans are drawn first, and each stretch then goes to the chip decorator
+        this.renderer = new MarkdownRichTextRenderer(base, fontFamily,
+                new ElementSpanDecorator(decorator, context.elementSpans()), blocks);
     }
 
     /**
@@ -289,6 +301,7 @@ public final class MarkdownRichText {
             }
 
             if (e.markdown()) {
+                context.elementSpans().prepare(e.content());
                 renderer.render(e.content(), baseStyle(e.role()), paragraphs, plain);
             } else {
                 renderer.renderPlainText(e.content(), baseStyle(e.role()), paragraphs, plain);
@@ -315,6 +328,7 @@ public final class MarkdownRichText {
      */
     public List<DocumentSegment> toSegments(Entry entry) {
         if (entry.markdown()) {
+            context.elementSpans().prepare(entry.content());
             return renderer.renderSegments(entry.content(), baseStyle(entry.role()));
         }
         List<RichParagraph> paragraphs = new ArrayList<>();
@@ -335,6 +349,7 @@ public final class MarkdownRichText {
     public StyledTextModel renderMarkdown(String markdown) {
         List<RichParagraph> paragraphs = new ArrayList<>();
         List<String> plain = new ArrayList<>();
+        context.elementSpans().prepare(markdown);
         renderer.render(markdown == null ? "" : markdown,
                 StyleAttributeMap.builder().setFontSize(base).build(), paragraphs, plain);
         if (paragraphs.isEmpty()) {
