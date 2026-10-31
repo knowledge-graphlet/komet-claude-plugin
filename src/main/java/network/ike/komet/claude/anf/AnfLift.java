@@ -231,6 +231,41 @@ public final class AnfLift {
     }
 
     /** Loads the distilled ANF lift spec from the classpath, falling back inline. */
+    /**
+     * Step two of the two-step lift ({@code dev-anf-element-isolation}): lifts one clinical
+     * element, its sentence and the words it rests on, with the whole note as context only. The
+     * prompt asks for the statements of that one fact and none of the note's others; the grounding
+     * loop, the emit tool and its sink are the whole-note lift's.
+     *
+     * @param narrative the note, for context
+     * @param sentence  the element's sentence
+     * @param quotes    the words of the note it rests on
+     * @param listener  progress, as for a whole-note lift
+     * @return the statements emitted for the element
+     */
+    public Result liftElement(String narrative, String sentence, List<String> quotes, AnfLiftListener listener) {
+        return lift(elementMessage(narrative, sentence, quotes), listener);
+    }
+
+    /** The user message of an element's lift. */
+    static String elementMessage(String narrative, String sentence, List<String> quotes) {
+        StringBuilder message = new StringBuilder();
+        message.append("Lift exactly one clinical element into ANF.\n\n");
+        message.append("Element: ").append(sentence.strip()).append("\n");
+        if (!quotes.isEmpty()) {
+            message.append("It rests on these words of the note:");
+            for (String quote : quotes) {
+                message.append(" \"").append(quote.strip()).append('"');
+            }
+            message.append("\n");
+        }
+        message.append("\nThe whole note, for context only (do not lift its other facts):\n");
+        message.append(narrative.strip()).append("\n\n");
+        message.append("Emit the statement for this element alone, with emit_anf, and any associated statement it "
+                + "needs; then call finish_lift.");
+        return message.toString();
+    }
+
     private static String systemPrompt() {
         try (InputStream in = AnfLift.class.getResourceAsStream(SPEC_RESOURCE)) {
             if (in != null) {

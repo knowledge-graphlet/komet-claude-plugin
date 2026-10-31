@@ -50,6 +50,7 @@ import network.ike.komet.claude.anf.AnfStatementView;
 import network.ike.komet.claude.anf.AnfValue;
 import network.ike.komet.claude.anf.Circumstance;
 import network.ike.komet.claude.anf.editor.AnfStatementControl;
+import network.ike.komet.claude.anf.element.ElementText;
 import network.ike.komet.claude.block.Tokens;
 import network.ike.komet.claude.koncept.ComponentText;
 import network.ike.komet.claude.tools.GraphTools;
@@ -132,19 +133,30 @@ final class AnfBlockRenderer implements BlockRenderer {
 
     /** The narrative span the statement was lifted from, {@code narrative="…"}; empty when the fence names none. */
     static Optional<String> narrativeOf(String info) {
-        return attribute(info, "narrative").map(Tokens::unquote);
+        return attribute(info, "narrative");
     }
 
     private static Optional<String> attribute(String info, String name) {
         if (info == null) {
             return Optional.empty();
         }
-        for (String word : Tokens.words(info.replace(',', ' '))) {
-            if (word.startsWith(name + "=")) {
-                return Optional.of(word.substring(name.length() + 1));
-            }
+        String value = ElementText.attributes(info).get(name);
+        return value == null || value.isEmpty() ? Optional.empty() : Optional.of(value);
+    }
+
+    /** The element sentence the fence names, {@code element="…"} (dev-anf-element-isolation). */
+    static Optional<String> elementOf(String info) {
+        return attribute(info, "element");
+    }
+
+    /** The narrative words the fence quotes: {@code narrative="…"}, or the quotes of its {@code from} anchors. */
+    static Optional<String> wordsOf(String info) {
+        Optional<String> narrative = narrativeOf(info);
+        if (narrative.isPresent()) {
+            return narrative;
         }
-        return Optional.empty();
+        List<String> quotes = ElementText.quotes(attribute(info, "from").orElse(""));
+        return quotes.isEmpty() ? Optional.empty() : Optional.of(String.join(" … ", quotes));
     }
 
     /** The block as the lift's parser reads it: the header line, the body between its delimiters. */
@@ -186,7 +198,8 @@ final class AnfBlockRenderer implements BlockRenderer {
             column.getStyleClass().add("anf-block");
             column.setPadding(new Insets(1, 0, 1, 0));
             column.setFillWidth(true);
-            statement = parse(body);
+            boolean element = elementOf(info).isPresent();
+            statement = element && body.isBlank() ? null : parse(body);
             idOf(info).ifPresent(name -> {
                 if (statement != null) {
                     context.defineStatement(name, statement);
@@ -199,7 +212,7 @@ final class AnfBlockRenderer implements BlockRenderer {
             fold.setTextFill(Color.web("#666"));
             fold.setMinWidth(base);
             line.getChildren().add(fold);
-            narrativeOf(info).ifPresent(span -> {
+            wordsOf(info).ifPresent(span -> {
                 Label narrative = new Label("“" + span + "”");
                 narrative.setFont(Font.font(null, FontPosture.ITALIC, base * 0.95));
                 narrative.setTextFill(Color.web("#333"));
@@ -209,13 +222,29 @@ final class AnfBlockRenderer implements BlockRenderer {
                 arrow.setTextFill(Color.web("#888"));
                 line.getChildren().add(arrow);
             });
-            if (statement == null) {
+            elementOf(info).ifPresent(sentence -> {
+                Label fact = new Label(sentence);
+                fact.setFont(Font.font(base * 0.95));
+                fact.setTextFill(Color.web("#282040"));
+                line.getChildren().add(fact);
+                Label arrow = new Label("→");
+                arrow.setFont(Font.font(base * 0.9));
+                arrow.setTextFill(Color.web("#888"));
+                line.getChildren().add(arrow);
+            });
+            if (statement == null && elementOf(info).isPresent()) {
+                line.getChildren().add(stateTag("not lifted", "#ece8f2", "#5e4b7e"));
+            } else if (statement == null) {
                 Label gap = new Label("not read as an ANF statement");
                 gap.setFont(Font.font(base * 0.9));
                 gap.setStyle("-fx-text-fill: #8a5a00;");
                 line.getChildren().add(gap);
             } else {
                 summary(statement).forEach(line.getChildren()::add);
+                Optional<String> lifted = attribute(info, "lifted");
+                if (elementOf(info).isPresent() && lifted.isPresent() && !lifted.equals(elementOf(info))) {
+                    line.getChildren().add(stateTag("stale", "#fcebeb", "#a32d2d"));
+                }
                 idOf(info).ifPresent(name -> {
                     Label named = new Label(name);
                     named.setFont(Font.font(base * 0.78));
@@ -355,16 +384,14 @@ final class AnfBlockRenderer implements BlockRenderer {
 
         /** Redraws the folded line after an edit. */
         private void refold(AnfStatement edited) {
-            List<Node> keep = new ArrayList<>();
-            for (Node node : line.getChildren()) {
-                keep.add(node);
-                if (node instanceof Label label && "→".equals(label.getText())) {
-                    break;
+            // keep the fold mark, the narrative words and the element sentence: everything up to the last arrow
+            int lastArrow = -1;
+            for (int i = 0; i < line.getChildren().size(); i++) {
+                if (line.getChildren().get(i) instanceof Label label && "→".equals(label.getText())) {
+                    lastArrow = i;
                 }
             }
-            if (keep.size() == line.getChildren().size()) {
-                keep = new ArrayList<>(line.getChildren().subList(0, 1));
-            }
+            List<Node> keep = new ArrayList<>(line.getChildren().subList(0, lastArrow < 0 ? 1 : lastArrow + 1));
             line.getChildren().setAll(keep);
             summary(edited).forEach(line.getChildren()::add);
             idOf(info).ifPresent(name -> {
@@ -377,6 +404,13 @@ final class AnfBlockRenderer implements BlockRenderer {
             HBox.setHgrow(spring, Priority.ALWAYS);
             line.getChildren().add(spring);
         }
+    }
+
+    private Label stateTag(String word, String fill, String ink) {
+        Label tag = new Label(word);
+        tag.setFont(Font.font(base * 0.78));
+        tag.setStyle("-fx-background-color: " + fill + "; -fx-text-fill: " + ink + "; -fx-background-radius: 4; -fx-padding: 1 6 1 6;");
+        return tag;
     }
 
     private Label plain(String text) {

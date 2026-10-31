@@ -27,6 +27,11 @@ import dev.ikm.komet.layout_engine.blueprint.SupplementalAreaBlueprint;
 import dev.ikm.komet.preferences.KometPreferences;
 import dev.ikm.komet.preferences.PreferencesService;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
+import network.ike.komet.claude.anf.element.ClinicalElement;
+import network.ike.komet.claude.anf.element.ElementIsolation;
+import network.ike.komet.claude.anf.element.ElementSet;
+import network.ike.komet.claude.anf.element.ElementText;
+import network.ike.komet.claude.anf.element.Span;
 import network.ike.komet.claude.tools.GraphTools;
 import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
@@ -46,6 +51,7 @@ import javafx.scene.control.ListView;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextArea;
+import javafx.scene.control.Tooltip;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
@@ -59,6 +65,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -100,6 +107,9 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
 
     private TextArea narrative;
     private Button liftButton;
+    /** Step one of the two-step lift (dev-anf-element-isolation): isolates the note's clinical elements. */
+    private Button isolateButton;
+    private ElementsPane elementsPane;
     private ScrollPane formalPane;
     private VBox cards;
     private Label progressLabel;
@@ -263,11 +273,22 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         narrative.setWrapText(true);
         narrative.setPrefRowCount(4);
 
-        liftButton = new Button("Lift to ANF");
+        liftButton = new Button("Lift in one pass");
+        liftButton.setId("lift-one-pass-button");
         liftButton.setOnAction(event -> lift());
+        isolateButton = new Button("Isolate elements");
+        isolateButton.setId("isolate-button");
+        isolateButton.setDefaultButton(true);
+        isolateButton.setTooltip(new Tooltip("Step one: find each clinical fact of the note, as a sentence tied to its words"));
+        isolateButton.setOnAction(event -> isolate());
+        elementsPane = new ElementsPane(new ElementsHost());
+        narrative.textProperty().addListener((obs, was, now) -> {
+            ElementSet set = elementsPane.elements();
+            elementsPane.setNoteChanged(set != null && !set.narrative().equals(now == null ? "" : now.strip()));
+        });
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox controls = new HBox(8, recallBox, spacer, liftButton);
+        HBox controls = new HBox(8, recallBox, spacer, isolateButton, liftButton);
         controls.setAlignment(Pos.CENTER_LEFT);
 
         progressLabel = new Label();
@@ -296,11 +317,13 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         formalPane = new ScrollPane();
         formalPane.setFitToWidth(true);
         setStatus("Lift a narrative to see its Analysis Normal Form.");
-        VBox statementPane = new VBox(2, sectionTitle("Performance statement"), formalPane);
+        VBox statementPane = new VBox(2, sectionTitle("ANF statement"), formalPane);
         VBox.setVgrow(formalPane, Priority.ALWAYS);
 
-        SplitPane middle = new SplitPane(conceptsPane, statementPane);
-        middle.setDividerPositions(0.34);
+        VBox elementsWrap = new VBox(2, sectionTitle("Clinical elements"), elementsPane);
+        VBox.setVgrow(elementsPane, Priority.ALWAYS);
+        SplitPane middle = new SplitPane(elementsWrap, statementPane);
+        middle.setDividerPositions(0.55);
 
         // BOTTOM: detail of the selected concept (from the Concepts list or a statement chip).
         detailPane = new ScrollPane();
@@ -309,7 +332,9 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         VBox detailWrap = new VBox(2, sectionTitle("Concept detail"), detailPane);
         VBox.setVgrow(detailPane, Priority.ALWAYS);
 
-        SplitPane center = new SplitPane(middle, detailWrap);
+        SplitPane bottom = new SplitPane(conceptsPane, detailWrap);
+        bottom.setDividerPositions(0.34);
+        SplitPane center = new SplitPane(middle, bottom);
         center.setOrientation(Orientation.VERTICAL);
         center.setDividerPositions(0.6);
 
@@ -359,6 +384,20 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         cards.getChildren().clear();
         detailPane.setContent(detailPlaceholder());
         AnfAdoc.ConceptResolver resolver = resolver();
+        Optional<ElementSet> elements = ElementText.parse(record.anfBlocks(), record.narrative(), resolver);
+        if (elements.isPresent()) {
+            narrative.setText(record.narrative());
+            elementsPane.setElements(elements.get());
+            for (ClinicalElement element : elements.get().elements()) {
+                element.statement().ifPresent(statement -> conceptValuesOf(statement).forEach(this::addConcept));
+            }
+            currentLiftIndex = history.indexOf(record);
+            setStatus("Select an element to see its statement.");
+            int n = elements.get().elements().size();
+            setActivity(n + (n == 1 ? " element" : " elements") + " · from history");
+            return;
+        }
+        elementsPane.setElements(null);
         for (String block : record.anfBlocks()) {
             AnfStatement statement = AnfAdoc.parse(block, resolver);
             if (statement != null) {
@@ -471,6 +510,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
             return;
         }
         setBusy(true);
+        elementsPane.setElements(null);
         inventory.clear();
         seenNids.clear();
         statements.clear();
@@ -616,6 +656,274 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         AnfHistoryStore.append(preferences(), updated, currentLiftIndex);
     }
 
+    // ── The two-step lift (dev-anf-element-isolation) ────────────────────────
+
+    /** Step one: isolates the note's clinical elements, through the isolate tool, and shows them for review. */
+    private void isolate() {
+        String text = (narrative.getText() == null) ? "" : narrative.getText().strip();
+        if (text.isEmpty()) {
+            return;
+        }
+        String apiKey = PreferencesService.userPreferences().get(PREF_API_KEY, "");
+        if (apiKey.isBlank()) {
+            setStatus("No Anthropic API key configured (set it in the Komet Assistant).");
+            return;
+        }
+        // the elements' spans are offsets into exactly this text
+        narrative.setText(text);
+        setBusy(true);
+        inventory.clear();
+        seenNids.clear();
+        statements.clear();
+        currentLiftIndex = -1;
+        setStatus("Isolating the note's clinical elements…");
+        startElapsed();
+        AnfLiftListener listener = new AnfLiftListener() {
+            @Override
+            public void onTurnStart(int turn) {
+                Platform.runLater(() -> setActivity("turn " + (turn + 1) + " · reading the note…"));
+            }
+
+            @Override
+            public void onToolCall(int turn, String tool, Map<String, Object> input) {
+                Platform.runLater(() -> setActivity("isolating elements…"));
+            }
+        };
+        worker.submit(() -> {
+            ElementIsolation.Result result;
+            try {
+                result = new ElementIsolation(apiKey, ANF_MODEL).isolate(text, listener);
+            } catch (Throwable t) {
+                LOG.error("ANF isolation failed", t);
+                String msg = (t.getMessage() != null) ? t.getMessage() : t.toString();
+                Platform.runLater(() -> {
+                    stopElapsed();
+                    setStatus("Isolation failed: " + msg);
+                    setBusy(false);
+                });
+                return;
+            }
+            Platform.runLater(() -> {
+                stopElapsed();
+                if (result.elements().isEmpty()) {
+                    String t = result.assistantText();
+                    setStatus((t == null || t.isBlank()) ? "No elements were isolated." : t);
+                } else {
+                    ElementSet set = result.elements().get();
+                    elementsPane.setElements(set);
+                    int n = set.elements().size();
+                    setActivity(n + (n == 1 ? " element isolated" : " elements isolated") + " · review them, then lift");
+                    setStatus("Select an element to see its statement once it is lifted.");
+                    persistElements(set, true);
+                }
+                setBusy(false);
+            });
+        });
+    }
+
+    /** Step two: lifts each named element on its own, in order, through the existing lift. */
+    private void liftElements(List<String> ids) {
+        ElementSet start = elementsPane.elements();
+        if (start == null || ids.isEmpty()) {
+            return;
+        }
+        ViewCalculator view = viewCalculator();
+        if (view == null) {
+            setStatus("No knowledge-base view is available to ground the lift.");
+            return;
+        }
+        String apiKey = PreferencesService.userPreferences().get(PREF_API_KEY, "");
+        if (apiKey.isBlank()) {
+            setStatus("No Anthropic API key configured (set it in the Komet Assistant).");
+            return;
+        }
+        setBusy(true);
+        startElapsed();
+        String note = start.narrative();
+        worker.submit(() -> {
+            int done = 0;
+            for (String id : ids) {
+                Optional<ClinicalElement> element = start.element(id);
+                if (element.isEmpty()) {
+                    continue;
+                }
+                int position = ++done;
+                AnfLiftListener listener = new AnfLiftListener() {
+                    @Override
+                    public void onToolCall(int turn, String tool, Map<String, Object> input) {
+                        Platform.runLater(() -> setActivity(position + "/" + ids.size() + " · " + activityFor(tool, input)));
+                    }
+
+                    @Override
+                    public void onValueDiscovered(AnfValue conceptValue) {
+                        Platform.runLater(() -> addConcept(conceptValue));
+                    }
+                };
+                AnfLift.Result result;
+                try {
+                    result = new AnfLift(view, apiKey, ANF_MODEL).liftElement(note, element.get().sentence(),
+                            element.get().quotes(note), listener);
+                } catch (Throwable t) {
+                    LOG.error("ANF element lift failed for {}", id, t);
+                    continue;
+                }
+                if (result.lifted()) {
+                    AnfStatement statement = result.statements().get(0);
+                    Platform.runLater(() -> {
+                        ElementSet current = elementsPane.elements();
+                        if (current != null && current.element(id).isPresent()) {
+                            ElementSet next = current.lifted(id, statement);
+                            elementsPane.setElements(next);
+                            persistElements(next, false);
+                            if (elementsPane.selected().map(e -> e.id().equals(id)).orElse(false)) {
+                                showElement(next.element(id));
+                            }
+                        }
+                    });
+                }
+            }
+            Platform.runLater(() -> {
+                stopElapsed();
+                setActivity("lifted " + ids.size() + (ids.size() == 1 ? " element" : " elements"));
+                setBusy(false);
+            });
+        });
+    }
+
+    /** Shows an element's statement in the statement pane, editable in place, or says it is not lifted. */
+    private void showElement(Optional<ClinicalElement> element) {
+        if (element.isEmpty()) {
+            setStatus("Select an element to see its statement.");
+            return;
+        }
+        ClinicalElement e = element.get();
+        if (e.statement().isEmpty()) {
+            setStatus("“" + e.sentence() + "” is not lifted yet. Lift it, or lift every reviewed element.");
+            return;
+        }
+        Label sentence = new Label(e.sentence());
+        sentence.setWrapText(true);
+        sentence.setStyle("-fx-font-size: 13; -fx-text-fill: #282040; -fx-padding: 4 4 0 4;");
+        Label state = new Label(e.state().word());
+        state.setStyle("-fx-text-fill: #888; -fx-font-size: 10.5; -fx-padding: 0 4 4 4;");
+        Node card = AnfStatementView.render(e.statement().get(), toolViewProperties, elementEditor(e.id()));
+        VBox box = new VBox(2, sentence, state, card);
+        box.setPadding(new Insets(4));
+        formalPane.setContent(box);
+    }
+
+    /** The card editor of an element's statement: an edit writes back to the element and persists. */
+    private AnfStatementView.Editor elementEditor(String id) {
+        AnfStatementView.Editor base = editorFor(-1);
+        return new AnfStatementView.Editor() {
+            @Override
+            public AnfValue.Grounded resolve(long conceptNid) {
+                return base.resolve(conceptNid);
+            }
+
+            @Override
+            public void onEdited(AnfStatement updated) {
+                apply(updated, true);
+            }
+
+            @Override
+            public void onFieldEdited(AnfStatement updated) {
+                apply(updated, false);
+            }
+
+            private void apply(AnfStatement updated, boolean redraw) {
+                ElementSet current = elementsPane.elements();
+                if (current == null) {
+                    return;
+                }
+                current.element(id).ifPresent(e -> {
+                    ElementSet next = current.replace(e.withStatement(updated));
+                    elementsPane.setElements(next);
+                    persistElements(next, false);
+                    if (redraw) {
+                        showElement(next.element(id));
+                    }
+                });
+            }
+
+            @Override
+            public KlConceptField.Completer completer() {
+                return conceptCompleter();
+            }
+
+            @Override
+            public void showDetail(AnfValue conceptValue) {
+                AnfArea.this.showDetail(conceptValue);
+            }
+        };
+    }
+
+    /**
+     * Records an element set in the lift history as its blocks: a new history entry for a fresh
+     * isolation, the current entry rewritten for a gesture or a lift.
+     */
+    private void persistElements(ElementSet set, boolean fresh) {
+        List<String> blocks = ElementText.toBlocks(set);
+        if (!fresh && currentLiftIndex >= 0 && currentLiftIndex < history.size()) {
+            LiftRecord previous = history.get(currentLiftIndex);
+            LiftRecord updated = new LiftRecord(set.narrative(), blocks, previous.epochMillis(), previous.title());
+            suppressRecall = true;
+            try {
+                history.set(currentLiftIndex, updated);
+            } finally {
+                suppressRecall = false;
+            }
+            AnfHistoryStore.append(preferences(), updated, currentLiftIndex);
+            return;
+        }
+        LiftRecord record = new LiftRecord(set.narrative(), blocks, System.currentTimeMillis(),
+                LiftRecord.titleFrom(set.narrative()));
+        int index = history.size();
+        history.add(record);
+        currentLiftIndex = index;
+        if (!AnfHistoryStore.append(preferences(), record, index)) {
+            LOG.info("ANF history kept in memory only (no backing directory for this node)");
+        }
+    }
+
+    /** The region as the element pane's host. */
+    private final class ElementsHost implements ElementsPane.Host {
+        @Override
+        public void changed(ElementSet set) {
+            elementsPane.setElements(set);
+            persistElements(set, false);
+            showElement(elementsPane.selected());
+        }
+
+        @Override
+        public void selected(Optional<ClinicalElement> element) {
+            showElement(element);
+        }
+
+        @Override
+        public void lift(List<String> ids) {
+            liftElements(ids);
+        }
+
+        @Override
+        public Optional<Span> selection() {
+            javafx.scene.control.IndexRange range = narrative.getSelection();
+            ElementSet set = elementsPane.elements();
+            if (range == null || range.getLength() == 0 || set == null) {
+                return Optional.empty();
+            }
+            int start = range.getStart();
+            int end = Math.min(range.getEnd(), set.narrative().length());
+            while (start < end && Character.isWhitespace(set.narrative().charAt(start))) {
+                start++;
+            }
+            while (end > start && Character.isWhitespace(set.narrative().charAt(end - 1))) {
+                end--;
+            }
+            return start < end ? Optional.of(new Span(start, end)) : Optional.empty();
+        }
+    }
+
     /** A history row: the lift's title (truncated narrative) over its statement count. */
     private final class HistoryCell extends ListCell<LiftRecord> {
         @Override
@@ -628,8 +936,10 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
             }
             Label title = new Label(item.title());
             title.setWrapText(true);
+            long elements = item.anfBlocks().stream().filter(b -> b.contains(",element=")).count();
             int n = item.anfBlocks().size();
-            Label subtitle = new Label(n + (n == 1 ? " statement" : " statements"));
+            Label subtitle = new Label(elements > 0 ? elements + (elements == 1 ? " element" : " elements")
+                    : n + (n == 1 ? " statement" : " statements"));
             subtitle.setStyle("-fx-text-fill: #999999; -fx-font-size: 10;");
             setText(null);
             setGraphic(new VBox(1, title, subtitle));
@@ -647,6 +957,8 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
     private void setBusy(boolean busy) {
         narrative.setDisable(busy);
         liftButton.setDisable(busy);
+        isolateButton.setDisable(busy);
+        elementsPane.setBusy(busy);
     }
 
     /** Sets the current activity word shown in the progress strip and refreshes it. */
