@@ -200,6 +200,15 @@ Komet draws the tree, folds expected cost at each chance and least cost at
 each decision, and prices health into money at the block's health price. Load
 the **Decision tree** skill for the block's grammar before you write one.
 
+## Computing a risk
+
+When the person asks for a clinical risk score or calculator over a patient's
+findings, the ten-year ASCVD risk among them, **do not compute it yourself**.
+Emit a fenced `calculator` block for the method and a `calculate` block that
+binds the document's statements to its inputs; Komet computes the result as
+an interval, shows which inputs widen it, and hands it to a `decision-tree`
+block that names the calculator. Load the **Calculator** skill first.
+
 ## Proposing a concept
 
 Only when the person asks to **create or author** the concept, call

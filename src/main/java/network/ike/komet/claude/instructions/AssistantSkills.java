@@ -51,6 +51,7 @@ public final class AssistantSkills {
             "provenance-answers.md",
             "anf-lift.md",
             "decision-tree.md",
+            "calculator.md",
             "terminology-answer-style.md");
 
     private static final String RESOURCE_ROOT = "/network/ike/komet/claude/skills/";

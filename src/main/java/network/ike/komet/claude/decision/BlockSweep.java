@@ -42,15 +42,17 @@ public final class BlockSweep implements DecisionTreeSensitivity.Mover {
     private final DecisionTerms terms;
     private final Identities ids;
     private final double price;
+    private final ExternalQuantities externals;
 
     private BlockSweep(String baseBody, DecisionTreeText.Parsed stated, DecisionTreeText.Parsed base, DecisionTerms terms,
-                       Identities ids, double price) {
+                       Identities ids, double price, ExternalQuantities externals) {
         this.baseBody = baseBody;
         this.stated = stated;
         this.base = base;
         this.terms = terms;
         this.ids = ids;
         this.price = price;
+        this.externals = externals;
     }
 
     /**
@@ -65,7 +67,13 @@ public final class BlockSweep implements DecisionTreeSensitivity.Mover {
      */
     public static Optional<DecisionTreeSensitivity> sweep(String body, DecisionTerms terms, Identities ids,
                                                           double price, int steps) {
-        return open(body, terms, ids, price).map(mover -> {
+        return sweep(body, terms, ids, price, steps, ExternalQuantities.none());
+    }
+
+    /** Sweeps a block that may read quantities another block computes. */
+    public static Optional<DecisionTreeSensitivity> sweep(String body, DecisionTerms terms, Identities ids,
+                                                          double price, int steps, ExternalQuantities externals) {
+        return open(body, terms, ids, price, externals).map(mover -> {
             DecisionTree base = mover.base.tree().orElseThrow();
             return DecisionTreeSensitivity.of(mover.stated.tree().orElseThrow(),
                     Rollback.of(base, coordinate(base, price)), mover, steps);
@@ -74,13 +82,19 @@ public final class BlockSweep implements DecisionTreeSensitivity.Mover {
 
     /** The mover alone, for a reader that moves one value at a time; empty when the block does not read as a tree. */
     public static Optional<BlockSweep> open(String body, DecisionTerms terms, Identities ids, double price) {
-        DecisionTreeText.Parsed first = DecisionTreeText.parse(body, terms, ids);
+        return open(body, terms, ids, price, ExternalQuantities.none());
+    }
+
+    /** The mover alone, over a block that may read quantities another block computes. */
+    public static Optional<BlockSweep> open(String body, DecisionTerms terms, Identities ids, double price,
+                                            ExternalQuantities externals) {
+        DecisionTreeText.Parsed first = DecisionTreeText.parse(body, terms, ids, externals);
         if (first.tree().isEmpty()) {
             return Optional.empty();
         }
         String baseBody = baseBody(body, first);
-        DecisionTreeText.Parsed base = baseBody.equals(body) ? first : DecisionTreeText.parse(baseBody, terms, ids);
-        return base.tree().map(tree -> new BlockSweep(baseBody, first, base, terms, ids, price));
+        DecisionTreeText.Parsed base = baseBody.equals(body) ? first : DecisionTreeText.parse(baseBody, terms, ids, externals);
+        return base.tree().map(tree -> new BlockSweep(baseBody, first, base, terms, ids, price, externals));
     }
 
     /** The body with every stated interval collapsed to its midpoint. */
@@ -125,7 +139,7 @@ public final class BlockSweep implements DecisionTreeSensitivity.Mover {
             return Optional.empty();
         }
         return DecisionTreeEdits.restate(baseBody, line.getAsInt(), bounds)
-                .flatMap(text -> DecisionTreeText.parse(text, terms, ids).tree())
+                .flatMap(text -> DecisionTreeText.parse(text, terms, ids, externals).tree())
                 .map(tree -> Rollback.of(tree, coordinate(tree, price)));
     }
 

@@ -108,7 +108,8 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
     private final ViewProperties viewProperties;
     private final double base;
     private KonceptLabelTypography typography = KonceptLabelTypography.DEFAULT;
-    private BlockRewriter rewriter;
+        private BlockRewriter rewriter;
+    private final BlockContext context;
 
     /** Where a sweep runs: one thread behind the surface; a test may run it in place. */
     static Executor sweepExecutor = Executors.newSingleThreadExecutor(runnable -> {
@@ -117,18 +118,19 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         return thread;
     });
 
-    DecisionTreeBlockRenderer(ViewCalculator viewCalc, double base) {
-        this(viewCalc, null, base);
+        DecisionTreeBlockRenderer(ViewCalculator viewCalc, double base, BlockContext context) {
+        this(viewCalc, null, base, context);
     }
 
-    DecisionTreeBlockRenderer(ViewProperties viewProperties, double base) {
-        this(viewProperties == null ? null : viewProperties.calculator(), viewProperties, base);
+    DecisionTreeBlockRenderer(ViewProperties viewProperties, double base, BlockContext context) {
+        this(viewProperties == null ? null : viewProperties.calculator(), viewProperties, base, context);
     }
 
-    private DecisionTreeBlockRenderer(ViewCalculator viewCalc, ViewProperties viewProperties, double base) {
+    private DecisionTreeBlockRenderer(ViewCalculator viewCalc, ViewProperties viewProperties, double base, BlockContext context) {
         this.viewCalc = viewCalc;
         this.viewProperties = viewProperties;
         this.base = base;
+        this.context = context == null ? new BlockContext() : context;
     }
 
     void setChipTypography(KonceptLabelTypography typography) {
@@ -197,7 +199,10 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         final DecisionTerms terms = DecisionTerms.fromBindings();
         // The view resolves what the store holds; a symbol the store lacks, as a block written for
         // the documentation build names its concepts, is read as a concept local to the block.
-        final Identities ids = new BlockIdentities(new ViewIdentities(viewCalc));
+                final Identities ids = context.identities(viewCalc);
+        /** Rebuilds when another block publishes a quantity this tree reads but states no parameter for. */
+        final Runnable onContext = this::rebuildIfReadsExternal;
+        boolean readsExternal;
         DecisionTreeText.Parsed parsed;
         DecisionTree tree;
         DecisionTreeDiagram diagram;
@@ -233,7 +238,14 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                     column.maxWidthProperty().bind(host.widthProperty());
                 }
             });
+                        context.listen(onContext);
             rebuild();
+        }
+
+        private void rebuildIfReadsExternal() {
+            if (readsExternal) {
+                rebuild();
+            }
         }
 
         void rebuild() {
@@ -243,7 +255,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             previewing = false;
             pendingPreview = null;
             parameterChips.clear();
-            parsed = DecisionTreeText.parse(body, terms, ids);
+                        parsed = DecisionTreeText.parse(body, terms, ids, context.externals());
             List<ProfileFinding> findings = new ArrayList<>(parsed.findings().castToList());
             column.getChildren().clear();
             if (parsed.tree().isEmpty()) {
@@ -252,7 +264,12 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             }
             tree = parsed.tree().get();
             findings.addAll(tree.check().castToList());
-            Rollback rollback = Rollback.of(tree, coordinate(tree, price));
+                        Rollback rollback = Rollback.of(tree, coordinate(tree, price));
+            // a parameter with no line was read from another block; a measure that reads a quantity no
+            // parameter states is waiting for one
+            readsExternal = tree.nodesOfType(Parameter.class).anySatisfy(p -> parsed.lineOf(p.vertexIndex()).isEmpty())
+                    || rollback.findings().anySatisfy(f -> f.message().contains("has no parameter for"))
+                    || findings.stream().anyMatch(f -> f.message().contains("has no parameter for"));
             committed = rollback;
             committedFindings = findings;
             fillTop(tree, rollback, price, Optional.empty(), findings);
@@ -305,8 +322,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             sweepExecutor.execute(() -> {
                 Optional<DecisionTreeSensitivity> swept;
                 try {
-                    swept = BlockSweep.sweep(text, terms, new BlockIdentities(new ViewIdentities(viewCalc)), at,
-                            BlockSweep.DEFAULT_STEPS);
+                                        swept = BlockSweep.sweep(text, terms, ids, at, BlockSweep.DEFAULT_STEPS, context.externals());
                 } catch (RuntimeException e) {
                     swept = Optional.empty();
                 }
@@ -675,7 +691,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                 }
                 text = restated.get();
             }
-            DecisionTreeText.Parsed again = DecisionTreeText.parse(text, terms, ids);
+                        DecisionTreeText.Parsed again = DecisionTreeText.parse(text, terms, ids, context.externals());
             if (again.tree().isEmpty()) {
                 return;
             }

@@ -294,6 +294,17 @@ public final class DecisionTreeText {
      * @return the tree when the text has a root decision, and every finding
      */
     public static Parsed parse(String text, DecisionTerms terms, Identities ids) {
+        return parse(text, terms, ids, ExternalQuantities.none());
+    }
+
+    /**
+     * Reads a block, adding as parameters the quantities it reads with {@code from} alone that it
+     * states no parameter for and another block computes ({@code dev-calculator-blocks}): a
+     * calculator's risk becomes a stated parameter of the tree in memory, on the semantic the
+     * external gives it, never in the text. Such a parameter has no line, so the surface offers no
+     * what-if on it.
+     */
+    public static Parsed parse(String text, DecisionTerms terms, Identities ids, ExternalQuantities externals) {
         Reader reader = new Reader(terms, ids);
         BlockLines.Parsed lines = BlockLines.parse(text);
         lines.problems().forEach(problem -> reader.findings.add(ProfileFinding.ofTree(problem)));
@@ -311,6 +322,16 @@ public final class DecisionTreeText {
         reader.lines.put(rootHandle.vertexIndex(), root.number());
         reader.attributes(root, rootHandle, false);
         reader.children(root, rootHandle, "decision");
+        for (long quantity : reader.readQuantities) {
+            if (reader.parameterQuantities.contains(quantity)) {
+                continue;
+            }
+            // stated as the other block computed it, held to four significant figures since it is a computed
+            // number, with no basis of its own: its working is the other block's
+            externals.value(quantity).ifPresent(value -> rootHandle
+                    .parameter(quantity, significant(value.bounds(), 4), value.semanticNid(),
+                            UUID.nameUUIDFromBytes(("external parameter " + quantity).getBytes(java.nio.charset.StandardCharsets.UTF_8))));
+        }
         if (!reader.localSymbols.isEmpty()) {
             reader.findings.add(ProfileFinding.ofTree(reader.localSymbols.size()
                     + " identifiers name nothing in the knowledge base and are read as concepts local to the block: "
@@ -321,6 +342,21 @@ public final class DecisionTreeText {
 
     private static ProfileFinding finding(Line line, String message) {
         return ProfileFinding.ofTree("line " + line.number() + ": " + message);
+    }
+
+    /** Bounds held to a number of significant figures, the lower rounded down and the upper up, so they still contain the value. */
+    static Bounds significant(Bounds bounds, int digits) {
+        return new Bounds(significant(bounds.lower(), digits, false), significant(bounds.upper(), digits, true),
+                bounds.lowerOpen(), bounds.upperOpen());
+    }
+
+    private static double significant(double value, int digits, boolean up) {
+        if (value == 0 || Double.isNaN(value) || Double.isInfinite(value)) {
+            return value;
+        }
+        double magnitude = Math.pow(10, digits - 1 - Math.floor(Math.log10(Math.abs(value))));
+        double scaled = value * magnitude;
+        return (up ? Math.ceil(scaled - 1e-9) : Math.floor(scaled + 1e-9)) / magnitude;
     }
 
     /** One item of a value line's head: an interval, a concept token, or one of the words from, of and in. */
@@ -345,6 +381,10 @@ public final class DecisionTreeText {
         private final MutableIntIntMap lines = IntIntMaps.mutable.empty();
         /** The identifiers the store lacked that the identities made local, in reading order. */
         private final Set<String> localSymbols = new LinkedHashSet<>();
+
+        /** The quantities read with from alone, and the quantities the block's parameters name, for the externals. */
+        private final Set<Long> readQuantities = new LinkedHashSet<>();
+        private final Set<Long> parameterQuantities = new LinkedHashSet<>();
 
         private Reader(DecisionTerms terms, Identities ids) {
             this.terms = terms;
@@ -463,6 +503,9 @@ public final class DecisionTreeText {
                 boolean reads = operands.isEmpty() && !namesDerivationKind(derivation);
                 long kindNid = reads ? resolveConcept(line, derivation, "a quantity a measure reads")
                         : derivationKind(line, derivation);
+                if (reads && kindNid != 0) {
+                    readQuantities.add(kindNid);
+                }
                 if (operands.isEmpty() && !reads) {
                     findings.add(finding(line, "a derivation reads its operands after of"));
                 }
@@ -483,6 +526,7 @@ public final class DecisionTreeText {
                     if (quantity == null) {
                         findings.add(finding(line, "a parameter names its quantity"));
                     }
+                    parameterQuantities.add(quantityNid);
                     measure = node.derivedParameter(quantityNid, kindNid, operandNids, semantic, vertexId);
                 } else {
                     measure = node.derived(kind, kindNid, operandNids, semantic, vertexId);
@@ -497,6 +541,7 @@ public final class DecisionTreeText {
                     if (quantity == null) {
                         findings.add(finding(line, "a parameter names its quantity"));
                     }
+                    parameterQuantities.add(quantityNid);
                     measure = node.parameter(quantityNid, bounds, semantic, vertexId);
                 } else {
                     measure = node.measure(kind, bounds, semantic, vertexId);

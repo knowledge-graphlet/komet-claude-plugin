@@ -129,7 +129,10 @@ public final class MarkdownRichText {
     /** The koncept-tree block renderer, held so chip typography can be forwarded (ike-issues#1050). */
     private final KonceptTreeBlockRenderer trees;
     /** The decision-tree block renderer, held so chip typography can be forwarded. */
-    private final DecisionTreeBlockRenderer decisions;
+        private final DecisionTreeBlockRenderer decisions;
+        private final CalculatorBlockRenderer calculators;
+    private final AnfBlockRenderer statements;
+    private final BlockContext context;
 
     /**
      * Equivalent to {@link #MarkdownRichText(ViewCalculator, double, String)} with the
@@ -164,12 +167,18 @@ public final class MarkdownRichText {
      * @param base           base body font size in px
      * @param fontFamily     the base prose font family; {@code null} uses the platform default
      */
-    public MarkdownRichText(ViewProperties viewProperties, double base, String fontFamily) {
-        this(base, fontFamily,
+        public MarkdownRichText(ViewProperties viewProperties, double base, String fontFamily) {
+        this(base, fontFamily, new BlockContext(), viewProperties);
+    }
+
+    private MarkdownRichText(double base, String fontFamily, BlockContext context, ViewProperties viewProperties) {
+        this(base, fontFamily, context,
                 new ConceptChipInlineDecorator(viewProperties, base),
                 new KonceptTreeBlockRenderer(viewProperties, base),
                 new KonceptDefinitionBlockRenderer(viewProperties == null ? null : viewProperties.calculator(), base),
-                new DecisionTreeBlockRenderer(viewProperties, base));
+                                new DecisionTreeBlockRenderer(viewProperties, base, context),
+                new CalculatorBlockRenderer(viewProperties, base, context),
+                new AnfBlockRenderer(viewProperties, base, context));
     }
 
     /**
@@ -179,21 +188,31 @@ public final class MarkdownRichText {
      * @param fontFamily the base prose font family (e.g. a serif family for a print rendering);
      *                   {@code null} uses the platform default. Code stays monospaced.
      */
-    public MarkdownRichText(ViewCalculator viewCalc, double base, String fontFamily) {
-        this(base, fontFamily,
+        public MarkdownRichText(ViewCalculator viewCalc, double base, String fontFamily) {
+        this(base, fontFamily, new BlockContext(), viewCalc);
+    }
+
+    private MarkdownRichText(double base, String fontFamily, BlockContext context, ViewCalculator viewCalc) {
+        this(base, fontFamily, context,
                 new ConceptChipInlineDecorator(viewCalc, base),
                 new KonceptTreeBlockRenderer(viewCalc, base),
                 new KonceptDefinitionBlockRenderer(viewCalc, base),
-                new DecisionTreeBlockRenderer(viewCalc, base));
+                                new DecisionTreeBlockRenderer(viewCalc, base, context),
+                new CalculatorBlockRenderer(viewCalc, base, context),
+                new AnfBlockRenderer(viewCalc, base, context));
     }
 
-    private MarkdownRichText(double base, String fontFamily, ConceptChipInlineDecorator decorator,
+    private MarkdownRichText(double base, String fontFamily, BlockContext context, ConceptChipInlineDecorator decorator,
                              KonceptTreeBlockRenderer trees, KonceptDefinitionBlockRenderer definitions,
-                             DecisionTreeBlockRenderer decisions) {
+                                                          DecisionTreeBlockRenderer decisions, CalculatorBlockRenderer calculators,
+                             AnfBlockRenderer statements) {
         this.base = base;
+        this.context = context;
         this.decorator = decorator;
         this.trees = trees;
         this.decisions = decisions;
+                this.calculators = calculators;
+        this.statements = statements;
         // Each renderer answers only to its own tag and declines the rest, so the first that
         // renders a block wins (ike-issues#1292).
         BlockRenderer blocks = (info, literal, style) -> {
@@ -201,7 +220,13 @@ public final class MarkdownRichText {
             if (pieces.isEmpty()) {
                 pieces = definitions.render(info, literal, style);
             }
-            return pieces.isEmpty() ? decisions.render(info, literal, style) : pieces;
+                        if (pieces.isEmpty()) {
+                pieces = decisions.render(info, literal, style);
+            }
+                        if (pieces.isEmpty()) {
+                pieces = calculators.render(info, literal, style);
+            }
+            return pieces.isEmpty() ? statements.render(info, literal, style) : pieces;
         };
         this.renderer = new MarkdownRichTextRenderer(base, fontFamily, decorator, blocks);
     }
@@ -216,7 +241,13 @@ public final class MarkdownRichText {
     public void setChipTypography(KonceptLabelTypography typography) {
         decorator.setChipTypography(typography);
         trees.setChipTypography(typography);
-        decisions.setChipTypography(typography);
+                decisions.setChipTypography(typography);
+        calculators.setChipTypography(typography);
+    }
+
+    /** What the blocks of this rendering know of each other: the calculators defined and the values computed. */
+    public BlockContext blockContext() {
+        return context;
     }
 
     /**
@@ -227,8 +258,9 @@ public final class MarkdownRichText {
      * @param store the width store, or {@code null} to make column resizing session-local
      */
     /** Where a rendered decision tree's what-if goes when the reader writes it back; null offers the what-if alone. */
-    public void setBlockRewriter(BlockRewriter rewriter) {
+        public void setBlockRewriter(BlockRewriter rewriter) {
         decisions.setRewriter(rewriter);
+        calculators.setRewriter(rewriter);
     }
 
     public void setTableColumnWidths(TableColumnWidths store) {

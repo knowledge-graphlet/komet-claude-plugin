@@ -121,11 +121,13 @@ public final class Tokens {
                     quoted = true;
                     word.append(c);
                 }
-                case '[' -> {
+                case '[', '(' -> {
+                    // a bracket opens a label or an interval; a parenthesis opens an open-ended
+                    // interval, (lo,hi], and either closer ends it, so [0,5) is one word
                     depth++;
                     word.append(c);
                 }
-                case ']' -> {
+                case ']', ')' -> {
                     depth = Math.max(0, depth - 1);
                     word.append(c);
                 }
