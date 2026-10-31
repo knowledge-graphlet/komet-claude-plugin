@@ -242,7 +242,8 @@ public final class MarkdownRichText {
         decorator.setChipTypography(typography);
         trees.setChipTypography(typography);
                 decisions.setChipTypography(typography);
-        calculators.setChipTypography(typography);
+                calculators.setChipTypography(typography);
+        statements.setChipTypography(typography);
     }
 
     /** What the blocks of this rendering know of each other: the calculators defined and the values computed. */
@@ -259,8 +260,9 @@ public final class MarkdownRichText {
      */
     /** Where a rendered decision tree's what-if goes when the reader writes it back; null offers the what-if alone. */
         public void setBlockRewriter(BlockRewriter rewriter) {
-        decisions.setRewriter(rewriter);
+                decisions.setRewriter(rewriter);
         calculators.setRewriter(rewriter);
+        statements.setRewriter(rewriter);
     }
 
     public void setTableColumnWidths(TableColumnWidths store) {

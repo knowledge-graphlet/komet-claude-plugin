@@ -273,8 +273,10 @@ final class CalculatorBlockRenderer implements BlockRenderer {
         boolean previewing;
         Runnable pendingPreview;
         /** Rebuilds when a calculator is defined later in the document than this record. */
-        final Runnable onContext = this::rebuildIfWaiting;
+                final Runnable onContext = this::rebuildIfWaiting;
         boolean waitingForCalculator;
+        /** Set while a rebuild runs: the context notifies as the card publishes, and a card never rebuilds itself from inside. */
+        boolean rebuilding;
 
         Record(String info, String body) {
             this.info = info;
@@ -295,13 +297,32 @@ final class CalculatorBlockRenderer implements BlockRenderer {
             rebuild();
         }
 
-        private void rebuildIfWaiting() {
-            if (waitingForCalculator && calculation != null && context.calculator(calculation.calculatorNid()).isPresent()) {
+                        private void rebuildIfWaiting() {
+            if (calculation == null || rebuilding) {
+                return;
+            }
+            boolean calculatorArrived = waitingForCalculator && context.calculator(calculation.calculatorNid()).isPresent();
+            // a statement an anf block of the document named may have been edited: read it again
+            boolean bindsDocumentStatements = calculation.lines().anySatisfy(line -> line.spec() instanceof Calculation.Statement s
+                    && ids.isLocal(s.statementNid()));
+            if (calculatorArrived || bindsDocumentStatements) {
                 rebuild();
             }
         }
 
-        void rebuild() {
+                void rebuild() {
+            if (rebuilding) {
+                return;
+            }
+            rebuilding = true;
+            try {
+                doRebuild();
+            } finally {
+                rebuilding = false;
+            }
+        }
+
+        private void doRebuild() {
             previewing = false;
             pendingPreview = null;
             rows.clear();
