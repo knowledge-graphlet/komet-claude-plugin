@@ -76,6 +76,18 @@ final class ElementsPane extends VBox {
 
         /** The leaf under an open element: its statement, editable, or why it has none. */
         Node statement(ClinicalElement element);
+
+        /**
+         * How many not-clinical marks could be recorded on the note as annotations and are not yet:
+         * none unless the narrative is a stamped document's (the segments design's decision 9, revised).
+         */
+        default int unrecordedNotClinical(ElementSet set) {
+            return 0;
+        }
+
+        /** Record the set's unrecorded not-clinical marks on the note, as annotations in its git history. */
+        default void recordNotClinical() {
+        }
     }
 
     /** A rendered statement leaf and the statement it shows, kept while the element's statement is unchanged. */
@@ -87,6 +99,7 @@ final class ElementsPane extends VBox {
     private final Label coverage = new Label();
     private final Button addFromSelection = new Button("Add from selection");
     private final Button markNotClinical = new Button("Mark not clinical");
+    private final Button recordNotClinical = new Button("Record on the note");
     private final Button expandAll = new Button("Expand all");
     private final Button collapseAll = new Button("Collapse all");
     private final Button liftAll = new Button("Lift elements");
@@ -114,6 +127,10 @@ final class ElementsPane extends VBox {
         addFromSelection.setOnAction(e -> addFromSelection());
         markNotClinical.setId("not-clinical-button");
         markNotClinical.setOnAction(e -> markNotClinical());
+        recordNotClinical.setId("record-not-clinical-button");
+        recordNotClinical.setOnAction(e -> host.recordNotClinical());
+        recordNotClinical.managedProperty().bind(recordNotClinical.visibleProperty());
+        recordNotClinical.setVisible(false);
         expandAll.setId("expand-elements-button");
         expandAll.setOnAction(e -> {
             if (set != null) {
@@ -131,7 +148,7 @@ final class ElementsPane extends VBox {
         liftAll.setOnAction(e -> host.lift(set == null ? List.of() : set.toLift().stream().map(ClinicalElement::id).toList()));
         Region spring = new Region();
         HBox.setHgrow(spring, Priority.ALWAYS);
-        tools.getChildren().addAll(addFromSelection, markNotClinical, spring, expandAll, collapseAll, liftAll);
+        tools.getChildren().addAll(addFromSelection, markNotClinical, recordNotClinical, spring, expandAll, collapseAll, liftAll);
         tools.setAlignment(Pos.CENTER_LEFT);
         tools.managedProperty().bind(tools.visibleProperty());
         coverage.managedProperty().bind(coverage.visibleProperty());
@@ -513,6 +530,11 @@ final class ElementsPane extends VBox {
         expandAll.setDisable(set == null);
         collapseAll.setDisable(set == null);
         markNotClinical.setDisable(busy || !has);
+        int unrecorded = set == null ? 0 : host.unrecordedNotClinical(set);
+        recordNotClinical.setVisible(unrecorded > 0);
+        recordNotClinical.setDisable(busy || !has);
+        recordNotClinical.setTooltip(new Tooltip("Write " + unrecorded + (unrecorded == 1 ? " not-clinical mark" : " not-clinical marks")
+                + " into the document's git history as Not clinical annotations, so every reader of the note sees them"));
         liftAll.setDisable(busy || !has || !set.allAccepted() || set.toLift().isEmpty());
         liftAll.setTooltip(new Tooltip(has && !set.allAccepted()
                 ? "Mark every element reviewed first; a single element can be lifted at any time"

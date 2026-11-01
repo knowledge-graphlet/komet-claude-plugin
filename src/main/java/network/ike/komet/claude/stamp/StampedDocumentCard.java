@@ -676,6 +676,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         String remembered = preferences().get(PREF_WORKING_TREE, "");
         if (!remembered.isEmpty() && Files.isDirectory(Path.of(remembered))) {
             repoRoot = Path.of(remembered);
+            DocumentNarratives.workingTreeOpened(repoRoot);
         }
         repositoryPanel.refresh();
         refresh();
@@ -1470,6 +1471,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
             assembly = chosen.get() == all;
         }
         repoRoot = root.get();
+        DocumentNarratives.workingTreeOpened(repoRoot);
         preferences().put(PREF_WORKING_TREE, repoRoot.toString());
         syncPreferences();
         repositoryPanel.refresh();
@@ -2208,6 +2210,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
                 return;
             }
             repoRoot = target.toAbsolutePath().normalize();
+            DocumentNarratives.workingTreeOpened(repoRoot);
             preferences().put(PREF_WORKING_TREE, repoRoot.toString());
             syncPreferences();
             statusLine.setText("Cloned into " + repoRoot + "; Open file… chooses a document in it. " + run.output().replace('\n', ' '));
@@ -2409,6 +2412,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
             return Optional.empty();
         }
         repoRoot = chosen.toPath();
+        DocumentNarratives.workingTreeOpened(repoRoot);
         preferences().put(PREF_WORKING_TREE, repoRoot.toString());
         syncPreferences();
         return Optional.of(repoRoot);

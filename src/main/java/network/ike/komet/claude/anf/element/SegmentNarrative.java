@@ -101,9 +101,24 @@ public final class SegmentNarrative implements Anchoring {
         return placed.stream().map(Placed::sentence).toList();
     }
 
-    @Override
-    public String anchor(Span span) {
-        List<String> anchors = new ArrayList<>();
+    /**
+     * One sentence's part of a span: the sentence, the columns of its text the span covers, from
+     * inclusive to exclusive, and the words there.
+     */
+    public record Piece(Sentence sentence, int from, int to, String words) {
+
+        /** @return whether the span covers the whole sentence */
+        public boolean whole() {
+            return from == 0 && to == sentence.text().length();
+        }
+    }
+
+    /**
+     * The parts of sentences a span covers, in order; separators between sentences, and stretches
+     * with no letter or digit, belong to none.
+     */
+    public List<Piece> pieces(Span span) {
+        List<Piece> pieces = new ArrayList<>();
         for (Placed p : placed) {
             int from = Math.max(span.start(), p.start());
             int to = Math.min(span.end(), p.end());
@@ -114,8 +129,33 @@ public final class SegmentNarrative implements Anchoring {
             if (words.chars().noneMatch(Character::isLetterOrDigit)) {
                 continue;
             }
-            anchors.add(SEGMENT + p.sentence().id() + "[" + (from - p.start()) + "," + (to - p.start()) + "]=" + words);
+            pieces.add(new Piece(p.sentence(), from - p.start(), to - p.start(), words));
         }
+        return pieces;
+    }
+
+    /**
+     * Where columns of a sentence lie in the narrative.
+     *
+     * @param sentenceId the sentence's identifier
+     * @param from       the first column of its text
+     * @param to         one past the last
+     * @return the span; empty when the narrative does not hold the sentence or the columns do not fit it
+     */
+    public Optional<Span> span(String sentenceId, int from, int to) {
+        for (Placed p : placed) {
+            if (p.sentence().id().equals(sentenceId) && from >= 0 && from < to && to <= p.sentence().text().length()) {
+                return Optional.of(new Span(p.start() + from, p.start() + to));
+            }
+        }
+        return Optional.empty();
+    }
+
+    @Override
+    public String anchor(Span span) {
+        List<String> anchors = pieces(span).stream()
+                .map(p -> SEGMENT + p.sentence().id() + "[" + p.from() + "," + p.to() + "]=" + p.words())
+                .toList();
         // a span between sentences, in their separators alone, has no sentence to anchor to
         return anchors.isEmpty() ? span.quoteAnchor(narrative) : String.join("|", anchors);
     }

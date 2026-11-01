@@ -67,6 +67,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
 
@@ -271,8 +272,15 @@ public final class VertexMaterializer {
                             continue;                            // already in the store
                         }
                         CommitEvent.AnnotationEvent a = event.annotations().get(i);
-                        // the annotated lines, and the sentences the range covers whole (#1313)
-                        List<SegmentId> judged = segments ? a.sentences() : List.of();
+                        Optional<ConceptFacade> meaning = StampedDocumentTerms.meaning(a);
+                        if (meaning.isEmpty()) {
+                            LOG.warn("{}: annotation {} names {}, which this store does not hold; not written",
+                                    name, event.commit().sha().substring(0, 7), a.meaning());
+                            continue;
+                        }
+                        // the annotated lines, and the sentences the range covers, whole or in part (#1313; decision 9 revised)
+                        List<CommitEvent.SentenceFragment> fragments = segments ? a.fragments() : List.of();
+                        List<SegmentId> judged = fragments.stream().map(CommitEvent.SentenceFragment::sentence).toList();
                         long[] nids = new long[a.lines().size() + judged.size()];
                         for (int j = 0; j < a.lines().size(); j++) {
                             nids[j] = EntityService.get().nidForSemantic(patternId, lineProxy(a.lines().get(j)).publicId());
@@ -281,8 +289,8 @@ public final class VertexMaterializer {
                             nids[a.lines().size() + j] = EntityService.get().nidForSemantic(patternId, semantic(segmentKey(judged.get(j))).publicId());
                         }
                         writer.semantic(proxy.publicId(), IkePattern.ANNOTATION_PATTERN.publicId(), root.publicId(),
-                                StampedDocumentTerms.kind(a.kind()), EntityProxy.make(GitDocumentMaterializer.reviewedStampNid(source, a.reviewedSha())),
-                                LongIds.list.of(nids), a.text());
+                                meaning.get(), EntityProxy.make(GitDocumentMaterializer.reviewedStampNid(source, a.reviewedSha())),
+                                LongIds.list.of(nids), a.text(), StampedDocumentTerms.textRange(a.lines().size(), fragments));
                         annotations++;
                     }
                     writer.commit();

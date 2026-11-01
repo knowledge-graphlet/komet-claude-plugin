@@ -247,13 +247,17 @@ public final class GitDocumentMaterializer {
                             continue;                            // already in the store
                         }
                         CommitEvent.AnnotationEvent a = event.annotations().get(i);
+                        Optional<ConceptFacade> meaning = StampedDocumentTerms.meaning(a);
+                        if (meaning.isEmpty() || a.lines().isEmpty()) {
+                            continue;                            // a meaning the store lacks, or words within lines: this model stores lines only
+                        }
                         long[] nids = new long[a.lines().size()];
                         for (int j = 0; j < nids.length; j++) {
                             nids[j] = lineNid(adapter, a.lines().get(j));
                         }
                         writer.semantic(proxy, IkePattern.ANNOTATION_PATTERN.publicId(), anchor.publicId(),
-                                StampedDocumentTerms.kind(a.kind()), EntityProxy.make(reviewedStampNid(source, a.reviewedSha())),
-                                LongIds.list.of(nids), a.text());
+                                meaning.get(), EntityProxy.make(reviewedStampNid(source, a.reviewedSha())),
+                                LongIds.list.of(nids), a.text(), "");
                         annotations++;
                     }
                     writer.commit();
@@ -702,15 +706,25 @@ public final class GitDocumentMaterializer {
     }
 
     /**
-     * One annotation as read from the store.
+     * One annotation as read from the store, on one element.
      *
-     * @param kind          the kind
+     * @param kind          the kind, when the engine knows it; null for any other meaning
      * @param stamp         the annotation's own STAMP: who and when
      * @param reviewedStamp the nid of the STAMP of the version the annotator saw
      * @param text          the annotation text, possibly empty
      * @param retractedBy   the STAMP of the retraction that withdrew it (who and when), or {@code null} while it is in force
+     * @param meaningNid    what it says: its kind's concept, or any other concept, such as Not clinical; 0 for an
+     *                      annotation of a known kind built without a store, whose kind says it
+     * @param ranges        the parts of the element's text it covers, in order; empty when it covers the element whole
+     *                      (the segments design's decision 9, revised 2026-10-31)
      */
-    public record StoredAnnotation(AnnotationKind kind, StampEntity<?> stamp, long reviewedStamp, String text, StampEntity<?> retractedBy) {
+    public record StoredAnnotation(AnnotationKind kind, StampEntity<?> stamp, long reviewedStamp, String text, StampEntity<?> retractedBy,
+                                   long meaningNid, List<TextRange> ranges) {
+
+        /** An annotation of a known kind on a whole element. */
+        public StoredAnnotation(AnnotationKind kind, StampEntity<?> stamp, long reviewedStamp, String text, StampEntity<?> retractedBy) {
+            this(kind, stamp, reviewedStamp, text, retractedBy, 0, List.of());
+        }
 
         /** An annotation in force. */
         public StoredAnnotation(AnnotationKind kind, StampEntity<?> stamp, long reviewedStamp, String text) {
@@ -721,7 +735,25 @@ public final class GitDocumentMaterializer {
         public boolean retracted() {
             return retractedBy != null;
         }
+
+        /** @return whether it is a stance a later one by the same annotator supersedes */
+        public boolean judgment() {
+            return kind != null && kind.judgment();
+        }
+
+        /** @return whether it covers its element whole */
+        public boolean whole() {
+            return ranges.isEmpty();
+        }
     }
+
+    /**
+     * Part of a sentence's text, as columns of its whitespace-normalized text.
+     *
+     * @param start the first column, 0-based
+     * @param end   one past the last
+     */
+    public record TextRange(int start, int end) { }
 
     /**
      * One structural element as read from the store.
@@ -1237,17 +1269,32 @@ public final class GitDocumentMaterializer {
                 retractedBy = v.stamp();
                 v = made;
             }
-            Object kindValue = v.fieldValues().get(0);
-            Optional<AnnotationKind> kind = kindValue instanceof dev.ikm.tinkar.component.Component c
-                    ? AnnotationKind.of(c.publicId().asUuidArray()[0]) : Optional.empty();
-            if (kind.isEmpty()) {
+            if (!(v.fieldValues().get(0) instanceof dev.ikm.tinkar.component.Component meaning)) {
                 continue;
             }
+            // a kind the engine knows carries behaviour; any other meaning accumulates as a comment does (decision 9 revised)
+            AnnotationKind kind = AnnotationKind.of(meaning.publicId().asUuidArray()[0]).orElse(null);
+            long meaningNid = EntityService.get().nidForPublicId(meaning.publicId());
             long reviewed = v.fieldValues().get(1) instanceof dev.ikm.tinkar.component.Component c
                     ? EntityService.get().nidForPublicId(c.publicId()) : 0;
-            StoredAnnotation stored = new StoredAnnotation(kind.get(), v.stamp(), reviewed, String.valueOf(v.fieldValues().get(3)), retractedBy);
-            for (long nid : ((LongIdList) v.fieldValues().get(2)).toArray()) {
-                seen.add(new Seen(stored, nid));
+            long[] elements = ((LongIdList) v.fieldValues().get(2)).toArray();
+            List<int[]> columns = StampedDocumentTerms.textRanges(v.fieldValues().size() > 4 ? String.valueOf(v.fieldValues().get(4)) : "",
+                    elements.length);
+            // one entry per element: an element named twice holds two fragments; named whole once, it is whole
+            Map<Long, List<TextRange>> parts = new java.util.LinkedHashMap<>();
+            Set<Long> whole = new HashSet<>();
+            for (int i = 0; i < elements.length; i++) {
+                List<TextRange> on = parts.computeIfAbsent(elements[i], k -> new ArrayList<>());
+                if (columns.get(i) == null) {
+                    whole.add(elements[i]);
+                } else {
+                    on.add(new TextRange(columns.get(i)[0], columns.get(i)[1]));
+                }
+            }
+            String text = String.valueOf(v.fieldValues().get(3));
+            for (Map.Entry<Long, List<TextRange>> e : parts.entrySet()) {
+                seen.add(new Seen(new StoredAnnotation(kind, v.stamp(), reviewed, text, retractedBy, meaningNid,
+                        whole.contains(e.getKey()) ? List.of() : List.copyOf(e.getValue())), e.getKey()));
             }
         }
         seen.sort(java.util.Comparator.comparingLong(s -> s.annotation().stamp().time()));
@@ -1258,8 +1305,8 @@ public final class GitDocumentMaterializer {
             // A later stance by the same annotator replaces the earlier one, and a retracted stance
             // still did so when it was made: a retraction takes back only its target, so what the
             // target superseded does not come back (dev-annotation-trailer).
-            if (a.kind().judgment()) {
-                on.removeIf(o -> o.kind().judgment() && o.stamp().authorNid() == a.stamp().authorNid());
+            if (a.judgment()) {
+                on.removeIf(o -> o.judgment() && o.stamp().authorNid() == a.stamp().authorNid());
             }
             on.add(a);
         }

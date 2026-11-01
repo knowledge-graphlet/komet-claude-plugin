@@ -287,6 +287,9 @@ public final class DocumentOutline {
     }
 
     private static String word(AnnotationKind kind) {
+        if (kind == null) {
+            return "marked by";                                  // another meaning, such as Not clinical (decision 9 revised)
+        }
         return switch (kind) {
             case AFFIRMATION -> "affirmed by";
             case REFUTATION -> "refuted by";

@@ -28,7 +28,10 @@ import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import network.ike.komet.claude.anf.element.ClinicalElement;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.MenuButton;
+import design.knowledge.stamp.adoc.git.AnnotationCommit;
+import dev.ikm.tinkar.common.id.PublicId;
 import network.ike.komet.claude.stamp.DocumentNarratives;
+import network.ike.komet.claude.stamp.GitDocumentMaterializer;
 import network.ike.komet.claude.anf.element.SegmentNarrative;
 import network.ike.komet.claude.anf.element.Anchoring;
 import network.ike.komet.claude.anf.element.ElementIsolation;
@@ -46,7 +49,9 @@ import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
+import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
+import javafx.scene.control.ButtonType;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
@@ -60,10 +65,13 @@ import javafx.scene.layout.VBox;
 import javafx.util.Duration;
 import javafx.util.StringConverter;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -106,6 +114,10 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
     private NarrativeView narrative;
     /** The stamped document the narrative was read from, while the narrative is its text: spans then anchor to its sentences. */
     private SegmentNarrative segments;
+    /** The stamped document the narrative is the text of, while {@link #segments} is set. */
+    private PublicId documentAnchor;
+    /** The narrative spans the document's own annotations mark not clinical: on the note, not in the lift. */
+    private List<Span> recorded = List.of();
     private Button liftButton;
     /** Step one of the two-step lift (dev-anf-element-isolation): isolates the note's clinical elements. */
     private Button isolateButton;
@@ -281,6 +293,8 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
             if (segments != null && !segments.narrative().equals(now)) {
                 // edited by hand: the text is no longer the document's, so spans are quoted again
                 segments = null;
+                documentAnchor = null;
+                recorded = List.of();
             }
             ElementSet set = elementsPane.elements();
             elementsPane.setNoteChanged(set != null && !set.narrative().equals(now));
@@ -394,14 +408,17 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         cards.getChildren().clear();
         AnfAdoc.ConceptResolver resolver = resolver();
         // a lift from a stamped document is read against the document's sentences as they are now
-        Optional<SegmentNarrative> current = segmentNarrativeOf(record.anfBlocks());
+        Optional<PublicId> document = segmentDocumentOf(record.anfBlocks());
+        Optional<SegmentNarrative> current = document.flatMap(DocumentNarratives::narrative);
         Anchoring anchoring = current.<Anchoring>map(n -> n).orElse(Anchoring.quotes(record.narrative()));
         List<String> lost = current.map(n -> ElementText.unresolved(record.anfBlocks(), n)).orElse(List.of());
         Optional<ElementSet> elements = ElementText.parse(record.anfBlocks(), anchoring, resolver);
         if (elements.isPresent()) {
             narrative.setText(anchoring.narrative());
             segments = current.orElse(null);
-            elementsPane.setElements(elements.get());
+            documentAnchor = current.isPresent() ? document.get() : null;
+            recorded = current.map(n -> DocumentNarratives.recordedNotClinical(document.get(), n)).orElse(List.of());
+            elementsPane.setElements(withRecorded(elements.get()));
             markNarrative();
             currentLiftIndex = history.indexOf(record);
             setStatus(lost.isEmpty() ? ""
@@ -412,6 +429,8 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
             return;
         }
         segments = null;
+        documentAnchor = null;
+        recorded = List.of();
         elementsPane.setElements(null);
         for (String block : record.anfBlocks()) {
             AnfStatement statement = AnfAdoc.parse(block, resolver);
@@ -660,7 +679,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
                     String t = result.assistantText();
                     setStatus((t == null || t.isBlank()) ? "No elements were isolated." : t);
                 } else {
-                    ElementSet set = result.elements().get();
+                    ElementSet set = withRecorded(result.elements().get());
                     elementsPane.setElements(set);
                     markNarrative();
                     int n = set.elements().size();
@@ -824,6 +843,8 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         segments = null;
         narrative.setText(read.get().narrative());
         segments = read.get();
+        documentAnchor = choice.anchor();
+        recorded = DocumentNarratives.recordedNotClinical(choice.anchor(), read.get());
         elementsPane.setElements(null);
         cards.getChildren().clear();
         currentLiftIndex = -1;
@@ -832,15 +853,15 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
                 + ". Isolate its elements: their spans anchor to its sentences.");
     }
 
-    /** The current sentences of the document a lift's segment anchors name, when the store holds it. */
-    private static Optional<SegmentNarrative> segmentNarrativeOf(List<String> blocks) {
+    /** The stored document a lift's segment anchors name, when the store holds it. */
+    private static Optional<PublicId> segmentDocumentOf(List<String> blocks) {
         for (String block : blocks) {
             String header = block.strip().lines().findFirst().orElse("");
             if (!header.startsWith("[") || !header.endsWith("]")) {
                 continue;
             }
             for (String id : SegmentNarrative.ids(ElementText.attributes(header.substring(1, header.length() - 1)).get("from"))) {
-                Optional<SegmentNarrative> found = DocumentNarratives.documentOf(id).flatMap(DocumentNarratives::narrative);
+                Optional<PublicId> found = DocumentNarratives.documentOf(id);
                 if (found.isPresent()) {
                     return found;
                 }
@@ -849,12 +870,118 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         return Optional.empty();
     }
 
+    /** Whether a set is over the document's text, so its marks can be the document's annotations. */
+    private boolean onDocument(ElementSet set) {
+        return set != null && documentAnchor != null && segments != null && segments.narrative().equals(set.narrative());
+    }
+
+    /** The set with the not-clinical marks the document records joined to its own. */
+    private ElementSet withRecorded(ElementSet set) {
+        if (!onDocument(set) || recorded.isEmpty()) {
+            return set;
+        }
+        List<Span> marks = new ArrayList<>(set.notClinical());
+        for (Span span : recorded) {
+            if (!marks.contains(span)) {
+                marks.add(span);
+            }
+        }
+        return new ElementSet(set.narrative(), set.elements(), marks);
+    }
+
+    /** The set's not-clinical marks the document does not yet record. */
+    private List<Span> unrecorded(ElementSet set) {
+        if (!onDocument(set)) {
+            return List.of();
+        }
+        return set.notClinical().stream().filter(span -> !recorded.contains(span)).sorted().toList();
+    }
+
+    /**
+     * Writes the set's unrecorded not-clinical marks into the document's git history as Not
+     * clinical annotations, one per mark, through the person's own git, and reads them back into
+     * the store: the marks then belong to the note, and the lift no longer writes them as blocks.
+     */
+    private void recordNotClinical() {
+        ElementSet set = elementsPane.elements();
+        List<Span> marks = unrecorded(set);
+        if (marks.isEmpty()) {
+            return;
+        }
+        PublicId anchor = documentAnchor;
+        SegmentNarrative read = segments;
+        Optional<Path> root = DocumentNarratives.workingTree(anchor);
+        if (root.isEmpty()) {
+            setStatus("Open the document in a Stamped Document card first: the lift writes the annotations in its working tree.");
+            return;
+        }
+        DocumentNarratives.Recording recording;
+        try {
+            recording = DocumentNarratives.notClinical(anchor, root.get(), read, marks);
+        } catch (IOException | RuntimeException e) {
+            setStatus("Not recorded: " + e.getMessage());
+            return;
+        }
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+        confirm.setTitle("Record on the note");
+        confirm.getDialogPane().setId("record-not-clinical-dialog");
+        confirm.setHeaderText("Record " + marks.size() + (marks.size() == 1 ? " not-clinical mark" : " not-clinical marks")
+                + " on " + recording.file() + " as an empty commit?");
+        Label details = new Label(AnnotationCommit.subject(recording.annotations()) + "\n\n" + recording.trailers()
+                + "\n\nEach annotation names the words it covers, so every reader of the note sees them."
+                + " Signing (-S) gives the annotation non-repudiation.");
+        details.setId("record-not-clinical-trailers");
+        details.setWrapText(true);
+        confirm.getDialogPane().setContent(details);
+        ButtonType signed = new ButtonType("Signed Commit");
+        ButtonType unsigned = new ButtonType("Unsigned Commit");
+        confirm.getButtonTypes().setAll(signed, unsigned, ButtonType.CANCEL);
+        if (statusLabel.getScene() != null) {
+            confirm.initOwner(statusLabel.getScene().getWindow());
+        }
+        Optional<ButtonType> choice = confirm.showAndWait();
+        if (choice.isEmpty() || choice.get() == ButtonType.CANCEL) {
+            return;
+        }
+        boolean sign = choice.get() == signed;
+        setStatus("Writing the annotation commit …");
+        CompletableFuture.supplyAsync(() -> {
+            try {
+                AnnotationCommit.Result result = AnnotationCommit.write(recording.root(), recording.annotations(), "", sign);
+                if (result.ok()) {
+                    GitDocumentMaterializer.materialize(recording.root(), recording.root().resolve(recording.file()), true);
+                }
+                return result;
+            } catch (IOException e) {
+                return new AnnotationCommit.Result(false, "", e.getMessage());
+            }
+        }).whenComplete((result, failure) -> Platform.runLater(() -> {
+            if (failure != null || !result.ok()) {
+                String why = failure != null ? failure.getMessage() : result.output();
+                setStatus("Not recorded: " + why);
+                LOG.warn("ANF lift: the not-clinical annotation commit failed in {}: {}", recording.root(), why);
+                return;
+            }
+            recorded = DocumentNarratives.recordedNotClinical(anchor, read);
+            ElementSet now = withRecorded(elementsPane.elements());
+            elementsPane.setElements(now);
+            persistElements(now, false);
+            markNarrative();
+            setStatus("Recorded on the note as commit " + result.sha().substring(0, Math.min(7, result.sha().length()))
+                    + ": " + recorded.size() + (recorded.size() == 1 ? " span" : " spans") + " marked not clinical.");
+        }));
+    }
+
     /**
      * Records an element set in the lift history as its blocks: a new history entry for a fresh
      * isolation, the current entry rewritten for a gesture or a lift.
      */
     private void persistElements(ElementSet set, boolean fresh) {
-        List<String> blocks = ElementText.toBlocks(set, anchoring(set));
+        // marks the document records are its annotations, not the lift's blocks (decision 9 revised)
+        ElementSet own = onDocument(set) && !recorded.isEmpty()
+                ? new ElementSet(set.narrative(), set.elements(), set.notClinical().stream().filter(span -> !recorded.contains(span)).toList())
+                : set;
+        List<String> blocks = ElementText.toBlocks(own, anchoring(set));
         if (!fresh && currentLiftIndex >= 0 && currentLiftIndex < history.size()) {
             LiftRecord previous = history.get(currentLiftIndex);
             LiftRecord updated = new LiftRecord(set.narrative(), blocks, previous.epochMillis(), previous.title());
@@ -899,6 +1026,16 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         @Override
         public void lift(List<String> ids) {
             liftElements(ids);
+        }
+
+        @Override
+        public int unrecordedNotClinical(ElementSet set) {
+            return unrecorded(set).size();
+        }
+
+        @Override
+        public void recordNotClinical() {
+            AnfArea.this.recordNotClinical();
         }
 
         @Override

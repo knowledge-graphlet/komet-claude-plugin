@@ -103,7 +103,7 @@ final class ProvenancePopover {
         Label label = new Label(annotationText(annotation, view));
         label.setWrapText(true);
         label.setFont(BODY);
-        label.setStyle(annotation.retracted() ? "-fx-text-fill: #8a8782;" : switch (annotation.kind()) {
+        label.setStyle(annotation.retracted() || annotation.kind() == null ? "-fx-text-fill: #8a8782;" : switch (annotation.kind()) {
             case AFFIRMATION -> "-fx-text-fill: #2e7d32;";
             case REFUTATION -> "-fx-text-fill: #c62828;";
             case COMMENT, RETRACTION -> "-fx-text-fill: #5f6b7a;";
@@ -115,12 +115,15 @@ final class ProvenancePopover {
     static String annotationText(StoredAnnotation annotation, ViewCalculator view) {
         String who = annotation.stamp() == null ? "someone" : StampNames.name(view, annotation.stamp().authorNid());
         String when = annotation.stamp() == null ? "" : " on " + MOMENT.format(Instant.ofEpochMilli(annotation.stamp().time()));
-        String head = switch (annotation.kind()) {
-            case AFFIRMATION -> annotation.retracted() ? "↶ Affirmation" : "✓ Affirmed";
-            case REFUTATION -> annotation.retracted() ? "↶ Refutation" : "✗ Refuted";
-            case COMMENT -> annotation.retracted() ? "↶ Comment" : "… Commented on";
-            case RETRACTION -> "↶ Retraction";
-        };
+        // any other meaning, such as Not clinical, is named by its concept (decision 9 revised)
+        String head = annotation.kind() == null
+                ? (annotation.retracted() ? "↶ " : "◇ ") + StampNames.name(view, annotation.meaningNid())
+                : switch (annotation.kind()) {
+                    case AFFIRMATION -> annotation.retracted() ? "↶ Affirmation" : "✓ Affirmed";
+                    case REFUTATION -> annotation.retracted() ? "↶ Refutation" : "✗ Refuted";
+                    case COMMENT -> annotation.retracted() ? "↶ Comment" : "… Commented on";
+                    case RETRACTION -> "↶ Retraction";
+                };
         String text = annotation.text() == null || annotation.text().isBlank() ? "" : ": " + annotation.text();
         if (annotation.retracted()) {
             String byWhom = StampNames.name(view, annotation.retractedBy().authorNid());
