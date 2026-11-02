@@ -186,6 +186,7 @@ public final class MarkdownRichText {
                 new ConceptChipInlineDecorator(viewProperties, base),
                 new KonceptTreeBlockRenderer(viewProperties, base),
                 new KonceptDefinitionBlockRenderer(viewProperties == null ? null : viewProperties.calculator(), base),
+                new ComplexConceptBlockRenderer(viewProperties, base, context),
                                 new DecisionTreeBlockRenderer(viewProperties, base, context),
                 new CalculatorBlockRenderer(viewProperties, base, context),
                 new AnfBlockRenderer(viewProperties, base, context));
@@ -207,6 +208,7 @@ public final class MarkdownRichText {
                 new ConceptChipInlineDecorator(viewCalc, base),
                 new KonceptTreeBlockRenderer(viewCalc, base),
                 new KonceptDefinitionBlockRenderer(viewCalc, base),
+                new ComplexConceptBlockRenderer(viewCalc, base, context),
                                 new DecisionTreeBlockRenderer(viewCalc, base, context),
                 new CalculatorBlockRenderer(viewCalc, base, context),
                 new AnfBlockRenderer(viewCalc, base, context));
@@ -214,6 +216,7 @@ public final class MarkdownRichText {
 
     private MarkdownRichText(double base, String fontFamily, BlockContext context, ConceptChipInlineDecorator decorator,
                              KonceptTreeBlockRenderer trees, KonceptDefinitionBlockRenderer definitions,
+                             ComplexConceptBlockRenderer concepts,
                                                           DecisionTreeBlockRenderer decisions, CalculatorBlockRenderer calculators,
                              AnfBlockRenderer statements) {
         this.base = base;
@@ -229,6 +232,9 @@ public final class MarkdownRichText {
             List<BlockPiece> pieces = trees.render(info, literal, style);
             if (pieces.isEmpty()) {
                 pieces = definitions.render(info, literal, style);
+            }
+            if (pieces.isEmpty()) {
+                pieces = concepts.render(info, literal, style);
             }
                         if (pieces.isEmpty()) {
                 pieces = decisions.render(info, literal, style);

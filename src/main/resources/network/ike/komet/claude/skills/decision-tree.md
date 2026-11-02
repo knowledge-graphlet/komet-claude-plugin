@@ -51,6 +51,7 @@ Inside this block a concept is always `k:Key[label] @id=<identity>`: a short Cam
 
 - A concept the knowledge base holds carries the **exact identifier a tool returned** (`search`, `concept`) as its identity: `k:Aneurysm[Intracranial aneurysm] @id=<the UUID the tool returned>`. It then draws as the shared Koncept chip.
 - A concept the knowledge base lacks (a quantity, a currency, a situation the model names) carries a short symbolic identity of your own, `@id=rda-usd`, the same symbol wherever it recurs; Komet reads it as a concept local to the block, draws it as a dashed chip, and lists the symbols beneath the tree. Never invent a store identifier for one.
+- A decision point, an alternative or an event that the knowledge base lacks may be stated as a complex concept in a `complex-concept` block in the same answer (the `complex-concept` skill): the tree's token then carries that block's symbol as its `@id`, so the chip on the tree says what the concept is, and the decision names the patient it is for through the block's prerequisites.
 - A derivation kind is written as its bare name after `from` (`from CumulativeHazard of ...`) or as a token with no identity (`from k:CumulativeHazard[] of ...`); its operands after `of` are the quantities' tokens, each with the quantity's `@id=`.
 
 ## Answering

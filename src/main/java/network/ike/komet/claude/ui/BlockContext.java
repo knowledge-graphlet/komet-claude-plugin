@@ -31,6 +31,7 @@ import network.ike.komet.claude.block.Identities;
 import network.ike.komet.claude.anf.AnfStatement;
 import network.ike.komet.claude.anf.element.ElementLevel;
 import network.ike.komet.claude.calculator.Calculator;
+import network.ike.komet.claude.complexconcept.ComplexConceptText;
 import network.ike.komet.claude.decision.ExternalQuantities;
 import network.ike.komet.claude.decision.ViewIdentities;
 
@@ -47,6 +48,7 @@ public final class BlockContext {
 
         private final Map<Long, Calculator> calculators = new HashMap<>();
     private final Map<String, AnfStatement> statements = new HashMap<>();
+    private final Map<Long, ComplexConceptText.Spec> complexConcepts = new HashMap<>();
     private final Map<Long, ExternalQuantities.Value> values = new HashMap<>();
     private final List<WeakReference<Runnable>> listeners = new ArrayList<>();
     private Shared identities;
@@ -151,6 +153,17 @@ public final class BlockContext {
         }
         statements.put(name, statement);
         notifyListeners();
+    }
+
+    /** A complex-concept block has rendered: the concept, local to the document or stored, is known by its spec. */
+    public synchronized void defineComplexConcept(long conceptNid, ComplexConceptText.Spec spec) {
+        complexConcepts.put(conceptNid, spec);
+        notifyListeners();
+    }
+
+    /** The complex concept a block of this document specifies under a nid, when one does. */
+    public synchronized Optional<ComplexConceptText.Spec> complexConcept(long conceptNid) {
+        return Optional.ofNullable(complexConcepts.get(conceptNid));
     }
 
     /** The statement an anf block of this document named. */

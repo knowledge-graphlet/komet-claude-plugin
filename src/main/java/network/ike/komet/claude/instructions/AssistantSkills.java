@@ -51,6 +51,7 @@ public final class AssistantSkills {
             "provenance-answers.md",
             "anf-lift.md",
             "decision-tree.md",
+            "complex-concept.md",
             "calculator.md",
             "terminology-answer-style.md");
 

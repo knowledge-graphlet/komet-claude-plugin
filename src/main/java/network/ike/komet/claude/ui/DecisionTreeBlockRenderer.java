@@ -45,6 +45,7 @@ import javafx.scene.text.FontWeight;
 import network.ike.komet.claude.block.BlockIdentities;
 import network.ike.komet.claude.block.BlockLines;
 import network.ike.komet.claude.block.Identities;
+import network.ike.komet.claude.complexconcept.ComplexConceptText;
 import network.ike.komet.claude.block.Tokens;
 import network.ike.komet.claude.decision.BlockSweep;
 import network.ike.komet.claude.decision.Bounds;
@@ -619,7 +620,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                 return Optional.empty();
             }
             if (ids.isLocal(nid.getAsLong())) {
-                return Optional.of(localConcept(ids.label(nid.getAsLong())));
+                return Optional.of(specified(localConcept(ids.label(nid.getAsLong())), nid.getAsLong()));
             }
             Optional<PublicId> pid = ComponentText.publicId(nid.getAsLong());
             if (pid.isEmpty()) {
@@ -632,7 +633,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             if (chip instanceof KonceptBadge badge) {
                 badge.setStatusSlotReserved(true);
             }
-            return Optional.of(chip);
+            return Optional.of(specified(chip, nid.getAsLong()));
         }
 
         @Override
@@ -819,6 +820,21 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
      * A concept the knowledge base lacks, drawn as a chip with a dashed edge: the block's own
      * label, and a tooltip saying why it is not the shared Koncept chip.
      */
+    /** The chip with, when a complex-concept block of the document specifies the concept, what it is as its tooltip. */
+    private Node specified(Node chip, long nid) {
+        context.complexConcept(nid).ifPresent(spec -> {
+            Tooltip tip = new Tooltip(ComplexConceptText.describe(spec));
+            tip.setWrapText(true);
+            tip.setMaxWidth(420);
+            if (chip instanceof javafx.scene.control.Control control) {
+                control.setTooltip(tip);
+            } else {
+                Tooltip.install(chip, tip);
+            }
+        });
+        return chip;
+    }
+
     private Label localConcept(String text) {
         Label chip = new Label(text);
         chip.setFont(Font.font(base * 0.95));
