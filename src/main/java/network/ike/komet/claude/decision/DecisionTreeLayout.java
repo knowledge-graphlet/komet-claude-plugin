@@ -42,8 +42,10 @@ import java.util.function.IntPredicate;
  * <p>Every terminal takes a row: an outcome, a branch that leads nowhere, or a node the reader has
  * collapsed. A node sits at the midpoint of the rows its branches reach. A column holds the nodes
  * at one depth, counting decisions, chances and outcomes and not the branches between them, and
- * is as wide as its widest value label plus its widest branch label, so nothing overlaps whatever
- * the labels say.
+ * holds no x of its own: a node's stub is as wide as its own value label, and its children stand
+ * just past the widest label of its own branches, so siblings share the bend they hang from while
+ * a short run is never stretched to match a long one elsewhere at the same depth, and nothing
+ * overlaps whatever the labels say.
  */
 public final class DecisionTreeLayout {
 
@@ -237,37 +239,47 @@ public final class DecisionTreeLayout {
 
         DecisionTreeLayout build() {
             int columns = pendingNodes.stream().mapToInt(Pending::column).max().orElse(-1) + 1;
-            double[] stub = new double[Math.max(columns, 1)];
-            double[] branchLabel = new double[Math.max(columns, 1)];
-            for (Pending node : pendingNodes) {
-                stub[node.column()] = Math.max(stub[node.column()], sizing.nodeLabelWidth(node.vertexIndex()) + LABEL_PAD);
-            }
-            for (PendingRun run : pendingRuns) {
-                branchLabel[run.column()] = Math.max(branchLabel[run.column()],
-                        sizing.branchLabelWidth(run.vertexIndex()) + LABEL_PAD);
-            }
             double glyph = sizing.glyph();
-            double[] x = new double[Math.max(columns, 1)];
-            x[0] = sizing.margin() + glyph / 2;
-            for (int c = 1; c < columns; c++) {
-                x[c] = x[c - 1] + glyph / 2 + stub[c - 1] + branchLabel[c - 1] + sizing.gap() + glyph / 2;
+            // ragged: a node's stub is its own label's width, and its children stand just past the widest
+            // of its own branches' labels, so a short run is never stretched by a long one elsewhere at its depth;
+            // siblings still share one x, the bend they hang from
+            java.util.Map<Integer, Double> xOf = new java.util.HashMap<>();
+            java.util.Map<Integer, Double> stubOf = new java.util.HashMap<>();
+            java.util.Map<Integer, Double> runRoomOf = new java.util.HashMap<>();
+            for (PendingRun run : pendingRuns) {
+                runRoomOf.merge(run.fromVertex(), sizing.branchLabelWidth(run.vertexIndex()) + LABEL_PAD, Math::max);
+            }
+            double right = sizing.margin();
+            for (Pending node : pendingNodes) {
+                double stub = sizing.nodeLabelWidth(node.vertexIndex()) + LABEL_PAD;
+                stubOf.put(node.vertexIndex(), stub);
+                double x = xOf.computeIfAbsent(node.vertexIndex(), v -> sizing.margin() + glyph / 2);
+                right = Math.max(right, x + glyph / 2 + stub);
+                Double room = runRoomOf.get(node.vertexIndex());
+                if (room != null) {
+                    double childX = x + glyph / 2 + stub + room + sizing.gap() + glyph / 2;
+                    for (PendingRun run : pendingRuns) {
+                        if (run.fromVertex() == node.vertexIndex()) {
+                            xOf.put(run.toVertex(), childX);
+                        }
+                    }
+                }
             }
             List<Placed> placed = new ArrayList<>();
             for (Pending node : pendingNodes) {
-                placed.add(new Placed(node.vertexIndex(), node.kind(), node.column(), x[node.column()], node.y(),
+                placed.add(new Placed(node.vertexIndex(), node.kind(), node.column(), xOf.get(node.vertexIndex()), node.y(),
                         node.collapsed()));
             }
             List<Run> runs = new ArrayList<>();
             for (PendingRun run : pendingRuns) {
                 double y0 = pendingNodes.stream().filter(n -> n.vertexIndex() == run.fromVertex())
                         .mapToDouble(Pending::y).findFirst().orElse(run.y());
-                double x0 = x[run.column()] + glyph / 2;
-                double xBend = x0 + stub[run.column()];
-                double x1 = x[run.column() + 1] - glyph / 2;
+                double x0 = xOf.get(run.fromVertex()) + glyph / 2;
+                double xBend = x0 + stubOf.get(run.fromVertex());
+                double x1 = xOf.get(run.toVertex()) - glyph / 2;
                 runs.add(new Run(run.vertexIndex(), run.fromVertex(), run.toVertex(), x0, y0, xBend, run.y(), x1));
             }
-            double width = columns == 0 ? 2 * sizing.margin()
-                    : x[columns - 1] + glyph / 2 + stub[columns - 1] + sizing.margin();
+            double width = columns == 0 ? 2 * sizing.margin() : right + sizing.margin();
             double height = 2 * sizing.margin() + Math.max(rows, 0) * sizing.rowHeight();
             return new DecisionTreeLayout(placed, runs, width, height, rows, columns);
         }

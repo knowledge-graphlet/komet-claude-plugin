@@ -78,6 +78,54 @@ class DecisionTreeLayoutTest {
     }
 
     @Test
+    @DisplayName("A long label in one branch widens only that branch: siblings share an x, cousins do not")
+    void raggedByBranch() {
+        DecisionElement.Event positive = tree.nodesOfType(DecisionElement.Event.class)
+                .detect(e -> e.concept().isPresent() && "positive".equals(ids.label(e.concept().getAsLong())));
+        DecisionTreeLayout.Sizing plain = sizing();
+        DecisionTreeLayout.Sizing wide = new DecisionTreeLayout.Sizing() {
+            public double rowHeight() { return plain.rowHeight(); }
+            public double glyph() { return plain.glyph(); }
+            public double gap() { return plain.gap(); }
+            public double margin() { return plain.margin(); }
+            public double branchLabelWidth(int branchVertex) { return branchVertex == positive.vertexIndex() ? 500 : 100; }
+            public double nodeLabelWidth(int nodeVertex) { return plain.nodeLabelWidth(nodeVertex); }
+        };
+        DecisionTreeLayout before = DecisionTreeLayout.of(tree, plain, v -> false);
+        DecisionTreeLayout after = DecisionTreeLayout.of(tree, wide, v -> false);
+        Run positiveRun = after.run(positive.vertexIndex()).orElseThrow();
+        Placed beneathPositive = after.placed(positiveRun.toVertex()).orElseThrow();
+        Placed beneathPositiveBefore = before.placed(positiveRun.toVertex()).orElseThrow();
+        assertEquals(beneathPositiveBefore.x() + 400, beneathPositive.x(), 1e-9, "the wide branch's own children move right");
+        Alternative noScan = tree.nodesOfType(Alternative.class).detect(a -> "no scan".equals(ids.label(a.concept().getAsLong())));
+        for (Run run : after.runs()) {
+            boolean underNoScan = after.placed(run.fromVertex()).orElseThrow().column() >= 2
+                    && isBeneath(run.fromVertex(), noScan.vertexIndex());
+            if (underNoScan) {
+                assertEquals(before.placed(run.toVertex()).orElseThrow().x(), after.placed(run.toVertex()).orElseThrow().x(), 1e-9,
+                        "a branch under the other alternative is not stretched by it: " + run);
+            }
+        }
+        for (Run sibling : after.runs()) {
+            if (sibling.fromVertex() == positiveRun.fromVertex()) {
+                assertEquals(beneathPositive.x(), after.placed(sibling.toVertex()).orElseThrow().x(), 1e-9,
+                        "siblings hang from one bend at one x");
+            }
+        }
+    }
+
+    private static boolean isBeneath(int vertex, int ancestor) {
+        java.util.OptionalInt parent = tree.parentIndex(vertex);
+        while (parent.isPresent()) {
+            if (parent.getAsInt() == ancestor) {
+                return true;
+            }
+            parent = tree.parentIndex(parent.getAsInt());
+        }
+        return vertex == ancestor;
+    }
+
+    @Test
     @DisplayName("A node sits at the midpoint of the rows its branches reach")
     void nodesAtTheMidpoint() {
         DecisionTreeLayout layout = DecisionTreeLayout.of(tree, sizing(), v -> false);
