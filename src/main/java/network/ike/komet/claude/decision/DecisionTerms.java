@@ -33,7 +33,7 @@ import java.util.OptionalLong;
  */
 public record DecisionTerms(
         long decisionNode, long alternativeNode, long chanceNode, long eventNode, long outcomeNode,
-        long probabilityMeasure, long moneyCostMeasure, long healthCostMeasure, long parameterMeasure,
+        long probabilityMeasure, long moneyCostMeasure, long healthCostMeasure, long countCostMeasure, long parameterMeasure,
         long statement, long derivedFrom, long operands, long measureBasis, long basisSource, long treeReference,
         long inputKind, long residual,
         long shareAtNode, long moneySemantic, long healthSemantic,
@@ -48,7 +48,7 @@ public record DecisionTerms(
                 IkeConcept.DECISION_NODE.nid(), IkeConcept.ALTERNATIVE_NODE.nid(), IkeConcept.CHANCE_NODE.nid(),
                 IkeConcept.EVENT_NODE.nid(), IkeConcept.OUTCOME_NODE.nid(),
                 IkeConcept.PROBABILITY_MEASURE.nid(), IkeConcept.MONEY_COST_MEASURE.nid(),
-                IkeConcept.HEALTH_COST_MEASURE.nid(), IkeConcept.PARAMETER_MEASURE.nid(),
+                IkeConcept.HEALTH_COST_MEASURE.nid(), IkeConcept.COUNT_COST_MEASURE.nid(), IkeConcept.PARAMETER_MEASURE.nid(),
                 IkeConcept.STATEMENT.nid(), IkeConcept.DERIVED_FROM.nid(), IkeConcept.DERIVATION_OPERANDS.nid(),
                 IkeConcept.MEASURE_BASIS.nid(), IkeConcept.BASIS_SOURCE.nid(), IkeConcept.TREE_REFERENCE.nid(),
                 IkeConcept.INPUT_KIND.nid(), IkeConcept.RESIDUAL.nid(),
@@ -64,14 +64,14 @@ public record DecisionTerms(
 
     /** Distinct arbitrary nids, for a profile read with no store. */
     public static DecisionTerms synthetic() {
-        long[] nid = new long[34];
+        long[] nid = new long[35];
         for (int i = 0; i < nid.length; i++) {
             nid[i] = -1_000 - i;
         }
         return new DecisionTerms(nid[0], nid[1], nid[2], nid[3], nid[4], nid[5], nid[6], nid[7], nid[8], nid[9],
                 nid[10], nid[11], nid[12], nid[13], nid[14], nid[15], nid[16], nid[17], nid[18], nid[19], nid[20],
                 nid[21], nid[22], nid[23], nid[24], nid[25], nid[26], nid[27], nid[28], nid[29], nid[30], nid[31],
-                nid[32], nid[33]);
+                nid[32], nid[33], nid[34]);
     }
 
     /** Whether a nid names one of the derivation kinds with a native implementation. */

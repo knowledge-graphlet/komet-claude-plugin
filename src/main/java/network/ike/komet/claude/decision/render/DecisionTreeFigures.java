@@ -40,6 +40,7 @@ import network.ike.komet.claude.decision.DecisionTreeSensitivity.Flip;
 import network.ike.komet.claude.decision.DecisionTreeSensitivity.Swing;
 import network.ike.komet.claude.decision.DecisionTreeSensitivity.Unswept;
 import network.ike.komet.claude.decision.Derivations;
+import network.ike.komet.claude.decision.Ledger;
 import network.ike.komet.claude.decision.Measure;
 import network.ike.komet.claude.decision.Rollback;
 import network.ike.komet.claude.decision.Tradeoff;
@@ -193,6 +194,33 @@ public final class DecisionTreeFigures {
             double legendLine = DecisionFigureText.lineHeight(legendSize);
             double wrapWidth = Math.max(200, layout.width() - 12);
             double y = layout.height() + 2;
+            // the ledger: every alternative's consequences in their own units, per cohort when one is counted
+            List<List<String>> table = ledgerTable(tree, rollback, ids, symbol, healthUnit, cohort);
+            if (table.size() > 2) {
+                double[] widths = new double[table.get(0).size()];
+                for (List<String> row : table) {
+                    for (int i = 0; i < row.size(); i++) {
+                        widths[i] = Math.max(widths[i], DecisionFigureText.width(row.get(i), legendSize, true) + 18);
+                    }
+                }
+                marks.add(new Text(6, y, ledgerTitle(cohort), legendSize, true, false, DecisionFigureText.INK, "ledger-title"));
+                y += legendLine;
+                OptionalInt chosenAlternative = rollback.chosen(tree.rootIndex());
+                for (int r = 0; r < table.size(); r++) {
+                    List<String> row = table.get(r);
+                    boolean header = r == 0;
+                    boolean chosenRow = !header && chosenAlternative.isPresent()
+                            && nodeName(tree, ids, chosenAlternative.getAsInt()).equals(row.get(0));
+                    double x = 6;
+                    for (int i = 0; i < row.size(); i++) {
+                        marks.add(new Text(x, y, row.get(i), legendSize, chosenRow, header, header ? DecisionFigureText.CAPTION
+                                : chosenRow ? DecisionFigureText.CHOSEN : DecisionFigureText.INK, header ? "ledger-head" : "ledger"));
+                        x += widths[i];
+                    }
+                    y += legendLine;
+                }
+                y += 3;
+            }
             for (String readout : readouts()) {
                 for (String line : DecisionFigureText.wrap(readout, legendSize, wrapWidth)) {
                     marks.add(new Text(6, y, line, legendSize, false, false, DecisionFigureText.INK, "readout"));
@@ -212,6 +240,11 @@ public final class DecisionTreeFigures {
         /** The sentences beneath the drawing: the trade at the root, and a tally per alternative when a cohort is counted. */
         List<String> readouts() {
             return readoutLines(tree, rollback, ids, symbol, healthUnit, cohort, tradeoff);
+        }
+
+        private String unitLabel(long semantic) {
+            String label = semantic == 0 || ids == null ? null : ids.label(semantic);
+            return label == null ? "" : label;
         }
 
         /** One or two sentences saying what the numbers are, as the live surface says beneath its drawing. */
@@ -362,7 +395,8 @@ public final class DecisionTreeFigures {
                 if (!below.isEmpty()) {
                     below.add(new Span("+", size, false, false, DecisionFigureText.CAPTION, "plus"));
                 }
-                below.addAll(chip(cost instanceof MoneyCost ? "money" : "health", cost.vertexIndex(), cost.measure()));
+                below.addAll(chip(cost instanceof MoneyCost ? "money" : cost instanceof HealthCost ? "health" : "count",
+                        cost.vertexIndex(), cost.measure()));
             }
             return below;
         }
@@ -380,7 +414,8 @@ public final class DecisionTreeFigures {
                 case "money" -> DecisionFigureText.Unit.MONEY;
                 default -> DecisionFigureText.Unit.PLAIN;
             };
-            String unitSymbol = unit == DecisionFigureText.Unit.MONEY ? symbol : "health".equals(word) ? healthUnit : "";
+            String unitSymbol = unit == DecisionFigureText.Unit.MONEY ? symbol : "health".equals(word) ? healthUnit
+                    : "count".equals(word) ? unitLabel(measure.semanticNid()) : "";
             boolean worded = unit != DecisionFigureText.Unit.SHARE && unitSymbol.isEmpty();
             String shown = bounds.map(b -> DecisionFigureText.chip(b.lower(), b.upper(), b.lowerOpen(), b.upperOpen(),
                     computed, unit, unitSymbol)).orElse("?");
@@ -481,12 +516,34 @@ public final class DecisionTreeFigures {
     public static List<String> readoutLines(DecisionTree tree, Rollback rollback, Identities ids, String symbol, String healthUnit,
                                             Optional<Cohort> cohort, Optional<Tradeoff> tradeoff) {
         List<String> lines = new ArrayList<>();
+        if (rollback.unpriced() && tree.decision().map(d -> d.alternatives().size() > 1).orElse(false)) {
+            lines.add(DecisionFigureText.UNPRICED);
+        }
         tradeoff.ifPresent(t -> {
             String moneyText = money(Bounds.point(Math.abs(t.money())), symbol);
-            String healthText = DecisionFigureText.quantity(Math.abs(t.health()), DecisionFigureText.Unit.PLAIN, healthUnit);
+            // a tree with no health anywhere says nothing about health
+            boolean anyHealth = !tree.nodesOfType(HealthCost.class).isEmpty();
+            String healthText = anyHealth ? DecisionFigureText.quantity(Math.abs(t.health()), DecisionFigureText.Unit.PLAIN, healthUnit) : "";
             String priceText = Double.isNaN(t.pricePerHealthyYear()) ? "" : money(Bounds.point(t.pricePerHealthyYear()), symbol);
+            double per = cohort.map(Cohort::size).orElse(1.0);
+            String perText = cohort.isPresent() ? DecisionFigureText.count(per) : "case";
+            List<String> clauses = new ArrayList<>();
+            for (Tradeoff.CountTrade trade : t.counts()) {
+                double more = trade.more();
+                if (Math.abs(more) < 1e-9) {
+                    continue;
+                }
+                String unit = ids.label(trade.unit());
+                boolean chosenSpares = more < 0;
+                // the money the sparer's side pays for each one spared, when it pays more at all
+                double paid = chosenSpares ? t.money() : -t.money();
+                String each = paid > 1e-9 ? money(Bounds.point(paid / Math.abs(more)), symbol) : null;
+                clauses.add(DecisionFigureText.countClause(nodeName(tree, ids, chosenSpares ? t.chosen() : t.nextBest()),
+                        chosenSpares, DecisionFigureText.count(Math.abs(more) * per), unit, perText, each));
+            }
             lines.add(DecisionFigureText.tradeoff(nodeName(tree, ids, t.chosen()), nodeName(tree, ids, t.nextBest()),
-                    t.money(), moneyText, t.health(), healthText, priceText, money(Bounds.point(t.priced()), symbol)));
+                    t.money(), moneyText, t.health(), healthText, priceText, money(Bounds.point(t.priced()), symbol),
+                    t.countedAgainst(), clauses));
         });
         cohort.ifPresent(c -> {
             for (Cohort.Tally tally : c.tallies()) {
@@ -511,6 +568,57 @@ public final class DecisionTreeFigures {
     private static String nodeName(DecisionTree tree, Identities ids, int vertexIndex) {
         return tree.node(vertexIndex).flatMap(n -> n.concept().isPresent()
                 ? Optional.of(ids.label(n.concept().getAsLong())) : Optional.empty()).orElse("an alternative");
+    }
+
+    /** The ledger's title: what one row is counted for. */
+    public static String ledgerTitle(Optional<Cohort> cohort) {
+        return cohort.isPresent() ? "Per " + DecisionFigureText.count(cohort.get().size()) + " who take each alternative"
+                : "Per case who takes each alternative";
+    }
+
+    /**
+     * The ledger as rows of text, a header first: one row per alternative at the root, with its
+     * expected money, healthy life lost and each counted unit in its own column, per cohort when
+     * one is counted and per case otherwise; empty columns left out. Empty when the root is not
+     * a decision or has one alternative.
+     */
+    public static List<List<String>> ledgerTable(DecisionTree tree, Rollback rollback, Identities ids, String symbol,
+                                                 String healthUnit, Optional<Cohort> cohort) {
+        Optional<Ledger> ledger = Ledger.of(tree, rollback);
+        if (ledger.isEmpty() || ledger.get().entries().size() < 2) {
+            return List.of();
+        }
+        double per = cohort.map(Cohort::size).orElse(1.0);
+        boolean anyMoney = ledger.get().entries().anySatisfy(e -> Math.abs(e.money()) > 1e-9);
+        boolean anyHealth = ledger.get().entries().anySatisfy(e -> Math.abs(e.health()) > 1e-9);
+        List<List<String>> rows = new ArrayList<>();
+        List<String> head = new ArrayList<>();
+        head.add("");
+        if (anyMoney) {
+            head.add("money");
+        }
+        if (anyHealth) {
+            head.add(healthUnit.isEmpty() ? "healthy life lost" : healthUnit + " lost");
+        }
+        for (long unit : ledger.get().units()) {
+            head.add(ids.label(unit));
+        }
+        rows.add(head);
+        for (Ledger.Entry entry : ledger.get().entries()) {
+            List<String> row = new ArrayList<>();
+            row.add(nodeName(tree, ids, entry.alternativeVertex()));
+            if (anyMoney) {
+                row.add(money(Bounds.point(entry.money() * per), symbol));
+            }
+            if (anyHealth) {
+                row.add(DecisionFigureText.shown(entry.health() * per, true, false));
+            }
+            for (long unit : ledger.get().units()) {
+                row.add(DecisionFigureText.count(entry.count(unit) * per));
+            }
+            rows.add(row);
+        }
+        return rows;
     }
 
     // ── The tornado ──────────────────────────────────────────────────────────

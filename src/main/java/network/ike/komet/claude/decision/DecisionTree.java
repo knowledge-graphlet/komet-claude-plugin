@@ -28,6 +28,7 @@ import network.ike.komet.claude.decision.DecisionElement.Chance;
 import network.ike.komet.claude.decision.DecisionElement.Cost;
 import network.ike.komet.claude.decision.DecisionElement.Decision;
 import network.ike.komet.claude.decision.DecisionElement.Event;
+import network.ike.komet.claude.decision.DecisionElement.CountCost;
 import network.ike.komet.claude.decision.DecisionElement.HealthCost;
 import network.ike.komet.claude.decision.DecisionElement.MoneyCost;
 import network.ike.komet.claude.decision.DecisionElement.Node;
@@ -88,6 +89,7 @@ public final class DecisionTree extends ProfiledTree<DecisionElement> {
                 .kind(terms.probabilityMeasure(), (tree, index) -> new Probability((DecisionTree) tree, index))
                 .kind(terms.moneyCostMeasure(), (tree, index) -> new MoneyCost((DecisionTree) tree, index))
                 .kind(terms.healthCostMeasure(), (tree, index) -> new HealthCost((DecisionTree) tree, index))
+                .kind(terms.countCostMeasure(), (tree, index) -> new CountCost((DecisionTree) tree, index))
                 .kind(terms.parameterMeasure(), (tree, index) -> new Parameter((DecisionTree) tree, index))
                 .build();
     }

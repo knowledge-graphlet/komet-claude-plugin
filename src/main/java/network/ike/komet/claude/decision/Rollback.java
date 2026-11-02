@@ -20,6 +20,7 @@ import network.ike.komet.claude.decision.DecisionElement.Alternative;
 import network.ike.komet.claude.decision.DecisionElement.Branch;
 import network.ike.komet.claude.decision.DecisionElement.Chance;
 import network.ike.komet.claude.decision.DecisionElement.Cost;
+import network.ike.komet.claude.decision.DecisionElement.CountCost;
 import network.ike.komet.claude.decision.DecisionElement.Decision;
 import network.ike.komet.claude.decision.DecisionElement.Event;
 import network.ike.komet.claude.decision.DecisionElement.HealthCost;
@@ -60,11 +61,19 @@ public final class Rollback {
     private final MutableIntIntMap chosen = IntIntMaps.mutable.empty();
     private final MutableList<ProfileFinding> findings = Lists.mutable.empty();
     private final Derivations derivations;
+    /** Whether the tree prices nothing: no money and no health anywhere, only counts, so no decision can be made on cost. */
+    private final boolean unpriced;
 
     private Rollback(DecisionTree tree, ValuationCoordinate coordinate) {
         this.tree = tree;
         this.coordinate = coordinate;
         this.derivations = Derivations.of(tree);
+        this.unpriced = tree.nodesOfType(MoneyCost.class).isEmpty() && tree.nodesOfType(HealthCost.class).isEmpty();
+    }
+
+    /** Whether the tree prices nothing, so every decision is left open and the ledger alone weighs the alternatives. */
+    public boolean unpriced() {
+        return unpriced;
     }
 
     /** The derived measures the rollback read, with their findings. */
@@ -152,7 +161,7 @@ public final class Rollback {
         for (int i = 1; i < costs.size(); i++) {
             least = least.least(costs.get(i));
         }
-        for (int i = 0; i < costs.size(); i++) {
+        for (int i = 0; i < costs.size() && !unpriced; i++) {
             boolean sure = true;
             for (int j = 0; j < costs.size(); j++) {
                 if (i != j && !costs.get(i).noGreaterThan(costs.get(j))) {
@@ -256,6 +265,9 @@ public final class Rollback {
                                 "a health cost is not on the coordinate's health semantic");
                     }
                     total = total.plus(bounds.get().times(coordinate.healthPrice()));
+                }
+                case CountCost count -> {
+                    // counted in its own unit, never priced: the ledger weighs it beside money and health
                 }
             }
         }

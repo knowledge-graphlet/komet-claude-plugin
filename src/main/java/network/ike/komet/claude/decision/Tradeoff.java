@@ -15,26 +15,16 @@
  */
 package network.ike.komet.claude.decision;
 
-import network.ike.komet.claude.decision.DecisionElement.Alternative;
-import network.ike.komet.claude.decision.DecisionElement.Branch;
-import network.ike.komet.claude.decision.DecisionElement.Chance;
-import network.ike.komet.claude.decision.DecisionElement.Cost;
-import network.ike.komet.claude.decision.DecisionElement.Decision;
-import network.ike.komet.claude.decision.DecisionElement.Event;
-import network.ike.komet.claude.decision.DecisionElement.MoneyCost;
-import network.ike.komet.claude.decision.DecisionElement.Node;
-import network.ike.komet.claude.decision.DecisionElement.Outcome;
-import org.eclipse.collections.api.list.ImmutableList;
-
-import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 
 /**
  * What the choice at the root trades: the alternative the rollback chose against the next best,
- * with money and health kept apart: the expected money and the expected healthy life lost along
- * the course the rollback chose beneath each, folded without pricing one into the other, so a
- * nested decision keeps the choice it made at the block's price. The chosen alternative then either dominates, costing no more money and
+ * with money and health kept apart, read off the {@link Ledger}: the expected money and the
+ * expected healthy life lost along the course the rollback chose beneath each, folded without
+ * pricing one into the other, and every counted unit beside them. The chosen alternative then either dominates, costing no more money and
  * losing no more health, or buys health with money at a price per healthy year, or saves money
  * by giving health up at one. That price is the one at which the two alternatives tie, which is
  * where the tornado's bar for the price of a healthy year flips, and it is how a reader who does
@@ -46,8 +36,22 @@ import java.util.OptionalInt;
  * @param money    how much more money the chosen alternative costs than the next best, per case; negative when less
  * @param health   how much more healthy life the chosen alternative keeps than the next best, per case; negative when less
  * @param priced   the price of a healthy year the tree was rolled back at
+ * @param counts   each counted unit, per case, under the chosen alternative and under the next best
  */
-public record Tradeoff(int chosen, int nextBest, double money, double health, double priced) {
+public record Tradeoff(int chosen, int nextBest, double money, double health, double priced, List<CountTrade> counts) {
+
+    /** How a counted unit stands between the chosen alternative and the next best, per case. */
+    public record CountTrade(long unit, double chosen, double other) {
+        /** How many more of the unit the chosen alternative brings; negative when fewer. */
+        public double more() {
+            return chosen - other;
+        }
+    }
+
+    /** Whether the chosen alternative brings more of any counted unit than the next best. */
+    public boolean countedAgainst() {
+        return counts.stream().anyMatch(trade -> trade.more() > 1e-9);
+    }
 
     /** How the chosen alternative stands against the next best. */
     public enum Kind {
@@ -66,8 +70,11 @@ public record Tradeoff(int chosen, int nextBest, double money, double health, do
         boolean healthier = health > Bounds.EPSILON;
         boolean cheaper = money < -Bounds.EPSILON;
         boolean sicker = health < -Bounds.EPSILON;
-        if (!dearer && !sicker) {
+        if (!dearer && !sicker && !countedAgainst()) {
             return Kind.DOMINATES;
+        }
+        if (!dearer && !sicker) {
+            return Kind.SAVES_MONEY;
         }
         if (dearer && healthier) {
             return Kind.BUYS_HEALTH;
@@ -88,98 +95,34 @@ public record Tradeoff(int chosen, int nextBest, double money, double health, do
 
     /** The trade at the root of a tree rolled back under a coordinate; empty when the root did not decide or is alone. */
     public static Optional<Tradeoff> of(DecisionTree tree, Rollback base) {
-        Optional<Decision> root = tree.decision();
+        Optional<Ledger> ledger = Ledger.of(tree, base);
         OptionalInt chosen = base.chosen(tree.rootIndex());
-        if (root.isEmpty() || chosen.isEmpty()) {
+        if (ledger.isEmpty() || chosen.isEmpty()) {
             return Optional.empty();
         }
         double price = base.coordinate().healthPrice().midpoint();
         int nextBest = -1;
         double nextCost = Double.POSITIVE_INFINITY;
-        for (Alternative other : root.get().alternatives()) {
-            if (other.vertexIndex() == chosen.getAsInt()) {
+        for (Ledger.Entry entry : ledger.get().entries()) {
+            if (entry.alternativeVertex() == chosen.getAsInt()) {
                 continue;
             }
-            Optional<Bounds> cost = base.value(other.vertexIndex());
+            Optional<Bounds> cost = base.value(entry.alternativeVertex());
             if (cost.isPresent() && cost.get().midpoint() < nextCost) {
                 nextCost = cost.get().midpoint();
-                nextBest = other.vertexIndex();
+                nextBest = entry.alternativeVertex();
             }
         }
-        if (nextBest < 0) {
+        Optional<Ledger.Entry> chosenEntry = ledger.get().entry(chosen.getAsInt());
+        Optional<Ledger.Entry> otherEntry = nextBest < 0 ? Optional.empty() : ledger.get().entry(nextBest);
+        if (chosenEntry.isEmpty() || otherEntry.isEmpty()) {
             return Optional.empty();
         }
-        Optional<double[]> chosenExpected = expected(tree, base, chosen.getAsInt());
-        Optional<double[]> otherExpected = expected(tree, base, nextBest);
-        if (chosenExpected.isEmpty() || otherExpected.isEmpty()) {
-            return Optional.empty();
+        List<CountTrade> counts = new ArrayList<>();
+        for (long unit : ledger.get().units()) {
+            counts.add(new CountTrade(unit, chosenEntry.get().count(unit), otherEntry.get().count(unit)));
         }
-        double money = chosenExpected.get()[0] - otherExpected.get()[0];
-        double health = otherExpected.get()[1] - chosenExpected.get()[1];
-        return Optional.of(new Tradeoff(chosen.getAsInt(), nextBest, money, health, price));
-    }
-
-    /**
-     * The expected money and the expected health lost from a node on, along the course the
-     * rollback chose at every decision beneath it, kept apart rather than priced together: the
-     * costs a leaf or a branch carries, a chance's events weighted by their shares, a decision's
-     * chosen alternative. Empty where a share or a cost is not determinable, or a decision is open.
-     */
-    static Optional<double[]> expected(DecisionTree tree, Rollback base, int vertexIndex) {
-        Optional<DecisionElement> element = tree.node(vertexIndex);
-        if (element.isEmpty() || !(element.get() instanceof Node node)) {
-            return Optional.empty();
-        }
-        return switch (node) {
-            case Decision decision -> {
-                OptionalInt chosen = base.chosen(decision.vertexIndex());
-                yield chosen.isPresent() ? expected(tree, base, chosen.getAsInt()) : Optional.empty();
-            }
-            case Chance chance -> {
-                Map<Event, Double> shares = Cohort.shares(chance, base);
-                double money = 0;
-                double health = 0;
-                for (Event event : chance.events()) {
-                    Double share = shares.get(event);
-                    Optional<double[]> ahead = expected(tree, base, event.vertexIndex());
-                    if (share == null || ahead.isEmpty()) {
-                        yield Optional.empty();
-                    }
-                    money += share * ahead.get()[0];
-                    health += share * ahead.get()[1];
-                }
-                yield Optional.of(new double[] {money, health});
-            }
-            case Branch branch -> {
-                Optional<double[]> own = costs(base, branch.costs());
-                Optional<Node> next = branch.next();
-                if (own.isEmpty()) {
-                    yield Optional.empty();
-                }
-                if (next.isEmpty()) {
-                    yield own;
-                }
-                Optional<double[]> ahead = expected(tree, base, next.get().vertexIndex());
-                yield ahead.map(a -> new double[] {own.get()[0] + a[0], own.get()[1] + a[1]});
-            }
-            case Outcome outcome -> costs(base, outcome.costs());
-        };
-    }
-
-    private static Optional<double[]> costs(Rollback base, ImmutableList<Cost> costs) {
-        double money = 0;
-        double health = 0;
-        for (Cost cost : costs) {
-            Optional<Bounds> bounds = base.derivations().bounds(cost.vertexIndex());
-            if (bounds.isEmpty()) {
-                return Optional.empty();
-            }
-            if (cost instanceof MoneyCost) {
-                money += bounds.get().midpoint();
-            } else {
-                health += bounds.get().midpoint();
-            }
-        }
-        return Optional.of(new double[] {money, health});
+        return Optional.of(new Tradeoff(chosen.getAsInt(), nextBest, chosenEntry.get().money() - otherEntry.get().money(),
+                otherEntry.get().health() - chosenEntry.get().health(), price, List.copyOf(counts)));
     }
 }

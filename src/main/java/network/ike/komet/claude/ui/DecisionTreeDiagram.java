@@ -388,7 +388,7 @@ final class DecisionTreeDiagram extends Region {
             if (!below.getChildren().isEmpty()) {
                 below.getChildren().add(label("+", false, Color.web("#666")));
             }
-            String word = cost instanceof MoneyCost ? "money" : "health";
+            String word = cost instanceof MoneyCost ? "money" : cost instanceof DecisionElement.HealthCost ? "health" : "count";
             below.getChildren().add(number(word, cost.vertexIndex(), cost.measure()));
         }
         return below;
@@ -443,7 +443,8 @@ final class DecisionTreeDiagram extends Region {
             case "money" -> DecisionFigureText.Unit.MONEY;
             default -> DecisionFigureText.Unit.PLAIN;
         };
-        String unitSymbol = unit == DecisionFigureText.Unit.MONEY ? symbol() : "health".equals(word) ? healthUnit() : "";
+        String unitSymbol = unit == DecisionFigureText.Unit.MONEY ? symbol() : "health".equals(word) ? healthUnit()
+                : "count".equals(word) ? name(ids, measure.semanticNid()) : "";
         boolean worded = unit != DecisionFigureText.Unit.SHARE && unitSymbol.isEmpty();
         String shown = bounds.map(b -> DecisionFigureText.chip(b.lower(), b.upper(), b.lowerOpen(), b.upperOpen(),
                 computed, unit, unitSymbol)).orElse("?");
@@ -472,6 +473,7 @@ final class DecisionTreeDiagram extends Region {
             case "p" -> "The share of those at this chance who go this way";
             case "money" -> "Money paid on this branch" + in;
             case "health" -> "Healthy life lost on this branch" + in;
+            case "count" -> "What this branch brings, counted" + in + "; never priced, weighed in the ledger";
             default -> "A model assumption, stated once under the root" + in;
         });
         if (measure.derived()) {
@@ -586,13 +588,17 @@ final class DecisionTreeDiagram extends Region {
         for (Cost cost : costs) {
             Optional<Bounds> bounds = derivations.bounds(cost.vertexIndex());
             if (bounds.isEmpty()) {
-                terms.add((cost instanceof MoneyCost ? "money" : "health") + " ?");
+                terms.add((cost instanceof MoneyCost ? "money" : cost instanceof DecisionElement.CountCost ? "count" : "health") + " ?");
                 whole = false;
                 continue;
             }
             if (cost instanceof MoneyCost) {
                 terms.add("money " + DecisionTreeBlockRenderer.money(bounds.get()));
                 total = total.plus(bounds.get());
+            } else if (cost instanceof DecisionElement.CountCost) {
+                // counted in its own unit and never priced: named here, left out of the sum
+                terms.add(MeasureChip.shown(bounds.get(), cost.measure().derived(), false) + " "
+                        + name(ids, cost.measure().semanticNid()) + ", not priced");
             } else {
                 Bounds price = rollback.coordinate().healthPrice();
                 terms.add("health " + MeasureChip.shown(bounds.get(), cost.measure().derived(), false) + " × "

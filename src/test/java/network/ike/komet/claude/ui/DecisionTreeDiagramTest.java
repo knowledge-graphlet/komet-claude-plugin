@@ -294,7 +294,7 @@ class DecisionTreeDiagramTest {
             assertTrue(health.explained().startsWith("Healthy life lost on this branch"), health.explained());
             Label outcome = (Label) ((javafx.scene.Parent) diagram.valueOf(untreated).orElseThrow())
                     .getChildrenUnmodifiable().stream().filter(n -> n instanceof Label l && l.getText().startsWith("⇒")).findFirst().orElseThrow();
-            assertTrue(outcome.getTooltip().getText().contains("At this end: money 27,314 + health 1.82 × 100,000 a healthy year = 209,407"),
+            assertTrue(outcome.getTooltip().getText().contains("At this end: money 27,314 + health 1.82 × 100,000 a healthy year + 0.182 ruptures, not priced = 209,407"),
                     outcome.getTooltip().getText());
         });
     }

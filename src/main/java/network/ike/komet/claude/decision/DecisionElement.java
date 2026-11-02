@@ -121,7 +121,7 @@ public sealed interface DecisionElement
     }
 
     /** A cost a branch or an outcome carries, as a measure. */
-    sealed interface Cost extends DecisionElement permits MoneyCost, HealthCost {
+    sealed interface Cost extends DecisionElement permits MoneyCost, HealthCost, CountCost {
         default Measure measure() {
             return tree().measure(vertexIndex());
         }
@@ -133,6 +133,14 @@ public sealed interface DecisionElement
 
     /** A cost in health, on a health semantic. */
     record HealthCost(DecisionTree tree, int vertexIndex) implements Cost {
+    }
+
+    /**
+     * A consequence counted in its own unit, which the measure semantic names: ruptures,
+     * retreatments, implants removed. Never priced by the rollback; kept beside money and health
+     * in the ledger, so the alternatives can be weighed without a price.
+     */
+    record CountCost(DecisionTree tree, int vertexIndex) implements Cost {
     }
 
     /** The share of those at a chance who leave it by one event. */

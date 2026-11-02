@@ -27,6 +27,7 @@ import network.ike.komet.claude.decision.DecisionElement.Chance;
 import network.ike.komet.claude.decision.DecisionElement.Cost;
 import network.ike.komet.claude.decision.DecisionElement.Decision;
 import network.ike.komet.claude.decision.DecisionElement.Event;
+import network.ike.komet.claude.decision.DecisionElement.CountCost;
 import network.ike.komet.claude.decision.DecisionElement.HealthCost;
 import network.ike.komet.claude.decision.DecisionElement.MoneyCost;
 import network.ike.komet.claude.decision.DecisionElement.Node;
@@ -278,6 +279,7 @@ public final class DecisionTreeText {
             case Probability p -> "probability";
             case MoneyCost m -> "money";
             case HealthCost h -> "health";
+            case CountCost c -> "count";
             case Parameter p -> "parameter";
         };
     }
@@ -446,6 +448,10 @@ public final class DecisionTreeText {
                     kind = terms.healthCostMeasure();
                     share = false;
                 }
+                case "count" -> {
+                    kind = terms.countCostMeasure();
+                    share = false;
+                }
                 case "parameter" -> {
                     kind = terms.parameterMeasure();
                     share = true;
@@ -507,7 +513,8 @@ public final class DecisionTreeText {
                 semantic = terms.shareAtNode();
             } else {
                 semantic = 0;
-                findings.add(finding(line, "a cost names its measure semantic" + (derivation != null ? " after in" : " after its interval")));
+                findings.add(finding(line, (kind == terms.countCostMeasure() ? "a count names what it counts" : "a cost names its measure semantic")
+                        + (derivation != null ? " after in" : " after its interval")));
             }
             UUID vertexId = vertexId(line);
             DecisionTree.Builder.Handle measure;

@@ -24,6 +24,8 @@ decision: k:ScanNow[Scan now?] @id=rda-scan-now
         p = from k:BayesMarginal[Bayes marginal] of k:Reopening[] @id=rda-reopening-hazard k:Sensitivity[] @id=rda-mra-sensitivity k:FalsePositive[] @id=rda-mra-false-positive
         money = [5000,5000] k:Usd[US dollar] @id=rda-usd basis=estimated
         health = from k:Product[] of k:AngiographyComplication[] @id=rda-angiography-complication k:ComplicationQaly[] @id=rda-complication-qaly in k:Qaly[QALY] @id=rda-qaly
+        count = [1,1] k:Angiogram[angiograms] @id=rda-angiogram
+        count = from k:AngiographyComplication[] @id=rda-angiography-complication in k:MajorComplication[major complications] @id=rda-major-complication
         chance: k:AngiogramConfirms[Angiogram confirms?] @id=rda-angiogram-confirms
           event: k:Reopening[reopening] @id=rda-reopening-confirmed
             p = from k:BayesPosterior[Bayes posterior] of k:Reopening[] @id=rda-reopening-hazard k:Sensitivity[] @id=rda-mra-sensitivity k:FalsePositive[] @id=rda-mra-false-positive
@@ -31,13 +33,17 @@ decision: k:ScanNow[Scan now?] @id=rda-scan-now
               alternative: k:DoRetreat[retreat] @id=rda-retreat-yes
                 money = [35000,35000] k:Usd[US dollar] @id=rda-usd basis=estimated
                 health = from k:Product[] of k:RetreatComplication[] @id=rda-retreat-complication k:ComplicationQaly[] @id=rda-complication-qaly in k:Qaly[QALY] @id=rda-qaly
+                count = [1,1] k:Retreatment[retreatments] @id=rda-retreatment
+                count = from k:RetreatComplication[] @id=rda-retreat-complication in k:MajorComplication[major complications] @id=rda-major-complication
                 outcome: k:RiskCut[risk cut to a tenth] @id=rda-risk-cut
                   money = from k:Product[] of k:RetreatLeaves[] @id=rda-retreat-leaves k:RuptureRisk20[] @id=rda-rupture-risk-20 k:RuptureCost[] @id=rda-rupture-cost in k:Usd[US dollar] @id=rda-usd
                   health = from k:Product[] of k:RetreatLeaves[] @id=rda-retreat-leaves k:RuptureRisk20[] @id=rda-rupture-risk-20 k:RuptureQaly[] @id=rda-rupture-qaly in k:Qaly[QALY] @id=rda-qaly
+                  count = from k:Product[] of k:RetreatLeaves[] @id=rda-retreat-leaves k:RuptureRisk20[] @id=rda-rupture-risk-20 in k:Rupture[ruptures] @id=rda-rupture
               alternative: k:Leave[leave] @id=rda-retreat-no
                 outcome: k:Untreated[rupture risk] @id=rda-untreated-confirmed
                   money = from k:Product[] of k:RuptureRisk20[] @id=rda-rupture-risk-20 k:RuptureCost[] @id=rda-rupture-cost in k:Usd[US dollar] @id=rda-usd
                   health = from k:Product[] of k:RuptureRisk20[] @id=rda-rupture-risk-20 k:RuptureQaly[] @id=rda-rupture-qaly in k:Qaly[QALY] @id=rda-qaly
+                  count = from k:RuptureRisk20[] @id=rda-rupture-risk-20 in k:Rupture[ruptures] @id=rda-rupture
           residual: k:NoReopening[no reopening] @id=rda-no-reopening-confirmed
             outcome: k:Clear[clear] @id=rda-clear-after-angiogram
       residual: k:Negative[negative] @id=rda-mra-negative
@@ -47,6 +53,7 @@ decision: k:ScanNow[Scan now?] @id=rda-scan-now
             outcome: k:Untreated[rupture risk] @id=rda-untreated-missed
               money = from k:Product[] of k:RuptureRisk20[] @id=rda-rupture-risk-20 k:RuptureCost[] @id=rda-rupture-cost in k:Usd[US dollar] @id=rda-usd
               health = from k:Product[] of k:RuptureRisk20[] @id=rda-rupture-risk-20 k:RuptureQaly[] @id=rda-rupture-qaly in k:Qaly[QALY] @id=rda-qaly
+              count = from k:RuptureRisk20[] @id=rda-rupture-risk-20 in k:Rupture[ruptures] @id=rda-rupture
           residual: k:NoReopening[no reopening] @id=rda-no-reopening-missed
             outcome: k:Clear[clear] @id=rda-clear-after-negative
   alternative: k:NoScan[no scan] @id=rda-no-scan
@@ -56,6 +63,7 @@ decision: k:ScanNow[Scan now?] @id=rda-scan-now
         outcome: k:Untreated[rupture risk] @id=rda-untreated-unscanned
           money = from k:Product[] of k:RuptureRisk20[] @id=rda-rupture-risk-20 k:RuptureCost[] @id=rda-rupture-cost in k:Usd[US dollar] @id=rda-usd
           health = from k:Product[] of k:RuptureRisk20[] @id=rda-rupture-risk-20 k:RuptureQaly[] @id=rda-rupture-qaly in k:Qaly[QALY] @id=rda-qaly
+          count = from k:RuptureRisk20[] @id=rda-rupture-risk-20 in k:Rupture[ruptures] @id=rda-rupture
       residual: k:NoReopening[no reopening] @id=rda-no-reopening-unscanned
         outcome: k:Clear[clear] @id=rda-clear-unscanned
 ----

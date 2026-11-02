@@ -205,6 +205,7 @@ public final class DecisionTreeFeedback {
             case Outcome o -> "the outcome " + label(ids, o.concept());
             case MoneyCost m -> "the money cost under " + parent(tree, ids, m.vertexIndex());
             case HealthCost h -> "the health cost under " + parent(tree, ids, h.vertexIndex());
+            case DecisionElement.CountCost c -> "the count under " + parent(tree, ids, c.vertexIndex());
             case Probability p -> "the probability of " + parent(tree, ids, p.vertexIndex());
             case Parameter p -> "the parameter " + label(ids, p.quantity());
         };

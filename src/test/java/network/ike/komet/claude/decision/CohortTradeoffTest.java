@@ -110,4 +110,62 @@ class CohortTradeoffTest {
                 "read from the other side the saving per healthy year given up is near the tie, " + atHalf.pricePerHealthyYear()
                 + ", though the retreat decision chooses otherwise at half the price");
     }
+
+    @Test
+    @DisplayName("The ledger keeps every consequence in its own unit: scanning averts ruptures at a cost in angiograms, retreatments and money")
+    void ledgerKeepsUnitsApart() {
+        Ledger ledger = Ledger.of(tree, rollback).orElseThrow();
+        assertEquals(2, ledger.entries().size());
+        assertEquals(4, ledger.units().size(), "angiograms, major complications, retreatments, ruptures: " + ledger.units());
+        long ruptures = ids.nid("rda-rupture").orElseThrow();
+        long angiograms = ids.nid("rda-angiogram").orElseThrow();
+        long retreatments = ids.nid("rda-retreatment").orElseThrow();
+        Ledger.Entry scan = ledger.entry(vertexOf("rda-scan")).orElseThrow();
+        Ledger.Entry noScan = ledger.entry(vertexOf("rda-no-scan")).orElseThrow();
+        assertEquals(0.02 * 0.182, noScan.count(ruptures), 1e-4, "2% reopen, 18.2% of those rupture");
+        assertTrue(scan.count(ruptures) < noScan.count(ruptures) / 4, "scanning averts most ruptures: " + scan.count(ruptures));
+        assertEquals(0.214, scan.count(angiograms), 0.001, "every positive has an angiogram");
+        assertEquals(0, noScan.count(angiograms), 1e-12);
+        assertEquals(0.018, scan.count(retreatments), 0.001);
+        assertEquals(1_958, scan.money() - noScan.money(), 5.0, "the same money the trade-off reads");
+        Tradeoff tradeoff = Tradeoff.of(tree, rollback).orElseThrow();
+        assertEquals(4, tradeoff.counts().size());
+        assertTrue(tradeoff.countedAgainst(), "scanning brings angiograms and retreatments the other course does not");
+        assertEquals(Tradeoff.Kind.BUYS_HEALTH, tradeoff.kind());
+        Tradeoff.CountTrade rupture = tradeoff.counts().stream().filter(c -> c.unit() == ruptures).findFirst().orElseThrow();
+        assertTrue(rupture.more() < 0, "fewer ruptures under scanning");
+    }
+
+    @Test
+    @DisplayName("A tree that prices nothing leaves its choice open, and its ledger still counts")
+    void unpricedTreeIsLeftOpen() {
+        String bare = """
+                decision: k:Ask[Ask for a wear test?] @id=j-ask
+                  alternative: k:No[no wear test] @id=j-no
+                    chance: k:Breaks[Would it break down?] @id=j-breaks-no
+                      event: k:Failing[failing] @id=j-failing-no
+                        p = [0.2,0.2]
+                        outcome: k:Cleared[cleared] @id=j-cleared-no
+                          count = [10300,10300] k:Removed[patients with an implant removed] @id=j-removed
+                      residual: k:Sound[sound] @id=j-sound-no
+                        outcome: k:Fine[cleared, sound] @id=j-fine-no
+                  alternative: k:Yes[wear test] @id=j-yes
+                    chance: k:Breaks[Would it break down?] @id=j-breaks-yes
+                      event: k:Failing[failing] @id=j-failing-yes
+                        p = [0.02,0.02]
+                        outcome: k:Cleared[cleared] @id=j-cleared-yes
+                          count = [10300,10300] k:Removed[patients with an implant removed] @id=j-removed
+                      residual: k:Sound[sound] @id=j-sound-yes
+                        outcome: k:Fine[cleared, sound] @id=j-fine-yes
+                """;
+        BlockIdentities bareIds = BlockIdentities.storeFree();
+        Rollback bareRollback = BlockSweep.sweep(bare, T, bareIds, 100_000, 4).orElseThrow().base();
+        assertTrue(bareRollback.unpriced());
+        assertTrue(bareRollback.determinable(), "a cost of nothing is still a cost");
+        assertTrue(bareRollback.chosen(bareRollback.tree().rootIndex()).isEmpty(), "nothing priced, nothing chosen");
+        Ledger ledger = Ledger.of(bareRollback.tree(), bareRollback).orElseThrow();
+        assertEquals(2_060, ledger.entries().get(0).count(bareIds.nid("j-removed").orElseThrow()), 1e-6, "20% of 10,300 per device");
+        assertEquals(206, ledger.entries().get(1).count(bareIds.nid("j-removed").orElseThrow()), 1e-6);
+        assertTrue(Tradeoff.of(bareRollback.tree(), bareRollback).isEmpty(), "no choice, no trade");
+    }
 }

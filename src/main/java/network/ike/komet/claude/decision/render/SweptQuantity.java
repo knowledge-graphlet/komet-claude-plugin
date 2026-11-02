@@ -57,6 +57,7 @@ public record SweptQuantity(Unit unit, String symbol) {
         return switch (element.get()) {
             case MoneyCost m -> new SweptQuantity(Unit.MONEY, symbol);
             case HealthCost h -> new SweptQuantity(Unit.PLAIN, unitName(ids, coordinate.healthSemantic()));
+            case DecisionElement.CountCost c -> new SweptQuantity(Unit.PLAIN, unitName(ids, c.measure().semanticNid()));
             case Probability p -> new SweptQuantity(Unit.SHARE, "");
             case Parameter p -> {
                 Measure measure = p.measure();
@@ -101,6 +102,7 @@ public record SweptQuantity(Unit unit, String symbol) {
             case Parameter p -> p.quantity().isPresent() ? ids.label(p.quantity().getAsLong()) : "a parameter";
             case MoneyCost m -> "money cost at " + owner(tree, ids, measureVertex);
             case HealthCost h -> "health cost at " + owner(tree, ids, measureVertex);
+            case DecisionElement.CountCost c -> ids.label(c.measure().semanticNid()) + " at " + owner(tree, ids, measureVertex);
             case Probability p -> "p of " + owner(tree, ids, measureVertex);
             default -> "a value";
         };

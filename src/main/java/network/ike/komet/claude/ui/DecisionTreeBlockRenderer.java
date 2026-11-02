@@ -38,6 +38,7 @@ import javafx.scene.control.Tooltip;
 import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.GridPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
@@ -425,8 +426,34 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             scroll.setPrefViewportHeight(diagram.prefHeight(-1));
             diagram.drawnHeightProperty().addListener((obs, was, now) -> scroll.setPrefViewportHeight(now.doubleValue()));
             top.getChildren().add(scroll);
-            // the readouts: what the choice trades, money and health apart, and where a cohort ends up
+            // the ledger: every alternative's consequences in their own units
             String healthUnit = unitName(rollback.coordinate().healthSemantic(), "");
+            List<List<String>> table = DecisionTreeFigures.ledgerTable(drawn, rollback, ids, symbol(), healthUnit, cohort);
+            if (table.size() > 2) {
+                Label title = new Label(DecisionTreeFigures.ledgerTitle(cohort));
+                title.setFont(Font.font(null, FontWeight.BOLD, base * 0.85));
+                title.setPadding(new Insets(4, 0, 0, 0));
+                top.getChildren().add(title);
+                GridPane grid = new GridPane();
+                grid.setId("decision-tree-ledger");
+                grid.setHgap(14);
+                grid.setVgap(2);
+                OptionalInt chosenAlternative = rollback.chosen(drawn.rootIndex());
+                String chosenName = chosenAlternative.isPresent() ? alternativeName(chosenAlternative.getAsInt()) : null;
+                for (int r = 0; r < table.size(); r++) {
+                    List<String> row = table.get(r);
+                    boolean header = r == 0;
+                    boolean chosenRow = !header && row.get(0).equals(chosenName);
+                    for (int c = 0; c < row.size(); c++) {
+                        Label cell = new Label(row.get(c));
+                        cell.setFont(Font.font(null, chosenRow ? FontWeight.BOLD : FontWeight.NORMAL, base * 0.85));
+                        cell.setStyle(header ? "-fx-text-fill: #666; -fx-font-style: italic;" : chosenRow ? "-fx-text-fill: #1f3b73;" : "");
+                        grid.add(cell, c, r);
+                    }
+                }
+                top.getChildren().add(grid);
+            }
+            // the readouts: what the choice trades, money and health apart, and where a cohort ends up
             for (String readout : DecisionTreeFigures.readoutLines(drawn, rollback, ids, symbol(), healthUnit, cohort,
                     Tradeoff.of(drawn, rollback))) {
                 Label line = new Label(readout);

@@ -279,12 +279,15 @@ public final class DecisionFigureText {
         return group(BigDecimal.valueOf(value).setScale(decimals, RoundingMode.HALF_UP));
     }
 
-    /** A count of a cohort: whole from one up, to two significant figures beneath, so 2.04 reads 2 and 0.41 reads 0.41. */
+    /**
+     * A count of a cohort: whole from ten up, to two significant figures beneath, so 214.2 reads
+     * 214, 3.31 reads 3.3, 2.04 reads 2 and 0.41 reads 0.41.
+     */
     public static String count(double count) {
         if (Double.isNaN(count)) {
             return "?";
         }
-        if (count >= 1) {
+        if (count >= 10) {
             return String.format(Locale.ROOT, "%,d", Math.round(count));
         }
         return group(new BigDecimal(count).round(new MathContext(2, RoundingMode.HALF_UP)).stripTrailingZeros());
@@ -328,27 +331,62 @@ public final class DecisionFigureText {
      */
     public static String tradeoff(String chosen, String other, double money, String moneyText, double health, String healthText,
                                   String priceText, String pricedText) {
+        return tradeoff(chosen, other, money, moneyText, health, healthText, priceText, pricedText, false, List.of());
+    }
+
+    /**
+     * The trade with what the tree counts weighed in: {@code countedAgainst} when the chosen
+     * alternative brings more of some counted unit than the next best, so that it does not win
+     * outright however health is priced; and a clause per counted unit that differs, already
+     * worded, which follows the sentence.
+     */
+    public static String tradeoff(String chosen, String other, double money, String moneyText, double health, String healthText,
+                                  String priceText, String pricedText, boolean countedAgainst, List<String> clauses) {
         String c = "\u201C" + chosen + "\u201D";
         String o = "\u201C" + other + "\u201D";
         boolean dearer = money > 1e-9;
         boolean cheaper = money < -1e-9;
         boolean healthier = health > 1e-9;
         boolean sicker = health < -1e-9;
+        String sentence;
+        boolean withHealth = healthText != null && !healthText.isEmpty();
         if (!dearer && !sicker) {
             String moneyPart = cheaper ? "costs " + moneyText + " less than " + o : "costs no more than " + o;
-            String healthPart = healthier ? "spares " + healthText : "loses no more healthy life";
-            return c + " " + moneyPart + " and " + healthPart + ": it wins at any price of a healthy year.";
-        }
-        if (dearer && healthier) {
-            return c + " costs " + moneyText + " more than " + o + " and spares " + healthText
+            String healthPart = !withHealth ? "" : healthier ? " and spares " + healthText : " and loses no more healthy life";
+            sentence = c + " " + moneyPart + healthPart
+                    + (countedAgainst ? "." : withHealth ? ": it wins at any price of a healthy year." : ": it wins outright.");
+        } else if (dearer && healthier) {
+            sentence = c + " costs " + moneyText + " more than " + o + " and spares " + healthText
                     + ": a healthy year bought at " + priceText + ", against the " + pricedText + " it is priced at here.";
-        }
-        if (cheaper && sicker) {
-            return c + " costs " + moneyText + " less than " + o + " and gives up " + healthText
+        } else if (cheaper && sicker) {
+            sentence = c + " costs " + moneyText + " less than " + o + " and gives up " + healthText
                     + ": a healthy year given up for " + priceText + ", against the " + pricedText + " it is priced at here.";
+        } else {
+            sentence = c + " costs " + moneyText + " more than " + o + " and gives up " + healthText + ".";
         }
-        return c + " costs " + moneyText + " more than " + o + " and gives up " + healthText + ".";
+        StringBuilder sb = new StringBuilder(sentence);
+        for (String clause : clauses) {
+            sb.append(' ').append(clause);
+        }
+        return sb.toString();
     }
+
+    /**
+     * A clause for one counted unit: who spares how many, per how many cases, and at what in
+     * money each, when the other side pays for it. "“scan” spares 3.3 ruptures per 1,000, at
+     * $590,000 each."; "“wear test” would spare 185,400 patients with an implant removed per
+     * 100, at $54 each."
+     */
+    public static String countClause(String sparer, boolean chosenSpares, String countText, String unit, String perText,
+                                     String eachText) {
+        String s = "\u201C" + sparer + "\u201D";
+        String verb = chosenSpares ? " spares " : " would spare ";
+        return s + verb + countText + " " + unit + " per " + perText + (eachText == null ? "." : ", at " + eachText + " each.");
+    }
+
+    /** When nothing is priced: the choice is left open, and the ledger alone weighs the alternatives. */
+    public static final String UNPRICED = "Nothing here is priced, so the choice is left open: the ledger beneath weighs the"
+            + " alternatives in what they count.";
 
     /** A plain decimal with its thousands grouped. */
     private static String group(BigDecimal number) {

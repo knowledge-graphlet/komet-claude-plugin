@@ -119,7 +119,7 @@ class DecisionTreeSvgTest {
         double height = Double.parseDouble(doc.getDocumentElement().getAttribute("height"));
         assertTrue(width > 500, "wide enough for five columns of labels: " + width);
         double rows = 6 + 6 + 7 * (2 * 17 + 10);
-        assertTrue(height > rows && height <= rows + 4 * 13 + 10, "seven rows, a readout and a legend beneath: " + height);
+        assertTrue(height > rows && height <= rows + 10 * 13 + 20, "seven rows, then the ledger, the readouts and the legend beneath: " + height);
         assertTrue(svg.contains("⇒ 3,880"), "the root's rolled-back value is on the figure");
         assertTrue(svg.contains("⇒ 4,188"), "and the rejected alternative's");
         assertTrue(texts(doc, "measure").contains("money 700"), "a stated cost reads as its chip does, worded when there is no symbol");
@@ -178,6 +178,13 @@ class DecisionTreeSvgTest {
         assertTrue(readouts.contains("\u201Cscan\u201D costs $") && readouts.contains("more than \u201Cno scan\u201D"), readouts);
         assertTrue(readouts.contains("a healthy year bought at $86,"), "the price at which the alternatives tie: " + readouts);
         assertTrue(readouts.contains("Of 1,000 who take \u201Cscan\u201D: 980 clear"), readouts);
+        assertTrue(readouts.contains("\u201Cscan\u201D spares ") && readouts.contains(" ruptures per 1,000, at $"),
+                "the count clause: what scanning averts and what each costs: " + readouts);
+        assertTrue(readouts.contains("\u201Cno scan\u201D would spare ") && readouts.contains(" angiograms per 1,000"), readouts);
+        String ledger = texts(doc, "ledger-head") + texts(doc, "ledger");
+        assertTrue(ledger.contains("ruptures") && ledger.contains("angiograms") && ledger.contains("money"), "the ledger's columns: " + ledger);
+        assertTrue(texts(doc, "ledger-title").contains("Per 1,000 who take each alternative"));
+        assertTrue(texts(doc, "measure").contains("ruptures"), "a count chip carries its unit: " + texts(doc, "measure"));
         assertTrue(readouts.contains("(1 in 5"), "a rare outcome as one in so many: " + readouts);
         assertTrue(readouts.contains("Of 1,000 who take \u201Cno scan\u201D: 980 clear and 20 rupture risk (1 in 50)"), readouts);
         assertTrue(texts(doc, "legend").contains("how many of the 1,000 go that way"));

@@ -271,6 +271,7 @@ public final class DecisionTreeSensitivity {
         if (base.determinable()) {
             for (DecisionElement element : tree.nodes()) {
                 Measure measure = switch (element) {
+                    case DecisionElement.CountCost count -> null; // counted, never priced: it cannot move the answer
                     case Cost cost -> cost.measure();
                     case Probability probability -> probability.measure();
                     case Parameter parameter -> parameter.measure();
