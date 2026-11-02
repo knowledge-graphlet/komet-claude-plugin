@@ -727,8 +727,13 @@ final class TornadoChart extends Region {
         return Math.round(value / unit) * unit;
     }
 
-    private static String money(double root) {
-        return Double.isNaN(root) ? "?" : DecisionTreeBlockRenderer.money(Bounds.point(root));
+    /** An amount as the chart prints it: after the block's money sign when its unit has one, the sign of a negative first. */
+    private String money(double amount) {
+        if (Double.isNaN(amount)) {
+            return "?";
+        }
+        return (amount < 0 ? "\u2212" : "") + DecisionFigureText.symbolFor(host.moneyUnit())
+                + DecisionTreeBlockRenderer.money(Bounds.point(Math.abs(amount)));
     }
 
     /** The rows, longest swing first, for a test. */

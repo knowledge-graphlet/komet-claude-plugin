@@ -61,6 +61,7 @@ import network.ike.komet.claude.decision.DecisionTreeSensitivity.Flip;
 import network.ike.komet.claude.decision.DecisionTreeSensitivity.Swing;
 import network.ike.komet.claude.decision.DecisionTreeText;
 import network.ike.komet.claude.decision.Derivations;
+import network.ike.komet.claude.decision.Measure;
 import network.ike.komet.claude.decision.Rollback;
 import network.ike.komet.claude.decision.ValuationCoordinate;
 import network.ike.komet.claude.decision.ViewIdentities;
@@ -304,7 +305,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         private VBox sensitivity(Rollback rollback) {
             VBox section = new VBox(3);
             section.setPadding(new Insets(6, 0, 0, 0));
-            Label heading = new Label("Sensitivity of the expected cost, one value at a time");
+            Label heading = new Label("Sensitivity of the choice, one value at a time");
             heading.setFont(Font.font(null, FontWeight.BOLD, base * 0.9));
             section.getChildren().add(heading);
             if (!rollback.determinable()) {
@@ -341,10 +342,11 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                         section.getChildren().add(none);
                         return;
                     }
+                    // the chart asks the host to print each quantity as it is built, so the sweep goes first
+                    lastSweep = landed.get();
                     tornado = new TornadoChart(landed.get(), base, this);
                     tornado.setId("tornado-chart");
                     section.getChildren().add(tornado);
-                    lastSweep = landed.get();
                     markFlips(landed.get());
                 });
             });
@@ -364,7 +366,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                         + ": " + alternativeName(flip.chosenBelow()) + " up to there, " + alternativeName(flip.chosenAbove()) + " beyond";
                 if (swing.measureVertex() == DecisionTreeSensitivity.HEALTH_PRICE) {
                     if (priceMark != null) {
-                        priceMark.setText("▲ flips at " + money(Bounds.point(flip.at())));
+                        priceMark.setText("▲ flips at " + symbol() + money(Bounds.point(flip.at())));
                         priceMark.setTooltip(new Tooltip(tip));
                         priceMark.setVisible(true);
                         priceMark.setManaged(true);
@@ -471,7 +473,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             priceMark.setManaged(false);
             header.getChildren().add(priceMark);
             rollback.rootValue().ifPresent(value -> {
-                Label expected = new Label("expected cost " + money(value));
+                Label expected = new Label("expected cost " + symbol() + money(value));
                 expected.setFont(Font.font(null, FontWeight.BOLD, base * 0.9));
                 header.getChildren().add(expected);
             });
@@ -496,8 +498,19 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                 item.getChildren().add(concept(parameter.quantity()).orElseGet(() -> plain("parameter")));
                 int index = parameter.vertexIndex();
                 boolean editable = editable(index);
-                MeasureChip chip = new MeasureChip("", derivations.bounds(index), parameter.measure(), ids, base,
-                        editable ? bounds -> edit(index, bounds) : null);
+                // a share-valued parameter reads as a percentage, as it does on the tree; money after its symbol
+                Optional<Bounds> bounds = derivations.bounds(index);
+                Measure measure = parameter.measure();
+                boolean computed = measure.derived() || !measure.stated();
+                boolean share = measure.semanticNid() == drawn.terms().shareAtNode()
+                        && bounds.map(b -> b.lower() >= 0 && b.upper() <= 1).orElse(false);
+                boolean money = measure.semanticNid() != 0 && measure.semanticNid() == semantic(drawn, MoneyCost.class, terms.moneySemantic());
+                String display = share || money
+                        ? bounds.map(b -> DecisionFigureText.chip(b.lower(), b.upper(), b.lowerOpen(), b.upperOpen(), computed,
+                                share ? DecisionFigureText.Unit.SHARE : DecisionFigureText.Unit.MONEY, symbol())).orElse(null)
+                        : null;
+                MeasureChip chip = new MeasureChip("", bounds, measure, ids, base,
+                        editable ? b -> edit(index, b) : null, display);
                 chip.explain(DecisionTreeDiagram.explain("", parameter.measure(), derivations.bounds(index), derivations, ids,
                         drawn.terms().shareAtNode()));
                 chip.onHover(on -> hover(index, on));
@@ -613,13 +626,18 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             if (lastSweep == null) {
                 return DecisionFigureText.shown(value, true, false);
             }
-            return SweptQuantity.of(lastSweep, ids, measureVertex, "").print(value);
+            return SweptQuantity.of(lastSweep, ids, measureVertex, symbol()).print(value);
         }
 
         @Override
         public String moneyUnit() {
             long semantic = semantic(tree, MoneyCost.class, terms.moneySemantic());
             return unitName(semantic, "");
+        }
+
+        /** The sign the block's money is written with, when its unit has a familiar one. */
+        private String symbol() {
+            return DecisionFigureText.symbolFor(moneyUnit());
         }
 
         @Override
