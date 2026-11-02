@@ -36,6 +36,7 @@ import network.ike.komet.claude.decision.DecisionTreeSensitivity.Flip;
 import network.ike.komet.claude.decision.DecisionTreeSensitivity.Swing;
 import network.ike.komet.claude.decision.DecisionTreeSensitivity.Unswept;
 import network.ike.komet.claude.decision.render.DecisionFigureText;
+import network.ike.komet.claude.decision.render.DecisionFigureTornado;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -46,12 +47,17 @@ import java.util.OptionalDouble;
 
 /**
  * A tornado diagram of a decision tree's one-way sensitivity, drawn beneath the tree: one bar
- * per swept measure, longest first, on one axis, which is the expected cost at the root, with a
- * dashed line at the base case. A bar spans the root's cost from the measure's lower end to its
- * upper end; it is solid when the block stated that range and hollow when the sweep assumed it.
+ * per swept measure, longest first, on one axis. The axis is the net value of the alternative the
+ * base chose, what the next best alternative would cost less what the chosen one costs, so zero
+ * is break-even and every flip of the root's choice sits on the zero line; when the root did not
+ * decide at the base, the axis is the expected cost at the root. Round ticks with light gridlines
+ * cross the bars, a dashed line marks the base case, and a title says what the axis measures. A
+ * bar spans the axis from the measure's lower end to its upper end, each end's value printed in
+ * its own unit; it is solid when the block stated that range and hollow when the sweep assumed it.
  * Where the root's chosen alternative flips inside the range, the bar changes colour beyond the
- * flip and a tick carries the threshold. Resting on a bar lights the measure on the tree through
- * the {@link Host}; a click on a bar tries the value under the pointer as a what-if.
+ * flip and a tick carries the threshold; a legend names the colours. Resting on a bar lights the
+ * measure on the tree through the {@link Host}; a click on a bar tries the value under the
+ * pointer as a what-if. Drawn as the shared {@code DecisionFigureTornado} draws the figure.
  */
 final class TornadoChart extends Region {
 
@@ -62,6 +68,12 @@ final class TornadoChart extends Region {
 
         /** How an alternative is named, for a flip. */
         String alternativeName(int alternativeVertex);
+
+        /** A value of a swept measure printed with its unit: a share as a percentage, money to the whole unit. */
+        String quantity(int measureVertex, double value);
+
+        /** The name of the money every amount is in, for the axis title; empty when the block names none. */
+        String moneyUnit();
 
         /** Lights or unlights a measure on the tree as the pointer rests on its bar. */
         void light(int measureVertex, boolean on);
@@ -78,6 +90,7 @@ final class TornadoChart extends Region {
     static final Color OPEN_CHOICE = Color.web("#9a9a9a");
     static final Color HOT = Color.web("#d98b1a");
     private static final Color AXIS = Color.web("#777");
+    private static final Color GRID = Color.web("#e4e4e4");
     private static final double CAPTION_ROOM = 64;
 
     /** One measure's row: its name, the band the pointer rests on, the bar's segments and ticks, and the captions at its ends. */
@@ -97,12 +110,12 @@ final class TornadoChart extends Region {
             name = new Label(host.nameOf(swing.measureVertex()));
             name.setFont(Font.font(base * 0.85));
             name.setTextFill(MeasureChip.INK);
-            lowCaption = caption(swing.range().lower());
-            highCaption = caption(swing.range().upper());
+            lowCaption = caption(host.quantity(swing.measureVertex(), swing.range().lower()));
+            highCaption = caption(host.quantity(swing.measureVertex(), swing.range().upper()));
         }
 
-        private Label caption(double value) {
-            Label caption = new Label(value(value));
+        private Label caption(String text) {
+            Label caption = new Label(text);
             caption.setFont(Font.font(base * 0.72));
             caption.setTextFill(Color.web("#666"));
             return caption;
@@ -119,10 +132,16 @@ final class TornadoChart extends Region {
     private final double lineHeight;
     private final double rowHeight;
     private final Map<Integer, Row> rows = new LinkedHashMap<>();
-    private final Label axisLow;
-    private final Label axisHigh;
+    /** Whether the axis is the net value of the base's choice rather than the root's cost. */
+    private final boolean net;
+    private final double least;
+    private final double greatest;
+    private final Label axisTitle;
+    private final List<Label> tickLabels = new ArrayList<>();
+    private final List<Line> gridLines = new ArrayList<>();
     private final Label axisBase;
     private final Line baseLine = new Line();
+    private final List<Node> legend = new ArrayList<>();
     private final Label probe = new Label();
     private final Label footnote;
     private final Line marker = new Line();
@@ -141,12 +160,31 @@ final class TornadoChart extends Region {
         this.rowHeight = lineHeight + 10;
         getStyleClass().add("decision-tornado");
         setMaxWidth(Double.MAX_VALUE);
-        axisLow = axisLabel(money(sweep.least()));
-        axisHigh = axisLabel(money(sweep.greatest()));
-        axisBase = axisLabel("base " + money(sweep.baseRoot()));
+        net = sweep.netValued();
+        // on a net-value axis zero is always in view: it is what every bar is read against
+        least = net ? Math.min(0, sweep.leastNet()) : sweep.least();
+        greatest = net ? Math.max(0, sweep.greatestNet()) : sweep.greatest();
+        String unit = host.moneyUnit() == null || host.moneyUnit().isBlank() ? "" : ", in " + host.moneyUnit();
+        axisTitle = axisLabel(net
+                ? "Net value of \u201C" + host.alternativeName(sweep.baseChosen().orElse(-1))
+                + "\u201D: what the next best alternative would cost, less what it costs" + unit + ". Zero is break-even."
+                : "Expected cost at the root" + unit);
+        axisTitle.setStyle("-fx-font-style: italic;");
+        axisTitle.setWrapText(true);
+        axisBase = axisLabel("base " + money(net ? sweep.baseNet() : sweep.baseRoot()));
         axisBase.setFont(Font.font(null, FontWeight.BOLD, base * 0.78));
         baseLine.setStroke(AXIS);
         baseLine.getStrokeDashArray().setAll(3.0, 3.0);
+        for (double tick : DecisionFigureTornado.ticks(least, greatest, 400)) {
+            Label label = axisLabel(money(tick));
+            label.setUserData(tick);
+            tickLabels.add(label);
+            Line grid = new Line();
+            boolean zero = net && tick == 0;
+            grid.setStroke(zero ? AXIS : GRID);
+            grid.setUserData(tick);
+            gridLines.add(grid);
+        }
         probe.setFont(Font.font(base * 0.78));
         probe.setStyle("-fx-background-color: #fffbe8; -fx-border-color: #e6c87a; -fx-padding: 1 5 1 5;");
         probe.setVisible(false);
@@ -164,15 +202,19 @@ final class TornadoChart extends Region {
                 popup.hide();
             }
         });
-        getChildren().addAll(axisLow, axisHigh, axisBase, baseLine, marker);
+        getChildren().add(axisTitle);
+        getChildren().addAll(gridLines);
+        getChildren().addAll(tickLabels);
+        getChildren().addAll(axisBase, baseLine, marker);
         for (Swing swing : sweep.swings()) {
-            if (swing.width() <= 0) {
+            if ((net ? swing.netWidth() : swing.width()) <= 0) {
                 continue;
             }
             Row row = new Row(swing);
             rows.put(swing.measureVertex(), row);
             build(row);
         }
+        buildLegend();
         footnote = new Label(footnote());
         footnote.setFont(Font.font(base * 0.78));
         footnote.setTextFill(Color.web("#666"));
@@ -188,16 +230,73 @@ final class TornadoChart extends Region {
     }
 
     private String footnote() {
-        StringBuilder sb = new StringBuilder("One value at a time, the rest at base. A solid bar is the interval the block states;"
-                + " a hollow bar an assumed one, half to double, or zero to one for a share. Click a bar to try the value under the pointer.");
-        int still = (int) sweep.swings().stream().filter(s -> s.width() <= 0).count();
+        StringBuilder sb = new StringBuilder(DecisionFigureTornado.FOOTNOTE + " Click a bar to try the value under the pointer.");
+        int still = (int) sweep.swings().stream().filter(s -> (net ? s.netWidth() : s.width()) <= 0).count();
         if (still > 0) {
-            sb.append(' ').append(still == 1 ? "One value does not move the expected cost." : still + " values do not move the expected cost.");
+            sb.append(' ').append(still == 1 ? "One value does not move the answer." : still + " values do not move the answer.");
         }
         for (Unswept unswept : sweep.unswept()) {
             sb.append(" Not swept: ").append(host.nameOf(unswept.measureVertex())).append(", ").append(unswept.why()).append('.');
         }
         return sb.toString();
+    }
+
+    /** The legend: a swatch and a few words for each colour the bars use, and for a hollow bar and a flip. */
+    private void buildLegend() {
+        boolean anyOther = false;
+        boolean anyOpen = false;
+        boolean anyHollow = false;
+        boolean anyFlip = false;
+        for (Row row : rows.values()) {
+            anyHollow |= row.hollow();
+            anyFlip |= !row.tickLabels.isEmpty();
+            for (Rectangle segment : row.segments) {
+                javafx.scene.paint.Paint colour = row.hollow() ? segment.getStroke() : segment.getFill();
+                anyOther |= OTHER_CHOICE.equals(colour) || OTHER_CHOICE.deriveColor(0, 1, 1, 0.85).equals(colour);
+                anyOpen |= OPEN_CHOICE.equals(colour) || OPEN_CHOICE.deriveColor(0, 1, 1, 0.85).equals(colour);
+            }
+        }
+        String chosen = sweep.baseChosen().isPresent() ? host.alternativeName(sweep.baseChosen().getAsInt()) : null;
+        legendItem(swatch(BASE_CHOICE, true), chosen == null || !net ? "the base choice holds" : "\u201C" + chosen + "\u201D still best");
+        if (anyOther) {
+            legendItem(swatch(OTHER_CHOICE, true), "another alternative wins");
+        }
+        if (anyOpen) {
+            legendItem(swatch(OPEN_CHOICE, true), "choice left open");
+        }
+        if (anyHollow) {
+            legendItem(swatch(MeasureChip.INK, false), "hollow: range assumed");
+        }
+        if (anyFlip) {
+            Line tick = new Line(0, 0, 0, 12);
+            tick.setStroke(HOT);
+            tick.setStrokeWidth(2);
+            legendItem(tick, "flip of the choice");
+        }
+        getChildren().addAll(legend);
+    }
+
+    private static Rectangle swatch(Color colour, boolean filled) {
+        Rectangle swatch = new Rectangle(14, 8);
+        if (filled) {
+            swatch.setFill(colour.deriveColor(0, 1, 1, 0.85));
+            swatch.setStroke(null);
+        } else {
+            swatch.setFill(Color.TRANSPARENT);
+            swatch.setStroke(colour);
+            swatch.setStrokeWidth(1.3);
+        }
+        return swatch;
+    }
+
+    private void legendItem(Node swatch, String text) {
+        Label label = new Label(text);
+        label.setFont(Font.font(base * 0.72));
+        label.setTextFill(Color.web("#666"));
+        label.getStyleClass().add("tornado-legend");
+        swatch.setMouseTransparent(true);
+        legend.add(swatch);
+        legend.add(label);
     }
 
     // ── Building a row ───────────────────────────────────────────────────────
@@ -246,7 +345,7 @@ final class TornadoChart extends Region {
             row.ticks.add(tick);
             getChildren().add(tick);
             if (atRoot) {
-                Label at = new Label("flips at " + value(flip.at()));
+                Label at = new Label("flips at " + host.quantity(vertex, flip.at()));
                 at.setFont(Font.font(null, FontWeight.BOLD, base * 0.72));
                 at.setTextFill(HOT);
                 at.setMouseTransparent(true);
@@ -255,11 +354,14 @@ final class TornadoChart extends Region {
             }
         }
         StringBuilder tip = new StringBuilder(host.nameOf(vertex)).append(": ")
-                .append(value(swing.range().lower())).append(" to ").append(value(swing.range().upper()))
+                .append(host.quantity(vertex, swing.range().lower())).append(" to ").append(host.quantity(vertex, swing.range().upper()))
                 .append(row.hollow() ? " (assumed)" : " (as stated)")
                 .append("\nexpected cost ").append(money(swing.rootAtLow())).append(" to ").append(money(swing.rootAtHigh()));
+        if (net) {
+            tip.append("\nnet value ").append(money(swing.netAtLow())).append(" to ").append(money(swing.netAtHigh()));
+        }
         for (Flip flip : swing.flips()) {
-            tip.append("\nat ").append(value(flip.at())).append(flip.decisionVertex() == rootDecision ? " the choice" : " a later choice")
+            tip.append("\nat ").append(host.quantity(vertex, flip.at())).append(flip.decisionVertex() == rootDecision ? " the choice" : " a later choice")
                     .append(" flips from ").append(host.alternativeName(flip.chosenBelow()))
                     .append(" to ").append(host.alternativeName(flip.chosenAbove()));
         }
@@ -287,7 +389,10 @@ final class TornadoChart extends Region {
             hideDelay.playFromStart();
         });
         row.band.setOnMouseMoved(e -> valueAt(row, e.getX()).ifPresent(value -> {
-            probe.setText(value(value) + " → " + money(swing.rootAtValue(value).orElse(Double.NaN)));
+            probe.setText(host.quantity(vertex, value) + " → " + (net
+                    ? "net " + money(swing.netAtValue(value).orElse(Double.NaN)) + ", expected cost "
+                    + money(swing.rootAtValue(value).orElse(Double.NaN))
+                    : money(swing.rootAtValue(value).orElse(Double.NaN))));
             probe.setVisible(true);
             probe.autosize();
             probe.relocate(Math.min(e.getX() + 10, getWidth() - probe.getWidth() - 2), row.y - lineHeight * 0.9);
@@ -300,9 +405,18 @@ final class TornadoChart extends Region {
         if (barWidth <= 0) {
             return Optional.empty();
         }
-        double root = sweep.least() + (x - barLeft) / barWidth * (sweep.greatest() - sweep.least());
-        double clipped = Math.max(row.swing.least(), Math.min(row.swing.greatest(), root));
+        double at = least + (x - barLeft) / barWidth * (greatest - least);
+        if (net) {
+            double clipped = Math.max(row.swing.leastNet(), Math.min(row.swing.greatestNet(), at));
+            return row.swing.valueAtNet(clipped);
+        }
+        double clipped = Math.max(row.swing.least(), Math.min(row.swing.greatest(), at));
         return row.swing.valueAtRoot(clipped);
+    }
+
+    /** Where the axis stands when a row's measure is a value: the net value, or the root's cost. */
+    private double at(Swing swing, double value) {
+        return net ? swing.netAtValue(value).orElse(sweep.baseNet()) : swing.rootAtValue(value).orElse(sweep.baseRoot());
     }
 
     // ── The value's control ──────────────────────────────────────────────────
@@ -367,14 +481,14 @@ final class TornadoChart extends Region {
         return Optional.ofNullable(control);
     }
 
-    /** A marker on the row's bar at the root's cost for a value being previewed. */
+    /** A marker on the row's bar where the axis stands for a value being previewed. */
     private void mark(Row row, double value) {
-        Optional<Double> root = row.swing.rootAtValue(value);
-        if (root.isEmpty()) {
+        Optional<Double> at = net ? row.swing.netAtValue(value) : row.swing.rootAtValue(value);
+        if (at.isEmpty()) {
             marker.setVisible(false);
             return;
         }
-        double x = x(root.get());
+        double x = x(at.get());
         marker.setStartX(x);
         marker.setEndX(x);
         marker.setStartY(row.y + 2);
@@ -404,15 +518,36 @@ final class TornadoChart extends Region {
         return Math.min(widest, 220);
     }
 
-    private double x(double root) {
-        double span = sweep.greatest() - sweep.least();
-        return span <= 0 ? barLeft + barWidth / 2 : barLeft + (root - sweep.least()) / span * barWidth;
+    private double x(double at) {
+        double span = greatest - least;
+        return span <= 0 ? barLeft + barWidth / 2 : barLeft + (at - least) / span * barWidth;
+    }
+
+    /** The height of the title above the axis at a width, and of the legend beneath the bars. */
+    private double titleHeight(double width) {
+        double names = nameWidth();
+        double left = names + 10 + CAPTION_ROOM;
+        return axisTitle.prefHeight(Math.max(40, width - left - 4));
+    }
+
+    private double legendHeight(double width) {
+        double x = 0;
+        int lines = legend.isEmpty() ? 0 : 1;
+        for (int i = 0; i + 1 < legend.size(); i += 2) {
+            double w = 14 + 5 + legend.get(i + 1).prefWidth(-1);
+            if (x > 0 && x + w > width - 4) {
+                x = 0;
+                lines++;
+            }
+            x += w + 16;
+        }
+        return lines * lineHeight;
     }
 
     @Override
     protected double computePrefHeight(double width) {
         double w = width < 0 ? Math.max(getWidth(), 400) : width;
-        return lineHeight + rows.size() * rowHeight + 6 + footnote.prefHeight(w - 4) + 4;
+        return titleHeight(w) + lineHeight + rows.size() * rowHeight + lineHeight + 4 + legendHeight(w) + 4 + footnote.prefHeight(w - 4) + 4;
     }
 
     @Override
@@ -425,23 +560,98 @@ final class TornadoChart extends Region {
         return 400;
     }
 
+    /** A caption or a threshold label, where it goes on its row. */
+    private record Placed(Label label, double x) {
+    }
+
+    /**
+     * The captions at a row's ends, low where the axis is least and high where it is greatest,
+     * and beyond the caption on the bar's wider side each root flip's threshold, clear of the bar.
+     */
+    private List<Placed> placed(Row row) {
+        boolean rising = net ? row.swing.netAtHigh() >= row.swing.netAtLow() : row.swing.rootAtHigh() >= row.swing.rootAtLow();
+        Label leftCaption = rising ? row.lowCaption : row.highCaption;
+        Label rightCaption = rising ? row.highCaption : row.lowCaption;
+        double left = x(net ? row.swing.leastNet() : row.swing.least());
+        double right = x(net ? row.swing.greatestNet() : row.swing.greatest());
+        List<Placed> placed = new ArrayList<>();
+        placed.add(new Placed(leftCaption, left - 4 - leftCaption.prefWidth(-1)));
+        placed.add(new Placed(rightCaption, right + 4));
+        double afterRight = right + 4 + rightCaption.prefWidth(-1) + 8;
+        double beforeLeft = left - 4 - leftCaption.prefWidth(-1) - 8;
+        int shown = 0;
+        for (Flip flip : row.swing.flips()) {
+            if (flip.decisionVertex() != sweep.tree().rootIndex()) {
+                continue;
+            }
+            Label at = row.tickLabels.get(shown++);
+            double tx = x(at(row.swing, flip.at()));
+            double w = at.prefWidth(-1);
+            boolean toTheRight = right - tx >= tx - left;
+            placed.add(new Placed(at, toTheRight ? afterRight : beforeLeft - w));
+            if (toTheRight) {
+                afterRight += w + 8;
+            } else {
+                beforeLeft -= w + 8;
+            }
+        }
+        return placed;
+    }
+
     @Override
     protected void layoutChildren() {
         double width = getWidth();
         double names = nameWidth();
-        barLeft = names + 10 + CAPTION_ROOM;
-        barWidth = Math.max(40, width - barLeft - CAPTION_ROOM - 4);
-        double axisY = 0;
-        place(axisLow, barLeft, axisY);
-        place(axisHigh, barLeft + barWidth - axisHigh.prefWidth(-1), axisY);
-        double baseX = x(sweep.baseRoot());
-        place(axisBase, Math.max(barLeft + axisLow.prefWidth(-1) + 6,
-                Math.min(baseX - axisBase.prefWidth(-1) / 2, barLeft + barWidth - axisHigh.prefWidth(-1) - axisBase.prefWidth(-1) - 6)), axisY);
-        double y = lineHeight;
+        // the rooms beside the bars grow until every caption and threshold fits inside the chart
+        double leftRoom = CAPTION_ROOM;
+        double rightRoom = CAPTION_ROOM;
+        for (int pass = 0; pass < 3; pass++) {
+            barLeft = names + 10 + leftRoom;
+            barWidth = Math.max(40, width - barLeft - rightRoom - 4);
+            double overLeft = 0;
+            double overRight = 0;
+            for (Row row : rows.values()) {
+                for (Placed placed : placed(row)) {
+                    overLeft = Math.max(overLeft, (names + 10) - placed.x());
+                    overRight = Math.max(overRight, placed.x() + placed.label().prefWidth(-1) - (width - 4));
+                }
+            }
+            if (overLeft <= 0 && overRight <= 0) {
+                break;
+            }
+            leftRoom += Math.max(0, overLeft);
+            rightRoom += Math.max(0, overRight);
+        }
+        double titleWidth = Math.max(40, width - barLeft - 4);
+        double titleH = axisTitle.prefHeight(titleWidth);
+        axisTitle.resizeRelocate(barLeft, 0, titleWidth, titleH);
+        double axisY = titleH;
+        double baseX = x(net ? sweep.baseNet() : sweep.baseRoot());
+        // round ticks, skipping any label an earlier one would cover
+        double lastEnd = Double.NEGATIVE_INFINITY;
+        for (Label label : tickLabels) {
+            double w = label.prefWidth(-1);
+            double lx = x((Double) label.getUserData()) - w / 2;
+            boolean shown = lx >= lastEnd + 6;
+            label.setVisible(shown);
+            if (shown) {
+                place(label, lx, axisY);
+                lastEnd = lx + w;
+            }
+        }
+        double y = axisY + lineHeight;
+        double barsBottom = y + rows.size() * rowHeight;
+        for (Line grid : gridLines) {
+            double gx = x((Double) grid.getUserData());
+            grid.setStartX(gx);
+            grid.setEndX(gx);
+            grid.setStartY(y);
+            grid.setEndY(barsBottom);
+        }
         baseLine.setStartX(baseX);
         baseLine.setStartY(y);
         baseLine.setEndX(baseX);
-        baseLine.setEndY(y + rows.size() * rowHeight);
+        baseLine.setEndY(barsBottom);
         for (Row row : rows.values()) {
             row.y = y;
             row.band.setX(0);
@@ -454,8 +664,8 @@ final class TornadoChart extends Region {
             double barHeight = rowHeight - 10;
             for (Rectangle segment : row.segments) {
                 double[] cut = (double[]) segment.getUserData();
-                double a = row.swing.rootAtValue(cut[0]).orElse(sweep.baseRoot());
-                double b = row.swing.rootAtValue(cut[1]).orElse(sweep.baseRoot());
+                double a = at(row.swing, cut[0]);
+                double b = at(row.swing, cut[1]);
                 double x0 = x(Math.min(a, b));
                 double x1 = x(Math.max(a, b));
                 segment.setX(x0);
@@ -465,43 +675,36 @@ final class TornadoChart extends Region {
             }
             for (Line tick : row.ticks) {
                 Flip flip = (Flip) tick.getUserData();
-                double tx = x(row.swing.rootAtValue(flip.at()).orElse(sweep.baseRoot()));
+                double tx = x(at(row.swing, flip.at()));
                 tick.setStartX(tx);
                 tick.setEndX(tx);
                 tick.setStartY(barTop - 3);
                 tick.setEndY(barTop + barHeight + 3);
             }
-            // the measure's own values at the bar's ends: low where the root is least, high where it is greatest
-            boolean rising = row.swing.rootAtHigh() >= row.swing.rootAtLow();
-            Label leftCaption = rising ? row.lowCaption : row.highCaption;
-            Label rightCaption = rising ? row.highCaption : row.lowCaption;
-            double left = x(row.swing.least());
-            double right = x(row.swing.greatest());
-            double captionLeft = left - 4 - leftCaption.prefWidth(-1);
-            double captionRight = right + 4;
-            int shown = 0;
-            for (Flip flip : row.swing.flips()) {
-                if (flip.decisionVertex() != sweep.tree().rootIndex()) {
-                    continue;
-                }
-                Label at = row.tickLabels.get(shown++);
-                double tx = x(row.swing.rootAtValue(flip.at()).orElse(sweep.baseRoot()));
-                double w = at.prefWidth(-1);
-                // the label goes on the wider side of the tick, and a caption it would cover moves outward
-                boolean toTheRight = right - tx >= tx - left;
-                double lx = toTheRight ? tx + 4 : tx - 4 - w;
-                place(at, lx, barTop + (barHeight - at.prefHeight(-1)) / 2);
-                if (toTheRight) {
-                    captionRight = Math.max(captionRight, lx + w + 6);
-                } else {
-                    captionLeft = Math.min(captionLeft, lx - 6 - leftCaption.prefWidth(-1));
-                }
+            // the measure's own values at the bar's ends, and beyond them each root flip's threshold
+            for (Placed placed : placed(row)) {
+                place(placed.label(), placed.x(), barTop + (barHeight - placed.label().prefHeight(-1)) / 2);
             }
-            place(leftCaption, captionLeft, barTop + (barHeight - lineHeight) / 2 + 1);
-            place(rightCaption, captionRight, barTop + (barHeight - lineHeight) / 2 + 1);
             y += rowHeight;
         }
-        footnote.resizeRelocate(0, y + 6, width - 4, footnote.prefHeight(width - 4));
+        double baseW = axisBase.prefWidth(-1);
+        place(axisBase, Math.max(0, Math.min(baseX - baseW / 2, width - baseW)), y + 2);
+        y += lineHeight + 4;
+        double lx = 0;
+        for (int i = 0; i + 1 < legend.size(); i += 2) {
+            Node swatch = legend.get(i);
+            Label label = (Label) legend.get(i + 1);
+            double w = 14 + 5 + label.prefWidth(-1);
+            if (lx > 0 && lx + w > width - 4) {
+                lx = 0;
+                y += lineHeight;
+            }
+            swatch.relocate(lx, y + (lineHeight - swatch.prefHeight(-1)) / 2);
+            place(label, lx + 14 + 5, y + (lineHeight - label.prefHeight(-1)) / 2);
+            lx += w + 16;
+        }
+        y += legend.isEmpty() ? 0 : lineHeight;
+        footnote.resizeRelocate(0, y + 4, width - 4, footnote.prefHeight(width - 4));
     }
 
     private static void place(Node node, double x, double y) {

@@ -56,6 +56,7 @@ import network.ike.komet.claude.decision.DecisionTreeLayout.Run;
 import network.ike.komet.claude.decision.Derivations;
 import network.ike.komet.claude.decision.Measure;
 import network.ike.komet.claude.decision.Rollback;
+import network.ike.komet.claude.decision.render.DecisionFigureText;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -208,7 +209,7 @@ final class DecisionTreeDiagram extends Region {
         getChildren().add(shape);
 
         Optional<Bounds> value = rollback.value(index);
-        Label valueLabel = label(value.map(bounds -> "⇒ " + DecisionTreeBlockRenderer.money(bounds))
+        Label valueLabel = label(value.map(bounds -> "⇒ " + symbol() + DecisionTreeBlockRenderer.money(bounds))
                 .orElse("⇒ ?"), true, value.isPresent() ? INK : GAP);
         markChanged(index, value, valueLabel);
         explainValue(valueLabel, index, working(node));
@@ -280,29 +281,34 @@ final class DecisionTreeDiagram extends Region {
             Optional<DecisionElement.Probability> probability = event.probability();
             if (probability.isPresent()) {
                 above.getChildren().add(number("p", probability.get().vertexIndex(), probability.get().measure()));
+            } else if (event.residual()) {
+                // the residual's share is what the other events leave, printed so that no one subtracts
+                String rest = residual(event).map(b -> DecisionFigureText.chip(b.lower(), b.upper(), b.lowerOpen(),
+                        b.upperOpen(), true, DecisionFigureText.Unit.SHARE, "")).orElse("?");
+                Label residual = label(rest + " (residual)", false, Color.web("#666"));
+                residual.setStyle("-fx-font-style: italic;");
+                residual.setTooltip(new Tooltip("The share left to this event: one less the other events' shares"));
+                above.getChildren().add(residual);
             } else {
-                above.getChildren().add(label(event.residual() ? "p (residual)" : "p ?", false,
-                        event.residual() ? Color.web("#666") : GAP));
+                above.getChildren().add(label("p ?", false, GAP));
             }
         }
         if (branch instanceof Alternative) {
             Optional<Bounds> value = rollback.value(index);
-            Label valueLabel = label(value.map(bounds -> "⇒ " + DecisionTreeBlockRenderer.money(bounds))
+            Label valueLabel = label(value.map(bounds -> "⇒ " + symbol() + DecisionTreeBlockRenderer.money(bounds))
                     .orElse("⇒ ?"), true, value.isPresent() ? (chosen ? CHOSEN : INK) : GAP);
             markChanged(index, value, valueLabel);
             explainValue(valueLabel, index, working(branch));
-            above.getChildren().add(valueLabel);
-        }
-        if (chosen) {
-            Label mark = label("✓ chosen", true, CHOSEN);
             OptionalInt parent = tree.parentIndex(index);
-            if (reference.isPresent() && parent.isPresent()
+            if (chosen && reference.isPresent() && parent.isPresent()
                     && reference.get().chosen(parent.getAsInt()).orElse(-1) != index) {
-                mark.setTextFill(HOT);
-                mark.setTooltip(new Tooltip("Chosen at this value; another alternative was chosen before"));
+                // newly chosen: the heavy run says so, and the value turns hot with the reason
+                valueLabel.setTextFill(HOT);
+                valueLabel.setTooltip(new Tooltip("Chosen at this value; another alternative was chosen before\n"
+                        + valueLabel.getTooltip().getText()));
                 changed.add(index);
             }
-            above.getChildren().add(mark);
+            above.getChildren().add(valueLabel);
         }
         branchAbove.put(index, above);
         getChildren().add(above);
@@ -354,22 +360,75 @@ final class DecisionTreeDiagram extends Region {
         return changed.contains(vertexIndex);
     }
 
-    /** The costs a branch or an outcome carries, each a chip the reader may move when stated. */
+    /** The costs a branch or an outcome carries, money then health, each a chip the reader may move when stated. */
     private HBox costs(List<Cost> costs) {
-        HBox below = new HBox(8);
+        HBox below = new HBox(5);
         below.setAlignment(Pos.CENTER_LEFT);
         for (Cost cost : costs) {
+            if (!below.getChildren().isEmpty()) {
+                below.getChildren().add(label("+", false, Color.web("#666")));
+            }
             String word = cost instanceof MoneyCost ? "money" : "health";
             below.getChildren().add(number(word, cost.vertexIndex(), cost.measure()));
         }
         return below;
     }
 
-    /** A measure as a chip, offered for a what-if when the host says it is stated and editable. */
+    /** The share the residual event takes: one less the other events' shares, when they are all determinable. */
+    private Optional<Bounds> residual(Event event) {
+        OptionalInt chanceIndex = tree.parentIndex(event.vertexIndex());
+        if (chanceIndex.isEmpty()) {
+            return Optional.empty();
+        }
+        Bounds others = Bounds.point(0);
+        for (Event sibling : tree.children(chanceIndex.getAsInt(), Event.class)) {
+            Optional<DecisionElement.Probability> p = sibling.probability();
+            if (p.isEmpty()) {
+                continue;
+            }
+            Optional<Bounds> share = derivations.bounds(p.get().vertexIndex());
+            if (share.isEmpty()) {
+                return Optional.empty();
+            }
+            others = others.plus(share.get());
+        }
+        return Optional.of(others.complement().clip(0, 1));
+    }
+
+    /** The money symbol the block's money unit is written with, when it has a familiar one. */
+    private String symbol() {
+        long money = rollback.coordinate().moneySemantic();
+        String unit = money == 0 || ids == null ? null : ids.label(money);
+        return DecisionFigureText.symbolFor(unit);
+    }
+
+    /** The name of the block's health unit, for a health chip; empty when the block names none. */
+    private String healthUnit() {
+        long health = rollback.coordinate().healthSemantic();
+        String unit = health == 0 || ids == null ? null : ids.label(health);
+        return unit == null ? "" : unit;
+    }
+
+    /**
+     * A measure as a chip, printed in its unit, a share as a percentage, money after its symbol,
+     * health with its unit's name, the kind's word only when there is no symbol or name to say it;
+     * offered for a what-if when the host says it is stated and editable.
+     */
     private Node number(String word, int vertexIndex, Measure measure) {
         Optional<Bounds> bounds = derivations.bounds(vertexIndex);
         boolean editable = !measure.derived() && host.editable(vertexIndex);
-        MeasureChip chip = new MeasureChip(word, bounds, measure, ids, base, editable ? b -> host.edit(vertexIndex, b) : null);
+        boolean computed = measure.derived() || !measure.stated();
+        DecisionFigureText.Unit unit = switch (word) {
+            case "p" -> DecisionFigureText.Unit.SHARE;
+            case "money" -> DecisionFigureText.Unit.MONEY;
+            default -> DecisionFigureText.Unit.PLAIN;
+        };
+        String unitSymbol = unit == DecisionFigureText.Unit.MONEY ? symbol() : "health".equals(word) ? healthUnit() : "";
+        boolean worded = unit != DecisionFigureText.Unit.SHARE && unitSymbol.isEmpty();
+        String shown = bounds.map(b -> DecisionFigureText.chip(b.lower(), b.upper(), b.lowerOpen(), b.upperOpen(),
+                computed, unit, unitSymbol)).orElse("?");
+        MeasureChip chip = new MeasureChip(word, bounds, measure, ids, base, editable ? b -> host.edit(vertexIndex, b) : null,
+                worded ? word + " " + shown : shown);
         chip.explain(explain(word, measure, bounds, derivations, ids, tree.terms().shareAtNode()));
         chip.onHover(on -> host.hover(vertexIndex, on));
         chips.put(vertexIndex, chip);

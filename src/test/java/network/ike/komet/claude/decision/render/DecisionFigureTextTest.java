@@ -55,4 +55,34 @@ class DecisionFigureTextTest {
         assertEquals("86,392", DecisionFigureText.atStep(86_392.4, 100), "the decimals, not a rounding to the step");
         assertEquals("0.0200", DecisionFigureText.atStep(0.02, 0.0001));
     }
+
+    @Test
+    @DisplayName("A swept quantity prints with its unit: a share as a percentage, money after its symbol, the rest with a name")
+    void quantities() {
+        assertEquals("1.75%", DecisionFigureText.percent(0.017463));
+        assertEquals("90%", DecisionFigureText.percent(0.9));
+        assertEquals("0.5%", DecisionFigureText.percent(0.005));
+        assertEquals("$6,441", DecisionFigureText.quantity(6_441.2, DecisionFigureText.Unit.MONEY, "$"));
+        assertEquals("\u2212$1,200", DecisionFigureText.quantity(-1_200, DecisionFigureText.Unit.MONEY, "$"));
+        assertEquals("350", DecisionFigureText.quantity(350, DecisionFigureText.Unit.MONEY, ""));
+        assertEquals("9 QALY", DecisionFigureText.quantity(9.0, DecisionFigureText.Unit.PLAIN, "QALY"));
+        assertEquals("18", DecisionFigureText.quantity(18.0066, DecisionFigureText.Unit.PLAIN, ""));
+        assertEquals("74.8%", DecisionFigureText.quantity(0.7475, DecisionFigureText.Unit.SHARE, ""));
+        assertEquals("21.4%", DecisionFigureText.percent(0.214, false), "a stated share as written");
+        assertEquals("0.2%", DecisionFigureText.percent(0.002, false));
+        assertEquals("$", DecisionFigureText.symbolFor("US dollar"));
+        assertEquals("", DecisionFigureText.symbolFor("QALY"));
+        assertEquals("$700", DecisionFigureText.chip(700, 700, false, false, false, DecisionFigureText.Unit.MONEY, "$"));
+        assertEquals("[$600, $800]", DecisionFigureText.chip(600, 800, false, false, false, DecisionFigureText.Unit.MONEY, "$"));
+        assertEquals("0.002 QALY", DecisionFigureText.chip(0.002, 0.002, false, false, false, DecisionFigureText.Unit.PLAIN, "QALY"));
+        assertEquals("[20%, 30%]", DecisionFigureText.chip(0.2, 0.3, false, false, false, DecisionFigureText.Unit.SHARE, ""));
+    }
+
+    @Test
+    @DisplayName("Axis ticks are round: one, two or five times a power of ten, zero among them when it is in range")
+    void ticks() {
+        assertEquals(java.util.List.of(0.0, 5_000.0, 10_000.0, 15_000.0), DecisionFigureTornado.ticks(-1_200, 15_300, 320));
+        assertEquals(java.util.List.of(0.0, 20_000.0, 40_000.0, 60_000.0, 80_000.0), DecisionFigureTornado.ticks(0, 91_087, 400));
+        assertEquals(java.util.List.of(0.2, 0.4, 0.6, 0.8, 1.0), DecisionFigureTornado.ticks(0.1, 1.0, 400));
+    }
 }

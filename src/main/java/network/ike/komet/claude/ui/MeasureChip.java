@@ -63,9 +63,18 @@ final class MeasureChip extends StackPane {
      */
     MeasureChip(String word, Optional<Bounds> bounds, Measure measure, Identities ids, double base,
                 Consumer<Bounds> onEdit) {
+        this(word, bounds, measure, ids, base, onEdit, null);
+    }
+
+    /**
+     * @param display the chip's text when the caller has printed the value in its unit already, as
+     *                the tree does: a percentage, money after its symbol; null for the word and the bounds
+     */
+    MeasureChip(String word, Optional<Bounds> bounds, Measure measure, Identities ids, double base,
+                Consumer<Bounds> onEdit, String display) {
         boolean computed = measure.derived() || !measure.stated();
         String shown = bounds.map(b -> shown(b, computed, "money".equals(word))).orElse("?");
-        text = new Label(word.isEmpty() ? shown : word + " " + shown);
+        text = new Label(display != null ? display : word.isEmpty() ? shown : word + " " + shown);
         text.setFont(Font.font(base * 0.9));
         text.setTextFill(bounds.isPresent() ? INK : GAP);
         setAlignment(Pos.CENTER_LEFT);

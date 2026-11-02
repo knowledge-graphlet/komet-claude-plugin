@@ -90,9 +90,9 @@ class DecisionTreeSensitivityTest {
         Swing years = sweep.swing(vertexOf("rda-years-at-risk")).orElseThrow();
         assertEquals(Bounds.of(10, 40), years.range(), "a share above one is not a probability");
         Swing sensitivity = sweep.swing(vertexOf("rda-mra-sensitivity")).orElseThrow();
-        assertEquals(Bounds.of(0, 1), sensitivity.range());
+        assertEquals(Bounds.of(0.45, 1), sensitivity.range(), "half to double, a share no higher than one");
         Swing present = sweep.swing(measureUnder("rda-reopening-yes", Probability.class)).orElseThrow();
-        assertEquals(Bounds.of(0, 1), present.range(), "the residual takes up the rest");
+        assertEquals(Bounds.of(0.01, 0.04), present.range(), "half to double, within what the residual leaves");
 
         assertTrue(sweep.swing(vertexOf("rda-rupture-risk-20")).isEmpty(), "a derived parameter is not swept");
         assertTrue(sweep.unswept().isEmpty(), sweep.unswept().toString());
@@ -122,13 +122,14 @@ class DecisionTreeSensitivityTest {
     void hazardFlipsTheRoot() {
         int hazard = vertexOf("rda-reopening-hazard");
         Swing swing = sweep.swing(hazard).orElseThrow();
-        assertEquals(Bounds.of(0, 1), swing.range());
+        assertEquals(Bounds.of(0.01, 0.04), swing.range());
         Flip flip = swing.flipsAt(tree.rootIndex()).get(0);
         // The block's no-scan arm states its own 2% rather than reading the parameter, so the parameter moves
         // only the scanned arm: more reopenings found means more retreatments paid for, until not scanning wins.
         assertEquals(vertexOf("rda-scan"), flip.chosenBelow());
         assertEquals(vertexOf("rda-no-scan"), flip.chosenAbove());
-        assertTrue(flip.at() > 0.02 && flip.at() < 1, "the lab's 2% lies below the threshold: " + flip.at());
+        assertTrue(flip.at() > 0.02 && flip.at() < 0.04, "the lab's 2% lies below the threshold: " + flip.at());
+        assertEquals(flip.at(), swing.valueAtNet(0).orElseThrow(), 1e-4, "the flip is where the net value crosses zero");
         BlockSweep mover = mover();
         Rollback at = mover.moved(hazard, Bounds.point(flip.at())).orElseThrow();
         double scan = at.value(vertexOf("rda-scan")).orElseThrow().midpoint();
@@ -149,15 +150,32 @@ class DecisionTreeSensitivityTest {
     }
 
     @Test
-    @DisplayName("Swings are sorted longest first, and a bar reads back to the value that made it")
+    @DisplayName("Swings are sorted longest first on the net value, and a bar reads back to the value that made it")
     void longestFirstAndReadsBack() {
+        assertTrue(sweep.netValued(), "the root decided at the base, so every swing carries a net value");
         for (int i = 1; i < sweep.swings().size(); i++) {
-            assertTrue(sweep.swings().get(i - 1).width() >= sweep.swings().get(i).width());
+            assertTrue(sweep.swings().get(i - 1).netWidth() >= sweep.swings().get(i).netWidth());
         }
         Swing scanCost = sweep.swing(measureUnder("rda-scan", MoneyCost.class)).orElseThrow();
         double root = scanCost.rootAtValue(1_000).orElseThrow();
         assertEquals(3_880 + 300, root, 1.0, "a scan dearer by 300 costs 300 more at the root, up to the flip");
         assertEquals(1_000, scanCost.valueAtRoot(root).orElseThrow(), 1.0);
+        double net = scanCost.netAtValue(1_000).orElseThrow();
+        assertEquals(308 - 300, net, 1.0, "and the scan's advantage over not scanning shrinks by the same 300");
+        assertEquals(1_000, scanCost.valueAtNet(net).orElseThrow(), 1.0);
+    }
+
+    @Test
+    @DisplayName("The net value is the chosen alternative's advantage: $308 at the base, zero at every root flip, negative beyond")
+    void netValueIsTheAdvantage() {
+        assertEquals(4_188 - 3_880, sweep.baseNet(), 1.0, "no scan costs $4,188, scanning $3,880");
+        Swing scanCost = sweep.swing(measureUnder("rda-scan", MoneyCost.class)).orElseThrow();
+        assertEquals(308 + 350, scanCost.netAtLow(), 1.0, "a scan at $350 is $350 more of an advantage");
+        assertTrue(scanCost.netAtHigh() < 0, "at $1,400 not scanning wins: " + scanCost.netAtHigh());
+        Flip flip = scanCost.flipsAt(tree.rootIndex()).get(0);
+        assertEquals(0, scanCost.netAtValue(flip.at()).orElseThrow(), 1.0);
+        assertEquals(scanCost.netWidth(), scanCost.netAtLow() - scanCost.netAtHigh(), 1e-6, "a straight bar, lowest at the dear end");
+        assertTrue(sweep.leastNet() < 0 && sweep.greatestNet() > 308);
     }
 
     static BlockSweep mover() {

@@ -159,6 +159,96 @@ public final class DecisionFigureText {
     }
 
     /**
+     * A share as a reader says it: a computed one as a percentage to three significant figures,
+     * no wider, so a threshold of 0.017463 reads 1.75%; a stated one as the block wrote it, so
+     * 0.214 reads 21.4% and 0.9 reads 90%.
+     */
+    public static String percent(double share, boolean computed) {
+        if (Double.isNaN(share)) {
+            return "?";
+        }
+        if (computed) {
+            return shown(share * 100, true, false) + "%";
+        }
+        return group(BigDecimal.valueOf(share).movePointRight(2).stripTrailingZeros()) + "%";
+    }
+
+    /** A computed share as a percentage; see {@link #percent(double, boolean)}. */
+    public static String percent(double share) {
+        return percent(share, true);
+    }
+
+    /**
+     * The sign a money unit is written with when it has a familiar one, from the unit's name:
+     * a dollar's {@code $}, a euro's {@code €}, a pound's {@code £}, a yen's {@code ¥}; empty
+     * for any other, which then prints its name.
+     */
+    public static String symbolFor(String unitName) {
+        if (unitName == null) {
+            return "";
+        }
+        String name = unitName.toLowerCase(Locale.ROOT);
+        if (name.contains("dollar") || name.equals("usd")) {
+            return "$";
+        }
+        if (name.contains("euro") || name.equals("eur")) {
+            return "\u20AC";
+        }
+        if (name.contains("pound") || name.equals("gbp")) {
+            return "\u00A3";
+        }
+        if (name.contains("yen") || name.equals("jpy")) {
+            return "\u00A5";
+        }
+        return "";
+    }
+
+    /**
+     * A measure's bounds as a chip on the tree prints them, in the measure's unit: a share as a
+     * percentage, money after its symbol, anything else followed by its unit's name; an interval
+     * in brackets. A stated number prints as the block wrote it, a computed one no wider than it
+     * earns, as {@link #shown} prints them.
+     */
+    public static String chip(double lower, double upper, boolean lowerOpen, boolean upperOpen, boolean computed,
+                              Unit unit, String symbol) {
+        String prefix = unit == Unit.MONEY && symbol != null ? symbol : "";
+        String suffix = unit == Unit.PLAIN && symbol != null && !symbol.isBlank() ? " " + symbol : "";
+        if (lower == upper) {
+            return one(lower, computed, unit, prefix) + suffix;
+        }
+        return (lowerOpen ? "(" : "[") + one(lower, computed, unit, prefix) + ", " + one(upper, computed, unit, prefix)
+                + (upperOpen ? ")" : "]") + suffix;
+    }
+
+    private static String one(double value, boolean computed, Unit unit, String prefix) {
+        return switch (unit) {
+            case SHARE -> percent(value, computed);
+            case MONEY -> (value < 0 ? "\u2212" : "") + prefix + shown(Math.abs(value), computed, true);
+            case PLAIN -> shown(value, computed, false);
+        };
+    }
+
+    /**
+     * A quantity on a tornado's caption or threshold, with its unit: a share as a percentage, money
+     * after its symbol to the whole unit, anything else to three significant figures followed by
+     * its unit's name when it has one. A negative amount of money carries its sign before the
+     * symbol.
+     */
+    public static String quantity(double value, Unit unit, String symbol) {
+        if (Double.isNaN(value)) {
+            return "?";
+        }
+        return switch (unit) {
+            case SHARE -> percent(value);
+            case MONEY -> (value < 0 ? "−" : "") + (symbol == null ? "" : symbol) + shown(Math.abs(value), true, true);
+            case PLAIN -> shown(value, true, false) + (symbol == null || symbol.isBlank() ? "" : " " + symbol);
+        };
+    }
+
+    /** What a swept quantity is: a share of those at a node, money, or anything else with a unit of its own. */
+    public enum Unit { SHARE, MONEY, PLAIN }
+
+    /**
      * A measure's value as its chip shows it. A stated number prints as the block wrote it and no
      * wider; a computed one is held to what its inputs can carry: money to the whole unit of its
      * currency, a share or a quantity to three significant figures, since a product of two-figure

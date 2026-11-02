@@ -54,7 +54,7 @@ public final class DecisionTreeTypst {
 
     /** The tornado as Typst; see {@link DecisionTreeSvg#tornado(DecisionTreeSensitivity, Identities, double, String)}. */
     public static String tornado(DecisionTreeSensitivity sensitivity, Identities ids, double width, String symbol) {
-        return DecisionFigureTypst.write(DecisionFigureTornado.build(DecisionTreeFigures.tornado(sensitivity, ids), width,
+        return DecisionFigureTypst.write(DecisionFigureTornado.build(DecisionTreeFigures.tornado(sensitivity, ids, symbol), width,
                 root -> DecisionTreeFigures.money(root, symbol)));
     }
 }

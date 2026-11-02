@@ -64,6 +64,8 @@ import network.ike.komet.claude.decision.Derivations;
 import network.ike.komet.claude.decision.Rollback;
 import network.ike.komet.claude.decision.ValuationCoordinate;
 import network.ike.komet.claude.decision.ViewIdentities;
+import network.ike.komet.claude.decision.render.DecisionFigureText;
+import network.ike.komet.claude.decision.render.SweptQuantity;
 import network.ike.komet.claude.koncept.ComponentText;
 import org.eclipse.collections.api.list.ImmutableList;
 
@@ -358,11 +360,11 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                     continue;
                 }
                 Flip flip = flips.get(0);
-                String tip = "Flips the choice at " + TornadoChart.value(flip.at()) + ": " + alternativeName(flip.chosenBelow())
-                        + " up to there, " + alternativeName(flip.chosenAbove()) + " beyond";
+                String tip = "Flips the choice at " + SweptQuantity.of(sweep, ids, swing.measureVertex(), "").print(flip.at())
+                        + ": " + alternativeName(flip.chosenBelow()) + " up to there, " + alternativeName(flip.chosenAbove()) + " beyond";
                 if (swing.measureVertex() == DecisionTreeSensitivity.HEALTH_PRICE) {
                     if (priceMark != null) {
-                        priceMark.setText("▲ flips at " + TornadoChart.value(flip.at()));
+                        priceMark.setText("▲ flips at " + money(Bounds.point(flip.at())));
                         priceMark.setTooltip(new Tooltip(tip));
                         priceMark.setVisible(true);
                         priceMark.setManaged(true);
@@ -419,8 +421,8 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             String healthUnit = unitName(rollback.coordinate().healthSemantic(), "healthy years");
             Label legend = new Label("⇒ is the expected cost per patient from that point on, in " + moneyUnit
                     + ", with a year of healthy life priced at " + money(rollback.coordinate().healthPrice())
-                    + ". p is the share who go that way; money and health are what a branch costs, health in " + healthUnit
-                    + ". The heavy run is the alternative chosen. Hover a number for its working.");
+                    + ". A percentage is the share who go that way; beneath a branch, what it costs, money then health in "
+                    + healthUnit + ". The heavy run is the alternative chosen, a barred one is rejected. Hover a number for its working.");
             legend.setId("decision-tree-legend");
             legend.setWrapText(true);
             legend.setFont(Font.font(base * 0.78));
@@ -603,29 +605,21 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
 
         @Override
         public String nameOf(int measureVertex) {
-            if (measureVertex == DecisionTreeSensitivity.HEALTH_PRICE) {
-                return "price of a healthy year";
-            }
-            Optional<DecisionElement> element = tree.node(measureVertex);
-            if (element.isEmpty()) {
-                return "a value";
-            }
-            return switch (element.get()) {
-                case Parameter p -> p.quantity().isPresent() ? ids.label(p.quantity().getAsLong()) : "a parameter";
-                case MoneyCost m -> owner(measureVertex) + " · money";
-                case HealthCost h -> owner(measureVertex) + " · health";
-                case DecisionElement.Probability p -> "p of " + owner(measureVertex);
-                default -> "a value";
-            };
+            return SweptQuantity.name(tree, ids, measureVertex);
         }
 
-        private String owner(int measureVertex) {
-            OptionalInt parent = tree.parentIndex(measureVertex);
-            if (parent.isEmpty()) {
-                return "the root";
+        @Override
+        public String quantity(int measureVertex, double value) {
+            if (lastSweep == null) {
+                return DecisionFigureText.shown(value, true, false);
             }
-            return tree.node(parent.getAsInt()).flatMap(n -> n.concept().isPresent()
-                    ? Optional.of(ids.label(n.concept().getAsLong())) : Optional.empty()).orElse("a node");
+            return SweptQuantity.of(lastSweep, ids, measureVertex, "").print(value);
+        }
+
+        @Override
+        public String moneyUnit() {
+            long semantic = semantic(tree, MoneyCost.class, terms.moneySemantic());
+            return unitName(semantic, "");
         }
 
         @Override

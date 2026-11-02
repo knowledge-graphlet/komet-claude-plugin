@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.decision;
 
+import network.ike.komet.claude.decision.DecisionElement.Alternative;
 import network.ike.komet.claude.decision.DecisionElement.Chance;
 import network.ike.komet.claude.decision.DecisionElement.Cost;
 import network.ike.komet.claude.decision.DecisionElement.Decision;
@@ -33,6 +34,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.function.ToDoubleFunction;
 
 /**
  * The one-way sensitivity of a decision tree: for each stated measure, and for the price of a
@@ -46,10 +48,18 @@ import java.util.OptionalInt;
  * <p><b>The range is the block's own uncertainty.</b> A measure stated as an interval swings
  * from its lower to its upper bound, and the swing is {@linkplain Swing#stated() stated}. A
  * measure stated as a point has no uncertainty of its own, so it swings over an assumed range
- * instead: zero to one for a share, half to double for anything else; a probability under a chance
- * with a residual event may rise only as far as the other events leave. A derived measure is
- * never swept; it moves when what it reads moves. A measure that cannot be moved, or whose tree
- * is not determinable anywhere in its range, is {@linkplain #unswept() left out} with the reason.
+ * instead: half to double, a share no higher than one; a probability under a chance with a
+ * residual event may rise only as far as the other events leave, and a share of exactly zero
+ * swings zero to one. A derived measure is never swept; it moves when what it reads moves. A
+ * measure that cannot be moved, or whose tree is not determinable anywhere in its range, is
+ * {@linkplain #unswept() left out} with the reason.
+ *
+ * <p><b>Every step carries the root's net value as well as its cost.</b> The net value is the
+ * advantage of the alternative the base chose: what the next best alternative would cost, less
+ * what the chosen one costs, so it is positive while the base choice holds, zero at a flip and
+ * negative beyond it. A tornado drawn on it reads at a glance: zero is break-even, and a bar is
+ * long only where the measure can change the answer. It is {@code NaN} when the root did not
+ * decide at the base, and the root's cost is then all there is.
  *
  * <p><b>The base is every measure at its midpoint.</b> A tree stated with intervals rolls back to
  * an interval, which is the joint uncertainty of everything moving at once; the sweep holds every
@@ -76,8 +86,12 @@ public final class DecisionTreeSensitivity {
         Optional<Rollback> priced(double healthPrice);
     }
 
-    /** One step of a swing: the value the measure took, the expected cost at the root, and what every decision chose. */
-    public record Sample(double value, double root, ImmutableIntIntMap chosen) {
+    /**
+     * One step of a swing: the value the measure took, the expected cost at the root, the net
+     * value of the base's choice there ({@code NaN} when the base did not decide), and what every
+     * decision chose.
+     */
+    public record Sample(double value, double root, double net, ImmutableIntIntMap chosen) {
         /** The alternative a decision chose at this step, or empty when it was left open. */
         public OptionalInt chosen(int decisionVertex) {
             return chosen.containsKey(decisionVertex) ? OptionalInt.of(chosen.get(decisionVertex)) : OptionalInt.empty();
@@ -118,9 +132,39 @@ public final class DecisionTreeSensitivity {
             return samples.stream().mapToDouble(Sample::root).max().orElse(Double.NaN);
         }
 
-        /** How far the root's expected cost moves across the range: the bar's length. */
+        /** How far the root's expected cost moves across the range: the bar's length on a cost axis. */
         public double width() {
             return greatest() - least();
+        }
+
+        /** Whether every step carries a net value: the base decided, and every moved tree valued both arms. */
+        public boolean hasNet() {
+            return samples.allSatisfy(sample -> !Double.isNaN(sample.net()));
+        }
+
+        /** The net value of the base's choice with the measure at its lower end. */
+        public double netAtLow() {
+            return samples.get(0).net();
+        }
+
+        /** The net value of the base's choice with the measure at its upper end. */
+        public double netAtHigh() {
+            return samples.get(samples.size() - 1).net();
+        }
+
+        /** The least net value anywhere in the range. */
+        public double leastNet() {
+            return samples.stream().mapToDouble(Sample::net).min().orElse(Double.NaN);
+        }
+
+        /** The greatest net value anywhere in the range. */
+        public double greatestNet() {
+            return samples.stream().mapToDouble(Sample::net).max().orElse(Double.NaN);
+        }
+
+        /** How far the net value moves across the range: the bar's length on a net-value axis. */
+        public double netWidth() {
+            return greatestNet() - leastNet();
         }
 
         /** The flips at one decision, in rising order of the measure. */
@@ -133,33 +177,55 @@ public final class DecisionTreeSensitivity {
          * steps by straight lines between them; empty when the cost is never reached.
          */
         public Optional<Double> valueAtRoot(double root) {
+            return valueAt(root, Sample::root);
+        }
+
+        /** The value of the measure at which the net value is a given amount; empty when it is never reached. */
+        public Optional<Double> valueAtNet(double net) {
+            return valueAt(net, Sample::net);
+        }
+
+        /** The expected cost at the root when the measure is a value, read off the steps by straight lines. */
+        public Optional<Double> rootAtValue(double value) {
+            return at(value, Sample::root);
+        }
+
+        /** The net value of the base's choice when the measure is a value, read off the steps by straight lines. */
+        public Optional<Double> netAtValue(double value) {
+            return at(value, Sample::net);
+        }
+
+        private Optional<Double> valueAt(double target, ToDoubleFunction<Sample> axis) {
             for (int i = 1; i < samples.size(); i++) {
                 Sample a = samples.get(i - 1);
                 Sample b = samples.get(i);
-                double lo = Math.min(a.root(), b.root());
-                double hi = Math.max(a.root(), b.root());
-                if (root >= lo - Bounds.EPSILON && root <= hi + Bounds.EPSILON) {
-                    if (b.root() == a.root()) {
+                double ya = axis.applyAsDouble(a);
+                double yb = axis.applyAsDouble(b);
+                double lo = Math.min(ya, yb);
+                double hi = Math.max(ya, yb);
+                if (target >= lo - Bounds.EPSILON && target <= hi + Bounds.EPSILON) {
+                    if (yb == ya) {
                         return Optional.of(a.value());
                     }
-                    double t = (root - a.root()) / (b.root() - a.root());
+                    double t = (target - ya) / (yb - ya);
                     return Optional.of(a.value() + t * (b.value() - a.value()));
                 }
             }
             return Optional.empty();
         }
 
-        /** The expected cost at the root when the measure is a value, read off the steps by straight lines. */
-        public Optional<Double> rootAtValue(double value) {
+        private Optional<Double> at(double value, ToDoubleFunction<Sample> axis) {
             for (int i = 1; i < samples.size(); i++) {
                 Sample a = samples.get(i - 1);
                 Sample b = samples.get(i);
                 if (value >= a.value() - Bounds.EPSILON && value <= b.value() + Bounds.EPSILON) {
+                    double ya = axis.applyAsDouble(a);
+                    double yb = axis.applyAsDouble(b);
                     if (b.value() == a.value()) {
-                        return Optional.of(a.root());
+                        return Optional.of(ya);
                     }
                     double t = (value - a.value()) / (b.value() - a.value());
-                    return Optional.of(a.root() + t * (b.root() - a.root()));
+                    return Optional.of(ya + t * (yb - ya));
                 }
             }
             return Optional.empty();
@@ -173,6 +239,7 @@ public final class DecisionTreeSensitivity {
     private final DecisionTree tree;
     private final Rollback base;
     private final double baseRoot;
+    private final double baseNet;
     private final ImmutableList<Swing> swings;
     private final ImmutableList<Unswept> unswept;
 
@@ -181,6 +248,7 @@ public final class DecisionTreeSensitivity {
         this.tree = tree;
         this.base = base;
         this.baseRoot = base.rootValue().map(Bounds::midpoint).orElse(Double.NaN);
+        this.baseNet = net(base, base.chosen(tree.rootIndex()).orElse(-1));
         this.swings = swings;
         this.unswept = unswept;
     }
@@ -199,6 +267,7 @@ public final class DecisionTreeSensitivity {
         }
         MutableList<Swing> swings = Lists.mutable.empty();
         MutableList<Unswept> unswept = Lists.mutable.empty();
+        int baseChosen = base.chosen(tree.rootIndex()).orElse(-1);
         if (base.determinable()) {
             for (DecisionElement element : tree.nodes()) {
                 Measure measure = switch (element) {
@@ -219,18 +288,20 @@ public final class DecisionTreeSensitivity {
                     continue;
                 }
                 boolean stated = !measure.bounds().isPoint();
-                sweep(tree, vertex, range.get(), stated, measure.bounds().midpoint(),
+                sweep(tree, baseChosen, vertex, range.get(), stated, measure.bounds().midpoint(),
                         value -> mover.moved(vertex, Bounds.point(value)), steps)
                         .ifPresentOrElse(swings::add,
                                 () -> unswept.add(new Unswept(vertex, "the tree is not determinable when it moves")));
             }
             double price = base.coordinate().healthPrice().midpoint();
             if (price > 0) {
-                sweep(tree, HEALTH_PRICE, Bounds.of(price / 2, price * 2), false, price, mover::priced, steps)
+                sweep(tree, baseChosen, HEALTH_PRICE, Bounds.of(price / 2, price * 2), false, price, mover::priced, steps)
                         .ifPresent(swings::add);
             }
         }
-        swings.sortThis(Comparator.comparingDouble(Swing::width).reversed());
+        // longest first on the axis a tornado draws: the net value where every swing carries one, else the cost
+        boolean net = swings.allSatisfy(Swing::hasNet);
+        swings.sortThis(Comparator.comparingDouble(net ? Swing::netWidth : Swing::width).reversed());
         return new DecisionTreeSensitivity(tree, base, swings.toImmutable(), unswept.toImmutable());
     }
 
@@ -262,7 +333,10 @@ public final class DecisionTreeSensitivity {
                 }
                 ceiling = Math.max(value, Math.min(1, 1 - others));
             }
-            return Optional.of(Bounds.of(0, ceiling));
+            if (value == 0) {
+                return Optional.of(Bounds.of(0, ceiling));
+            }
+            return Optional.of(Bounds.of(value / 2, Math.min(ceiling, value * 2)));
         }
         if (value == 0) {
             return Optional.empty();
@@ -274,12 +348,12 @@ public final class DecisionTreeSensitivity {
         Optional<Rollback> at(double value);
     }
 
-    private static Optional<Swing> sweep(DecisionTree tree, int vertex, Bounds range, boolean stated, double base,
-                                         Step step, int steps) {
+    private static Optional<Swing> sweep(DecisionTree tree, int baseChosen, int vertex, Bounds range, boolean stated,
+                                         double base, Step step, int steps) {
         List<Sample> samples = new ArrayList<>();
         for (int i = 0; i <= steps; i++) {
             double value = range.lower() + (range.upper() - range.lower()) * i / steps;
-            sample(tree, step, value).ifPresent(samples::add);
+            sample(tree, baseChosen, step, value).ifPresent(samples::add);
         }
         if (samples.size() < 2) {
             return Optional.empty();
@@ -294,27 +368,28 @@ public final class DecisionTreeSensitivity {
                 int chosenBelow = below.chosen(d).orElse(-1);
                 int chosenAbove = above.chosen(d).orElse(-1);
                 if (chosenBelow != chosenAbove) {
-                    flips.add(bisect(tree, step, d, below, above, tolerance));
+                    flips.add(bisect(tree, baseChosen, step, d, below, above, tolerance));
                 }
             }
         }
         flips.sortThis(Comparator.comparingDouble(Flip::at));
         // A flip is a kink in the root's cost: a sample there keeps a straight line between samples honest.
         for (Flip flip : flips) {
-            sample(tree, step, flip.at()).ifPresent(samples::add);
+            sample(tree, baseChosen, step, flip.at()).ifPresent(samples::add);
         }
         samples.sort(Comparator.comparingDouble(Sample::value));
         return Optional.of(new Swing(vertex, range, stated, base, Lists.immutable.withAll(samples), flips.toImmutable()));
     }
 
-    private static Flip bisect(DecisionTree tree, Step step, int decision, Sample below, Sample above, double tolerance) {
+    private static Flip bisect(DecisionTree tree, int baseChosen, Step step, int decision, Sample below, Sample above,
+                               double tolerance) {
         double lo = below.value();
         double hi = above.value();
         int chosenBelow = below.chosen(decision).orElse(-1);
         int chosenAbove = above.chosen(decision).orElse(-1);
         for (int i = 0; i < 40 && hi - lo > tolerance; i++) {
             double mid = (lo + hi) / 2;
-            Optional<Sample> at = sample(tree, step, mid);
+            Optional<Sample> at = sample(tree, baseChosen, step, mid);
             if (at.isEmpty()) {
                 break;
             }
@@ -329,7 +404,7 @@ public final class DecisionTreeSensitivity {
         return new Flip(decision, (lo + hi) / 2, chosenBelow, chosenAbove);
     }
 
-    private static Optional<Sample> sample(DecisionTree tree, Step step, double value) {
+    private static Optional<Sample> sample(DecisionTree tree, int baseChosen, Step step, double value) {
         Optional<Rollback> moved = step.at(value);
         if (moved.isEmpty() || !moved.get().determinable()) {
             return Optional.empty();
@@ -340,7 +415,36 @@ public final class DecisionTreeSensitivity {
         for (Decision decision : rollback.tree().nodesOfType(Decision.class)) {
             rollback.chosen(decision.vertexIndex()).ifPresent(alternative -> chosen.put(decision.vertexIndex(), alternative));
         }
-        return Optional.of(new Sample(value, rollback.rootValue().orElseThrow().midpoint(), chosen.toImmutable()));
+        return Optional.of(new Sample(value, rollback.rootValue().orElseThrow().midpoint(), net(rollback, baseChosen),
+                chosen.toImmutable()));
+    }
+
+    /**
+     * The net value of an alternative at the root of a rolled-back tree: what the next best
+     * alternative would cost, less what this one costs. {@code NaN} when there is no such
+     * alternative, or when either is not determinable.
+     */
+    static double net(Rollback rollback, int alternativeVertex) {
+        Optional<Decision> root = rollback.tree().decision();
+        if (alternativeVertex < 0 || root.isEmpty()) {
+            return Double.NaN;
+        }
+        Optional<Bounds> own = rollback.value(alternativeVertex);
+        double nextBest = Double.POSITIVE_INFINITY;
+        for (Alternative other : root.get().alternatives()) {
+            if (other.vertexIndex() == alternativeVertex) {
+                continue;
+            }
+            Optional<Bounds> cost = rollback.value(other.vertexIndex());
+            if (cost.isEmpty()) {
+                return Double.NaN;
+            }
+            nextBest = Math.min(nextBest, cost.get().midpoint());
+        }
+        if (own.isEmpty() || Double.isInfinite(nextBest)) {
+            return Double.NaN;
+        }
+        return nextBest - own.get().midpoint();
     }
 
     public DecisionTree tree() {
@@ -360,6 +464,29 @@ public final class DecisionTreeSensitivity {
     /** The alternative the root chose at the base, when it decided. */
     public OptionalInt baseChosen() {
         return base.chosen(tree.rootIndex());
+    }
+
+    /**
+     * Whether the sweep is drawn on net value: the root decided at the base, and every swing
+     * valued the chosen alternative against the next best at every step.
+     */
+    public boolean netValued() {
+        return !Double.isNaN(baseNet) && swings.allSatisfy(Swing::hasNet);
+    }
+
+    /** The net value of the base's choice at the base: its advantage over the next best alternative. */
+    public double baseNet() {
+        return baseNet;
+    }
+
+    /** The least net value over every swing, the base included. */
+    public double leastNet() {
+        return Math.min(baseNet, swings.stream().mapToDouble(Swing::leastNet).min().orElse(baseNet));
+    }
+
+    /** The greatest net value over every swing, the base included. */
+    public double greatestNet() {
+        return Math.max(baseNet, swings.stream().mapToDouble(Swing::greatestNet).max().orElse(baseNet));
     }
 
     /** Every swing, longest first. */

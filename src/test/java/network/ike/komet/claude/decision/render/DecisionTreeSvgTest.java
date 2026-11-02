@@ -118,11 +118,15 @@ class DecisionTreeSvgTest {
         double width = Double.parseDouble(doc.getDocumentElement().getAttribute("width"));
         double height = Double.parseDouble(doc.getDocumentElement().getAttribute("height"));
         assertTrue(width > 500, "wide enough for five columns of labels: " + width);
-        assertEquals(6 + 6 + 7 * (2 * 17 + 10), height, 1e-9, "seven rows");
+        double rows = 6 + 6 + 7 * (2 * 17 + 10);
+        assertTrue(height > rows && height <= rows + 2 * 13 + 6, "seven rows and a legend of a line or two beneath: " + height);
         assertTrue(svg.contains("⇒ 3,880"), "the root's rolled-back value is on the figure");
         assertTrue(svg.contains("⇒ 4,188"), "and the rejected alternative's");
-        assertTrue(texts(doc, "measure").contains("money 700"), "a stated cost reads as its chip does");
-        assertTrue(texts(doc, "measure").contains("p (residual)"));
+        assertTrue(texts(doc, "measure").contains("money 700"), "a stated cost reads as its chip does, worded when there is no symbol");
+        assertTrue(texts(doc, "measure").contains("21.4%"), "a share is a percentage: " + texts(doc, "measure"));
+        assertTrue(texts(doc, "measure").contains("78.6% (residual)"), "and the residual's share is printed: " + texts(doc, "measure"));
+        assertTrue(texts(doc, "measure").contains("1.82 QALY"), "health with its unit: " + texts(doc, "measure"));
+        assertTrue(texts(doc, "legend").contains("\u21D2 is the expected cost"), "the figure carries its legend");
         assertFalse(svg.contains("javafx"), "no toolkit");
     }
 
@@ -142,8 +146,7 @@ class DecisionTreeSvgTest {
             assertEquals("1.2", run.getAttribute("stroke-width"));
         }
         assertEquals(4, withRole(doc, "polyline", "barred").size(), "two rejected alternatives, two bars each");
-        assertEquals(2, withRole(doc, "text", "chosen").size());
-        assertTrue(texts(doc, "chosen").contains("✓ chosen"));
+        assertTrue(withRole(doc, "text", "chosen").isEmpty(), "the heavy run says what is chosen; no tag repeats it");
         assertFalse(withRole(doc, "text", "flip-mark").isEmpty(), "the scan's cost flips the root, so its chip is marked");
         Document unswept = parse(DecisionTreeSvg.tree(tree, rollback, ids, Optional.empty()));
         assertTrue(withRole(unswept, "text", "flip-mark").isEmpty(), "no sweep, no marks");
@@ -159,6 +162,7 @@ class DecisionTreeSvgTest {
         assertEquals(4, withRole(doc, "polyline", "run").size());
         assertTrue(texts(doc, "folded").contains("nodes folded"));
         assertTrue(texts(doc, "value").contains("⇒ $3,880"), "a symbol goes before every value");
+        assertTrue(texts(doc, "measure").contains("$700"), "and before every money chip: " + texts(doc, "measure"));
     }
 
     @Test
@@ -167,7 +171,7 @@ class DecisionTreeSvgTest {
         String svg = DecisionTreeSvg.tornado(sweep, ids);
         Document doc = parse(svg);
         assertEquals("decision-tornado", doc.getDocumentElement().getAttribute("class"));
-        long swept = sweep.swings().stream().filter(s -> s.width() > 0).count();
+        long swept = sweep.swings().stream().filter(s -> s.netWidth() > 0).count();
         assertEquals(swept, withRole(doc, "text", "bar-name").size());
         assertTrue(withRole(doc, "rect", "bar", "stated").isEmpty(), "every measure in the block is a point");
         List<Element> hollow = withRole(doc, "rect", "bar", "assumed");
@@ -180,7 +184,19 @@ class DecisionTreeSvgTest {
         assertFalse(withRole(doc, "polyline", "tick", "root").isEmpty());
         String thresholds = texts(doc, "threshold");
         assertTrue(thresholds.contains("flips at 1,008"), thresholds);
-        assertTrue(texts(doc, "axis").contains("base 3,880"));
+        assertTrue(thresholds.contains("flips at 1.85%"), "a share's threshold is a percentage: " + thresholds);
+        assertTrue(texts(doc, "axis").contains("base 308"), "the axis is the scan's net value over not scanning");
+        assertTrue(texts(doc, "axis").lines().anyMatch("0"::equals), "with zero, break-even, among its round ticks: " + texts(doc, "axis"));
+        assertFalse(withRole(doc, "polyline", "grid", "zero").isEmpty(), "and the zero line drawn");
+        assertTrue(texts(doc, "axis-title").contains("Net value of \u201Cscan\u201D"));
+        String captions = texts(doc, "caption");
+        assertTrue(captions.contains("1%") && captions.contains("4%"), "the hazard's ends read as percentages: " + captions);
+        assertTrue(captions.contains("50,000") && captions.contains("200,000"), "money to the whole unit: " + captions);
+        assertTrue(captions.contains("5 QALY") || captions.contains("20 QALY"), "health with its unit: " + captions);
+        assertTrue(texts(doc, "legend").contains("\u201Cscan\u201D still best"), texts(doc, "legend"));
+        assertTrue(texts(doc, "legend").contains("another alternative wins"));
+        assertTrue(texts(doc, "legend").contains("hollow: range assumed"));
+        assertTrue(texts(doc, "bar-name").contains("money cost at \u201Cscan\u201D"), texts(doc, "bar-name"));
         assertEquals(DecisionTreeFigures.nameOf(tree, ids, sweep.swings().get(0).measureVertex()),
                 withRole(doc, "text", "bar-name").get(0).getTextContent(), "the longest swing is drawn first");
         assertTrue(texts(doc, "bar-name").contains("price of a healthy year"));

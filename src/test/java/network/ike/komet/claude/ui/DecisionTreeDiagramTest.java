@@ -172,7 +172,8 @@ class DecisionTreeDiagramTest {
             assertTrue(diagram.barred(rejected));
             assertEquals(1.2, diagram.run(rejected).orElseThrow().getStrokeWidth(), 1e-9);
             String above = labels(diagram.labelOf(chosen, true).orElseThrow());
-            assertTrue(above.contains("✓ chosen"), above);
+            assertTrue(above.contains("⇒ $3,880"), "the value carries the block's money symbol: " + above);
+            assertFalse(above.contains("chosen"), "the heavy run says it is chosen; no tag repeats it: " + above);
         });
     }
 
@@ -185,7 +186,7 @@ class DecisionTreeDiagramTest {
             Alternative scan = tree.nodesOfType(Alternative.class).get(0);
             Node below = diagram.labelOf(scan.vertexIndex(), false).orElseThrow();
             MeasureChip money = (MeasureChip) ((javafx.scene.Parent) below).getChildrenUnmodifiable().get(0);
-            assertEquals("money 700", money.shown());
+            assertEquals("$700", money.shown(), "a stated cost in its money unit's symbol");
             int costVertex = scan.costs().get(0).vertexIndex();
             money.open(Bounds.point(700), 14, bounds -> host.edit(costVertex, bounds));
             TextField field = money.field().orElseThrow();
@@ -285,11 +286,11 @@ class DecisionTreeDiagramTest {
                     : tree.nodes().stream().filter(n -> n.concept().orElse(0) == ids.nid("rda-untreated-unscanned").orElseThrow())
                     .findFirst().orElseThrow().vertexIndex();
             MeasureChip money = diagram.chip(tree.children(untreated, network.ike.komet.claude.decision.DecisionElement.MoneyCost.class).get(0).vertexIndex()).orElseThrow();
-            assertEquals("money 27,314", money.shown(), "money computed to the whole unit");
+            assertEquals("$27,314", money.shown(), "money computed to the whole unit");
             assertTrue(money.explained().startsWith("Money paid on this branch, in "), money.explained());
             assertTrue(money.explained().contains(" of ") && money.explained().contains(" = 27,314"), money.explained());
             MeasureChip health = diagram.chip(tree.children(untreated, network.ike.komet.claude.decision.DecisionElement.HealthCost.class).get(0).vertexIndex()).orElseThrow();
-            assertEquals("health 1.82", health.shown(), "health computed to three figures");
+            assertEquals("1.82 QALY", health.shown(), "health computed to three figures, with its unit");
             assertTrue(health.explained().startsWith("Healthy life lost on this branch"), health.explained());
             Label outcome = (Label) ((javafx.scene.Parent) diagram.valueOf(untreated).orElseThrow())
                     .getChildrenUnmodifiable().stream().filter(n -> n instanceof Label l && l.getText().startsWith("⇒")).findFirst().orElseThrow();

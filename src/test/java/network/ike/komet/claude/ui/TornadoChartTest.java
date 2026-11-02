@@ -27,6 +27,7 @@ import network.ike.komet.claude.decision.DecisionElement.MoneyCost;
 import network.ike.komet.claude.decision.DecisionTerms;
 import network.ike.komet.claude.decision.DecisionTree;
 import network.ike.komet.claude.decision.DecisionTreeSensitivity;
+import network.ike.komet.claude.decision.render.SweptQuantity;
 import network.ike.komet.claude.decision.DecisionTreeSensitivity.Swing;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -101,6 +102,16 @@ class TornadoChartTest {
         }
 
         @Override
+        public String quantity(int measureVertex, double value) {
+            return SweptQuantity.of(sweep, ids, measureVertex, "").print(value);
+        }
+
+        @Override
+        public String moneyUnit() {
+            return "US dollar";
+        }
+
+        @Override
         public void light(int measureVertex, boolean on) {
             lit.add(measureVertex + (on ? "+" : "-"));
         }
@@ -130,7 +141,7 @@ class TornadoChartTest {
     void rowsLongestFirst() throws Exception {
         onFx(() -> {
             TornadoChart chart = drawn(new Recording());
-            long moving = sweep.swings().stream().filter(s -> s.width() > 0).count();
+            long moving = sweep.swings().stream().filter(s -> s.netWidth() > 0).count();
             assertEquals(moving, chart.rows().size());
             assertEquals(sweep.swings().get(0).measureVertex(), chart.rows().get(0).swing.measureVertex());
             for (TornadoChart.Row row : chart.rows()) {
@@ -158,10 +169,14 @@ class TornadoChartTest {
             assertEquals(TornadoChart.HOT, row.ticks.get(0).getStroke());
             assertEquals(1, row.tickLabels.size());
             assertEquals("flips at 1,008", row.tickLabels.get(0).getText());
-            assertTrue(row.highCaption.getLayoutX() > row.tickLabels.get(0).getLayoutX() + row.tickLabels.get(0).getWidth(),
-                    "the caption gives way to the flip label");
+            // a dearer scan is less of an advantage, so on the net-value axis the bar runs from $350 on the right down
+            // to $1,400 on the left, and the flip label, on the wider side, pushes the right-hand caption outward
+            assertTrue(row.lowCaption.getLayoutX() > row.highCaption.getLayoutX(), "the cheap end is to the right");
+            assertTrue(row.tickLabels.get(0).getLayoutX() > row.lowCaption.getLayoutX() + row.lowCaption.getWidth(),
+                    "the flip label sits beyond the caption, clear of the bar");
             double tickX = row.ticks.get(0).getStartX();
-            assertEquals(row.segments.get(0).getX() + row.segments.get(0).getWidth(), tickX, 1.5, "the tick sits where the colour changes");
+            assertEquals(row.segments.get(0).getX(), tickX, 1.5, "the tick sits where the colour changes: the base stretch runs rightward from zero");
+            assertEquals(row.segments.get(1).getX() + row.segments.get(1).getWidth(), tickX, 1.5, "and the other stretch ends there");
             assertEquals("350", row.lowCaption.getText());
             assertEquals("1,400", row.highCaption.getText());
         });
