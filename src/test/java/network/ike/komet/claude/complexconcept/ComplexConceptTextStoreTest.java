@@ -87,6 +87,22 @@ class ComplexConceptTextStoreTest {
     }
 
     @Test
+    void aTreeTheEditorHandsBackReadsToTheSameSpecThroughItsProxies() {
+        BlockIdentities ids = BlockIdentities.storeFree();
+        Spec spec = ComplexConceptText.parse(ComplexConceptTextTest.DECISION, ids).spec().orElseThrow();
+        ComplexConceptText.Proxies proxies = new ComplexConceptText.Proxies();
+        ComplexConceptBuilder builder = ComplexConceptText.builder(spec, proxies);
+        Spec back = ComplexConceptText.spec(builder.asDiTree(), spec, ids, proxies);
+        assertEquals(ComplexConceptText.write(spec), ComplexConceptText.write(back), "the round trip is lossless");
+        assertTrue(back.parent().isEmpty(), "a parent derived from the focus is not written");
+
+        Spec perrla = ComplexConceptText.parse(ComplexConceptTextTest.PERRLA, ids).spec().orElseThrow();
+        ComplexConceptText.Proxies panelProxies = new ComplexConceptText.Proxies();
+        Spec panelBack = ComplexConceptText.spec(ComplexConceptText.builder(perrla, panelProxies).asDiTree(), perrla, ids, panelProxies);
+        assertEquals(ComplexConceptText.write(perrla), ComplexConceptText.write(panelBack));
+    }
+
+    @Test
     void aLocalSymbolProposesUnderOneDerivedIdentityWhereverItIsWritten() {
         Spec spec = ComplexConceptText.parse(ComplexConceptTextTest.DECISION, BlockIdentities.storeFree()).spec().orElseThrow();
         ComplexConceptText.Focused focused = (ComplexConceptText.Focused) spec.shape().orElseThrow();

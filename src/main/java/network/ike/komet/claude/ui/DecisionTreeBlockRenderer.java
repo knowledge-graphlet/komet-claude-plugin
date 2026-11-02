@@ -820,9 +820,13 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
      * A concept the knowledge base lacks, drawn as a chip with a dashed edge: the block's own
      * label, and a tooltip saying why it is not the shared Koncept chip.
      */
-    /** The chip with, when a complex-concept block of the document specifies the concept, what it is as its tooltip. */
+    /**
+     * The chip with, when a complex-concept block of the document specifies the concept, what it is
+     * as its tooltip and, on its menu, a peek at the card that shows and edits the specification.
+     */
     private Node specified(Node chip, long nid) {
         context.complexConcept(nid).ifPresent(spec -> {
+            chip.setId("complex-concept-chip");
             Tooltip tip = new Tooltip(ComplexConceptText.describe(spec));
             tip.setWrapText(true);
             tip.setMaxWidth(420);
@@ -831,9 +835,32 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             } else {
                 Tooltip.install(chip, tip);
             }
+            if (chip instanceof KonceptBadge badge) {
+                KonceptBadge.contributeMenuItems(badge, (host, n) -> List.of(peekItem(host, n)));
+            } else if (chip instanceof javafx.scene.control.Control control) {
+                control.setContextMenu(new javafx.scene.control.ContextMenu(peekItem(chip, nid)));
+            } else {
+                javafx.scene.control.ContextMenu menu = new javafx.scene.control.ContextMenu(peekItem(chip, nid));
+                chip.setOnContextMenuRequested(e -> menu.show(chip, e.getScreenX(), e.getScreenY()));
+            }
         });
         return chip;
     }
+
+    /** The menu item that peeks at the complex concept's card beside the chip; the peek stays editable. */
+    private javafx.scene.control.MenuItem peekItem(Node chip, long nid) {
+        javafx.scene.control.MenuItem item = new javafx.scene.control.MenuItem("Edit complex concept");
+        item.setOnAction(e -> context.complexConceptCard(nid).ifPresent(card -> {
+            javafx.geometry.Bounds at = chip.localToScreen(chip.getBoundsInLocal());
+            double x = at == null ? 0 : at.getMinX() + at.getWidth() / 2;
+            double y = at == null ? 0 : at.getMaxY();
+            dev.ikm.komet.framework.controls.PeekPopover.show(card.get(), PEEK_WIDTH, "Complex concept", chip, x, y, null, () -> { });
+        }));
+        return item;
+    }
+
+    /** The width a peeked card lays out at: the workspace's default window width, or the card clips. */
+    private static final double PEEK_WIDTH = dev.ikm.komet.kview.controls.KLWorkspace.DEFAULT_WINDOW_WIDTH;
 
     private Label localConcept(String text) {
         Label chip = new Label(text);

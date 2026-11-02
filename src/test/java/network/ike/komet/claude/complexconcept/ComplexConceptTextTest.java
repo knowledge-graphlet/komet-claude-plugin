@@ -149,6 +149,28 @@ class ComplexConceptTextTest {
     }
 
     @Test
+    void aSpecWritesAsItsCanonicalBlockAndReadsBackTheSame() {
+        Spec spec = ComplexConceptText.parse(DECISION, BlockIdentities.storeFree()).spec().orElseThrow();
+        String written = ComplexConceptText.write(spec);
+        assertEquals("""
+                concept: k:SurveillanceImagingDecisionAfterAneurysmSeal[Surveillance imaging decision after aneurysm seal] @id=rda-surveillance-decision
+                  expansion: focused k:SurveillanceImagingDecision[Surveillance imaging decision] @id=rda-imaging-decision
+                    prerequisite: k:IntracranialAneurysmSealedByEndovascularTreatment[Intracranial aneurysm sealed by endovascular treatment] @id=rda-aneurysm-sealed
+                      value = [1,1] k:Presence[presence] @id=rda-presence
+                    prerequisite: k:TimeSinceTheSeal[Time since the seal] @id=rda-time-since-seal
+                      value = [2,2] k:Year[year] @id=rda-year
+                    prerequisite: k:SymptomsAttributableToTheAneurysm[Symptoms attributable to the aneurysm] @id=rda-aneurysm-symptoms
+                      value = [0,0] k:Presence[presence] @id=rda-presence
+                """, written);
+        Spec again = ComplexConceptText.parse(written, BlockIdentities.storeFree()).spec().orElseThrow();
+        assertEquals(written, ComplexConceptText.write(again), "writing is idempotent");
+        Spec perrla = ComplexConceptText.parse(PERRLA, BlockIdentities.storeFree()).spec().orElseThrow();
+        String panel = ComplexConceptText.write(perrla);
+        assertTrue(panel.contains("  parent: k:ClinicalAssessmentPanel[Clinical assessment panel] @id=assessment-panel\n"), panel);
+        assertTrue(panel.contains("  expansion: uniform and k:Presence[presence] @id=presence\n    member: "), panel);
+    }
+
+    @Test
     void theTagMatchesItsOwnFenceOnly() {
         assertTrue(ComplexConceptText.isTagged("complex-concept"));
         assertTrue(ComplexConceptText.isTagged("complex-concept title=x"));

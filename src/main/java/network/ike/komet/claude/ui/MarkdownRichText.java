@@ -140,6 +140,7 @@ public final class MarkdownRichText {
     private final KonceptTreeBlockRenderer trees;
     /** The decision-tree block renderer, held so chip typography can be forwarded. */
         private final DecisionTreeBlockRenderer decisions;
+    private final ComplexConceptBlockRenderer concepts;
         private final CalculatorBlockRenderer calculators;
     private final AnfBlockRenderer statements;
     private final BlockContext context;
@@ -224,6 +225,7 @@ public final class MarkdownRichText {
         this.decorator = decorator;
         this.trees = trees;
         this.decisions = decisions;
+        this.concepts = concepts;
                 this.calculators = calculators;
         this.statements = statements;
         // Each renderer answers only to its own tag and declines the rest, so the first that
@@ -279,6 +281,7 @@ public final class MarkdownRichText {
     /** Where a rendered decision tree's what-if goes when the reader writes it back; null offers the what-if alone. */
         public void setBlockRewriter(BlockRewriter rewriter) {
                 decisions.setRewriter(rewriter);
+        concepts.setRewriter(rewriter);
         calculators.setRewriter(rewriter);
         statements.setRewriter(rewriter);
     }

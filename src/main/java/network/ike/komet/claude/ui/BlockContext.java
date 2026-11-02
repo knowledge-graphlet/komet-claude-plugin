@@ -16,6 +16,8 @@
 package network.ike.komet.claude.ui;
 
 import java.lang.ref.WeakReference;
+import javafx.scene.Node;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -25,6 +27,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import network.ike.komet.claude.block.BlockIdentities;
 import network.ike.komet.claude.block.Identities;
@@ -49,6 +52,7 @@ public final class BlockContext {
         private final Map<Long, Calculator> calculators = new HashMap<>();
     private final Map<String, AnfStatement> statements = new HashMap<>();
     private final Map<Long, ComplexConceptText.Spec> complexConcepts = new HashMap<>();
+    private final Map<Long, Supplier<Node>> complexConceptCards = new HashMap<>();
     private final Map<Long, ExternalQuantities.Value> values = new HashMap<>();
     private final List<WeakReference<Runnable>> listeners = new ArrayList<>();
     private Shared identities;
@@ -155,10 +159,21 @@ public final class BlockContext {
         notifyListeners();
     }
 
-    /** A complex-concept block has rendered: the concept, local to the document or stored, is known by its spec. */
-    public synchronized void defineComplexConcept(long conceptNid, ComplexConceptText.Spec spec) {
+    /**
+     * A complex-concept block has rendered: the concept, local to the document or stored, is known
+     * by its spec, and by the card that shows and edits it, which a peek from another block raises.
+     */
+    public synchronized void defineComplexConcept(long conceptNid, ComplexConceptText.Spec spec, Supplier<Node> card) {
         complexConcepts.put(conceptNid, spec);
+        if (card != null) {
+            complexConceptCards.put(conceptNid, card);
+        }
         notifyListeners();
+    }
+
+    /** A fresh card over the complex concept a block of this document specifies under a nid, when one does. */
+    public synchronized Optional<Supplier<Node>> complexConceptCard(long conceptNid) {
+        return Optional.ofNullable(complexConceptCards.get(conceptNid));
     }
 
     /** The complex concept a block of this document specifies under a nid, when one does. */

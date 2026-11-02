@@ -411,6 +411,158 @@ public final class ComplexConceptText {
         };
     }
 
+    // ── Write ────────────────────────────────────────────────────────────────
+
+    /** The block's text a spec states: the canonical form, one indentation unit, fixed line order. */
+    public static String write(Spec spec) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("concept: ").append(token(spec.concept())).append('\n');
+        spec.parent().ifPresent(parent -> sb.append("  parent: ").append(token(parent)).append('\n'));
+        spec.shape().ifPresent(shape -> {
+            switch (shape) {
+                case Focused focused -> {
+                    sb.append("  expansion: focused ").append(token(focused.focus())).append('\n');
+                    for (Prerequisite prerequisite : focused.prerequisites()) {
+                        sb.append("    prerequisite: ").append(token(prerequisite.topic())).append('\n');
+                        prerequisite.value().ifPresent(value -> {
+                            sb.append("      value = ").append(Tokens.interval(value.lower(), value.upper(),
+                                    value.includeLower(), value.includeUpper()));
+                            prerequisite.unit().ifPresent(unit -> sb.append(' ').append(token(unit)));
+                            sb.append('\n');
+                        });
+                    }
+                }
+                case Uniform uniform -> {
+                    sb.append("  expansion: uniform ").append(uniform.conjunction());
+                    uniform.domain().ifPresent(domain -> sb.append(' ').append(token(domain)));
+                    uniform.unsafe().ifPresent(policy -> sb.append(" unsafe=").append(policy));
+                    sb.append('\n');
+                    for (Ref member : uniform.members()) {
+                        sb.append("    member: ").append(token(member)).append('\n');
+                    }
+                }
+            }
+        });
+        return sb.toString();
+    }
+
+    private static String token(Ref ref) {
+        return Tokens.concept(ref.label(), ref.token().identifier().orElse(null));
+    }
+
+    // ── Read back from a tree ────────────────────────────────────────────────
+
+    /**
+     * The facades a spec builds with, remembering which proxy stands for which local symbol, so a
+     * tree an editor hands back reads to the same symbols.
+     */
+    public static final class Proxies implements Function<Ref, ConceptFacade> {
+        private final java.util.Map<Long, Ref> byNid = new java.util.HashMap<>();
+
+        @Override
+        public ConceptFacade apply(Ref ref) {
+            ConceptFacade facade = facade(ref);
+            byNid.putIfAbsent(facade.nid(), ref);
+            return facade;
+        }
+
+        /** The ref a nid stood for when the tree was built, local or grounded; empty for a concept the editor introduced. */
+        public Optional<Ref> ref(long nid) {
+            return Optional.ofNullable(byNid.get(nid));
+        }
+    }
+
+    /**
+     * The spec a specification tree states, after an editor has changed it: the concept stays the
+     * block's own, and every other concept reads back through the proxies it was built with, or
+     * through the identities when the editor introduced it from the store.
+     *
+     * @param tree     the edited tree
+     * @param original the spec the tree was built from
+     * @param ids      the identities the block resolves through
+     * @param proxies  the facades the tree was built with
+     * @return the spec
+     */
+    public static Spec spec(DiTreeEntity tree, Spec original, Identities ids, Proxies proxies) {
+        network.ike.komet.claude.complexconcept.model.ComplexConcept.Root root =
+                new network.ike.komet.claude.complexconcept.model.ComplexConceptExpression(tree).root();
+        Function<ConceptFacade, Ref> ref = facade -> proxies.ref(facade.nid()).orElseGet(() -> grounded(facade.nid(), ids));
+        Optional<Ref> definitionParent = root.definition()
+                .flatMap(network.ike.komet.claude.complexconcept.model.ComplexConcept.Definition::expression)
+                .flatMap(expression -> singleConcept(expression))
+                .map(ref);
+        Optional<Shape> shape = root.expansion().map(expansion -> switch (expansion) {
+            case Expansion.Focused focused -> {
+                Ref focus = focused.focus().map(ref).orElse(original.shape()
+                        .filter(Focused.class::isInstance).map(f -> ((Focused) f).focus()).orElse(original.concept()));
+                List<Prerequisite> prerequisites = new ArrayList<>();
+                for (network.ike.komet.claude.complexconcept.model.ComplexConcept.Prerequisite prerequisite
+                        : focused.prerequisites()) {
+                    prerequisite.statement().ifPresent(statement -> {
+                        var statementRoot = statement.root();
+                        Optional<Ref> topic = statementRoot.context()
+                                .flatMap(network.ike.komet.claude.anf.model.AnfStatement.Context::topic)
+                                .flatMap(network.ike.komet.claude.anf.model.AnfStatement.Attribute.Expression::singleConcept)
+                                .map(ref);
+                        if (topic.isEmpty()) {
+                            return;
+                        }
+                        Optional<network.ike.komet.claude.anf.model.AnfStatement.Attribute.Measure> result = statementRoot.circumstance()
+                                .filter(network.ike.komet.claude.anf.model.AnfStatement.Circumstance.Performance.class::isInstance)
+                                .flatMap(c -> ((network.ike.komet.claude.anf.model.AnfStatement.Circumstance.Performance) c).result());
+                        Optional<Tokens.Interval> value = result.map(measure -> new Tokens.Interval(
+                                measure.lowerBound().map(BigDecimal::doubleValue).orElse(null),
+                                measure.upperBound().map(BigDecimal::doubleValue).orElse(null),
+                                measure.includeLowerBound(), measure.includeUpperBound()));
+                        Optional<Ref> unit = result.flatMap(network.ike.komet.claude.anf.model.AnfStatement.Attribute.Measure::unit).map(ref);
+                        prerequisites.add(new Prerequisite(topic.get(), value, unit, "precondition", 0));
+                    });
+                }
+                yield new Focused(focus, List.copyOf(prerequisites));
+            }
+            case Expansion.Uniform uniform -> {
+                String conjunction = uniform.conjunction().map(c -> c.nid() == IkeConcept.OR_CONJUNCTION.nid() ? "or" : "and").orElse("and");
+                Optional<Ref> domain = uniform.measurementDomain().map(ref);
+                List<Ref> members = new ArrayList<>();
+                for (network.ike.komet.claude.complexconcept.model.ComplexConcept.Member member : uniform.members()) {
+                    member.phenomenon().map(ref).ifPresent(members::add);
+                }
+                Optional<String> unsafe = uniform.unsafeDistributionPolicy().map(policy ->
+                        policy.nid() == IkeConcept.FLAG_AS_INDETERMINATE_POSITIVE.nid() ? "flag"
+                                : policy.nid() == IkeConcept.RETAIN_COMPOUND_CODE.nid() ? "retain" : "refuse");
+                yield new Uniform(conjunction, domain, List.copyOf(members), unsafe);
+            }
+        });
+        // a parent equal to a focused expansion's focus was derived, not written, unless the block wrote one
+        Optional<Ref> parent = definitionParent;
+        if (original.parent().isEmpty() && shape.isPresent() && shape.get() instanceof Focused focused
+                && definitionParent.isPresent() && definitionParent.get().nid() == focused.focus().nid()) {
+            parent = Optional.empty();
+        }
+        return new Spec(original.concept(), parent, shape);
+    }
+
+    private static Optional<ConceptFacade> singleConcept(
+            dev.ikm.tinkar.entity.graph.adaptor.axiom.LogicalExpression expression) {
+        for (var set : expression.definitionRoot().sets()) {
+            for (var connective : set.elements()) {
+                for (var atom : connective.elements()) {
+                    if (atom instanceof dev.ikm.tinkar.entity.graph.adaptor.axiom.LogicalAxiom.Atom.ConceptAxiom conceptAxiom) {
+                        return Optional.of(conceptAxiom.concept());
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** A ref for a concept the editor introduced from the store, written by its identifier and label. */
+    static Ref grounded(long nid, Identities ids) {
+        String label = ids.label(nid);
+        Optional<String> identifier = ids.identifier(nid);
+        return new Ref(new Tokens.Concept(Tokens.keyOf(label), label, identifier), nid, ids.isLocal(nid));
+    }
+
     // ── The reader ───────────────────────────────────────────────────────────
 
     private static final class Reader {
