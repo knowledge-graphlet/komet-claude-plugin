@@ -71,6 +71,10 @@ public final class ViewIdentities implements Identities {
 
     @Override
     public String label(long nid) {
+        if (nid == 0) {
+            // no component: a measure with no unit, a token that did not resolve
+            return "";
+        }
         return view == null ? ComponentText.identifier(nid) : ComponentText.name(view, nid);
     }
 

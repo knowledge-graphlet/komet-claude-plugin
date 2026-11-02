@@ -647,6 +647,11 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
 
         @Override
         public Optional<Node> concept(OptionalLong nid) {
+            return concept(nid, false);
+        }
+
+        @Override
+        public Optional<Node> concept(OptionalLong nid, boolean wrap) {
             if (nid.isEmpty()) {
                 return Optional.empty();
             }
@@ -664,8 +669,8 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             if (chip instanceof KonceptBadge badge) {
                 badge.setStatusSlotReserved(true);
             }
-            // a column is as wide as its widest name: a long one ellipsises, and opens whole on a click
-            return Optional.of(specified(KonceptChips.capped(chip, base * CHIP_EMS), nid.getAsLong()));
+            // a column is as wide as its widest name: a long one wraps on a run, ellipsises on a node, and opens whole on a click
+            return Optional.of(specified(KonceptChips.capped(chip, base * CHIP_EMS, wrap), nid.getAsLong()));
         }
 
         @Override

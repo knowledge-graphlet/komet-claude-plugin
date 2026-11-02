@@ -189,7 +189,22 @@ final class KonceptChips {
      * @return the same chip
      */
     static Node capped(Node chip, double maxWidthPx) {
+        return capped(chip, maxWidthPx, false);
+    }
+
+    /**
+     * Caps a chip's width, wrapping the name across lines at the cap when the host has height to
+     * spare, or ellipsising it when it has one line (ike-issues#1036).
+     * @param chip       the chip, a badge or the bare identicon
+     * @param maxWidthPx the widest the chip may be
+     * @param wrap       whether a long name wraps rather than ellipsises
+     * @return the same chip
+     */
+    static Node capped(Node chip, double maxWidthPx, boolean wrap) {
         if (chip instanceof KonceptBadge badge && badge.prefWidth(-1) > maxWidthPx) {
+            if (wrap) {
+                badge.setMultiLineLabel(true);
+            }
             badge.setPrefWidth(maxWidthPx);
             badge.setMaxWidth(maxWidthPx);
         }

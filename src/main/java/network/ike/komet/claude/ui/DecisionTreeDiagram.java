@@ -87,6 +87,11 @@ final class DecisionTreeDiagram extends Region {
     interface Host {
         /** The chip for a concept, or empty when nothing names it. */
         Optional<Node> concept(OptionalLong nid);
+        
+        /** The chip for a concept, wrapped to the drawing's cap when it is a run's name, since a run has height to spare. */
+        default Optional<Node> concept(OptionalLong nid, boolean wrap) {
+            return concept(nid);
+        }
 
         /** Whether a stated measure can be moved as a what-if. */
         boolean editable(int measureVertex);
@@ -125,6 +130,8 @@ final class DecisionTreeDiagram extends Region {
     private final Map<Integer, Node> branchBelow = new HashMap<>();
     /** The most lines any run or outcome stacks beneath itself, which every row makes room for. */
     private int belowLines = 1;
+    /** The tallest label above any run, a wrapped name among them, which every row makes room for. */
+    private double aboveHeight;
     private final Map<Integer, Polyline> runs = new HashMap<>();
     private final Map<Integer, Node> bars = new HashMap<>();
     private final Map<Integer, Node> glyphs = new HashMap<>();
@@ -291,8 +298,9 @@ final class DecisionTreeDiagram extends Region {
         getChildren().add(run);
 
         HBox above = new HBox(5);
-        above.setAlignment(Pos.CENTER_LEFT);
-        host.concept(branch.concept()).ifPresent(above.getChildren()::add);
+        // bottom-aligned, so a wrapped name's last line and the value sit just above the run
+        above.setAlignment(Pos.BOTTOM_LEFT);
+        host.concept(branch.concept(), true).ifPresent(above.getChildren()::add);
         if (branch instanceof Event event) {
             Optional<DecisionElement.Probability> probability = event.probability();
             if (probability.isPresent()) {
@@ -328,6 +336,7 @@ final class DecisionTreeDiagram extends Region {
         }
         branchAbove.put(index, above);
         getChildren().add(above);
+        aboveHeight = Math.max(aboveHeight, heightOf(above));
 
         // stacked beneath the run: how many go that way, then the priced costs, then the counted ones;
         // height is cheap on a scrolling surface and width is what the tree runs out of
@@ -521,7 +530,7 @@ final class DecisionTreeDiagram extends Region {
     }
 
     private static String name(Identities ids, long nid) {
-        String label = ids == null ? null : ids.label(nid);
+        String label = ids == null || nid == 0 ? null : ids.label(nid);
         return label == null || label.isBlank() ? "a quantity" : label;
     }
 
@@ -740,7 +749,7 @@ final class DecisionTreeDiagram extends Region {
         return new DecisionTreeLayout.Sizing() {
             @Override
             public double rowHeight() {
-                return lineHeight * (1 + Math.max(1, belowLines)) + 10;
+                return Math.max(lineHeight, aboveHeight) + lineHeight * Math.max(1, belowLines) + 10;
             }
 
             @Override
@@ -769,6 +778,11 @@ final class DecisionTreeDiagram extends Region {
                 return Math.max(widthOf(valueLabels.get(nodeVertex)), widthOf(nameLabels.get(nodeVertex))) + 4;
             }
         };
+    }
+
+    /** A label's height at its own width: a wrapped name is taller than one line only once its width is known. */
+    private static double heightOf(Node node) {
+        return node == null ? 0 : Math.max(0, node.prefHeight(node.prefWidth(-1)));
     }
 
     private static double widthOf(Node node) {
@@ -807,7 +821,8 @@ final class DecisionTreeDiagram extends Region {
             }
             Node barred = bars.get(run.vertexIndex());
             double labelX = run.xBend() + 8 + (barred == null ? 0 : BAR_ROOM);
-            place(branchAbove.get(run.vertexIndex()), labelX, run.y() - lineHeight - 2);
+            Node above = branchAbove.get(run.vertexIndex());
+            place(above, labelX, run.y() - (above == null ? lineHeight : Math.max(lineHeight, heightOf(above))) - 2);
             place(branchBelow.get(run.vertexIndex()), labelX, run.y() + 3);
             if (barred != null) {
                 place(barred, run.xBend() + 9, run.y() - 6);
