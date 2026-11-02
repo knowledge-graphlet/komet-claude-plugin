@@ -24,6 +24,7 @@ import javafx.scene.Node;
 import javafx.scene.control.Label;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.VBox;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.paint.Color;
@@ -122,6 +123,8 @@ final class DecisionTreeDiagram extends Region {
 
     private final Map<Integer, Node> branchAbove = new HashMap<>();
     private final Map<Integer, Node> branchBelow = new HashMap<>();
+    /** The most lines any run or outcome stacks beneath itself, which every row makes room for. */
+    private int belowLines = 1;
     private final Map<Integer, Polyline> runs = new HashMap<>();
     private final Map<Integer, Node> bars = new HashMap<>();
     private final Map<Integer, Node> glyphs = new HashMap<>();
@@ -244,7 +247,8 @@ final class DecisionTreeDiagram extends Region {
             valueLabels.put(index, top);
             getChildren().add(top);
             if (node instanceof Outcome outcome) {
-                HBox costs = costs(outcome.costs().castToList());
+                VBox costs = costLines(outcome.costs().castToList());
+                belowLines = Math.max(belowLines, costs.getChildren().size());
                 nameLabels.put(index, costs);
                 getChildren().add(costs);
             } else if (folded) {
@@ -325,15 +329,17 @@ final class DecisionTreeDiagram extends Region {
         branchAbove.put(index, above);
         getChildren().add(above);
 
-        HBox below = costs(branch.costs().castToList());
+        // stacked beneath the run: how many go that way, then the priced costs, then the counted ones;
+        // height is cheap on a scrolling surface and width is what the tree runs out of
+        VBox below = new VBox(0);
+        below.setAlignment(Pos.CENTER_LEFT);
         cohort.ifPresent(c -> c.count(index).ifPresent(count -> {
             Label howMany = label(DecisionFigureText.ofCohort(count, c.size()), false, Color.web("#666"));
             howMany.setTooltip(new Tooltip("How many of the " + DecisionFigureText.count(c.size()) + " who enter the root take this branch"));
-            if (!below.getChildren().isEmpty()) {
-                below.getChildren().add(0, label("\u00B7", false, Color.web("#666")));
-            }
-            below.getChildren().add(0, howMany);
+            below.getChildren().add(howMany);
         }));
+        below.getChildren().addAll(costLines(branch.costs().castToList()).getChildren());
+        belowLines = Math.max(belowLines, below.getChildren().size());
         branchBelow.put(index, below);
         getChildren().add(below);
 
@@ -381,7 +387,22 @@ final class DecisionTreeDiagram extends Region {
     }
 
     /** The costs a branch or an outcome carries, money then health, each a chip the reader may move when stated. */
-    private HBox costs(List<Cost> costs) {
+    /** A node's costs in two lines: the priced ones, money then health, and the counted ones. */
+    private VBox costLines(List<Cost> costs) {
+        VBox lines = new VBox(0);
+        lines.setAlignment(Pos.CENTER_LEFT);
+        HBox priced = costLine(costs.stream().filter(c -> !(c instanceof DecisionElement.CountCost)).toList());
+        HBox counted = costLine(costs.stream().filter(c -> c instanceof DecisionElement.CountCost).toList());
+        if (!priced.getChildren().isEmpty()) {
+            lines.getChildren().add(priced);
+        }
+        if (!counted.getChildren().isEmpty()) {
+            lines.getChildren().add(counted);
+        }
+        return lines;
+    }
+
+    private HBox costLine(List<Cost> costs) {
         HBox below = new HBox(5);
         below.setAlignment(Pos.CENTER_LEFT);
         for (Cost cost : costs) {
@@ -719,7 +740,7 @@ final class DecisionTreeDiagram extends Region {
         return new DecisionTreeLayout.Sizing() {
             @Override
             public double rowHeight() {
-                return 2 * lineHeight + 10;
+                return lineHeight * (1 + Math.max(1, belowLines)) + 10;
             }
 
             @Override

@@ -24,6 +24,7 @@ import network.ike.komet.claude.decision.DecisionElement.Alternative;
 import network.ike.komet.claude.decision.DecisionElement.Branch;
 import network.ike.komet.claude.decision.DecisionElement.Cost;
 import network.ike.komet.claude.decision.DecisionElement.Event;
+import network.ike.komet.claude.decision.DecisionElement.CountCost;
 import network.ike.komet.claude.decision.DecisionElement.HealthCost;
 import network.ike.komet.claude.decision.DecisionElement.MoneyCost;
 import network.ike.komet.claude.decision.DecisionElement.Node;
@@ -123,6 +124,8 @@ public final class DecisionTreeFigures {
         private final Map<Integer, List<Span>> nodeBottom = new HashMap<>();
         private final Map<Integer, List<Span>> branchAbove = new HashMap<>();
         private final Map<Integer, List<Span>> branchBelow = new HashMap<>();
+        /** The most lines any run or outcome stacks beneath itself, which every row makes room for. */
+        private int belowLines = 1;
         private final Set<Integer> barred = new HashSet<>();
         private final Set<Integer> flagged = new HashSet<>();
         private final Set<Integer> chosenBranches = new HashSet<>();
@@ -287,8 +290,14 @@ public final class DecisionTreeFigures {
                 return;
             }
             double at = x;
+            double y = top;
             for (Span span : spans) {
-                marks.add(new Text(at, top + (lineHeight - DecisionFigureText.lineHeight(span.size())) / 2, span.text(),
+                if (span == BREAK) {
+                    y += lineHeight;
+                    at = x;
+                    continue;
+                }
+                marks.add(new Text(at, y + (lineHeight - DecisionFigureText.lineHeight(span.size())) / 2, span.text(),
                         span.size(), span.bold(), span.italic(), span.colour(), span.role()));
                 at += DecisionFigureText.width(span.text(), span.size(), span.bold()) + SPAN_GAP;
             }
@@ -312,7 +321,9 @@ public final class DecisionTreeFigures {
                 top.addAll(name);
                 nodeTop.put(index, top);
                 if (node instanceof Outcome outcome) {
-                    nodeBottom.put(index, costs(outcome.costs().castToList()));
+                    List<Span> bottom = new ArrayList<>();
+                    stacked(bottom, outcome.costs().castToList());
+                    nodeBottom.put(index, bottom);
                 } else if (folded) {
                     nodeBottom.put(index, List.of(new Span(foldedWord(index), size, false, false, "#777777", "folded")));
                 }
@@ -359,11 +370,7 @@ public final class DecisionTreeFigures {
             List<Span> below = new ArrayList<>();
             cohort.ifPresent(c -> c.count(index).ifPresent(count -> below.add(new Span(
                     DecisionFigureText.ofCohort(count, c.size()), size, false, false, DecisionFigureText.CAPTION, "count"))));
-            List<Span> costs = costs(branch.costs().castToList());
-            if (!below.isEmpty() && !costs.isEmpty()) {
-                below.add(new Span("\u00B7", size, false, false, DecisionFigureText.CAPTION, "plus"));
-            }
-            below.addAll(costs);
+            stacked(below, branch.costs().castToList());
             branchBelow.put(index, below);
             if (branch instanceof Alternative && decided && !chosen) {
                 barred.add(index);
@@ -389,6 +396,31 @@ public final class DecisionTreeFigures {
                 others = others.plus(share.get());
             }
             return Optional.of(others.complement().clip(0, 1));
+        }
+
+        /** A line break between stacked lines beneath a run or an outcome. */
+        private static final Span BREAK = new Span("", 0, false, false, DecisionFigureText.CAPTION, "break");
+
+        /**
+         * Stacks a node's costs beneath what is there already: the priced costs on one line, money
+         * then health, and the counted ones on the next, so a column is as wide as its widest line
+         * rather than the whole of a run's text.
+         */
+        private void stacked(List<Span> into, List<Cost> costs) {
+            for (List<Span> line : List.of(
+                    costs(costs.stream().filter(c -> !(c instanceof CountCost)).toList()),
+                    costs(costs.stream().filter(c -> c instanceof CountCost).toList()))) {
+                if (line.isEmpty()) {
+                    continue;
+                }
+                if (!into.isEmpty()) {
+                    into.add(BREAK);
+                }
+                into.addAll(line);
+            }
+            if (!into.isEmpty()) {
+                belowLines = Math.max(belowLines, 1 + (int) into.stream().filter(span -> span == BREAK).count());
+            }
         }
 
         /** A branch's or an outcome's costs: money then health, each in its unit, joined by a plus. */
@@ -466,18 +498,24 @@ public final class DecisionTreeFigures {
             if (spans == null || spans.isEmpty()) {
                 return 0;
             }
+            double widest = 0;
             double width = 0;
             for (Span span : spans) {
+                if (span == BREAK) {
+                    widest = Math.max(widest, width - SPAN_GAP);
+                    width = 0;
+                    continue;
+                }
                 width += DecisionFigureText.width(span.text(), span.size(), span.bold()) + SPAN_GAP;
             }
-            return width - SPAN_GAP;
+            return Math.max(widest, width - SPAN_GAP);
         }
 
         private DecisionTreeLayout.Sizing sizing() {
             return new DecisionTreeLayout.Sizing() {
                 @Override
                 public double rowHeight() {
-                    return 2 * lineHeight + 10;
+                    return lineHeight * (1 + Math.max(1, belowLines)) + 10;
                 }
 
                 @Override

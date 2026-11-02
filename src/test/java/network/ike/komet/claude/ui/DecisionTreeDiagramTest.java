@@ -185,7 +185,9 @@ class DecisionTreeDiagramTest {
             DecisionTreeDiagram diagram = drawn(host, new HashSet<>());
             Alternative scan = tree.nodesOfType(Alternative.class).get(0);
             Node below = diagram.labelOf(scan.vertexIndex(), false).orElseThrow();
-            MeasureChip money = (MeasureChip) ((javafx.scene.Parent) below).getChildrenUnmodifiable().get(0);
+            // beneath the run the costs stack: the priced line first, its first chip the money
+            Node priced = ((javafx.scene.Parent) below).getChildrenUnmodifiable().get(0);
+            MeasureChip money = (MeasureChip) ((javafx.scene.Parent) priced).getChildrenUnmodifiable().get(0);
             assertEquals("$700", money.shown(), "a stated cost in its money unit's symbol");
             int costVertex = scan.costs().get(0).vertexIndex();
             money.open(Bounds.point(700), 14, bounds -> host.edit(costVertex, bounds));

@@ -64,7 +64,7 @@ class CohortTradeoffTest {
         assertEquals(18, cohort.count(vertexOf("rda-retreat-yes")).orElseThrow(), 1.0, "a nested decision passes its count to each alternative");
         assertEquals(2, cohort.count(vertexOf("rda-missed-reopening")).orElseThrow(), 0.5);
         assertEquals(20, cohort.count(vertexOf("rda-reopening-yes")).orElseThrow(), 1e-6, "2% of 1,000 not scanned");
-        assertEquals("214 of 1,000", network.ike.komet.claude.decision.render.DecisionFigureText.ofCohort(214.2, 1_000));
+        assertEquals("214", network.ike.komet.claude.decision.render.DecisionFigureText.ofCohort(214.2, 1_000));
         assertEquals("all 1,000", network.ike.komet.claude.decision.render.DecisionFigureText.ofCohort(1_000, 1_000));
         assertEquals("2", network.ike.komet.claude.decision.render.DecisionFigureText.count(2.04));
     }

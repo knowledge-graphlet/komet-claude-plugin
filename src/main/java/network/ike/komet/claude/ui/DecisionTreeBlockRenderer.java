@@ -204,11 +204,15 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         double price;
         int moves;
         final Set<Integer> collapsed = new HashSet<>();
+        /** Whether the rejected alternatives have been folded once, as the first drawing does; a click unfolds them. */
+        private boolean foldedRejected;
         final VBox column = new VBox(6);
         final DecisionTerms terms = DecisionTerms.fromBindings();
         // The view resolves what the store holds; a symbol the store lacks, as a block written for
         // the documentation build names its concepts, is read as a concept local to the block.
                 final Identities ids = context.identities(viewCalc);
+                /** The identities with the block's own labels first, for every word the drawing and the readouts say. */
+                private Identities shown = ids;
         /** Rebuilds when another block publishes a quantity this tree reads but states no parameter for. */
         final Runnable onContext = this::rebuildIfReadsExternal;
         boolean readsExternal;
@@ -273,6 +277,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             pendingPreview = null;
             parameterChips.clear();
                         parsed = DecisionTreeText.parse(body, terms, ids, context.externals());
+                        shown = parsed.labelled(ids);
             List<ProfileFinding> findings = new ArrayList<>(parsed.findings().castToList());
             column.getChildren().clear();
             if (parsed.tree().isEmpty()) {
@@ -296,8 +301,8 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             // Named by the node they are on, as the feedback to the assistant names them, not by vertex index.
             // The note that only lists the block's local symbols is not a gap: the dashed chips say it.
             findings.stream().filter(finding -> !DecisionTreeFeedback.isLocalSymbolsNote(finding))
-                    .forEach(finding -> messages.add(DecisionTreeFeedback.describe(tree, ids, finding)));
-            rollback.findings().forEach(finding -> messages.add(DecisionTreeFeedback.describe(tree, ids, finding)));
+                    .forEach(finding -> messages.add(DecisionTreeFeedback.describe(tree, shown, finding)));
+            rollback.findings().forEach(finding -> messages.add(DecisionTreeFeedback.describe(tree, shown, finding)));
             if (!messages.isEmpty()) {
                 Label gaps = new Label(String.join("\n", messages));
                 gaps.setFont(Font.font(base * 0.9));
@@ -376,7 +381,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                     continue;
                 }
                 Flip flip = flips.get(0);
-                String tip = "Flips the choice at " + SweptQuantity.of(sweep, ids, swing.measureVertex(), "").print(flip.at())
+                String tip = "Flips the choice at " + SweptQuantity.of(sweep, shown, swing.measureVertex(), "").print(flip.at())
                         + ": " + alternativeName(flip.chosenBelow()) + " up to there, " + alternativeName(flip.chosenAbove()) + " beyond";
                 if (swing.measureVertex() == DecisionTreeSensitivity.HEALTH_PRICE) {
                     if (priceMark != null) {
@@ -415,7 +420,30 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             }
             Optional<Cohort> cohort = cohortSize.isPresent()
                     ? Optional.of(Cohort.of(drawn, rollback, cohortSize.getAsDouble())) : Optional.empty();
-            diagram = new DecisionTreeDiagram(drawn, rollback, reference, ids, findings, collapsed, base, this, cohort);
+            if (!foldedRejected) {
+                // the first drawing folds what the rollback rejected: its run and its value stay, its subtree opens on a click
+                foldedRejected = true;
+                for (DecisionElement.Node decision : drawn.nodesOfType(DecisionElement.Decision.class)) {
+                    if (drawn.parentIndex(decision.vertexIndex()).isPresent()) {
+                        continue;
+                    }
+                    OptionalInt chosen = rollback.chosen(decision.vertexIndex());
+                    if (chosen.isEmpty()) {
+                        continue;
+                    }
+                    for (DecisionElement.Alternative alternative : drawn.children(decision.vertexIndex(), DecisionElement.Alternative.class)) {
+                        if (alternative.vertexIndex() != chosen.getAsInt()) {
+                            // a fold is on the node beneath the run: the run and its value stay in view
+                            for (DecisionElement.Node beneath : drawn.children(alternative.vertexIndex(), DecisionElement.Node.class)) {
+                                if (!(beneath instanceof DecisionElement.Outcome)) {
+                                    collapsed.add(beneath.vertexIndex());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            diagram = new DecisionTreeDiagram(drawn, rollback, reference, shown, findings, collapsed, base, this, cohort);
             ScrollPane scroll = new ScrollPane(diagram);
             scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
             scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
@@ -429,7 +457,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             top.getChildren().add(scroll);
             // the ledger: every alternative's consequences in their own units
             String healthUnit = unitName(rollback.coordinate().healthSemantic(), "");
-            List<List<String>> table = DecisionTreeFigures.ledgerTable(drawn, rollback, ids, symbol(), healthUnit, cohort);
+            List<List<String>> table = DecisionTreeFigures.ledgerTable(drawn, rollback, shown, symbol(), healthUnit, cohort);
             if (table.size() > 2) {
                 Label title = new Label(DecisionTreeFigures.ledgerTitle(cohort));
                 title.setFont(Font.font(null, FontWeight.BOLD, base * 0.85));
@@ -455,7 +483,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                 top.getChildren().add(grid);
             }
             // the readouts: what the choice trades, money and health apart, and where a cohort ends up
-            for (String readout : DecisionTreeFigures.readoutLines(drawn, rollback, ids, symbol(), healthUnit, cohort,
+            for (String readout : DecisionTreeFigures.readoutLines(drawn, rollback, shown, symbol(), healthUnit, cohort,
                     Tradeoff.of(drawn, rollback))) {
                 Label line = new Label(readout);
                 line.getStyleClass().add("decision-tree-readout");
@@ -569,9 +597,9 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                         ? bounds.map(b -> DecisionFigureText.chip(b.lower(), b.upper(), b.lowerOpen(), b.upperOpen(), computed,
                                 share ? DecisionFigureText.Unit.SHARE : DecisionFigureText.Unit.MONEY, symbol())).orElse(null)
                         : null;
-                MeasureChip chip = new MeasureChip("", bounds, measure, ids, base,
+                MeasureChip chip = new MeasureChip("", bounds, measure, shown, base,
                         editable ? b -> edit(index, b) : null, display);
-                chip.explain(DecisionTreeDiagram.explain("", parameter.measure(), derivations.bounds(index), derivations, ids,
+                chip.explain(DecisionTreeDiagram.explain("", parameter.measure(), derivations.bounds(index), derivations, shown,
                         drawn.terms().shareAtNode()));
                 chip.onHover(on -> hover(index, on));
                 parameterChips.put(index, chip);
@@ -636,7 +664,8 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             if (chip instanceof KonceptBadge badge) {
                 badge.setStatusSlotReserved(true);
             }
-            return Optional.of(specified(chip, nid.getAsLong()));
+            // a column is as wide as its widest name: a long one ellipsises, and opens whole on a click
+            return Optional.of(specified(KonceptChips.capped(chip, base * CHIP_EMS), nid.getAsLong()));
         }
 
         @Override
@@ -678,7 +707,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
 
         @Override
         public String nameOf(int measureVertex) {
-            return SweptQuantity.name(tree, ids, measureVertex);
+            return SweptQuantity.name(tree, shown, measureVertex);
         }
 
         @Override
@@ -686,7 +715,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             if (lastSweep == null) {
                 return DecisionFigureText.shown(value, true, false);
             }
-            return SweptQuantity.of(lastSweep, ids, measureVertex, symbol()).print(value);
+            return SweptQuantity.of(lastSweep, shown, measureVertex, symbol()).print(value);
         }
 
         @Override
@@ -861,6 +890,9 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         }));
         return item;
     }
+
+    /** The widest a concept's chip may be in the drawing, in ems of the base size; a longer name ellipsises. */
+    private static final double CHIP_EMS = 16;
 
     /** The width a peeked card lays out at: the workspace's default window width, or the card clips. */
     private static final double PEEK_WIDTH = dev.ikm.komet.kview.controls.KLWorkspace.DEFAULT_WINDOW_WIDTH;

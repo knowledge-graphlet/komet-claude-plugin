@@ -154,7 +154,50 @@ public final class DecisionTreeText {
      * number can restate the line that states it.
      */
     public record Parsed(Optional<DecisionTree> tree, ImmutableList<ProfileFinding> findings,
-                         ImmutableIntIntMap lines) {
+                         ImmutableIntIntMap lines, java.util.Map<Long, String> labels) {
+
+        public Parsed(Optional<DecisionTree> tree, ImmutableList<ProfileFinding> findings, ImmutableIntIntMap lines) {
+            this(tree, findings, lines, java.util.Map.of());
+        }
+
+        /**
+         * The identities with the block's own labels first: a concept the block wrote as
+         * {@code k:Scan[scan]} reads back as "scan" wherever a word is wanted, the unit of a count,
+         * a column head, a clause, while a chip still draws the store's name. Resolution is the
+         * identities' own.
+         */
+        public Identities labelled(Identities ids) {
+            if (labels.isEmpty()) {
+                return ids;
+            }
+            return new Identities() {
+                @Override
+                public java.util.OptionalLong nid(String identifier) {
+                    return ids.nid(identifier);
+                }
+
+                @Override
+                public Optional<String> identifier(long nid) {
+                    return ids.identifier(nid);
+                }
+
+                @Override
+                public String label(long nid) {
+                    String written = labels.get(nid);
+                    return written != null ? written : ids.label(nid);
+                }
+
+                @Override
+                public java.util.OptionalLong local(String identifier, String label) {
+                    return ids.local(identifier, label);
+                }
+
+                @Override
+                public boolean isLocal(long nid) {
+                    return ids.isLocal(nid);
+                }
+            };
+        }
 
         public Parsed(Optional<DecisionTree> tree, ImmutableList<ProfileFinding> findings) {
             this(tree, findings, IntIntMaps.immutable.empty());
@@ -368,7 +411,8 @@ public final class DecisionTreeText {
                     + " identifiers name nothing in the knowledge base and are read as concepts local to the block: "
                     + String.join(", ", reader.localSymbols)));
         }
-        return new Parsed(Optional.of(tree), reader.findings.toImmutable(), reader.lines.toImmutable());
+        return new Parsed(Optional.of(tree), reader.findings.toImmutable(), reader.lines.toImmutable(),
+                java.util.Map.copyOf(reader.labels));
     }
 
     private static ProfileFinding finding(Line line, String message) {
@@ -412,6 +456,8 @@ public final class DecisionTreeText {
         private final MutableIntIntMap lines = IntIntMaps.mutable.empty();
         /** The identifiers the store lacked that the identities made local, in reading order. */
         private final Set<String> localSymbols = new LinkedHashSet<>();
+        /** The label the block wrote beside each concept it named, the first per concept. */
+        private final java.util.Map<Long, String> labels = new java.util.LinkedHashMap<>();
 
         /** The quantities read with from alone, and the quantities the block's parameters name, for the externals. */
         private final Set<Long> readQuantities = new LinkedHashSet<>();
@@ -720,7 +766,11 @@ public final class DecisionTreeText {
             }
             String label = token.label() != null && !token.label().isBlank() ? token.label()
                     : token.key() != null && !token.key().isBlank() ? token.key() : token.identifier().get();
-            return resolve(line, token.identifier().get(), label, what).orElse(0L);
+            long nid = resolve(line, token.identifier().get(), label, what).orElse(0L);
+            if (nid != 0 && token.label() != null && !token.label().isBlank()) {
+                labels.putIfAbsent(nid, token.label());
+            }
+            return nid;
         }
 
         private OptionalLong resolve(Line line, String identifier, String what) {

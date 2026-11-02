@@ -411,9 +411,9 @@ final class ComplexConceptBlockRenderer implements BlockRenderer {
             return localConcept(ref.label());
         }
         String sctid = ComponentText.sctid(viewCalc, ref.nid()).orElse(null);
-        return viewProperties != null
+        return KonceptChips.capped(viewProperties != null
                 ? KonceptChips.chip(pid.get(), sctid, viewProperties, base)
-                : KonceptChips.chip(pid.get(), sctid, viewCalc, base);
+                : KonceptChips.chip(pid.get(), sctid, viewCalc, base), base * 30);
     }
 
     private Label localConcept(String text) {

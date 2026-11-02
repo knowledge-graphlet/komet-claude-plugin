@@ -118,8 +118,10 @@ class DecisionTreeSvgTest {
         double width = Double.parseDouble(doc.getDocumentElement().getAttribute("width"));
         double height = Double.parseDouble(doc.getDocumentElement().getAttribute("height"));
         assertTrue(width > 500, "wide enough for five columns of labels: " + width);
+        // a row makes room for the lines stacked beneath a run: one for the priced costs, one for the counted
         double rows = 6 + 6 + 7 * (2 * 17 + 10);
-        assertTrue(height > rows && height <= rows + 10 * 13 + 20, "seven rows, then the ledger, the readouts and the legend beneath: " + height);
+        double tallest = 6 + 6 + 7 * (4 * 17 + 10);
+        assertTrue(height > rows && height <= tallest + 10 * 13 + 20, "seven rows, then the ledger, the readouts and the legend beneath: " + height);
         assertTrue(svg.contains("⇒ 3,880"), "the root's rolled-back value is on the figure");
         assertTrue(svg.contains("⇒ 4,188"), "and the rejected alternative's");
         assertTrue(texts(doc, "measure").contains("money 700"), "a stated cost reads as its chip does, worded when there is no symbol");
@@ -171,16 +173,17 @@ class DecisionTreeSvgTest {
         Document doc = parse(DecisionTreeSvg.tree(tree, rollback, ids, v -> false, Optional.of(sweep), "$", java.util.OptionalDouble.of(1_000)));
         String counts = texts(doc, "count");
         assertTrue(counts.contains("all 1,000"), "every one takes each alternative: " + counts);
-        assertTrue(counts.contains("214 of 1,000"), "214 test positive: " + counts);
-        assertTrue(counts.contains("786 of 1,000"), "the residual takes the rest: " + counts);
-        assertTrue(counts.contains("18 of 1,000"), counts);
+        assertTrue(counts.contains("214"), "214 test positive: " + counts);
+        assertTrue(counts.contains("786"), "the residual takes the rest: " + counts);
+        assertTrue(counts.contains("18"), counts);
         String readouts = texts(doc, "readout");
         assertTrue(readouts.contains("\u201Cscan\u201D costs $") && readouts.contains("more than \u201Cno scan\u201D"), readouts);
         assertTrue(readouts.contains("a healthy year bought at $86,"), "the price at which the alternatives tie: " + readouts);
         assertTrue(readouts.contains("Of 1,000 who take \u201Cscan\u201D: 980 clear"), readouts);
-        assertTrue(readouts.contains("\u201Cscan\u201D spares ") && readouts.contains(" ruptures per 1,000, at $"),
+        String flat = readouts.replace('\n', ' ');   // a wrapped line breaks where the figure's width says
+        assertTrue(flat.contains("\u201Cscan\u201D spares ") && flat.contains(" ruptures per 1,000, at $"),
                 "the count clause: what scanning averts and what each costs: " + readouts);
-        assertTrue(readouts.contains("\u201Cno scan\u201D would spare ") && readouts.contains(" angiograms per 1,000"), readouts);
+        assertTrue(flat.contains("\u201Cno scan\u201D would spare ") && flat.contains(" angiograms per 1,000"), readouts);
         String ledger = texts(doc, "ledger-head") + texts(doc, "ledger");
         assertTrue(ledger.contains("ruptures") && ledger.contains("angiograms") && ledger.contains("money"), "the ledger's columns: " + ledger);
         assertTrue(texts(doc, "ledger-title").contains("Per 1,000 who take each alternative"));

@@ -178,6 +178,24 @@ final class KonceptChips {
     }
 
 
+    /**
+     * Caps a chip's width where a drawing cannot afford a long name: a badge wider than the cap
+     * lays out at the cap and ellipsises its name, which the badge's own gestures recover, the
+     * whole identity on hover and the full multi-line name on a click (ike-issues#1036). The
+     * cap lives on the preference as well as the maximum, since a host that lays a node out at
+     * its preferred size would otherwise ignore it. A chip that fits is left alone.
+     * @param chip       the chip, a badge or the bare identicon
+     * @param maxWidthPx the widest the chip may be
+     * @return the same chip
+     */
+    static Node capped(Node chip, double maxWidthPx) {
+        if (chip instanceof KonceptBadge badge && badge.prefWidth(-1) > maxWidthPx) {
+            badge.setPrefWidth(maxWidthPx);
+            badge.setMaxWidth(maxWidthPx);
+        }
+        return chip;
+    }
+
     /** True if the component's latest version in the current view is inactive (retired). */
     private static boolean isInactive(ViewCalculator viewCalc, long nid) {
         if (viewCalc == null) {

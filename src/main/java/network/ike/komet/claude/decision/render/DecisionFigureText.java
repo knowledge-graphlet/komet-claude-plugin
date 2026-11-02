@@ -298,7 +298,8 @@ public final class DecisionFigureText {
         if (Math.abs(count - size) < 1e-9) {
             return "all " + count(size);
         }
-        return count(count) + " of " + count(size);
+        // the legend says how many of the cohort go that way; the run says the count alone
+        return count(count);
     }
 
     /**
