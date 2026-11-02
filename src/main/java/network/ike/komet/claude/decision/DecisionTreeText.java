@@ -347,12 +347,28 @@ public final class DecisionTreeText {
                     .parameter(quantity, significant(value.bounds(), 4), value.semanticNid(),
                             UUID.nameUUIDFromBytes(("external parameter " + quantity).getBytes(java.nio.charset.StandardCharsets.UTF_8))));
         }
+        DecisionTree tree = builder.tree();
+        // one counted thing is one concept wherever it recurs: two symbols under one label make two ledger columns
+        java.util.Map<String, java.util.Set<Long>> countedUnits = new java.util.LinkedHashMap<>();
+        for (DecisionElement.CountCost count : tree.nodesOfType(DecisionElement.CountCost.class)) {
+            long semantic = tree.measure(count.vertexIndex()).semanticNid();
+            if (semantic != 0) {
+                countedUnits.computeIfAbsent(ids.label(semantic).toLowerCase(java.util.Locale.ROOT), k -> new java.util.LinkedHashSet<>()).add(semantic);
+            }
+        }
+        countedUnits.forEach((label, nids) -> {
+            if (nids.size() > 1) {
+                reader.findings.add(ProfileFinding.ofTree("the counted unit \u201c" + label + "\u201d is written under "
+                        + nids.size() + " identities (" + String.join(", ", nids.stream().map(n -> ids.identifier(n).orElse("?")).toList())
+                        + "); one counted thing is one concept wherever it recurs, so write the same @id on every count of it"));
+            }
+        });
         if (!reader.localSymbols.isEmpty()) {
             reader.findings.add(ProfileFinding.ofTree(reader.localSymbols.size()
                     + " identifiers name nothing in the knowledge base and are read as concepts local to the block: "
                     + String.join(", ", reader.localSymbols)));
         }
-        return new Parsed(Optional.of(builder.tree()), reader.findings.toImmutable(), reader.lines.toImmutable());
+        return new Parsed(Optional.of(tree), reader.findings.toImmutable(), reader.lines.toImmutable());
     }
 
     private static ProfileFinding finding(Line line, String message) {
@@ -693,6 +709,11 @@ public final class DecisionTreeText {
         }
 
         private long resolveConcept(Line line, Tokens.Concept token, String what) {
+            if (Tokens.isBadgeForm(token)) {
+                findings.add(finding(line, what + " is written in the Koncept Badge form, " + Tokens.badgeKey(token)
+                        + "; inside the block a concept is k:Key[label] @id=<identifier>, the identifier after @id"));
+                token = Tokens.fromBadgeForm(token);
+            }
             if (token.identifier().isEmpty()) {
                 findings.add(finding(line, what + " carries no @id: " + Tokens.concept(token.label(), null)));
                 return 0;

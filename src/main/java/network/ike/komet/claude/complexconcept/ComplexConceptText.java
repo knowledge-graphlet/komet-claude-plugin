@@ -609,6 +609,11 @@ public final class ComplexConceptText {
         }
 
         private Optional<Ref> resolve(Line line, Tokens.Concept token, String what) {
+            if (Tokens.isBadgeForm(token)) {
+                findings.add("line " + line.number() + ": " + what + " is written in the Koncept Badge form, " + Tokens.badgeKey(token)
+                        + "; inside the block a concept is k:Key[label] @id=<identifier>, the identifier after @id");
+                token = Tokens.fromBadgeForm(token);
+            }
             if (token.identifier().isEmpty()) {
                 findings.add("line " + line.number() + ": " + what + " carries no @id: " + Tokens.concept(token.label(), null));
                 return Optional.empty();

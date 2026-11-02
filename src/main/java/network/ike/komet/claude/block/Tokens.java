@@ -148,6 +148,28 @@ public final class Tokens {
         return words;
     }
 
+    /** Whether a token's key is the Koncept Badge form of prose, {@code k:sctid=…[label]} or {@code k:uuid=…[label]}, which the blocks never use. */
+    public static boolean isBadgeForm(Concept token) {
+        return token.key() != null && token.key().indexOf('=') > 0;
+    }
+
+    /** The badge form as written, {@code k:sctid=…}, for a finding. */
+    public static String badgeKey(Concept token) {
+        return "k:" + token.key();
+    }
+
+    /** The block's token a badge-form token meant: the value after {@code =} as the identifier when none was written after {@code @id}. */
+    public static Concept fromBadgeForm(Concept token) {
+        if (!isBadgeForm(token)) {
+            return token;
+        }
+        String key = token.key();
+        String value = key.substring(key.indexOf('=') + 1).strip();
+        Optional<String> identifier = token.identifier().isPresent() ? token.identifier()
+                : value.isEmpty() ? Optional.empty() : Optional.of(value);
+        return new Concept(keyOf(token.label()), token.label(), identifier);
+    }
+
     // ── Emit ─────────────────────────────────────────────────────────────────
 
     /** Writes a concept token; a null identifier writes none. */

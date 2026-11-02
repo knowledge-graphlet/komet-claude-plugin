@@ -73,6 +73,29 @@ class DecisionTreeFeedbackTest {
     }
 
     @Test
+    @DisplayName("One counted thing written under two identities goes back, as does the badge form inside the block")
+    void twoSymbolsForOneCountedThingAndTheBadgeFormGoBack() {
+        String reply = """
+                ```decision-tree cohort=100
+                decision: k:Inspect[Inspect?] @id=inspect
+                  alternative: k:Yes[inspect] @id=yes
+                    count = [1,1] k:Inspections[inspections] @id=inspections
+                    outcome: k:Bad[approved on unreliable data] @id=bad-yes
+                      count = [1,1] k:BadApprovals[approvals on unreliable data] @id=bad-approvals-yes
+                  alternative: k:No[do not inspect] @id=no
+                    outcome: k:BadNo[approved on unreliable data] @id=bad-no
+                      count = [1,1] k:BadApprovals[approvals on unreliable data] @id=bad-approvals-no
+                      money = [5000000,5000000] k:sctid=12345[US dollar]
+                ```
+                """;
+        Optional<String> message = DecisionTreeFeedback.message(reply, T, BlockIdentities.storeFree());
+        assertTrue(message.isPresent());
+        assertTrue(message.get().contains("the counted unit \u201capprovals on unreliable data\u201d is written under 2 identities"
+                + " (bad-approvals-yes, bad-approvals-no)"), message.get());
+        assertTrue(message.get().contains("Koncept Badge form, k:sctid=12345"), message.get());
+    }
+
+    @Test
     @DisplayName("A block that reads clean and rolls back at every node sends nothing back")
     void cleanBlockNeedsNoTurn() throws Exception {
         Optional<String> message = DecisionTreeFeedback.message(scanTreeReply(), T, BlockIdentities.storeFree());

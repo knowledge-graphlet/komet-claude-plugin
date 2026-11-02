@@ -2166,7 +2166,8 @@ public final class ClaudeCard extends AbstractHostCard {
      * reader itself is logged and never fails the reply.
      */
     private Optional<String> decisionTreeFeedback(String reply) {
-        if (reply == null || DecisionTreeFeedback.blocks(reply).isEmpty()) {
+        if (reply == null || (DecisionTreeFeedback.blocks(reply).isEmpty()
+                && network.ike.komet.claude.complexconcept.ComplexConceptFeedback.blocks(reply).isEmpty())) {
             return Optional.empty();
         }
         ViewProperties vp = safeViewProperties();
@@ -2175,9 +2176,14 @@ public final class ClaudeCard extends AbstractHostCard {
         }
         try {
             Identities ids = new BlockIdentities(new ViewIdentities(vp.calculator()));
-            return DecisionTreeFeedback.message(reply, DecisionTerms.fromBindings(), ids);
+            Optional<String> trees = DecisionTreeFeedback.message(reply, DecisionTerms.fromBindings(), ids);
+            Optional<String> concepts = network.ike.komet.claude.complexconcept.ComplexConceptFeedback.message(reply, ids);
+            if (trees.isPresent() && concepts.isPresent()) {
+                return Optional.of(trees.get() + "\n\n" + concepts.get());
+            }
+            return trees.isPresent() ? trees : concepts;
         } catch (RuntimeException e) {
-            LOG.warn("Could not read the reply's decision tree for feedback", e);
+            LOG.warn("Could not read the reply's blocks for feedback", e);
             return Optional.empty();
         }
     }

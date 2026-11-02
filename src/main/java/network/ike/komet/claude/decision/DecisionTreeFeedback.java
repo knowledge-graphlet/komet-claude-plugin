@@ -69,6 +69,11 @@ public final class DecisionTreeFeedback {
      * same character on a line of their own.
      */
     public static List<Block> blocks(String markdown) {
+        return blocks(markdown, DecisionTreeText::isTagged);
+    }
+
+    /** The fenced blocks of a Markdown text whose info string a tag test accepts. */
+    public static List<Block> blocks(String markdown, java.util.function.Predicate<String> tagged) {
         List<Block> blocks = new ArrayList<>();
         if (markdown == null) {
             return blocks;
@@ -97,7 +102,7 @@ public final class DecisionTreeFeedback {
                 }
                 body.append(lines[j]).append('\n');
             }
-            if (DecisionTreeText.isTagged(info)) {
+            if (tagged.test(info)) {
                 blocks.add(new Block(info, body.toString()));
             }
             i = j + 1;
@@ -178,7 +183,8 @@ public final class DecisionTreeFeedback {
     }
 
     public static boolean isFeedback(String content) {
-        return content != null && content.startsWith(PREFIX);
+        return content != null && (content.startsWith(PREFIX)
+                || content.startsWith(network.ike.komet.claude.complexconcept.ComplexConceptFeedback.PREFIX));
     }
 
     /** A finding that informs rather than faults: the symbols the block reads as local to itself. */
