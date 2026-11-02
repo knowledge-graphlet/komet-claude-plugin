@@ -47,6 +47,7 @@ import network.ike.komet.claude.block.Identities;
 import network.ike.komet.claude.block.Tokens;
 import network.ike.komet.claude.decision.BlockSweep;
 import network.ike.komet.claude.decision.Bounds;
+import network.ike.komet.claude.decision.Cohort;
 import network.ike.komet.claude.decision.DecisionElement;
 import network.ike.komet.claude.decision.DecisionElement.Cost;
 import network.ike.komet.claude.decision.DecisionElement.HealthCost;
@@ -63,9 +64,11 @@ import network.ike.komet.claude.decision.DecisionTreeText;
 import network.ike.komet.claude.decision.Derivations;
 import network.ike.komet.claude.decision.Measure;
 import network.ike.komet.claude.decision.Rollback;
+import network.ike.komet.claude.decision.Tradeoff;
 import network.ike.komet.claude.decision.ValuationCoordinate;
 import network.ike.komet.claude.decision.ViewIdentities;
 import network.ike.komet.claude.decision.render.DecisionFigureText;
+import network.ike.komet.claude.decision.render.DecisionTreeFigures;
 import network.ike.komet.claude.decision.render.SweptQuantity;
 import network.ike.komet.claude.koncept.ComponentText;
 import org.eclipse.collections.api.list.ImmutableList;
@@ -152,7 +155,8 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         }
         String body = literal == null ? "" : literal;
         double price = DecisionTreeText.healthPrice(info).orElse(DecisionTreeText.DEFAULT_HEALTH_PRICE);
-        return List.of(new BlockPiece(() -> new Live(info, body, price).column, body.stripTrailing()));
+        OptionalDouble cohort = DecisionTreeText.cohort(info).map(OptionalDouble::of).orElse(OptionalDouble.empty());
+        return List.of(new BlockPiece(() -> new Live(info, body, price, cohort).column, body.stripTrailing()));
     }
 
     // ── Pure decisions (no store access) ────────────────────────────────
@@ -224,10 +228,18 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         /** The preview asked for last, applied once per pulse so a dragged slider does not queue redraws. */
         Runnable pendingPreview;
 
+        /** The cohort the block asks to be counted out for, when it does. */
+        final OptionalDouble cohortSize;
+
         Live(String info, String body, double price) {
+            this(info, body, price, OptionalDouble.empty());
+        }
+
+        Live(String info, String body, double price, OptionalDouble cohortSize) {
             this.originalInfo = info;
             this.originalBody = body;
             this.originalPrice = price;
+            this.cohortSize = cohortSize;
             this.body = body;
             this.price = price;
             column.getStyleClass().add("decision-tree");
@@ -399,7 +411,9 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             if (parameters != null) {
                 top.getChildren().add(parameters);
             }
-            diagram = new DecisionTreeDiagram(drawn, rollback, reference, ids, findings, collapsed, base, this);
+            Optional<Cohort> cohort = cohortSize.isPresent()
+                    ? Optional.of(Cohort.of(drawn, rollback, cohortSize.getAsDouble())) : Optional.empty();
+            diagram = new DecisionTreeDiagram(drawn, rollback, reference, ids, findings, collapsed, base, this, cohort);
             ScrollPane scroll = new ScrollPane(diagram);
             scroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.AS_NEEDED);
             scroll.setVbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
@@ -411,19 +425,34 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             scroll.setPrefViewportHeight(diagram.prefHeight(-1));
             diagram.drawnHeightProperty().addListener((obs, was, now) -> scroll.setPrefViewportHeight(now.doubleValue()));
             top.getChildren().add(scroll);
-            top.getChildren().add(legend(rollback));
+            // the readouts: what the choice trades, money and health apart, and where a cohort ends up
+            String healthUnit = unitName(rollback.coordinate().healthSemantic(), "");
+            for (String readout : DecisionTreeFigures.readoutLines(drawn, rollback, ids, symbol(), healthUnit, cohort,
+                    Tradeoff.of(drawn, rollback))) {
+                Label line = new Label(readout);
+                line.getStyleClass().add("decision-tree-readout");
+                line.setWrapText(true);
+                line.setFont(Font.font(base * 0.85));
+                line.setPadding(new Insets(2, 0, 0, 0));
+                top.getChildren().add(line);
+            }
+            top.getChildren().add(legend(rollback, cohort));
             if (lastSweep != null) {
                 markFlips(lastSweep);
             }
         }
 
         /** One line beneath the drawing saying what its numbers are. */
-        private Label legend(Rollback rollback) {
+        private Label legend(Rollback rollback, Optional<Cohort> cohort) {
             String moneyUnit = unitName(rollback.coordinate().moneySemantic(), "money");
             String healthUnit = unitName(rollback.coordinate().healthSemantic(), "healthy years");
+            String beneath = cohort.isPresent()
+                    ? " beneath a branch, how many of the " + DecisionFigureText.count(cohort.get().size())
+                    + " go that way, and what it costs, money then health in "
+                    : " beneath a branch, what it costs, money then health in ";
             Label legend = new Label("⇒ is the expected cost per patient from that point on, in " + moneyUnit
                     + ", with a year of healthy life priced at " + money(rollback.coordinate().healthPrice())
-                    + ". A percentage is the share who go that way; beneath a branch, what it costs, money then health in "
+                    + ". A percentage is the share who go that way;" + beneath
                     + healthUnit + ". The heavy run is the alternative chosen, a barred one is rejected. Hover a number for its working.");
             legend.setId("decision-tree-legend");
             legend.setWrapText(true);

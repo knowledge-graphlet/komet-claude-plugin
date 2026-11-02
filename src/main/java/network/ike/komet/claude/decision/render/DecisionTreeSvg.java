@@ -21,6 +21,7 @@ import network.ike.komet.claude.decision.DecisionTreeSensitivity;
 import network.ike.komet.claude.decision.Rollback;
 
 import java.util.Optional;
+import java.util.OptionalDouble;
 import java.util.function.IntPredicate;
 
 /**
@@ -65,6 +66,12 @@ public final class DecisionTreeSvg {
     public static String tree(DecisionTree tree, Rollback rollback, Identities ids, IntPredicate collapsed,
                               Optional<DecisionTreeSensitivity> sensitivity, String symbol) {
         return DecisionFigureSvg.write(DecisionTreeFigures.tree(tree, rollback, ids, collapsed, sensitivity, symbol));
+    }
+
+    /** The tree counted out for a cohort: how many go each way beneath every run, and where they end up. */
+    public static String tree(DecisionTree tree, Rollback rollback, Identities ids, IntPredicate collapsed,
+                              Optional<DecisionTreeSensitivity> sensitivity, String symbol, OptionalDouble cohort) {
+        return DecisionFigureSvg.write(DecisionTreeFigures.tree(tree, rollback, ids, collapsed, sensitivity, symbol, cohort));
     }
 
     /** The tornado as SVG, {@link #TORNADO_WIDTH} wide. */

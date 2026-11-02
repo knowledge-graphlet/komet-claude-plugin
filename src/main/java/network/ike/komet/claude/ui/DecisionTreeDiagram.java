@@ -40,6 +40,7 @@ import javafx.scene.text.FontWeight;
 import network.ike.komet.claude.block.Identities;
 import org.eclipse.collections.api.list.ImmutableList;
 import network.ike.komet.claude.decision.Bounds;
+import network.ike.komet.claude.decision.Cohort;
 import network.ike.komet.claude.decision.DecisionElement;
 import network.ike.komet.claude.decision.DecisionElement.Alternative;
 import network.ike.komet.claude.decision.DecisionElement.Branch;
@@ -129,6 +130,7 @@ final class DecisionTreeDiagram extends Region {
     private final Map<Integer, Node> nameLabels = new HashMap<>();
     private final Map<Integer, List<String>> findingsAt = new HashMap<>();
     private final Set<Integer> changed = new HashSet<>();
+    private final Optional<Cohort> cohort;
     private final ReadOnlyDoubleWrapper drawnWidth = new ReadOnlyDoubleWrapper();
     private final ReadOnlyDoubleWrapper drawnHeight = new ReadOnlyDoubleWrapper();
     private DecisionTreeLayout layout;
@@ -144,9 +146,19 @@ final class DecisionTreeDiagram extends Region {
      */
     DecisionTreeDiagram(DecisionTree tree, Rollback rollback, Optional<Rollback> reference, Identities ids,
                         List<ProfileFinding> findings, Set<Integer> collapsed, double base, Host host) {
+        this(tree, rollback, reference, ids, findings, collapsed, base, host, Optional.empty());
+    }
+
+    /**
+     * A drawing of the tree counted out for a cohort: beneath every run, how many of the cohort
+     * go that way, before what the branch costs.
+     */
+    DecisionTreeDiagram(DecisionTree tree, Rollback rollback, Optional<Rollback> reference, Identities ids,
+                        List<ProfileFinding> findings, Set<Integer> collapsed, double base, Host host, Optional<Cohort> cohort) {
         this.tree = tree;
         this.rollback = rollback;
         this.reference = reference;
+        this.cohort = cohort;
         this.derivations = rollback.derivations();
         this.ids = ids;
         this.host = host;
@@ -314,6 +326,14 @@ final class DecisionTreeDiagram extends Region {
         getChildren().add(above);
 
         HBox below = costs(branch.costs().castToList());
+        cohort.ifPresent(c -> c.count(index).ifPresent(count -> {
+            Label howMany = label(DecisionFigureText.ofCohort(count, c.size()), false, Color.web("#666"));
+            howMany.setTooltip(new Tooltip("How many of the " + DecisionFigureText.count(c.size()) + " who enter the root take this branch"));
+            if (!below.getChildren().isEmpty()) {
+                below.getChildren().add(0, label("\u00B7", false, Color.web("#666")));
+            }
+            below.getChildren().add(0, howMany);
+        }));
         branchBelow.put(index, below);
         getChildren().add(below);
 

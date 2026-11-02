@@ -102,6 +102,7 @@ public final class DecisionTreeText {
     public static final double DEFAULT_HEALTH_PRICE = 100_000;
 
     private static final String HEALTH_PRICE = "health-price";
+    private static final String COHORT = "cohort";
     private static final String INDENT = "  ";
     private static final String DELIMITER = "----";
 
@@ -119,13 +120,25 @@ public final class DecisionTreeText {
 
     /** The health price a fence's info string sets, {@code health-price=<number>}, when it does. */
     public static Optional<Double> healthPrice(String info) {
+        return number(info, HEALTH_PRICE);
+    }
+
+    /**
+     * The cohort a fence's info string asks the tree to be counted out for, {@code cohort=<number>},
+     * when it does: how many enter the root, so every branch can say how many go that way.
+     */
+    public static Optional<Double> cohort(String info) {
+        return number(info, COHORT).filter(size -> size > 0);
+    }
+
+    private static Optional<Double> number(String info, String attribute) {
         if (info == null) {
             return Optional.empty();
         }
         for (String word : Tokens.words(info)) {
-            if (word.startsWith(HEALTH_PRICE + "=")) {
+            if (word.startsWith(attribute + "=")) {
                 try {
-                    return Optional.of(Double.parseDouble(word.substring(HEALTH_PRICE.length() + 1).replace(",", "")));
+                    return Optional.of(Double.parseDouble(word.substring(attribute.length() + 1).replace(",", "")));
                 } catch (NumberFormatException e) {
                     return Optional.empty();
                 }

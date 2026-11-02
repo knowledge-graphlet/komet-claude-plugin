@@ -3,13 +3,13 @@ name: Decision tree
 description: Use when the person asks to draw, state, read, compare or roll back a decision tree, a decision analysis, or the expected cost or value of alternatives under uncertainty: a decision among alternatives, with chances, events and outcomes that carry probabilities and money or health costs.
 category: Skill
 ---
-State a decision tree as a fenced `decision-tree` block and let Komet draw it: the tree in decision-analytic notation, every node's concept as a chip, and the value each node is left with after rollback under the valuation coordinate. **Never roll the tree back yourself and never draw it as box art or a nested list**: the renderer folds expected cost at a chance, least cost at a decision, and prices health into money at the health price the block's info sets (`health-price=100000`, in the money semantic's units; the reader can move it).
+State a decision tree as a fenced `decision-tree` block and let Komet draw it: the tree in decision-analytic notation, every node's concept as a chip, and the value each node is left with after rollback under the valuation coordinate. **Never roll the tree back yourself and never draw it as box art or a nested list**: the renderer folds expected cost at a chance, least cost at a decision, and prices health into money at the health price the block's info sets (`health-price=100000`, in the money semantic's units; the reader can move it). Add `cohort=1000` to the info and Komet also counts the tree out for a thousand: beneath every branch how many go that way, and beneath the drawing where the thousand who take each alternative end up, which reads without any price; beneath the drawing it also says what the choice trades, money and health kept apart, and the price of a healthy year at which the alternatives tie.
 
 ## The block
 
 One line per vertex or value, two spaces of indentation per level; indentation carries the edges.
 
-```decision-tree health-price=100000
+```decision-tree health-price=100000 cohort=1000
 decision: k:ScanNow[Scan now?] @id=rda-scan-now
   parameter = [0.02,0.02] k:Reopening[Late reopening hazard in year 2] @id=rda-reopening-hazard basis=estimated
   parameter = [0.9,0.9] k:Sensitivity[MRA sensitivity] @id=rda-mra-sensitivity basis=estimated

@@ -18,6 +18,7 @@ package network.ike.komet.claude.decision.render;
 import dev.ikm.tinkar.entity.graph.adaptor.profile.ProfileFinding;
 import network.ike.komet.claude.block.Identities;
 import network.ike.komet.claude.decision.Bounds;
+import network.ike.komet.claude.decision.Cohort;
 import network.ike.komet.claude.decision.DecisionElement;
 import network.ike.komet.claude.decision.DecisionElement.Alternative;
 import network.ike.komet.claude.decision.DecisionElement.Branch;
@@ -41,6 +42,7 @@ import network.ike.komet.claude.decision.DecisionTreeSensitivity.Unswept;
 import network.ike.komet.claude.decision.Derivations;
 import network.ike.komet.claude.decision.Measure;
 import network.ike.komet.claude.decision.Rollback;
+import network.ike.komet.claude.decision.Tradeoff;
 import network.ike.komet.claude.decision.render.DecisionFigure.Circle;
 import network.ike.komet.claude.decision.render.DecisionFigure.Mark;
 import network.ike.komet.claude.decision.render.DecisionFigure.Polygon;
@@ -61,6 +63,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalDouble;
 import java.util.OptionalInt;
 import java.util.Set;
 import java.util.function.IntPredicate;
@@ -72,7 +75,7 @@ import java.util.function.IntPredicate;
  * Labels are composed first, their widths estimated by {@link DecisionFigureText}, and the
  * layout is then computed from those widths, so the geometry never depends on a font engine.
  */
-final class DecisionTreeFigures {
+public final class DecisionTreeFigures {
 
     private DecisionTreeFigures() {
     }
@@ -91,7 +94,13 @@ final class DecisionTreeFigures {
 
     static DecisionFigure tree(DecisionTree tree, Rollback rollback, Identities ids, IntPredicate collapsed,
                                Optional<DecisionTreeSensitivity> sweep, String symbol) {
-        return new TreeBuilder(tree, rollback, ids, collapsed, sweep, symbol).build();
+        return tree(tree, rollback, ids, collapsed, sweep, symbol, OptionalDouble.empty());
+    }
+
+    /** The tree, counted out for a cohort when one is given: how many go each way beneath every run, and where they end up. */
+    static DecisionFigure tree(DecisionTree tree, Rollback rollback, Identities ids, IntPredicate collapsed,
+                               Optional<DecisionTreeSensitivity> sweep, String symbol, OptionalDouble cohort) {
+        return new TreeBuilder(tree, rollback, ids, collapsed, sweep, symbol, cohort).build();
     }
 
     private static final class TreeBuilder {
@@ -103,6 +112,8 @@ final class DecisionTreeFigures {
         private final Set<Integer> flipping = new HashSet<>();
         private final String symbol;
         private final String healthUnit;
+        private final Optional<Cohort> cohort;
+        private final Optional<Tradeoff> tradeoff;
         private final double lineHeight = DecisionFigureText.lineHeight(BASE);
         private final double glyph = Math.round(BASE * 1.1);
         private final double size = BASE * 0.9;
@@ -116,13 +127,15 @@ final class DecisionTreeFigures {
         private final Set<Integer> chosenBranches = new HashSet<>();
 
         TreeBuilder(DecisionTree tree, Rollback rollback, Identities ids, IntPredicate collapsed,
-                    Optional<DecisionTreeSensitivity> sweep, String symbol) {
+                    Optional<DecisionTreeSensitivity> sweep, String symbol, OptionalDouble cohortSize) {
             this.tree = tree;
             this.rollback = rollback;
             this.derivations = rollback.derivations();
             this.ids = ids;
             this.collapsed = collapsed;
             this.symbol = symbol == null ? "" : symbol;
+            this.cohort = cohortSize.isPresent() ? Optional.of(Cohort.of(tree, rollback, cohortSize.getAsDouble())) : Optional.empty();
+            this.tradeoff = Tradeoff.of(tree, rollback);
             long health = rollback.coordinate().healthSemantic();
             String unit = health == 0 || ids == null ? null : ids.label(health);
             this.healthUnit = unit == null ? "" : unit;
@@ -175,24 +188,42 @@ final class DecisionTreeFigures {
                 row(marks, nodeTop.get(placed.vertexIndex()), textLeft, placed.y() - lineHeight);
                 row(marks, nodeBottom.get(placed.vertexIndex()), textLeft, placed.y() + (terminal ? 2 : 1));
             }
-            // the legend: what the numbers on the figure are, beneath the drawing
+            // the readouts: what the choice trades, and where a cohort ends up; then the legend
             double legendSize = BASE * 0.78;
             double legendLine = DecisionFigureText.lineHeight(legendSize);
+            double wrapWidth = Math.max(200, layout.width() - 12);
             double y = layout.height() + 2;
-            for (String line : DecisionFigureText.wrap(legend(), legendSize, Math.max(200, layout.width() - 12))) {
+            for (String readout : readouts()) {
+                for (String line : DecisionFigureText.wrap(readout, legendSize, wrapWidth)) {
+                    marks.add(new Text(6, y, line, legendSize, false, false, DecisionFigureText.INK, "readout"));
+                    y += legendLine;
+                }
+            }
+            if (!readouts().isEmpty()) {
+                y += 3;
+            }
+            for (String line : DecisionFigureText.wrap(legend(), legendSize, wrapWidth)) {
                 marks.add(new Text(6, y, line, legendSize, false, false, DecisionFigureText.CAPTION, "legend"));
                 y += legendLine;
             }
             return new DecisionFigure(layout.width(), y + 4, "decision-tree", marks);
         }
 
+        /** The sentences beneath the drawing: the trade at the root, and a tally per alternative when a cohort is counted. */
+        List<String> readouts() {
+            return readoutLines(tree, rollback, ids, symbol, healthUnit, cohort, tradeoff);
+        }
+
         /** One or two sentences saying what the numbers are, as the live surface says beneath its drawing. */
         private String legend() {
             String unit = symbol.isEmpty() ? "" : ", in " + symbol;
             Bounds price = rollback.coordinate().healthPrice();
+            String beneath = cohort.isPresent()
+                    ? " beneath a branch, how many of the " + DecisionFigureText.count(cohort.get().size()) + " go that way, and what it costs."
+                    : " beneath a branch, what it costs.";
             return "\u21D2 is the expected cost from that point on" + unit + ", a year of healthy life priced at "
                     + money(Bounds.point(price.midpoint()), symbol) + ". A percentage is the share who go that way;"
-                    + " beneath a branch, what it costs. The heavy run is the alternative chosen, a barred one is"
+                    + beneath + " The heavy run is the alternative chosen, a barred one is"
                     + " rejected, and \u25B2 marks a value whose range flips the root's choice.";
         }
 
@@ -289,7 +320,15 @@ final class DecisionTreeFigures {
                                 : DecisionFigureText.GAP, "value"));
             }
             branchAbove.put(index, above);
-            branchBelow.put(index, costs(branch.costs().castToList()));
+            List<Span> below = new ArrayList<>();
+            cohort.ifPresent(c -> c.count(index).ifPresent(count -> below.add(new Span(
+                    DecisionFigureText.ofCohort(count, c.size()), size, false, false, DecisionFigureText.CAPTION, "count"))));
+            List<Span> costs = costs(branch.costs().castToList());
+            if (!below.isEmpty() && !costs.isEmpty()) {
+                below.add(new Span("\u00B7", size, false, false, DecisionFigureText.CAPTION, "plus"));
+            }
+            below.addAll(costs);
+            branchBelow.put(index, below);
             if (branch instanceof Alternative && decided && !chosen) {
                 barred.add(index);
             }
@@ -430,6 +469,48 @@ final class DecisionTreeFigures {
                 }
             };
         }
+    }
+
+    // ── The readouts ─────────────────────────────────────────────────────────
+
+    /**
+     * The sentences beneath a drawing, as the live surface prints them too: what the choice at
+     * the root trades, in money and health kept apart, and, when a cohort is counted, where the
+     * cohort that takes each alternative ends up.
+     */
+    public static List<String> readoutLines(DecisionTree tree, Rollback rollback, Identities ids, String symbol, String healthUnit,
+                                            Optional<Cohort> cohort, Optional<Tradeoff> tradeoff) {
+        List<String> lines = new ArrayList<>();
+        tradeoff.ifPresent(t -> {
+            String moneyText = money(Bounds.point(Math.abs(t.money())), symbol);
+            String healthText = DecisionFigureText.quantity(Math.abs(t.health()), DecisionFigureText.Unit.PLAIN, healthUnit);
+            String priceText = Double.isNaN(t.pricePerHealthyYear()) ? "" : money(Bounds.point(t.pricePerHealthyYear()), symbol);
+            lines.add(DecisionFigureText.tradeoff(nodeName(tree, ids, t.chosen()), nodeName(tree, ids, t.nextBest()),
+                    t.money(), moneyText, t.health(), healthText, priceText, money(Bounds.point(t.priced()), symbol)));
+        });
+        cohort.ifPresent(c -> {
+            for (Cohort.Tally tally : c.tallies()) {
+                if (tally.leaves().isEmpty()) {
+                    continue;
+                }
+                // like outcomes read alike: two leaves named "clear" are one entry, whatever their ids
+                Map<String, Double> byName = new java.util.LinkedHashMap<>();
+                for (Cohort.Leaf leaf : tally.leaves()) {
+                    String name = leaf.concept().isPresent() ? ids.label(leaf.concept().getAsLong()) : "reach the end";
+                    byName.merge(name, leaf.count(), Double::sum);
+                }
+                List<Map.Entry<String, Double>> entries = new ArrayList<>(byName.entrySet());
+                entries.sort(Map.Entry.<String, Double>comparingByValue().reversed());
+                lines.add(DecisionFigureText.tally(nodeName(tree, ids, tally.alternativeVertex()), tally.count(),
+                        entries.stream().map(Map.Entry::getKey).toList(), entries.stream().map(Map.Entry::getValue).toList()));
+            }
+        });
+        return lines;
+    }
+
+    private static String nodeName(DecisionTree tree, Identities ids, int vertexIndex) {
+        return tree.node(vertexIndex).flatMap(n -> n.concept().isPresent()
+                ? Optional.of(ids.label(n.concept().getAsLong())) : Optional.empty()).orElse("an alternative");
     }
 
     // ── The tornado ──────────────────────────────────────────────────────────

@@ -279,6 +279,77 @@ public final class DecisionFigureText {
         return group(BigDecimal.valueOf(value).setScale(decimals, RoundingMode.HALF_UP));
     }
 
+    /** A count of a cohort: whole from one up, to two significant figures beneath, so 2.04 reads 2 and 0.41 reads 0.41. */
+    public static String count(double count) {
+        if (Double.isNaN(count)) {
+            return "?";
+        }
+        if (count >= 1) {
+            return String.format(Locale.ROOT, "%,d", Math.round(count));
+        }
+        return group(new BigDecimal(count).round(new MathContext(2, RoundingMode.HALF_UP)).stripTrailingZeros());
+    }
+
+    /** How many of a cohort go a way, as a branch says it: "214 of 1,000", or "all 1,000" when every one does. */
+    public static String ofCohort(double count, double size) {
+        if (Math.abs(count - size) < 1e-9) {
+            return "all " + count(size);
+        }
+        return count(count) + " of " + count(size);
+    }
+
+    /**
+     * Where a cohort that takes one alternative ends up, as one sentence: the outcomes largest
+     * first, each with its count and, where fewer than a third arrive, how rare it is as one in so
+     * many. The outcome names and counts are given in order.
+     */
+    public static String tally(String alternative, double size, List<String> names, List<Double> counts) {
+        StringBuilder sb = new StringBuilder("Of ").append(count(size)).append(" who take \u201C").append(alternative).append("\u201D: ");
+        for (int i = 0; i < names.size(); i++) {
+            if (i > 0) {
+                sb.append(i == names.size() - 1 ? " and " : ", ");
+            }
+            double n = counts.get(i);
+            sb.append(count(n)).append(' ').append(names.get(i));
+            if (n > 0 && n < size / 3) {
+                sb.append(" (1 in ").append(count(size / n)).append(')');
+            }
+        }
+        return sb.append('.').toString();
+    }
+
+    /**
+     * What the choice at the root trades, as one sentence: how the chosen alternative stands
+     * against the next best in money and in health, and the price of a healthy year at which
+     * they tie, against the price the tree was read at.
+     *
+     * @param money   how much more money the chosen costs, printed with its sign dropped; negative means less
+     * @param health  how much more healthy life the chosen keeps, printed with its sign dropped; negative means less
+     */
+    public static String tradeoff(String chosen, String other, double money, String moneyText, double health, String healthText,
+                                  String priceText, String pricedText) {
+        String c = "\u201C" + chosen + "\u201D";
+        String o = "\u201C" + other + "\u201D";
+        boolean dearer = money > 1e-9;
+        boolean cheaper = money < -1e-9;
+        boolean healthier = health > 1e-9;
+        boolean sicker = health < -1e-9;
+        if (!dearer && !sicker) {
+            String moneyPart = cheaper ? "costs " + moneyText + " less than " + o : "costs no more than " + o;
+            String healthPart = healthier ? "spares " + healthText : "loses no more healthy life";
+            return c + " " + moneyPart + " and " + healthPart + ": it wins at any price of a healthy year.";
+        }
+        if (dearer && healthier) {
+            return c + " costs " + moneyText + " more than " + o + " and spares " + healthText
+                    + ": a healthy year bought at " + priceText + ", against the " + pricedText + " it is priced at here.";
+        }
+        if (cheaper && sicker) {
+            return c + " costs " + moneyText + " less than " + o + " and gives up " + healthText
+                    + ": a healthy year given up for " + priceText + ", against the " + pricedText + " it is priced at here.";
+        }
+        return c + " costs " + moneyText + " more than " + o + " and gives up " + healthText + ".";
+    }
+
     /** A plain decimal with its thousands grouped. */
     private static String group(BigDecimal number) {
         String plain = number.toPlainString();

@@ -1,5 +1,5 @@
 // decision-tree
-#box(width: 1387.81pt, height: 339pt, {
+#box(width: 1387.81pt, height: 355pt, {
   place(curve(stroke: (paint: rgb("#1f3b73"), thickness: 2.6pt, cap: "round", join: "round"), curve.move((893.14pt, 50pt)), curve.line((1040.8pt, 50pt)), curve.line((1040.8pt, 28pt)), curve.line((1220.74pt, 28pt))))
   place(dx: 1048.8pt, dy: 10pt, text(size: 10.8pt, fill: rgb("#333333"), "retreat"))
   place(dx: 1085.55pt, dy: 10pt, text(size: 10.8pt, weight: "bold", fill: rgb("#1f3b73"), "⇒ 70,941"))
@@ -104,5 +104,6 @@
   place(polygon(fill: rgb("#eaf4e8"), stroke: (paint: rgb("#333333"), thickness: 1.4pt), (547.76pt, 285.5pt), (560.76pt, 292pt), (547.76pt, 298.5pt)))
   place(dx: 564.76pt, dy: 276pt, text(size: 10.8pt, weight: "bold", fill: rgb("#333333"), "⇒ 0"))
   place(dx: 589.49pt, dy: 276pt, text(size: 10.8pt, fill: rgb("#333333"), "clear"))
-  place(dx: 6pt, dy: 322pt, text(size: 9.36pt, fill: rgb("#666666"), "⇒ is the expected cost from that point on, a year of healthy life priced at 100,000. A percentage is the share who go that way; beneath a branch, what it costs. The heavy run is the alternative chosen, a barred one is rejected, and ▲ marks a value whose range flips the root's choice."))
+  place(dx: 6pt, dy: 322pt, text(size: 9.36pt, fill: rgb("#333333"), "“scan” costs 1,958 more than “no scan” and spares 0.0227 QALY: a healthy year bought at 86,390, against the 100,000 it is priced at here."))
+  place(dx: 6pt, dy: 338pt, text(size: 9.36pt, fill: rgb("#666666"), "⇒ is the expected cost from that point on, a year of healthy life priced at 100,000. A percentage is the share who go that way; beneath a branch, what it costs. The heavy run is the alternative chosen, a barred one is rejected, and ▲ marks a value whose range flips the root's choice."))
 })
