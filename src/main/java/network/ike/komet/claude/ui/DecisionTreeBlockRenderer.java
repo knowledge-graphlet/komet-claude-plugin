@@ -474,14 +474,17 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         private Label legend(Rollback rollback, Optional<Cohort> cohort) {
             String moneyUnit = unitName(rollback.coordinate().moneySemantic(), "money");
             String healthUnit = unitName(rollback.coordinate().healthSemantic(), "healthy years");
+            // a tree with no health anywhere says nothing about health
+            boolean anyHealth = !tree.nodesOfType(DecisionElement.HealthCost.class).isEmpty();
+            String priced = anyHealth ? ", with a year of healthy life priced at " + money(rollback.coordinate().healthPrice()) : "";
+            String costs = anyHealth ? ", and what it costs, money then health in " + healthUnit : ", and what it costs";
             String beneath = cohort.isPresent()
                     ? " beneath a branch, how many of the " + DecisionFigureText.count(cohort.get().size())
-                    + " go that way, and what it costs, money then health in "
-                    : " beneath a branch, what it costs, money then health in ";
-            Label legend = new Label("⇒ is the expected cost per patient from that point on, in " + moneyUnit
-                    + ", with a year of healthy life priced at " + money(rollback.coordinate().healthPrice())
+                    + " go that way" + costs
+                    : " beneath a branch, what it costs" + (anyHealth ? ", money then health in " + healthUnit : "");
+            Label legend = new Label("⇒ is the expected cost per patient from that point on, in " + moneyUnit + priced
                     + ". A percentage is the share who go that way;" + beneath
-                    + healthUnit + ". The heavy run is the alternative chosen, a barred one is rejected. Hover a number for its working.");
+                    + ". The heavy run is the alternative chosen, a barred one is rejected. Hover a number for its working.");
             legend.setId("decision-tree-legend");
             legend.setWrapText(true);
             legend.setFont(Font.font(base * 0.78));
