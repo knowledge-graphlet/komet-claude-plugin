@@ -67,8 +67,9 @@ public sealed interface Circumstance
      *
      * @param timing      when the determination occurred; null when not stated
      * @param purpose     why it was done; never null (possibly empty)
-     * @param status      the status of the action or determination (e.g. performed, final,
-     *                    amended); a value, or null when not stated
+     * @param disposition what became of the act: not sought, sought but not obtained, in
+     *                    progress with an interim result, or performed; a value, or null when
+     *                    not stated (a statement carries no status: that is STAMP's word)
      * @param result      what was determined; null when the circumstance carries no result
      * @param healthRisk  the clinical-risk classification of the result (e.g. low, high,
      *                    critically high); a value, or null when not stated
@@ -77,21 +78,52 @@ public sealed interface Circumstance
      * @param bodySite    the anatomical location; a value, or null when not stated
      * @param method      how the determination was made; a value, or null when not stated
      * @param laterality  left / right / bilateral; a value, or null when not stated
+     * @param device      the instrument used; a value, or null when not stated
+     * @param approach    the surgical approach or access route; a value, or null when not stated
+     * @param specimenType       the kind of specimen; a value, or null when not stated
+     * @param specimenSourceSite where the specimen came from; a value, or null when not stated
+     * @param participants who performed or assisted; never null (possibly empty)
      */
     record Performance(
             AnfStatement.Result timing,
             List<AnfValue> purpose,
-            AnfValue status,
+            AnfValue disposition,
             AnfStatement.Result result,
             AnfValue healthRisk,
             AnfStatement.Result normalRange,
             AnfValue bodySite,
             AnfValue method,
-            AnfValue laterality) implements Circumstance {
+            AnfValue laterality,
+            AnfValue device,
+            AnfValue approach,
+            AnfValue specimenType,
+            AnfValue specimenSourceSite,
+            List<AnfStatement.Participant> participants) implements Circumstance {
 
-        /** Defensively copies {@code purpose}. */
+        /** Defensively copies {@code purpose} and {@code participants}. */
         public Performance {
             purpose = (purpose == null) ? List.of() : List.copyOf(purpose);
+            participants = (participants == null) ? List.of() : List.copyOf(participants);
+        }
+
+        /**
+         * A performance with the attributes the lift has always carried, and none beyond them.
+         *
+         * @param timing      when the determination occurred
+         * @param purpose     why it was done
+         * @param disposition what became of the act
+         * @param result      what was determined
+         * @param healthRisk  the clinical-risk classification of the result
+         * @param normalRange the reference range
+         * @param bodySite    the anatomical location
+         * @param method      how the determination was made
+         * @param laterality  left / right / bilateral
+         */
+        public Performance(AnfStatement.Result timing, List<AnfValue> purpose, AnfValue disposition,
+                           AnfStatement.Result result, AnfValue healthRisk, AnfStatement.Result normalRange,
+                           AnfValue bodySite, AnfValue method, AnfValue laterality) {
+            this(timing, purpose, disposition, result, healthRisk, normalRange, bodySite, method, laterality,
+                    null, null, null, null, List.of());
         }
     }
 
@@ -110,6 +142,13 @@ public sealed interface Circumstance
      * @param conditionalTrigger conditions for execution, each a concept value; never null
      *                           (possibly empty)
      * @param method             how the request should be carried out; a value, or null
+     * @param disposition        what became of the order: active, on hold, cancelled, completed;
+     *                           a value, or null when not stated
+     * @param device             the instrument to use; a value, or null when not stated
+     * @param location           where the request is to be carried out; a value, or null
+     * @param specimenType       the kind of specimen to collect; a value, or null when not stated
+     * @param specimenSourceSite where the specimen is to come from; a value, or null
+     * @param participants       who should perform; never null (possibly empty)
      */
     record Request(
             AnfStatement.Result timing,
@@ -118,12 +157,37 @@ public sealed interface Circumstance
             AnfStatement.Result requestedResult,
             Repetition repetition,
             List<AnfValue> conditionalTrigger,
-            AnfValue method) implements Circumstance {
+            AnfValue method,
+            AnfValue disposition,
+            AnfValue device,
+            AnfValue location,
+            AnfValue specimenType,
+            AnfValue specimenSourceSite,
+            List<AnfStatement.Participant> participants) implements Circumstance {
 
-        /** Defensively copies {@code purpose} and {@code conditionalTrigger}. */
+        /** Defensively copies {@code purpose}, {@code conditionalTrigger} and {@code participants}. */
         public Request {
             purpose = (purpose == null) ? List.of() : List.copyOf(purpose);
             conditionalTrigger = (conditionalTrigger == null) ? List.of() : List.copyOf(conditionalTrigger);
+            participants = (participants == null) ? List.of() : List.copyOf(participants);
+        }
+
+        /**
+         * A request with the attributes the lift has always carried, and none beyond them.
+         *
+         * @param timing             when execution is requested
+         * @param purpose            the clinical indication
+         * @param priority           routine / urgent / stat
+         * @param requestedResult    the result sought
+         * @param repetition         the frequency/duration schedule
+         * @param conditionalTrigger conditions for execution
+         * @param method             how the request should be carried out
+         */
+        public Request(AnfStatement.Result timing, List<AnfValue> purpose, AnfValue priority,
+                       AnfStatement.Result requestedResult, Repetition repetition, List<AnfValue> conditionalTrigger,
+                       AnfValue method) {
+            this(timing, purpose, priority, requestedResult, repetition, conditionalTrigger, method,
+                    null, null, null, null, null, List.of());
         }
     }
 

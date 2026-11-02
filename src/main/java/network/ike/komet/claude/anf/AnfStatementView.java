@@ -97,8 +97,30 @@ public final class AnfStatementView {
             box.getChildren().add(row("Subject",
                     conceptValueNode(s.subjectOfInformation(), view, editor, g -> withSubject(s, g), true)));
         }
+        if (s.subjectOfRecord() != null) {
+            addParticipantsRow(box, "Subject of record", java.util.List.of(s.subjectOfRecord()), view);
+        }
+        addParticipantsRow(box, "Authors", s.authors(), view);
+        addReadonlyMeasure(box, "Stated", s.statementTime(), view);
         renderCircumstance(box, s, view, editor);
         return box;
+    }
+
+    /** Adds a labelled row of participants, each its concept and, when stated, its role. */
+    private static void addParticipantsRow(VBox box, String labelText, java.util.List<AnfStatement.Participant> participants,
+                                           ViewProperties view) {
+        if (participants == null || participants.isEmpty()) {
+            return;
+        }
+        java.util.List<Node> nodes = new java.util.ArrayList<>();
+        for (AnfStatement.Participant participant : participants) {
+            nodes.add(chipFor(participant.participant(), view));
+            if (participant.role() != null) {
+                nodes.add(label("as", "-fx-text-fill: #666666;"));
+                nodes.add(chipFor(participant.role(), view));
+            }
+        }
+        box.getChildren().add(row(labelText, nodes.toArray(Node[]::new)));
     }
 
     /**
@@ -112,29 +134,42 @@ public final class AnfStatementView {
             case Circumstance.Performance p -> {
                 if (p.result() != null) {
                     box.getChildren().add(measureRow("Result", p.result(), view, editor,
-                            m -> perfResult(s, p, m)));
+                            m -> perf(s, p, "result", m)));
                 }
-                addConceptValueRow(box, "Status", p.status(), view, editor, g -> perfStatus(s, p, g));
-                addConceptValueRow(box, "Body site", p.bodySite(), view, editor, g -> perfBodySite(s, p, g));
-                addConceptValueRow(box, "Method", p.method(), view, editor, g -> perfMethod(s, p, g));
-                addConceptValueRow(box, "Laterality", p.laterality(), view, editor, g -> perfLaterality(s, p, g));
-                addConceptValueRow(box, "Health risk", p.healthRisk(), view, editor, g -> perfHealthRisk(s, p, g));
+                addConceptValueRow(box, "Disposition", p.disposition(), view, editor, g -> perf(s, p, "disposition", g));
+                addConceptValueRow(box, "Body site", p.bodySite(), view, editor, g -> perf(s, p, "bodySite", g));
+                addConceptValueRow(box, "Method", p.method(), view, editor, g -> perf(s, p, "method", g));
+                addConceptValueRow(box, "Device", p.device(), view, editor, g -> perf(s, p, "device", g));
+                addConceptValueRow(box, "Approach", p.approach(), view, editor, g -> perf(s, p, "approach", g));
+                addConceptValueRow(box, "Laterality", p.laterality(), view, editor, g -> perf(s, p, "laterality", g));
+                addConceptValueRow(box, "Specimen", p.specimenType(), view, editor, g -> perf(s, p, "specimenType", g));
+                addConceptValueRow(box, "Specimen site", p.specimenSourceSite(), view, editor,
+                        g -> perf(s, p, "specimenSourceSite", g));
+                addConceptValueRow(box, "Health risk", p.healthRisk(), view, editor, g -> perf(s, p, "healthRisk", g));
                 if (p.normalRange() != null) {
                     box.getChildren().add(measureRow("Normal range", p.normalRange(), view, editor,
-                            m -> perfNormalRange(s, p, m)));
+                            m -> perf(s, p, "normalRange", m)));
                 }
+                addParticipantsRow(box, "Participants", p.participants(), view);
                 addListRow(box, "Purpose", p.purpose(), view);
                 addReadonlyMeasure(box, "Timing", p.timing(), view);
             }
             case Circumstance.Request r -> {
                 if (r.requestedResult() != null) {
                     box.getChildren().add(measureRow("Requested", r.requestedResult(), view, editor,
-                            m -> reqRequestedResult(s, r, m)));
+                            m -> req(s, r, "requestedResult", m)));
                 }
-                addConceptValueRow(box, "Priority", r.priority(), view, editor, g -> reqPriority(s, r, g));
-                addConceptValueRow(box, "Method", r.method(), view, editor, g -> reqMethod(s, r, g));
+                addConceptValueRow(box, "Priority", r.priority(), view, editor, g -> req(s, r, "priority", g));
+                addConceptValueRow(box, "Disposition", r.disposition(), view, editor, g -> req(s, r, "disposition", g));
+                addConceptValueRow(box, "Method", r.method(), view, editor, g -> req(s, r, "method", g));
+                addConceptValueRow(box, "Device", r.device(), view, editor, g -> req(s, r, "device", g));
+                addConceptValueRow(box, "Location", r.location(), view, editor, g -> req(s, r, "location", g));
+                addConceptValueRow(box, "Specimen", r.specimenType(), view, editor, g -> req(s, r, "specimenType", g));
+                addConceptValueRow(box, "Specimen site", r.specimenSourceSite(), view, editor,
+                        g -> req(s, r, "specimenSourceSite", g));
                 addListRow(box, "Triggers", r.conditionalTrigger(), view);
                 renderRepetition(box, r.repetition(), view);
+                addParticipantsRow(box, "Participants", r.participants(), view);
                 addListRow(box, "Purpose", r.purpose(), view);
                 addReadonlyMeasure(box, "Timing", r.timing(), view);
             }
@@ -157,6 +192,9 @@ public final class AnfStatementView {
     /** A measure row: the interval plus a drop-to-substitute measure-semantic chip. */
     private static HBox measureRow(String labelText, AnfStatement.Result result, ViewProperties view,
                                    Editor editor, Function<AnfStatement.Result, AnfStatement> rebuild) {
+        if (presence(result).isPresent()) {
+            return row(labelText, presenceLabel(result));
+        }
         return row(labelText, label(interval(result), ""),
                 conceptValueNode(result.measureSemantic(), view, editor,
                         g -> rebuild.apply(withMeasureSemantic(result, g)), false));
@@ -166,8 +204,9 @@ public final class AnfStatementView {
     private static void addReadonlyMeasure(VBox box, String labelText, AnfStatement.Result result,
                                            ViewProperties view) {
         if (result != null) {
-            box.getChildren().add(row(labelText, label(interval(result), ""),
-                    chipFor(result.measureSemantic(), view)));
+            box.getChildren().add(presence(result).isPresent()
+                    ? row(labelText, presenceLabel(result))
+                    : row(labelText, label(interval(result), ""), chipFor(result.measureSemantic(), view)));
         }
     }
 
@@ -198,72 +237,52 @@ public final class AnfStatementView {
     // ── Statement rebuilders for drop-to-substitute (records are immutable) ──────
 
     private static AnfStatement withTopic(AnfStatement s, AnfValue.Grounded topic) {
-        return new AnfStatement(s.statementType(), topic, s.subjectOfInformation(), s.circumstance());
+        return s.withTopic(topic);
     }
 
     private static AnfStatement withSubject(AnfStatement s, AnfValue.Grounded subject) {
-        return new AnfStatement(s.statementType(), s.topic(), subject, s.circumstance());
-    }
-
-    private static AnfStatement withCircumstance(AnfStatement s, Circumstance circumstance) {
-        return new AnfStatement(s.statementType(), s.topic(), s.subjectOfInformation(), circumstance);
+        return s.withSubjectOfInformation(subject);
     }
 
     private static AnfStatement.Result withMeasureSemantic(AnfStatement.Result r, AnfValue.Grounded m) {
         return new AnfStatement.Result(r.lowerBound(), r.upperBound(),
-                r.includeLowerBound(), r.includeUpperBound(), m);
+                r.includeLowerBound(), r.includeUpperBound(), m, r.resolution());
     }
 
-    private static AnfStatement perfStatus(AnfStatement s, Circumstance.Performance p, AnfValue.Grounded v) {
-        return withCircumstance(s, new Circumstance.Performance(p.timing(), p.purpose(), v, p.result(),
-                p.healthRisk(), p.normalRange(), p.bodySite(), p.method(), p.laterality()));
+    /** A performance with one attribute replaced: {@code slot} names it, the rest are kept. */
+    private static AnfStatement perf(AnfStatement s, Circumstance.Performance p, String slot, Object v) {
+        return s.withCircumstance(new Circumstance.Performance(p.timing(), p.purpose(),
+                pick(slot, "disposition", v, p.disposition()),
+                slot.equals("result") ? (AnfStatement.Result) v : p.result(),
+                pick(slot, "healthRisk", v, p.healthRisk()),
+                slot.equals("normalRange") ? (AnfStatement.Result) v : p.normalRange(),
+                pick(slot, "bodySite", v, p.bodySite()),
+                pick(slot, "method", v, p.method()),
+                pick(slot, "laterality", v, p.laterality()),
+                pick(slot, "device", v, p.device()),
+                pick(slot, "approach", v, p.approach()),
+                pick(slot, "specimenType", v, p.specimenType()),
+                pick(slot, "specimenSourceSite", v, p.specimenSourceSite()),
+                p.participants()));
     }
 
-    private static AnfStatement perfResult(AnfStatement s, Circumstance.Performance p, AnfStatement.Result v) {
-        return withCircumstance(s, new Circumstance.Performance(p.timing(), p.purpose(), p.status(), v,
-                p.healthRisk(), p.normalRange(), p.bodySite(), p.method(), p.laterality()));
+    /** A request with one attribute replaced: {@code slot} names it, the rest are kept. */
+    private static AnfStatement req(AnfStatement s, Circumstance.Request r, String slot, Object v) {
+        return s.withCircumstance(new Circumstance.Request(r.timing(), r.purpose(),
+                pick(slot, "priority", v, r.priority()),
+                slot.equals("requestedResult") ? (AnfStatement.Result) v : r.requestedResult(),
+                r.repetition(), r.conditionalTrigger(),
+                pick(slot, "method", v, r.method()),
+                pick(slot, "disposition", v, r.disposition()),
+                pick(slot, "device", v, r.device()),
+                pick(slot, "location", v, r.location()),
+                pick(slot, "specimenType", v, r.specimenType()),
+                pick(slot, "specimenSourceSite", v, r.specimenSourceSite()),
+                r.participants()));
     }
 
-    private static AnfStatement perfHealthRisk(AnfStatement s, Circumstance.Performance p, AnfValue.Grounded v) {
-        return withCircumstance(s, new Circumstance.Performance(p.timing(), p.purpose(), p.status(), p.result(),
-                v, p.normalRange(), p.bodySite(), p.method(), p.laterality()));
-    }
-
-    private static AnfStatement perfNormalRange(AnfStatement s, Circumstance.Performance p,
-                                                AnfStatement.Result v) {
-        return withCircumstance(s, new Circumstance.Performance(p.timing(), p.purpose(), p.status(), p.result(),
-                p.healthRisk(), v, p.bodySite(), p.method(), p.laterality()));
-    }
-
-    private static AnfStatement perfBodySite(AnfStatement s, Circumstance.Performance p, AnfValue.Grounded v) {
-        return withCircumstance(s, new Circumstance.Performance(p.timing(), p.purpose(), p.status(), p.result(),
-                p.healthRisk(), p.normalRange(), v, p.method(), p.laterality()));
-    }
-
-    private static AnfStatement perfMethod(AnfStatement s, Circumstance.Performance p, AnfValue.Grounded v) {
-        return withCircumstance(s, new Circumstance.Performance(p.timing(), p.purpose(), p.status(), p.result(),
-                p.healthRisk(), p.normalRange(), p.bodySite(), v, p.laterality()));
-    }
-
-    private static AnfStatement perfLaterality(AnfStatement s, Circumstance.Performance p, AnfValue.Grounded v) {
-        return withCircumstance(s, new Circumstance.Performance(p.timing(), p.purpose(), p.status(), p.result(),
-                p.healthRisk(), p.normalRange(), p.bodySite(), p.method(), v));
-    }
-
-    private static AnfStatement reqPriority(AnfStatement s, Circumstance.Request r, AnfValue.Grounded v) {
-        return withCircumstance(s, new Circumstance.Request(r.timing(), r.purpose(), v, r.requestedResult(),
-                r.repetition(), r.conditionalTrigger(), r.method()));
-    }
-
-    private static AnfStatement reqRequestedResult(AnfStatement s, Circumstance.Request r,
-                                                   AnfStatement.Result v) {
-        return withCircumstance(s, new Circumstance.Request(r.timing(), r.purpose(), r.priority(), v,
-                r.repetition(), r.conditionalTrigger(), r.method()));
-    }
-
-    private static AnfStatement reqMethod(AnfStatement s, Circumstance.Request r, AnfValue.Grounded v) {
-        return withCircumstance(s, new Circumstance.Request(r.timing(), r.purpose(), r.priority(),
-                r.requestedResult(), r.repetition(), r.conditionalTrigger(), v));
+    private static AnfValue pick(String slot, String name, Object replacement, AnfValue kept) {
+        return slot.equals(name) ? (AnfValue) replacement : kept;
     }
 
     /**
@@ -393,7 +412,44 @@ public final class AnfStatementView {
         return l;
     }
 
+    /**
+     * A result as a reader says it: "Present" or "Absent" on the Presence scale, otherwise the
+     * interval.
+     */
     private static String interval(AnfStatement.Result r) {
+        return presence(r).orElseGet(() -> bounds(r));
+    }
+
+    /**
+     * "Present" or "Absent" when the result is on the Presence scale: absence is {@code [0, 0]} and
+     * presence is a lower bound of one or more. The scale is known by its label, the one name the
+     * record keeps for a grounded value.
+     *
+     * @param r the result
+     * @return the word, or empty when the result is not a presence determination
+     */
+    public static java.util.Optional<String> presence(AnfStatement.Result r) {
+        if (!(r.measureSemantic() instanceof AnfValue.Grounded g)
+                || !g.label().strip().toLowerCase(Locale.ROOT).startsWith("presence")) {
+            return java.util.Optional.empty();
+        }
+        if (r.lowerBound() != null && r.lowerBound() == 0 && r.upperBound() != null && r.upperBound() == 0) {
+            return java.util.Optional.of("Absent");
+        }
+        if (r.lowerBound() != null && r.lowerBound() >= 1) {
+            return java.util.Optional.of("Present");
+        }
+        return java.util.Optional.empty();
+    }
+
+    /** "Present" or "Absent", with the interval on the Presence scale as its tooltip. */
+    private static Label presenceLabel(AnfStatement.Result result) {
+        Label word = label(interval(result), "-fx-font-weight: bold;");
+        word.setTooltip(new Tooltip(bounds(result) + " on the Presence scale"));
+        return word;
+    }
+
+    private static String bounds(AnfStatement.Result r) {
         String lower = r.lowerBound() == null
                 ? "(-∞"
                 : (r.includeLowerBound() ? "[" : "(") + trim(r.lowerBound());

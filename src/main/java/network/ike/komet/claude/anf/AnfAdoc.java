@@ -39,14 +39,19 @@ import network.ike.komet.claude.block.Tokens;
  * --
  * topic::                     k:Key[label] &#64;id=&lt;identifier&gt;
  * subject_of_information::     k:Key[label] &#64;id=&lt;identifier&gt;
+ * subject_of_record::          k:Key[label] &#64;id=&lt;identifier&gt; role=k:Key[label] &#64;id=&lt;identifier&gt;
+ * author::                     (repeated, one per author; the same participant form)
+ * statement_time::             [lo,hi] k:Unit[label] &#64;id=…
  * result::                    [1,1] k:Presence[] &#64;id=705057003
- * status:: health_risk:: body_site:: method:: laterality::   (performance attributes)
+ * disposition:: health_risk:: body_site:: method:: laterality:: device:: approach::
+ * specimen_type:: specimen_source_site::                     (performance attributes; status:: reads as disposition)
+ * participant::               (repeated; the participant form, performance or request)
  * normal_range::              [lo,hi] k:Unit[label] &#64;id=&lt;identifier&gt;
- * requested_result:: priority::                              (request attributes)
+ * requested_result:: priority:: disposition:: device:: location::   (request attributes)
  * repetition_period_start:: …_period_duration:: …_event_separation:: …_event_duration:: …_event_frequency::
  * conditional_trigger::       (repeated, one per list element)
  * purpose::                   (repeated, any kind)
- * timing::                    [lo,hi] k:Unit[label] &#64;id=…
+ * timing::                    [lo,hi] k:Unit[label] &#64;id=…  (any measure may add res=&lt;resolution&gt; after the interval)
  * text::                      "free narrative text"
  * --
  * </pre>
@@ -70,8 +75,8 @@ import network.ike.komet.claude.block.Tokens;
  * unbounded {@code ±inf}) and its measure semantic round-trip. A grounded {@code @id} that no longer
  * resolves (or an offline parse with no view) becomes an explicit unresolved {@link AnfValue.Clarify}
  * marker carrying the dead identifier — never a silent drop. Narrative text is carried as text and
- * stays text. The deferred envelope axes (subject of record, author, time) are not modeled, so they
- * are not emitted.
+ * stays text. An envelope axis a statement leaves to its note (subject of record, authors, statement
+ * time) is not emitted.
  */
 public final class AnfAdoc {
 
@@ -95,6 +100,8 @@ public final class AnfAdoc {
     }
 
     private static final String OPEN = "--";
+    private static final String ROLE = " role=";
+    private static final String RESOLUTION = "res=";
 
     // ── Serialize ────────────────────────────────────────────────────────────
 
@@ -110,21 +117,41 @@ public final class AnfAdoc {
         sb.append(OPEN).append('\n');
         appendConceptValue(sb, "topic", s.topic());
         appendConceptValue(sb, "subject_of_information", s.subjectOfInformation());
+        appendParticipant(sb, "subject_of_record", s.subjectOfRecord());
+        for (AnfStatement.Participant author : s.authors()) {
+            appendParticipant(sb, "author", author);
+        }
+        appendResult(sb, "statement_time", s.statementTime());
         switch (s.circumstance()) {
             case Circumstance.Performance p -> {
                 appendResult(sb, "result", p.result());
-                appendConceptValue(sb, "status", p.status());
+                appendConceptValue(sb, "disposition", p.disposition());
                 appendConceptValue(sb, "health_risk", p.healthRisk());
                 appendResult(sb, "normal_range", p.normalRange());
                 appendConceptValue(sb, "body_site", p.bodySite());
                 appendConceptValue(sb, "method", p.method());
                 appendConceptValue(sb, "laterality", p.laterality());
+                appendConceptValue(sb, "device", p.device());
+                appendConceptValue(sb, "approach", p.approach());
+                appendConceptValue(sb, "specimen_type", p.specimenType());
+                appendConceptValue(sb, "specimen_source_site", p.specimenSourceSite());
+                for (AnfStatement.Participant participant : p.participants()) {
+                    appendParticipant(sb, "participant", participant);
+                }
                 appendShared(sb, p.timing(), p.purpose());
             }
             case Circumstance.Request r -> {
                 appendResult(sb, "requested_result", r.requestedResult());
                 appendConceptValue(sb, "priority", r.priority());
                 appendConceptValue(sb, "method", r.method());
+                appendConceptValue(sb, "disposition", r.disposition());
+                appendConceptValue(sb, "device", r.device());
+                appendConceptValue(sb, "location", r.location());
+                appendConceptValue(sb, "specimen_type", r.specimenType());
+                appendConceptValue(sb, "specimen_source_site", r.specimenSourceSite());
+                for (AnfStatement.Participant participant : r.participants()) {
+                    appendParticipant(sb, "participant", participant);
+                }
                 appendRepetition(sb, r.repetition());
                 for (AnfValue trigger : r.conditionalTrigger()) {
                     appendConceptValue(sb, "conditional_trigger", trigger);
@@ -166,8 +193,21 @@ public final class AnfAdoc {
 
     private static void appendResult(StringBuilder sb, String name, AnfStatement.Result r) {
         if (r != null) {
-            sb.append(name).append(":: ").append(interval(r)).append(' ')
-                    .append(conceptValueToString(r.measureSemantic())).append('\n');
+            sb.append(name).append(":: ").append(interval(r)).append(' ');
+            if (r.resolution() != null) {
+                sb.append(RESOLUTION).append(Tokens.number(r.resolution())).append(' ');
+            }
+            sb.append(conceptValueToString(r.measureSemantic())).append('\n');
+        }
+    }
+
+    private static void appendParticipant(StringBuilder sb, String name, AnfStatement.Participant participant) {
+        if (participant != null) {
+            sb.append(name).append(":: ").append(conceptValueToString(participant.participant()));
+            if (participant.role() != null) {
+                sb.append(ROLE).append(conceptValueToString(participant.role()));
+            }
+            sb.append('\n');
         }
     }
 
@@ -256,23 +296,55 @@ public final class AnfAdoc {
 
         AnfValue topic = firstConceptValue(raw, "topic", resolver);
         AnfValue subject = firstConceptValue(raw, "subject_of_information", resolver);
+        AnfValue disposition = firstConceptValue(raw, "disposition", resolver);
+        if (disposition == null) {
+            disposition = firstConceptValue(raw, "status", resolver);
+        }
         Circumstance circumstance = switch (type) {
             case PERFORMANCE -> new Circumstance.Performance(
                     firstResult(raw, "timing", resolver), conceptValueList(raw, "purpose", resolver),
-                    firstConceptValue(raw, "status", resolver), firstResult(raw, "result", resolver),
+                    disposition, firstResult(raw, "result", resolver),
                     firstConceptValue(raw, "health_risk", resolver), firstResult(raw, "normal_range", resolver),
                     firstConceptValue(raw, "body_site", resolver), firstConceptValue(raw, "method", resolver),
-                    firstConceptValue(raw, "laterality", resolver));
+                    firstConceptValue(raw, "laterality", resolver), firstConceptValue(raw, "device", resolver),
+                    firstConceptValue(raw, "approach", resolver), firstConceptValue(raw, "specimen_type", resolver),
+                    firstConceptValue(raw, "specimen_source_site", resolver),
+                    participants(raw, "participant", resolver));
             case REQUEST -> new Circumstance.Request(
                     firstResult(raw, "timing", resolver), conceptValueList(raw, "purpose", resolver),
                     firstConceptValue(raw, "priority", resolver), firstResult(raw, "requested_result", resolver),
                     parseRepetition(raw, resolver), conceptValueList(raw, "conditional_trigger", resolver),
-                    firstConceptValue(raw, "method", resolver));
+                    firstConceptValue(raw, "method", resolver), disposition,
+                    firstConceptValue(raw, "device", resolver), firstConceptValue(raw, "location", resolver),
+                    firstConceptValue(raw, "specimen_type", resolver),
+                    firstConceptValue(raw, "specimen_source_site", resolver),
+                    participants(raw, "participant", resolver));
             case NARRATIVE -> new Circumstance.Narrative(
                     firstResult(raw, "timing", resolver), conceptValueList(raw, "purpose", resolver),
                     firstText(raw, "text"));
         };
-        return new AnfStatement(type, topic, subject, circumstance);
+        List<AnfStatement.Participant> subjects = participants(raw, "subject_of_record", resolver);
+        return new AnfStatement(type, topic, subject, circumstance, subjects.isEmpty() ? null : subjects.get(0),
+                participants(raw, "author", resolver), firstResult(raw, "statement_time", resolver));
+    }
+
+    /** Each participant written under {@code name}: a value, then the role after {@code role=}. */
+    private static List<AnfStatement.Participant> participants(Map<String, List<String>> raw, String name,
+                                                               ConceptResolver resolver) {
+        List<String> values = raw.get(name);
+        if (values == null) {
+            return List.of();
+        }
+        List<AnfStatement.Participant> participants = new ArrayList<>();
+        for (String value : values) {
+            int at = value.lastIndexOf(ROLE);
+            AnfValue who = parseConceptValue(at < 0 ? value : value.substring(0, at).strip(), resolver);
+            if (who != null) {
+                participants.add(new AnfStatement.Participant(who,
+                        at < 0 ? null : parseConceptValue(value.substring(at + ROLE.length()).strip(), resolver)));
+            }
+        }
+        return participants;
     }
 
     private static String firstText(Map<String, List<String>> raw, String name) {
@@ -359,12 +431,26 @@ public final class AnfAdoc {
             return null;
         }
         Tokens.Interval interval = prefix.get().interval();
-        AnfValue measure = parseConceptValue(prefix.get().rest(), resolver);
+        String rest = prefix.get().rest().strip();
+        Double resolution = null;
+        if (rest.startsWith(RESOLUTION)) {
+            int end = rest.indexOf(' ');
+            if (end < 0) {
+                return null;
+            }
+            try {
+                resolution = Double.valueOf(rest.substring(RESOLUTION.length(), end));
+            } catch (NumberFormatException notANumber) {
+                return null;
+            }
+            rest = rest.substring(end + 1).strip();
+        }
+        AnfValue measure = parseConceptValue(rest, resolver);
         if (measure == null) {
             return null;
         }
         return new AnfStatement.Result(interval.lower(), interval.upper(),
-                interval.includeLower(), interval.includeUpper(), measure);
+                interval.includeLower(), interval.includeUpper(), measure, resolution);
     }
 
     private static AnfValue.Disposition parseDisposition(String s) {

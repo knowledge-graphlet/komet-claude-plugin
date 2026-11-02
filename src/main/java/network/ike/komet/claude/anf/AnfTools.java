@@ -213,17 +213,24 @@ public final class AnfTools {
             // The circumstance fields are read from the TOP LEVEL: the model reliably emits a flat
             // object and was dropping a nested `circumstance` wrapper (sending it as an empty string).
             // The typed Circumstance record is still built here — only the wire shape is flat.
+            // "status" is the field's earlier name; a statement carries a disposition, never a status
+            Map<String, Object> disposition = map(in, "disposition") != null ? map(in, "disposition") : map(in, "status");
             Circumstance circumstance = switch (type) {
                 case PERFORMANCE -> new Circumstance.Performance(
                         parseMeasure(map(in, "timing"), v, unresolved),
                         parseConceptValueList(list(in, "purpose"), v, unresolved),
-                        parseConceptValue(map(in, "status"), v, unresolved),
+                        parseConceptValue(disposition, v, unresolved),
                         parseMeasure(map(in, "result"), v, unresolved),
                         parseConceptValue(map(in, "health_risk"), v, unresolved),
                         parseMeasure(map(in, "normal_range"), v, unresolved),
                         parseConceptValue(map(in, "body_site"), v, unresolved),
                         parseConceptValue(map(in, "method"), v, unresolved),
-                        parseConceptValue(map(in, "laterality"), v, unresolved));
+                        parseConceptValue(map(in, "laterality"), v, unresolved),
+                        parseConceptValue(map(in, "device"), v, unresolved),
+                        parseConceptValue(map(in, "approach"), v, unresolved),
+                        parseConceptValue(map(in, "specimen_type"), v, unresolved),
+                        parseConceptValue(map(in, "specimen_source_site"), v, unresolved),
+                        List.of());
                 case REQUEST -> new Circumstance.Request(
                         parseMeasure(map(in, "timing"), v, unresolved),
                         parseConceptValueList(list(in, "purpose"), v, unresolved),
@@ -231,7 +238,13 @@ public final class AnfTools {
                         parseMeasure(map(in, "requested_result"), v, unresolved),
                         parseRepetition(map(in, "repetition"), v, unresolved),
                         parseConceptValueList(list(in, "conditional_trigger"), v, unresolved),
-                        parseConceptValue(map(in, "method"), v, unresolved));
+                        parseConceptValue(map(in, "method"), v, unresolved),
+                        parseConceptValue(disposition, v, unresolved),
+                        parseConceptValue(map(in, "device"), v, unresolved),
+                        parseConceptValue(map(in, "location"), v, unresolved),
+                        parseConceptValue(map(in, "specimen_type"), v, unresolved),
+                        parseConceptValue(map(in, "specimen_source_site"), v, unresolved),
+                        List.of());
                 case NARRATIVE -> new Circumstance.Narrative(
                         parseMeasure(map(in, "timing"), v, unresolved),
                         parseConceptValueList(list(in, "purpose"), v, unresolved),
@@ -411,9 +424,9 @@ public final class AnfTools {
     // ── Cross-field circumstance guard ───────────────────────────────────────
 
     private static final Set<String> PERFORMANCE_ONLY =
-            Set.of("status", "result", "health_risk", "normal_range", "body_site", "laterality");
+            Set.of("status", "result", "health_risk", "normal_range", "body_site", "laterality", "approach");
     private static final Set<String> REQUEST_ONLY =
-            Set.of("priority", "requested_result", "repetition", "conditional_trigger");
+            Set.of("priority", "requested_result", "repetition", "conditional_trigger", "location");
     private static final Set<String> NARRATIVE_ONLY = Set.of("text");
 
     /**
@@ -565,10 +578,12 @@ public final class AnfTools {
                             "type", "string",
                             "enum", List.of("performance", "request", "narrative"),
                             "description", "Direction of fit. Fill the fields for this kind: performance uses "
-                                    + "status/result/health_risk/normal_range/body_site/method/laterality; request "
-                                    + "uses priority/requested_result/repetition/conditional_trigger/method; "
-                                    + "narrative uses text. timing and purpose apply to any kind. Do not mix "
-                                    + "fields across kinds."),
+                                    + "result/disposition/health_risk/normal_range/body_site/laterality/approach; "
+                                    + "request uses priority/requested_result/repetition/conditional_trigger/"
+                                    + "location; both use method/device/disposition/specimen_type/"
+                                    + "specimen_source_site; narrative uses text. timing and purpose apply to any "
+                                    + "kind. Do not mix fields across kinds. The note supplies who the statement "
+                                    + "is about, who wrote it and when: do not state them."),
                     "topic", conceptValueSchema("The clinical topic — exactly one pre-coordinated concept, with no "
                             + "polarity (that is the result), no subject (that is subject_of_information), and no "
                             + "timing or status (those are separate fields). Never compose a focus plus "
@@ -581,8 +596,10 @@ public final class AnfTools {
                     "purpose", obj("type", "array",
                             "description", "Optional (any kind). Why it was done or requested.",
                             "items", conceptValueSchema("A purpose concept.")),
-                    "status", conceptValueSchema("Performance. The status of the action or determination (e.g. "
-                            + "performed, final, amended)."),
+                    "disposition", conceptValueSchema("Performance or request. What became of the act. A "
+                            + "performance: not sought, sought but not obtained, in progress with an interim result, "
+                            + "or performed. A request: active, on hold, cancelled, or completed. Omit when the "
+                            + "narrative does not say; never a status such as final or amended."),
                     "result", measureSchema("Performance. What was determined. Presence is [1, no upper bound] "
                             + "on the Presence scale; absence is [0,0]."),
                     "health_risk", conceptValueSchema("Performance. The clinical-risk classification of the result "
@@ -593,6 +610,12 @@ public final class AnfTools {
                     "method", conceptValueSchema("Performance or request. How the determination is made or the "
                             + "request carried out."),
                     "laterality", conceptValueSchema("Performance. Left, right, or bilateral."),
+                    "device", conceptValueSchema("Performance or request. The instrument used or to use."),
+                    "approach", conceptValueSchema("Performance. The surgical approach or access route."),
+                    "specimen_type", conceptValueSchema("Performance or request. The kind of specimen."),
+                    "specimen_source_site", conceptValueSchema("Performance or request. Where the specimen came "
+                            + "from or is to come from."),
+                    "location", conceptValueSchema("Request. Where the request is to be carried out."),
                     "priority", conceptValueSchema("Request. routine / urgent / stat."),
                     "requested_result", measureSchema("Request. The result sought."),
                     "repetition", obj("type", "object",

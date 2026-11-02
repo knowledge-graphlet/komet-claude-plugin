@@ -16,10 +16,12 @@ Lift clinical narrative into Analysis Normal Form: structured clinical statement
 - **Topic**: exactly one concept, with no polarity, subject, context or time in it.
 - **Subject of information**: who or what the statement is about when that is not the patient (a family member, a fetus, a donor); left out otherwise. There is no "family history of X" or "fetal X" topic.
 - **Circumstance**, one kind only:
-  - performance: status, result, health_risk, normal_range, body_site, method, laterality;
-  - request: priority, requested_result, repetition, conditional_trigger, method;
+  - performance: result, disposition, health_risk, normal_range, body_site, method, laterality, device, approach, specimen_type, specimen_source_site;
+  - request: priority, requested_result, repetition, conditional_trigger, method, disposition, device, location, specimen_type, specimen_source_site;
   - narrative: text;
   - any kind: timing, purpose.
+- **Disposition** is what became of the act (a performance: not sought, sought but not obtained, in progress, performed; a request: active, on hold, cancelled, completed). A statement has no status. Leave it out when the note does not say.
+- **The note supplies** who the statement is about, who wrote it and when; a statement lifted from a note does not state them.
 - **Results and measures**: an interval with its measure semantic. A number without a measure semantic is not a result.
 - **Presence and absence** are results on the presence scale, never an "absent" concept: present `[1,inf)`, absent `[0,0]`, unknown `[0,inf)`, with the measure semantic *Presence (property) (qualifier value)*, found by `search`. A finding stated with no value is a presence result.
 

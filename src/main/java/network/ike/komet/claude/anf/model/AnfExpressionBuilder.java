@@ -677,6 +677,12 @@ public final class AnfExpressionBuilder {
 
     // ── Completeness ──────────────────────────────────────────────────────────
 
+    /** What {@link #completeness} names when the context has no subject of record. */
+    public static final String MISSING_SUBJECT_OF_RECORD = "a subject of record";
+
+    /** What {@link #completeness} names when the context has no statement time. */
+    public static final String MISSING_STATEMENT_TIME = "a statement time";
+
     /**
      * What a complete statement still lacks: the required attributes the structural definition
      * names that the tree does not yet carry. A tree under construction is well formed without
@@ -692,10 +698,10 @@ public final class AnfExpressionBuilder {
         } else {
             Context context = root.context().get();
             if (context.subjectOfRecord().isEmpty()) {
-                missing.add("a subject of record");
+                missing.add(MISSING_SUBJECT_OF_RECORD);
             }
             if (context.statementTime().isEmpty()) {
-                missing.add("a statement time");
+                missing.add(MISSING_STATEMENT_TIME);
             }
             if (root.kindSemantic() != AnfSemantic.NARRATIVE && context.topic().isEmpty()) {
                 missing.add("a topic");

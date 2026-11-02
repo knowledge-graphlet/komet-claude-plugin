@@ -63,12 +63,16 @@ Each statement is an envelope with exactly these parts:
 - **circumstance** — **exactly one** of performance, request, or narrative,
   matching `statementType` (the `{XOR}`). Each kind carries its own typed fields,
   and you must not mix fields across kinds:
-  * **performance** — `status` (performed / final / amended), `result`,
-    `healthRisk` (low / high / critically high), `normalRange` (a measure),
-    `bodySite`, `method`, `laterality` (left / right / bilateral).
+  * **performance** — `result`, `disposition` (not sought / sought, not
+    obtained / in progress, interim result / performed), `healthRisk` (low /
+    high / critically high), `normalRange` (a measure), `bodySite`, `method`,
+    `laterality` (left / right / bilateral), `device`, `approach`,
+    `specimenType`, `specimenSourceSite`.
   * **request** — `priority` (routine / urgent / stat), `requestedResult`,
     `repetition` (period start/duration and event separation/duration/frequency,
-    each a measure), `conditionalTrigger` (condition concepts), `method`.
+    each a measure), `conditionalTrigger` (condition concepts), `method`,
+    `disposition` (active / on hold / cancelled / completed), `device`,
+    `location`, `specimenType`, `specimenSourceSite`.
   * **narrative** — `text` (the unstructured content).
   * **shared** — `timing` (a measure) and `purpose` (concepts) on any kind.
   Every modifier is **one** grounded concept where present — these are
@@ -168,8 +172,10 @@ information.
 5. **Result** — extract the measured or requested value as an interval with a
    grounded measure semantic; encode presence/absence on the Presence scale per
    the SWEC rule above.
-6. **Modifiers** — ground each present typed field (status, body site, method,
-   laterality, priority, timing).
+6. **Modifiers** — ground each present typed field (disposition, body site,
+   method, laterality, device, approach, specimen, priority, location, timing).
+   A statement has no status; leave the disposition out when the note does not
+   say what became of the act.
 7. **Prerequisites** — lift conditions, timing constraints, and context into
    **associated statements**, not into the topic.
 8. **Candidate or clarify** — for a clear meaning the knowledge base does not

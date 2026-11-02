@@ -216,6 +216,15 @@ public sealed interface AnfStatement permits AnfStatement.Root, AnfStatement.Con
             Optional<DiTreeEntity> roleTree();
 
             Optional<LogicalExpression> role();
+
+            /**
+             * The role, when its expression is the degenerate case of one concept.
+             *
+             * @return the role concept, or empty when the role is not stated or is composed
+             */
+            default Optional<ConceptFacade> singleRole() {
+                return role().flatMap(AnfAdaptor::singleConceptOf);
+            }
         }
 
         /** A text literal. */

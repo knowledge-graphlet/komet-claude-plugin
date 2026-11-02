@@ -214,12 +214,14 @@ class AnfFixtureTest {
         List<AnfStatement.Result> results = new ArrayList<>();
         switch (statement.circumstance()) {
             case Circumstance.Performance p -> {
-                values.addAll(present(p.status(), p.healthRisk(), p.bodySite(), p.method(), p.laterality()));
+                values.addAll(present(p.disposition(), p.healthRisk(), p.bodySite(), p.method(), p.laterality(),
+                        p.device(), p.approach(), p.specimenType(), p.specimenSourceSite()));
                 values.addAll(p.purpose());
                 results.addAll(present(p.timing(), p.result(), p.normalRange()));
             }
             case Circumstance.Request r -> {
-                values.addAll(present(r.priority(), r.method()));
+                values.addAll(present(r.priority(), r.method(), r.disposition(), r.device(), r.location(),
+                        r.specimenType(), r.specimenSourceSite()));
                 values.addAll(r.purpose());
                 values.addAll(r.conditionalTrigger());
                 results.addAll(present(r.timing(), r.requestedResult()));

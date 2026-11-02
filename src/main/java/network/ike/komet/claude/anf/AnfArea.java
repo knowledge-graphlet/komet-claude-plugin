@@ -25,6 +25,14 @@ import dev.ikm.komet.layout_engine.blueprint.SupplementalAreaBlueprint;
 import dev.ikm.komet.preferences.KometPreferences;
 import dev.ikm.komet.preferences.PreferencesService;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
+import dev.ikm.komet.kview.controls.KLDiTreeControlFactory;
+import dev.ikm.tinkar.common.service.PrimitiveData;
+import dev.ikm.tinkar.entity.Entity;
+import dev.ikm.tinkar.entity.EntityHandle;
+import dev.ikm.tinkar.entity.EntityVersion;
+import dev.ikm.tinkar.entity.graph.DiTreeEntity;
+import network.ike.komet.claude.anf.editor.AnfStatementControl;
+import network.ike.komet.claude.stamp.StampNames;
 import network.ike.komet.claude.anf.element.ClinicalElement;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.MenuButton;
@@ -90,6 +98,8 @@ import java.util.concurrent.Executors;
 public final class AnfArea extends SupplementalAreaBlueprint implements KlToolArea<BorderPane> {
 
     private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(AnfArea.class);
+    private static final java.time.format.DateTimeFormatter NOTE_TIME =
+            java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(java.time.ZoneId.systemDefault());
 
     private static final String PREF_API_KEY = "network.ike.komet.claude.apiKey";
     /** The lift runs on the more capable model for the structural reasoning. */
@@ -761,7 +771,82 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
             none.setStyle("-fx-text-fill: #888; -fx-font-size: 11;");
             return none;
         }
-        return AnfStatementView.render(element.statement().get(), toolViewProperties, elementEditor(element.id()));
+        AnfStatement statement = element.statement().get();
+        ViewCalculator view = viewCalculator();
+        DiTreeEntity start;
+        try {
+            start = AnfProjection.toTree(statement);
+        } catch (RuntimeException refused) {
+            // A statement the tree refuses (an ungrounded participant) keeps the card it was read in.
+            LOG.debug("ANF lift: element {} stays a card: {}", element.id(), refused.getMessage());
+            return AnfStatementView.render(statement, toolViewProperties, elementEditor(element.id()));
+        }
+        AnfStatementControl tree = KLDiTreeControlFactory.configure(new AnfStatementControl(), view);
+        tree.setEnvelopeFromContext(documentAnchor != null);
+        tree.setMaxWidth(Double.MAX_VALUE);
+        tree.setValue(start);
+        Label unsaved = new Label();
+        unsaved.setWrapText(true);
+        unsaved.setStyle("-fx-text-fill: #9a5b00; -fx-font-size: 11;");
+        unsaved.setVisible(false);
+        unsaved.setManaged(false);
+        AnfStatementView.Editor editor = elementEditor(element.id());
+        tree.valueProperty().subscribe((was, now) -> {
+            if (now == null || now == start || now.equals(was)) {
+                return;
+            }
+            String why = null;
+            try {
+                // the tree redraws itself: store the edit without rebuilding the leaf
+                editor.onFieldEdited(AnfProjection.fromTree(now, AnfProjection.grounding(view)));
+            } catch (RuntimeException incomplete) {
+                why = "Not saved yet: " + incomplete.getMessage();
+            }
+            unsaved.setText(why == null ? "" : why);
+            unsaved.setVisible(why != null);
+            unsaved.setManaged(why != null);
+        });
+        VBox leaf = new VBox(4);
+        noteEnvelope(view).ifPresent(leaf.getChildren()::add);
+        leaf.getChildren().addAll(tree, unsaved);
+        return leaf;
+    }
+
+    /**
+     * What the note supplies to every statement lifted from it: the subject of record, who wrote it
+     * and when, read from the note's latest version. A statement states these only where it differs.
+     *
+     * @param view the view the names are read in
+     * @return the line, or empty when the narrative is not a stored note
+     */
+    private Optional<Node> noteEnvelope(ViewCalculator view) {
+        PublicId anchor = documentAnchor;
+        if (anchor == null || !PrimitiveData.get().hasPublicId(anchor)) {
+            return Optional.empty();
+        }
+        Entity<?> note = EntityHandle.get(PrimitiveData.nid(anchor)).orNull();
+        if (note == null) {
+            return Optional.empty();
+        }
+        EntityVersion latest = null;
+        for (EntityVersion version : note.versions()) {
+            if (!version.canceled() && (latest == null || version.time() > latest.time())) {
+                latest = version;
+            }
+        }
+        if (latest == null) {
+            return Optional.empty();
+        }
+        String when = latest.time() == Long.MAX_VALUE ? "not yet committed"
+                : NOTE_TIME.format(java.time.Instant.ofEpochMilli(latest.time()));
+        Label line = new Label("From the note: about the patient · by "
+                + StampNames.name(view, latest.stamp().authorNid()) + " · " + when);
+        line.setWrapText(true);
+        line.setStyle("-fx-text-fill: #666; -fx-font-size: 11;");
+        line.setTooltip(new Tooltip("The note supplies each statement's subject of record, author and statement"
+                + " time. Add one to a statement, with its +, only where it differs from the note."));
+        line.setId("note-envelope");
+        return Optional.of(line);
     }
 
     /** The card editor of an element's statement: an edit writes back to the element and persists. */

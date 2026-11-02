@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.anf;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -31,11 +32,12 @@ import java.util.Objects;
  * negated topic (the SWEC resolution). See {@code dev-anf-narrative-lift} and
  * {@code anf-structural-definition}.
  *
- * <p><strong>Deferred envelope axes</strong> (intentional, not forgotten — they need a
- * patient/authoring context this standalone lift surface does not yet have): the subject of
- * record, the informant, the statement author, and the statement time. They are added when
- * the lift is embedded in a patient-context journal. Likewise {@code associatedStatements}
- * cross-linking is deferred; prerequisites lift as independent sibling statements for now.
+ * <p>The envelope carries every axis the structural definition names except the associated
+ * statements: the subject of record, the authors and the statement time sit beside the topic
+ * and the subject of information. A note supplies the first three when a statement leaves them
+ * out, so a lift from a note need not repeat them; a statement states them only where it differs.
+ * Associated statements stay with the statement tree, which can reference another statement; the
+ * record has no identity for one.
  *
  * @param statementType        whether the statement describes a performance, a request, or
  *                             unstructured narrative; must match the {@code circumstance}
@@ -50,12 +52,21 @@ import java.util.Objects;
  *                             subject of record (defaulted)
  * @param circumstance         the clinical detail as exactly one performance, request, or
  *                             narrative circumstance; never null
+ * @param subjectOfRecord      who the statement is about, with the participant's role; null
+ *                             when the statement leaves it to its note
+ * @param authors              who made the statement, each with a role; never null (empty when
+ *                             the statement leaves it to its note)
+ * @param statementTime        when the statement was made, a time-valued measure; null when the
+ *                             statement leaves it to its note
  */
 public record AnfStatement(
         Type statementType,
         AnfValue topic,
         AnfValue subjectOfInformation,
-        Circumstance circumstance) {
+        Circumstance circumstance,
+        Participant subjectOfRecord,
+        List<Participant> authors,
+        Result statementTime) {
 
     /**
      * Validates the statement.
@@ -68,6 +79,7 @@ public record AnfStatement(
     public AnfStatement {
         Objects.requireNonNull(statementType, "statementType");
         Objects.requireNonNull(circumstance, "circumstance");
+        authors = (authors == null) ? List.of() : List.copyOf(authors);
         boolean matches = switch (circumstance) {
             case Circumstance.Performance performance -> statementType == Type.PERFORMANCE;
             case Circumstance.Request request -> statementType == Type.REQUEST;
@@ -77,6 +89,72 @@ public record AnfStatement(
             throw new IllegalArgumentException(
                     "statementType " + statementType + " does not match circumstance kind "
                             + circumstance.getClass().getSimpleName());
+        }
+    }
+
+    /**
+     * A statement whose envelope leaves the subject of record, the authors and the statement
+     * time to its note.
+     *
+     * @param statementType        whether the statement describes a performance, a request, or
+     *                             unstructured narrative
+     * @param topic                the clinical topic
+     * @param subjectOfInformation who or what the statement is about, when not the subject of
+     *                             record
+     * @param circumstance         the clinical detail
+     */
+    public AnfStatement(Type statementType, AnfValue topic, AnfValue subjectOfInformation, Circumstance circumstance) {
+        this(statementType, topic, subjectOfInformation, circumstance, null, List.of(), null);
+    }
+
+    /**
+     * This statement with another circumstance of the same kind, its envelope kept.
+     *
+     * @param replacement the circumstance
+     * @return the statement
+     */
+    public AnfStatement withCircumstance(Circumstance replacement) {
+        return new AnfStatement(statementType, topic, subjectOfInformation, replacement, subjectOfRecord, authors,
+                statementTime);
+    }
+
+    /**
+     * This statement with another topic, the rest kept.
+     *
+     * @param replacement the topic
+     * @return the statement
+     */
+    public AnfStatement withTopic(AnfValue replacement) {
+        return new AnfStatement(statementType, replacement, subjectOfInformation, circumstance, subjectOfRecord,
+                authors, statementTime);
+    }
+
+    /**
+     * This statement with another subject of information, the rest kept.
+     *
+     * @param replacement the subject of information
+     * @return the statement
+     */
+    public AnfStatement withSubjectOfInformation(AnfValue replacement) {
+        return new AnfStatement(statementType, topic, replacement, circumstance, subjectOfRecord, authors,
+                statementTime);
+    }
+
+    /**
+     * A participant in a statement — its subject of record, an author, or one who performed or is
+     * to perform it — as a concept with the role the participant takes.
+     *
+     * @param participant the participant concept; never null
+     * @param role        the participant's role; null when not stated
+     */
+    public record Participant(AnfValue participant, AnfValue role) {
+        /**
+         * Validates the participant.
+         *
+         * @throws NullPointerException if {@code participant} is null
+         */
+        public Participant {
+            Objects.requireNonNull(participant, "participant");
         }
     }
 
@@ -100,10 +178,12 @@ public record AnfStatement(
      * @param includeLowerBound whether the lower bound is inclusive
      * @param includeUpperBound whether the upper bound is inclusive
      * @param measureSemantic   the grounded unit / scale concept; never null
+     * @param resolution        the significant digits or precision of the bounds; null when not
+     *                          stated
      */
     public record Result(Double lowerBound, Double upperBound,
                          boolean includeLowerBound, boolean includeUpperBound,
-                         AnfValue measureSemantic) {
+                         AnfValue measureSemantic, Double resolution) {
         /**
          * Validates the result.
          *
@@ -111,6 +191,20 @@ public record AnfStatement(
          */
         public Result {
             Objects.requireNonNull(measureSemantic, "measureSemantic");
+        }
+
+        /**
+         * A result whose resolution is not stated.
+         *
+         * @param lowerBound        the lower bound; null denotes an unbounded lower side
+         * @param upperBound        the upper bound; null denotes an unbounded upper side
+         * @param includeLowerBound whether the lower bound is inclusive
+         * @param includeUpperBound whether the upper bound is inclusive
+         * @param measureSemantic   the grounded unit / scale concept; never null
+         */
+        public Result(Double lowerBound, Double upperBound, boolean includeLowerBound, boolean includeUpperBound,
+                      AnfValue measureSemantic) {
+            this(lowerBound, upperBound, includeLowerBound, includeUpperBound, measureSemantic, null);
         }
     }
 }

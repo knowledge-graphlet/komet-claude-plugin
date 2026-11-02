@@ -15,9 +15,13 @@
  */
 package network.ike.komet.claude.anf;
 
+import dev.ikm.tinkar.common.id.PublicIds;
+import dev.ikm.tinkar.terms.EntityProxy;
+import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.entity.graph.adaptor.axiom.LogicalExpressionBuilder;
 import network.ike.foundation.ike.bindings.IkeConcept;
+import network.ike.foundation.ike.bindings.IkePattern;
 import network.ike.komet.claude.anf.model.AnfExpression;
 import network.ike.komet.claude.anf.model.AnfExpressionBuilder;
 import network.ike.komet.claude.anf.model.AnfProvisional;
@@ -33,6 +37,7 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.UUID;
 
 import static network.ike.komet.claude.anf.AnfTestStore.concept;
 import static network.ike.komet.claude.anf.AnfTestStore.grounded;
@@ -98,6 +103,36 @@ class AnfProjectionTest {
                         grounded(concept("Fingerstick"))));
     }
 
+    /** A statement carrying every axis the structural definition names but associated statements. */
+    private static AnfStatement everyAxis() {
+        AnfStatement.Participant patient = new AnfStatement.Participant(grounded(concept("Patient")),
+                grounded(concept("Subject of care")));
+        AnfStatement.Participant author = new AnfStatement.Participant(grounded(concept("Dr Example")),
+                grounded(concept("Attending")));
+        AnfStatement.Participant nurse = new AnfStatement.Participant(grounded(concept("Nurse Example")), null);
+        return new AnfStatement(AnfStatement.Type.PERFORMANCE,
+                grounded(concept("Systolic blood pressure")),
+                null,
+                new Circumstance.Performance(null, List.of(), grounded(concept("Performed")),
+                        new AnfStatement.Result(118.0, 118.0, true, true, grounded(concept("mmHg")), 1.0),
+                        null, null, grounded(concept("Left arm")), null, null,
+                        grounded(concept("Sphygmomanometer")), grounded(concept("Percutaneous")),
+                        grounded(concept("Blood")), grounded(concept("Left arm")), List.of(nurse)),
+                patient, List.of(author),
+                measure(1700000000.0, 1700000000.0, true, true, grounded(concept("Epoch seconds"))));
+    }
+
+    private static AnfStatement fullRequest() {
+        return new AnfStatement(AnfStatement.Type.REQUEST,
+                grounded(concept("Blood glucose measurement")),
+                null,
+                new Circumstance.Request(null, List.of(), grounded(concept("Routine")), null, null, List.of(),
+                        null, grounded(concept("Active")), grounded(concept("Glucometer")),
+                        grounded(concept("Clinic")), grounded(concept("Blood")), grounded(concept("Finger")),
+                        List.of(new AnfStatement.Participant(grounded(concept("Nurse Example")),
+                                grounded(concept("Performer"))))));
+    }
+
     private static AnfStatement narrative() {
         return new AnfStatement(AnfStatement.Type.NARRATIVE, null, null,
                 new Circumstance.Narrative(null, List.of(), "Patient reports feeling well, \"no complaints\"."));
@@ -107,7 +142,7 @@ class AnfProjectionTest {
 
     @Test
     void aRecordWrittenThroughTheBuilderReadsBackEqual() {
-        for (AnfStatement statement : List.of(performance(), request(), narrative())) {
+        for (AnfStatement statement : List.of(performance(), request(), narrative(), everyAxis(), fullRequest())) {
             DiTreeEntity tree = AnfProjection.toTree(statement);
             assertEquals(statement, AnfProjection.fromTree(tree, AnfTestStore.grounding()), statement.statementType().name());
             assertEquals(statement, AnfProjection.through(statement, AnfTestStore.grounding()));
@@ -148,20 +183,46 @@ class AnfProjectionTest {
     // ── What the record cannot say ────────────────────────────────────────────
 
     @Test
-    void aTreeHoldingWhatTheRecordCannotSayIsRefusedNamingIt() {
+    void theTreeHoldsTheEnvelopeTheRecordStates() {
+        Root root = AnfExpression.from(AnfProjection.toTree(everyAxis())).root();
+        Context context = root.context().orElseThrow();
+        assertEquals(concept("Patient").nid(), context.subjectOfRecord().orElseThrow().participant().orElseThrow().nid());
+        assertEquals(concept("Subject of care").nid(), context.subjectOfRecord().orElseThrow().role().orElseThrow().nid());
+        assertEquals(concept("Attending").nid(), context.authors().getFirst().singleRole().orElseThrow().nid());
+        assertTrue(context.statementTime().isPresent());
+        Performance performance = (Performance) root.circumstance().orElseThrow();
+        assertEquals(concept("Sphygmomanometer").nid(), performance.device().orElseThrow().concept().orElseThrow().nid());
+        assertEquals(new BigDecimal("1.0"), performance.result().orElseThrow().resolution().orElseThrow());
+        assertEquals(1, performance.participants().size());
+    }
+
+    @Test
+    void aTreeHoldingAssociatedStatementsIsRefusedNamingThem() {
         AnfExpressionBuilder builder = new AnfExpressionBuilder(IkeConcept.PERFORMANCE_CIRCUMSTANCE);
-        Context context = builder.context();
-        builder.expression(context, AnfSemantic.TOPIC, concept("Blood pressure"));
-        builder.author(context, concept("Dr Example"), null);
-        Performance performance = (Performance) builder.circumstance();
-        builder.measure(performance, AnfSemantic.RESULT, BigDecimal.ONE, BigDecimal.TEN, true, true, BigDecimal.ONE,
-                concept("mmHg"));
-        builder.conceptReference(performance, AnfSemantic.DEVICE, concept("Sphygmomanometer"));
+        builder.expression(builder.context(), AnfSemantic.TOPIC, concept("Blood pressure"));
+        builder.circumstance();
+        UUID other = UUID.fromString("5e0c9a1d-2b3c-5d4e-9f6a-7b8c9d0e1f2a");
+        EntityService.get().nidForSemantic(IkePattern.ANF_STATEMENT_PATTERN.publicId(), PublicIds.of(other));
+        builder.associatedStatement(EntityProxy.Semantic.make("Another statement", other), IkeConcept.STATEMENT_FOLLOWS_IN_TIME);
         AnfRefusal refusal = assertThrows(AnfRefusal.class,
                 () -> AnfProjection.fromTree(builder.asDiTree(), AnfTestStore.grounding()));
-        assertTrue(refusal.getMessage().contains("the authors"), refusal.getMessage());
-        assertTrue(refusal.getMessage().contains("the device"), refusal.getMessage());
-        assertTrue(refusal.getMessage().contains("a measure's resolution"), refusal.getMessage());
+        assertTrue(refusal.getMessage().contains("associated statements"), refusal.getMessage());
+    }
+
+    @Test
+    void anUngroundedParticipantIsRefusedOnTheWayIn() {
+        AnfStatement statement = new AnfStatement(AnfStatement.Type.NARRATIVE, null, null,
+                new Circumstance.Narrative(null, List.of(), "text"),
+                new AnfStatement.Participant(new AnfValue.Clarify("subject", "Who?"), null), List.of(), null);
+        assertThrows(AnfRefusal.class, () -> AnfProjection.toTree(statement));
+    }
+
+    @Test
+    void anEarlierBlockWritingStatusReadsAsTheDisposition() {
+        String block = AnfAdoc.toAdoc(AnfProjection.through(performance(), AnfTestStore.grounding()))
+                .replace("disposition::", "status::");
+        assertEquals(AnfProjection.through(performance(), AnfTestStore.grounding()),
+                AnfAdoc.parse(block, AnfTestStore.resolver()));
     }
 
     @Test
@@ -191,7 +252,7 @@ class AnfProjectionTest {
 
     @Test
     void theAnfBlockRoundTripsTheRecordTheTreeGivesBack() {
-        for (AnfStatement statement : List.of(performance(), request(), narrative())) {
+        for (AnfStatement statement : List.of(performance(), request(), narrative(), everyAxis(), fullRequest())) {
             AnfStatement fromTree = AnfProjection.through(statement, AnfTestStore.grounding());
             String block = AnfAdoc.toAdoc(fromTree);
             AnfStatement parsed = AnfAdoc.parse(block, AnfTestStore.resolver());

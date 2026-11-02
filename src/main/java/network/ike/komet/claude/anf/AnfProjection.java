@@ -45,15 +45,14 @@ import java.util.Optional;
  * already know. The lift's {@code emit_anf} sink passes each statement through both, so what it
  * records is what the tree holds.
  *
- * <p><b>What the record cannot say is refused, never dropped.</b> The record carries the envelope
- * axes the lift grounds today: topic, subject of information, and the circumstance; the tree also
- * carries the subject of record, the authors, the statement time, the associated statements and
- * the attributes the structural definition names beyond the lift's (device, approach, specimen,
- * participants, location, a request's disposition, a measure's resolution). A tree holding any of
- * those is refused by {@link #fromTree} with the attribute named, so a lossy read never masquerades
- * as a round trip. A composed topic, one that is not a single concept reference, is refused the
- * same way: the record's topic is one concept, and the editor's promotion to a complex concept is
- * the path back to one.
+ * <p><b>What the record cannot say is refused, never dropped.</b> The record carries every axis
+ * the structural definition names but one: the envelope (topic, subject of information, subject of
+ * record, authors, statement time), the circumstance with all its attributes, and a measure's
+ * resolution. It has no identity for another statement, so a tree holding associated statements
+ * is refused by {@link #fromTree} with that named, as is a composed topic or author role (the
+ * record's topic is one concept, and the editor's promotion to a complex concept is the path back
+ * to one), so a lossy read never masquerades as a round trip. Participants and roles have no
+ * provisional form in the tree, so {@link #toTree} refuses one that is not grounded.
  *
  * <p>A grounded attribute value becomes a concept reference by its public id; reading back needs
  * a {@link Grounding} that answers a concept's identifier and label from the live store, which
@@ -118,6 +117,15 @@ public final class AnfProjection {
         builder.conceptReference(context, AnfSemantic.STATEMENT_TYPE, kind);
         expressionAttribute(builder, context, AnfSemantic.TOPIC, statement.topic());
         expressionAttribute(builder, context, AnfSemantic.SUBJECT_OF_INFORMATION, statement.subjectOfInformation());
+        if (statement.subjectOfRecord() != null) {
+            participantAttribute(builder, context, AnfSemantic.SUBJECT_OF_RECORD, statement.subjectOfRecord());
+        }
+        for (AnfStatement.Participant author : statement.authors()) {
+            builder.author(context, grounded(author.participant(), AnfSemantic.AUTHOR),
+                    author.role() == null ? null
+                            : AnfExpressionBuilder.singleConceptExpression(grounded(author.role(), AnfSemantic.AUTHOR)));
+        }
+        measureAttribute(builder, context, AnfSemantic.STATEMENT_TIME, statement.statementTime());
 
         switch (statement.circumstance()) {
             case Circumstance.Performance p -> {
@@ -127,13 +135,20 @@ public final class AnfProjection {
                 for (AnfValue purpose : p.purpose()) {
                     expressionAttribute(builder, performance, AnfSemantic.PURPOSE, purpose);
                 }
-                conceptAttribute(builder, performance, AnfSemantic.DISPOSITION, p.status());
+                conceptAttribute(builder, performance, AnfSemantic.DISPOSITION, p.disposition());
                 measureAttribute(builder, performance, AnfSemantic.RESULT, p.result());
                 conceptAttribute(builder, performance, AnfSemantic.HEALTH_RISK, p.healthRisk());
                 measureAttribute(builder, performance, AnfSemantic.NORMAL_RANGE, p.normalRange());
                 conceptAttribute(builder, performance, AnfSemantic.BODY_SITE, p.bodySite());
                 conceptAttribute(builder, performance, AnfSemantic.METHOD, p.method());
                 conceptAttribute(builder, performance, AnfSemantic.LATERALITY, p.laterality());
+                conceptAttribute(builder, performance, AnfSemantic.DEVICE, p.device());
+                conceptAttribute(builder, performance, AnfSemantic.APPROACH, p.approach());
+                conceptAttribute(builder, performance, AnfSemantic.SPECIMEN_TYPE, p.specimenType());
+                conceptAttribute(builder, performance, AnfSemantic.SPECIMEN_SOURCE_SITE, p.specimenSourceSite());
+                for (AnfStatement.Participant participant : p.participants()) {
+                    participantAttribute(builder, performance, AnfSemantic.PARTICIPANT, participant);
+                }
             }
             case Circumstance.Request r -> {
                 var request = (network.ike.komet.claude.anf.model.AnfStatement.Circumstance.Request)
@@ -156,6 +171,14 @@ public final class AnfProjection {
                     conceptAttribute(builder, request, AnfSemantic.CONDITIONAL_TRIGGER, trigger);
                 }
                 conceptAttribute(builder, request, AnfSemantic.METHOD, r.method());
+                conceptAttribute(builder, request, AnfSemantic.DISPOSITION, r.disposition());
+                conceptAttribute(builder, request, AnfSemantic.DEVICE, r.device());
+                conceptAttribute(builder, request, AnfSemantic.LOCATION, r.location());
+                conceptAttribute(builder, request, AnfSemantic.SPECIMEN_TYPE, r.specimenType());
+                conceptAttribute(builder, request, AnfSemantic.SPECIMEN_SOURCE_SITE, r.specimenSourceSite());
+                for (AnfStatement.Participant participant : r.participants()) {
+                    participantAttribute(builder, request, AnfSemantic.PARTICIPANT, participant);
+                }
             }
             case Circumstance.Narrative n -> {
                 var narrative = (network.ike.komet.claude.anf.model.AnfStatement.Circumstance.Narrative)
@@ -204,6 +227,22 @@ public final class AnfProjection {
         }
     }
 
+    private static void participantAttribute(AnfExpressionBuilder builder,
+                                             network.ike.komet.claude.anf.model.AnfStatement parent,
+                                             AnfSemantic attribute, AnfStatement.Participant participant) {
+        builder.participant(parent, attribute, grounded(participant.participant(), attribute),
+                participant.role() == null ? null : grounded(participant.role(), attribute));
+    }
+
+    /** A participant or role as the concept the tree references; the tree has no provisional participant. */
+    private static ConceptFacade grounded(AnfValue value, AnfSemantic attribute) {
+        if (value instanceof AnfValue.Grounded grounded) {
+            return concept(grounded);
+        }
+        throw new AnfRefusal("The " + attribute.describe()
+                + " names a participant or role with no concept yet; ground it before it can be recorded");
+    }
+
     private static void expressionAttribute(AnfExpressionBuilder builder, network.ike.komet.claude.anf.model.AnfStatement parent,
                                        AnfSemantic attribute, AnfValue value) {
         if (value == null) {
@@ -223,12 +262,13 @@ public final class AnfProjection {
         }
         BigDecimal lower = result.lowerBound() == null ? null : BigDecimal.valueOf(result.lowerBound());
         BigDecimal upper = result.upperBound() == null ? null : BigDecimal.valueOf(result.upperBound());
+        BigDecimal resolution = result.resolution() == null ? null : BigDecimal.valueOf(result.resolution());
         if (result.measureSemantic() instanceof AnfValue.Grounded grounded) {
             builder.measure(parent, attribute, lower, upper, result.includeLowerBound(), result.includeUpperBound(),
-                    null, concept(grounded));
+                    resolution, concept(grounded));
         } else {
             builder.provisionalMeasure(parent, attribute, lower, upper, result.includeLowerBound(),
-                    result.includeUpperBound(), null, provisional(result.measureSemantic()));
+                    result.includeUpperBound(), resolution, provisional(result.measureSemantic()));
         }
     }
 
@@ -260,13 +300,16 @@ public final class AnfProjection {
 
         AnfValue topic = null;
         AnfValue subjectOfInformation = null;
+        AnfStatement.Participant subjectOfRecord = null;
+        List<AnfStatement.Participant> authors = new ArrayList<>();
+        AnfStatement.Result statementTime = null;
         if (root.context().isPresent()) {
             Context context = root.context().get();
-            context.subjectOfRecord().ifPresent(ignored -> beyond.add("the subject of record"));
-            if (!context.authors().isEmpty()) {
-                beyond.add("the authors");
+            subjectOfRecord = context.subjectOfRecord().map(p -> participantOf(p, grounding)).orElse(null);
+            for (Attribute.Author author : context.authors()) {
+                authors.add(authorOf(author, grounding));
             }
-            context.statementTime().ifPresent(ignored -> beyond.add("the statement time"));
+            statementTime = measure(context.statementTime(), grounding, beyond);
             topic = context.topic().map(expression -> valueOf(expression, grounding)).orElse(null);
             subjectOfInformation = context.subjectOfInformation()
                     .map(expression -> valueOf(expression, grounding)).orElse(null);
@@ -276,13 +319,6 @@ public final class AnfProjection {
                 .orElseThrow(() -> new AnfRefusal("The statement has no circumstance yet; the record needs one"));
         Circumstance circumstance = switch (circumstanceVertex) {
             case network.ike.komet.claude.anf.model.AnfStatement.Circumstance.Performance p -> {
-                p.device().ifPresent(ignored -> beyond.add("the device"));
-                p.approach().ifPresent(ignored -> beyond.add("the approach"));
-                p.specimenType().ifPresent(ignored -> beyond.add("the specimen type"));
-                p.specimenSourceSite().ifPresent(ignored -> beyond.add("the specimen source site"));
-                if (!p.participants().isEmpty()) {
-                    beyond.add("the participants");
-                }
                 yield new Circumstance.Performance(
                         measure(p.timing(), grounding, beyond),
                         valuesOf(p.purposes(), grounding),
@@ -292,17 +328,14 @@ public final class AnfProjection {
                         measure(p.normalRange(), grounding, beyond),
                         chip(p.bodySite(), grounding),
                         chip(p.method(), grounding),
-                        chip(p.laterality(), grounding));
+                        chip(p.laterality(), grounding),
+                        chip(p.device(), grounding),
+                        chip(p.approach(), grounding),
+                        chip(p.specimenType(), grounding),
+                        chip(p.specimenSourceSite(), grounding),
+                        participantsOf(p.participants(), grounding));
             }
             case network.ike.komet.claude.anf.model.AnfStatement.Circumstance.Request r -> {
-                r.disposition().ifPresent(ignored -> beyond.add("a request's disposition"));
-                r.device().ifPresent(ignored -> beyond.add("the device"));
-                r.location().ifPresent(ignored -> beyond.add("the location"));
-                r.specimenType().ifPresent(ignored -> beyond.add("the specimen type"));
-                r.specimenSourceSite().ifPresent(ignored -> beyond.add("the specimen source site"));
-                if (!r.participants().isEmpty()) {
-                    beyond.add("the participants");
-                }
                 Circumstance.Repetition repetition = r.repetition().map(rep -> new Circumstance.Repetition(
                         measure(rep.periodStart(), grounding, beyond),
                         measure(rep.periodDuration(), grounding, beyond),
@@ -320,7 +353,13 @@ public final class AnfProjection {
                         measure(r.requestedResult(), grounding, beyond),
                         repetition,
                         triggers,
-                        chip(r.method(), grounding));
+                        chip(r.method(), grounding),
+                        chip(r.disposition(), grounding),
+                        chip(r.device(), grounding),
+                        chip(r.location(), grounding),
+                        chip(r.specimenType(), grounding),
+                        chip(r.specimenSourceSite(), grounding),
+                        participantsOf(r.participants(), grounding));
             }
             case network.ike.komet.claude.anf.model.AnfStatement.Circumstance.Narrative n -> new Circumstance.Narrative(
                     measure(n.timing(), grounding, beyond),
@@ -331,7 +370,36 @@ public final class AnfProjection {
             throw new AnfRefusal("The statement record does not carry " + String.join(", ", beyond)
                     + " yet; the tree holds them, and the record is the lift's and the [anf] codec's form");
         }
-        return new AnfStatement(type, topic, subjectOfInformation, circumstance);
+        return new AnfStatement(type, topic, subjectOfInformation, circumstance, subjectOfRecord, authors,
+                statementTime);
+    }
+
+    private static AnfStatement.Participant participantOf(Attribute.Participant participant, Grounding grounding) {
+        ConceptFacade who = participant.participant()
+                .orElseThrow(() -> new AnfRefusal("The " + participant.semantic().describe() + " references no one yet"));
+        return new AnfStatement.Participant(ground(who, participant.semantic(), grounding),
+                participant.role().map(role -> ground(role, participant.semantic(), grounding)).orElse(null));
+    }
+
+    private static List<AnfStatement.Participant> participantsOf(Iterable<Attribute.Participant> participants,
+                                                                 Grounding grounding) {
+        List<AnfStatement.Participant> all = new ArrayList<>();
+        for (Attribute.Participant participant : participants) {
+            all.add(participantOf(participant, grounding));
+        }
+        return all;
+    }
+
+    private static AnfStatement.Participant authorOf(Attribute.Author author, Grounding grounding) {
+        ConceptFacade who = author.participant()
+                .orElseThrow(() -> new AnfRefusal("An author references no one yet"));
+        AnfValue role = null;
+        if (author.roleTree().isPresent()) {
+            ConceptFacade single = author.singleRole().orElseThrow(() -> new AnfRefusal(
+                    "An author's role is a composed expression, which the record cannot carry"));
+            role = ground(single, author.semantic(), grounding);
+        }
+        return new AnfStatement.Participant(ground(who, author.semantic(), grounding), role);
     }
 
     private static AnfValue chip(Optional<Attribute.ConceptReference> chip, Grounding grounding) {
@@ -373,7 +441,6 @@ public final class AnfProjection {
             return null;
         }
         Attribute.Measure m = measure.get();
-        m.resolution().ifPresent(ignored -> beyond.add("a measure's resolution"));
         AnfValue unit;
         if (m.unit().isPresent()) {
             unit = ground(m.unit().get(), m.semantic(), grounding);
@@ -384,7 +451,8 @@ public final class AnfProjection {
         return new AnfStatement.Result(
                 m.lowerBound().map(BigDecimal::doubleValue).orElse(null),
                 m.upperBound().map(BigDecimal::doubleValue).orElse(null),
-                m.includeLowerBound(), m.includeUpperBound(), unit);
+                m.includeLowerBound(), m.includeUpperBound(), unit,
+                m.resolution().map(BigDecimal::doubleValue).orElse(null));
     }
 
     private static AnfValue ground(ConceptFacade concept, AnfSemantic attribute, Grounding grounding) {

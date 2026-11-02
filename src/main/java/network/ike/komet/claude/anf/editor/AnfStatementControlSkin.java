@@ -57,6 +57,7 @@ import network.ike.komet.claude.anf.model.AnfStatement;
 import network.ike.komet.claude.anf.model.AnfStatement.Attribute;
 import network.ike.komet.claude.anf.model.AnfStatement.Circumstance;
 
+
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
@@ -126,12 +127,17 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
             showing(refusalLabel, message != null);
         });
         Runnable showMissing = () -> {
-            List<String> missing = control.getMissing();
+            List<String> missing = new ArrayList<>(control.getMissing());
+            if (control.isEnvelopeFromContext()) {
+                missing.remove(AnfExpressionBuilder.MISSING_SUBJECT_OF_RECORD);
+                missing.remove(AnfExpressionBuilder.MISSING_STATEMENT_TIME);
+            }
             missingLabel.setText(missing.isEmpty() ? "" : "Still needs " + String.join(", ", missing) + ".");
             showing(missingLabel, !missing.isEmpty() && isEditable() && control.isShowsMissing());
         };
         control.getMissing().subscribe(showMissing);
         control.showsMissingProperty().subscribe(showMissing);
+        control.envelopeFromContextProperty().subscribe(showMissing);
         // The parent rendered once while this skin was still being constructed.
         rebuildTree(control.getValue());
     }
@@ -139,13 +145,16 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
     /**
      * The name an attribute, clause or kind shows: its meaning's description without the
      * trailing semantic tag the starter set's fully qualified names carry, so
-     * "Performance circumstance (IkeFoundation)" shows as "Performance circumstance".
+     * "Performance circumstance (IkeFoundation)" shows as "Performance circumstance", and
+     * without the "ANF" the attribute meanings' names begin with, so "ANF topic" shows as "Topic":
+     * every row in the control is ANF.
      *
      * @param semantic the meaning
      * @return its display name
      */
     static String name(AnfSemantic semantic) {
-        return semantic.describe().replaceFirst("\\s*\\([^()]*\\)\\s*$", "");
+        String name = semantic.describe().replaceFirst("\\s*\\([^()]*\\)\\s*$", "").replaceFirst("^ANF ", "");
+        return name.isEmpty() ? name : Character.toUpperCase(name.charAt(0)) + name.substring(1);
     }
 
     private static String lowerName(AnfSemantic semantic) {
@@ -483,6 +492,12 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
 
     private Node measureRow(EntityVertex vertex, Attribute.Measure measure) {
         List<Node> value = new ArrayList<>();
+        presence(measure).ifPresent(word -> {
+            Label determination = new Label(word);
+            determination.getStyleClass().add("anf-presence");
+            determination.setStyle("-fx-font-weight: bold;");
+            value.add(determination);
+        });
         String open = measure.includeLowerBound() ? "[" : "(";
         String close = measure.includeUpperBound() ? "]" : ")";
         if (!isEditable()) {
@@ -511,6 +526,28 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
                 .orElseGet(() -> unsettledValue(vertex, ChipKind.INTERVAL_UNIT, measure.provisional(),
                         "Choose unit")));
         return attributeRow(vertex, measure.semantic(), value.toArray(Node[]::new));
+    }
+
+    /**
+     * "Present" or "Absent" when the measure is on the Presence scale: absence is {@code [0, 0]} and
+     * presence a lower bound of one or more. The scale is known by its name, since the
+     * starter set does not bind the Presence concept.
+     */
+    private static Optional<String> presence(Attribute.Measure measure) {
+        Optional<ConceptFacade> unit = measure.unit();
+        if (unit.isEmpty()
+                || !ComponentText.name(Calculators.View.Default(), unit.get().nid()).strip().toLowerCase(java.util.Locale.ROOT).startsWith("presence")) {
+            return Optional.empty();
+        }
+        Optional<BigDecimal> lower = measure.lowerBound();
+        Optional<BigDecimal> upper = measure.upperBound();
+        if (lower.isPresent() && lower.get().signum() == 0 && upper.isPresent() && upper.get().signum() == 0) {
+            return Optional.of("Absent");
+        }
+        if (lower.isPresent() && lower.get().compareTo(BigDecimal.ONE) >= 0) {
+            return Optional.of("Present");
+        }
+        return Optional.empty();
     }
 
     private static String bound(Optional<BigDecimal> bound) {

@@ -42,6 +42,7 @@ public class AnfStatementControl extends KLDiTreeControl {
     private final ReadOnlyObjectWrapper<String> lastRefusal = new ReadOnlyObjectWrapper<>(this, "lastRefusal");
     private final ObservableList<String> missing = FXCollections.observableArrayList();
     private final BooleanProperty showsMissing = new SimpleBooleanProperty(this, "showsMissing", true);
+    private final BooleanProperty envelopeFromContext = new SimpleBooleanProperty(this, "envelopeFromContext", false);
 
     /** Creates an empty ANF statement control. */
     public AnfStatementControl() {
@@ -105,5 +106,26 @@ public class AnfStatementControl extends KLDiTreeControl {
     /** @param shows whether the control lists what the statement still lacks */
     public final void setShowsMissing(boolean shows) {
         showsMissing.set(shows);
+    }
+
+    /**
+     * Whether the statement's surroundings supply its subject of record and statement time, as a
+     * note does for the statements lifted from it. When true, the control does not list those two
+     * as missing: the statement states them only where it differs from its note. False by default.
+     *
+     * @return the property
+     */
+    public final BooleanProperty envelopeFromContextProperty() {
+        return envelopeFromContext;
+    }
+
+    /** @return whether the surroundings supply the subject of record and statement time */
+    public final boolean isEnvelopeFromContext() {
+        return envelopeFromContext.get();
+    }
+
+    /** @param supplied whether the surroundings supply the subject of record and statement time */
+    public final void setEnvelopeFromContext(boolean supplied) {
+        envelopeFromContext.set(supplied);
     }
 }
