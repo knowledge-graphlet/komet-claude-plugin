@@ -149,7 +149,9 @@ class TornadoChartTest {
                 assertFalse(row.segments.isEmpty());
                 assertEquals(Color.TRANSPARENT, row.segments.get(0).getFill());
                 assertTrue(row.segments.get(0).getWidth() >= 1);
-                assertTrue(row.band.getWidth() > 800, "the band spans the chart");
+                assertTrue(row.band.getWidth() > chart.getWidth() - 20, "the band spans the chart");
+                assertTrue(chart.getWidth() <= 14 * TornadoChart.WIDTH_EMS + 1e-9,
+                        "the chart stops at its cap, not the 900 px stage: " + chart.getWidth());
             }
             assertTrue(chart.prefHeight(900) > moving * 20);
         });

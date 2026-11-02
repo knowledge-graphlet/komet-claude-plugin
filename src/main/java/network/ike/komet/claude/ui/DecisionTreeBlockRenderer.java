@@ -740,7 +740,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                 return "no sure choice";
             }
             return tree.node(alternativeVertex).flatMap(n -> n.concept().isPresent()
-                    ? Optional.of(ids.label(n.concept().getAsLong())) : Optional.empty()).orElse("an alternative");
+                    ? Optional.of(shown.label(n.concept().getAsLong())) : Optional.empty()).orElse("an alternative");
         }
 
         @Override

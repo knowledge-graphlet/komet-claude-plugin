@@ -92,6 +92,8 @@ final class TornadoChart extends Region {
     private static final Color AXIS = Color.web("#777");
     private static final Color GRID = Color.web("#e4e4e4");
     private static final double CAPTION_ROOM = 64;
+    /** The widest the chart grows, in ems of the base size: the documentation figure's 640 px at its 12 px type, a little over. */
+    static final double WIDTH_EMS = 56;
 
     /** One measure's row: its name, the band the pointer rests on, the bar's segments and ticks, and the captions at its ends. */
     final class Row {
@@ -159,7 +161,9 @@ final class TornadoChart extends Region {
         this.lineHeight = Math.ceil(base * 1.35);
         this.rowHeight = lineHeight + 10;
         getStyleClass().add("decision-tornado");
-        setMaxWidth(Double.MAX_VALUE);
+        // as wide as the document's figure in proportion to the type, never the whole card: a card widened
+        // for a deep tree would otherwise stretch every bar across it
+        setMaxWidth(base * WIDTH_EMS);
         net = sweep.netValued();
         // on a net-value axis zero is always in view: it is what every bar is read against
         least = net ? Math.min(0, sweep.leastNet()) : sweep.least();
@@ -557,7 +561,7 @@ final class TornadoChart extends Region {
 
     @Override
     protected double computePrefWidth(double height) {
-        return 400;
+        return base * WIDTH_EMS;
     }
 
     /** A caption or a threshold label, where it goes on its row. */
