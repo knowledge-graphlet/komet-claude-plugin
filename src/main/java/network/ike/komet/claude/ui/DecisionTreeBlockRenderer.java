@@ -829,6 +829,22 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             if (measureVertex == DecisionTreeSensitivity.HEALTH_PRICE) {
                 return;
             }
+            // a value of a tree folded in acts at every outcome that folds that tree in: light the paths to them
+            Optional<DecisionTreeSensitivity.FoldedValue> folded = lastSweep == null ? Optional.empty() : lastSweep.folded(measureVertex);
+            if (folded.isPresent()) {
+                if (diagram != null) {
+                    for (DecisionElement.Outcome outcome : tree.nodesOfType(DecisionElement.Outcome.class)) {
+                        java.util.OptionalLong reference = outcome.treeReference();
+                        if (reference.isPresent() && reference.getAsLong() == folded.get().treeRoot()) {
+                            diagram.lightMeasure(outcome.vertexIndex(), on);
+                        }
+                    }
+                }
+                return;
+            }
+            if (measureVertex < 0) {
+                return;
+            }
             MeasureChip chip = parameterChips.get(measureVertex);
             if (chip != null) {
                 chip.setHot(on);

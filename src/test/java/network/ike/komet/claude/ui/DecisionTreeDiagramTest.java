@@ -24,6 +24,7 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.shape.Polyline;
 import network.ike.komet.claude.block.BlockIdentities;
 import network.ike.komet.claude.decision.Bounds;
+import network.ike.komet.claude.decision.DecisionElement;
 import network.ike.komet.claude.decision.DecisionElement.Alternative;
 import network.ike.komet.claude.decision.DecisionTerms;
 import network.ike.komet.claude.decision.DecisionTree;
@@ -308,6 +309,24 @@ class DecisionTreeDiagramTest {
         if (node instanceof javafx.scene.Parent parent) {
             parent.getChildrenUnmodifiable().forEach(child -> collect(child, sb));
         }
+    }
+
+    @Test
+    @DisplayName("Lighting a code that is no vertex of the tree, a folded tree's value or the price, lights nothing and throws nothing;"
+            + " lighting an outcome lights the run that reaches it")
+    void lightsOnlyVertices() throws Exception {
+        onFx(() -> {
+            DecisionTreeDiagram diagram = drawn(new Recording(), new HashSet<>());
+            diagram.lightMeasure(-1, true);
+            diagram.lightMeasure(-4, true);
+            diagram.lightMeasure(-4, false);
+            DecisionElement.Outcome outcome = tree.nodesOfType(DecisionElement.Outcome.class).getFirst();
+            int branch = tree.parentIndex(outcome.vertexIndex()).orElseThrow();
+            diagram.lightMeasure(outcome.vertexIndex(), true);
+            assertEquals(javafx.scene.paint.Color.web("#d98b1a"), diagram.run(branch).orElseThrow().getStroke(),
+                    "the run to the outcome is lit");
+            diagram.lightMeasure(outcome.vertexIndex(), false);
+        });
     }
 
     /** Runs on the JavaFX thread and waits, rethrowing what failed there. */

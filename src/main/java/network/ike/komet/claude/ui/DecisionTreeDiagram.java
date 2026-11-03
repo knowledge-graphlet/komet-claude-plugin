@@ -715,6 +715,11 @@ final class DecisionTreeDiagram extends Region {
 
     /** Lights a measure: its chip, and the path from the branch that carries it back to the root. */
     void lightMeasure(int measureVertex, boolean on) {
+        // a code that stands for no vertex of this tree, the price of a healthy year or a value of a tree
+        // folded in, has no place in the drawing
+        if (measureVertex < 0) {
+            return;
+        }
         MeasureChip chip = chips.get(measureVertex);
         if (chip != null) {
             chip.setHot(on);
