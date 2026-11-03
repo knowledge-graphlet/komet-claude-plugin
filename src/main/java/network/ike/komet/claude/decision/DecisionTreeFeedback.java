@@ -223,7 +223,8 @@ public final class DecisionTreeFeedback {
 
     public static boolean isFeedback(String content) {
         return content != null && (content.startsWith(PREFIX)
-                || content.startsWith(network.ike.komet.claude.complexconcept.ComplexConceptFeedback.PREFIX));
+                || content.startsWith(network.ike.komet.claude.complexconcept.ComplexConceptFeedback.PREFIX)
+                || content.startsWith(network.ike.komet.claude.anf.AnfFeedback.PREFIX));
     }
 
     /** A finding that informs rather than faults: the symbols the block reads as local to itself. */

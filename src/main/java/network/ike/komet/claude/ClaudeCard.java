@@ -214,7 +214,11 @@ public final class ClaudeCard extends AbstractHostCard {
     private static final String PREF_EXCLUDED_SKILLS =
             "network.ike.komet.claude.excludedSkills";
 
-    private static final int MAX_TOKENS = 8192;
+    /**
+     * The output cap of one request. Thinking counts against it, and an answer that restates a tree
+     * with its statements and a linked tree runs long; 8,192 cut such answers off mid-block.
+     */
+    private static final int MAX_TOKENS = 32_000;
 
     /** The fixed tool-contract half of the system prompt (grounding, badges, koncept-tree). */
     private String promptCore;
@@ -2009,6 +2013,8 @@ public final class ClaudeCard extends AbstractHostCard {
 
         AnthropicClient client = new AnthropicClient(key, model, MAX_TOKENS).effort(configuredEffort());
         List<Map<String, Object>> history = List.copyOf(conv.apiMessages);
+        // why the last request stopped, so a reply with no text says why rather than reading as an answer
+        java.util.concurrent.atomic.AtomicReference<String> stopped = new java.util.concurrent.atomic.AtomicReference<>("");
         AskListener listener = new AskListener() {
             @Override
             public void onTurnStart(int turn) {
@@ -2017,7 +2023,14 @@ public final class ClaudeCard extends AbstractHostCard {
 
             @Override
             public void onToolCall(int turn, String tool, Map<String, Object> args) {
+                LOG.info("Assistant turn {} calls {}", turn, tool);
                 setActivity(conv, "Calling " + tool + "…");
+            }
+
+            @Override
+            public void onDone(String stopReason, int turns, long totalMillis) {
+                stopped.set(stopReason + " after " + turns + (turns == 1 ? " turn" : " turns"));
+                LOG.info("Assistant reply done: stop {}, {} turns, {} ms", stopReason, turns, totalMillis);
             }
 
             @Override
@@ -2038,6 +2051,8 @@ public final class ClaudeCard extends AbstractHostCard {
             String lastReply = null;
             String errorMessage = null;
             int rounds = 0;
+            boolean askedAgain = false;
+            boolean askedShorter = false;
             while (true) {
                 String reply;
                 try {
@@ -2054,6 +2069,29 @@ public final class ClaudeCard extends AbstractHostCard {
                     errorMessage = (root != t && root.getMessage() != null)
                             ? msg + " (" + root.getMessage() + ")" : msg;
                     break;
+                }
+                if (reply == null || reply.isBlank()) {
+                    // an empty reply is no answer: a model may end its turn after a tool's result with nothing
+                    // written, so it is asked once more; a second empty reply says why it stopped, held for Retry
+                    LOG.warn("Assistant returned no text ({}){}", stopped.get(), askedAgain ? "" : "; asking again");
+                    if (!askedAgain) {
+                        askedAgain = true;
+                        setActivity(conv, "The assistant wrote nothing; asking again…");
+                        continue;
+                    }
+                    errorMessage = "the assistant returned no text twice (" + stopped.get() + ")";
+                    break;
+                }
+                boolean cut = stopped.get().startsWith("max_tokens");
+                if (cut && !askedShorter) {
+                    // a reply cut at the output cap ends mid-block: it is not shown, nor read for findings, and the
+                    // assistant is asked once for the whole answer more briefly
+                    LOG.warn("Assistant reply cut at the output limit ({}); asking for it more briefly", stopped.get());
+                    askedShorter = true;
+                    setActivity(conv, "The reply was cut off at the output limit; asking for it more briefly…");
+                    message = message + "\n\n(Your previous reply to this was cut off at the output limit. Give the whole"
+                            + " answer again, more briefly: every block first, complete, then at most three sentences.)";
+                    continue;
                 }
                 lastReply = reply;
                 journalExchange(conv, message, reply);
@@ -2075,8 +2113,12 @@ public final class ClaudeCard extends AbstractHostCard {
                     conv.apiMessages.add(Map.of("role", "assistant", "content", reply));
                     saveConversation(conv);
                 });
-                Optional<String> feedback = rounds < DecisionTreeFeedback.MAX_ROUNDS
+                // findings on a block cut off mid-way would ask for the wrong correction: a cut reply stands as it is
+                Optional<String> feedback = rounds < DecisionTreeFeedback.MAX_ROUNDS && !cut
                         ? decisionTreeFeedback(reply) : Optional.empty();
+                if (cut) {
+                    errorMessage = "the reply was cut off at the output limit";
+                }
                 if (feedback.isEmpty()) {
                     break;
                 }
@@ -2113,6 +2155,8 @@ public final class ClaudeCard extends AbstractHostCard {
                         conv.outcomeStopped = conv.stopRequested;
                         conv.outcome = conv.outcomeStopped
                                 ? "■ Stopped; the first reply stands"
+                                : finalError.startsWith("the reply was cut")
+                                ? "✓ Replied in " + formatElapsed(elapsedMillis) + "; " + finalError
                                 : "✓ Replied in " + formatElapsed(elapsedMillis) + "; the correction failed: " + finalError;
                     } else {
                         conv.outcomeStopped = false;
@@ -2167,7 +2211,8 @@ public final class ClaudeCard extends AbstractHostCard {
      */
     private Optional<String> decisionTreeFeedback(String reply) {
         if (reply == null || (DecisionTreeFeedback.blocks(reply).isEmpty()
-                && network.ike.komet.claude.complexconcept.ComplexConceptFeedback.blocks(reply).isEmpty())) {
+                && network.ike.komet.claude.complexconcept.ComplexConceptFeedback.blocks(reply).isEmpty()
+                && network.ike.komet.claude.anf.AnfFeedback.blocks(reply).isEmpty())) {
             return Optional.empty();
         }
         ViewProperties vp = safeViewProperties();
@@ -2178,10 +2223,10 @@ public final class ClaudeCard extends AbstractHostCard {
             Identities ids = new BlockIdentities(new ViewIdentities(vp.calculator()));
             Optional<String> trees = DecisionTreeFeedback.message(reply, DecisionTerms.fromBindings(), ids);
             Optional<String> concepts = network.ike.komet.claude.complexconcept.ComplexConceptFeedback.message(reply, ids);
-            if (trees.isPresent() && concepts.isPresent()) {
-                return Optional.of(trees.get() + "\n\n" + concepts.get());
-            }
-            return trees.isPresent() ? trees : concepts;
+            Optional<String> statements = network.ike.komet.claude.anf.AnfFeedback.message(reply);
+            String joined = java.util.stream.Stream.of(trees, concepts, statements)
+                    .flatMap(Optional::stream).collect(java.util.stream.Collectors.joining("\n\n"));
+            return joined.isEmpty() ? Optional.empty() : Optional.of(joined);
         } catch (RuntimeException e) {
             LOG.warn("Could not read the reply's blocks for feedback", e);
             return Optional.empty();
