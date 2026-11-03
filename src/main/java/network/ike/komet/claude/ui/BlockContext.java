@@ -189,16 +189,27 @@ public final class BlockContext {
     private final Map<String, Node> treeNodes = new HashMap<>();
     /** By root identifier: the trees that fold that tree in at an outcome. */
     private final Map<String, java.util.Set<String>> foldedBy = new HashMap<>();
+    /** By root identifier: the order of the block that holds it, the latest to define it. */
+    private final Map<String, Long> treeOrders = new HashMap<>();
 
     /**
      * A decision-tree block has read: its body is known by its root's identifier, so an outcome
      * of another tree may fold it in, {@code tree=…}, and its node is where a link to it goes.
      * Listeners hear only when the body changed.
+     *
+     * <p>A conversation restates a tree under the same identifier in every correction, so the
+     * block made latest, by {@code order}, holds it; an earlier block that rebuilds does not take
+     * it back. Two blocks taking it in turn would each tell the other the body changed, without end.
      */
-    public synchronized void defineTree(String identifier, String body, Node node) {
+    public synchronized void defineTree(String identifier, String body, Node node, long order) {
         if (identifier == null || identifier.isBlank() || body == null) {
             return;
         }
+        Long holder = treeOrders.get(identifier);
+        if (holder != null && holder > order) {
+            return;
+        }
+        treeOrders.put(identifier, order);
         if (node != null) {
             treeNodes.put(identifier, node);
         }

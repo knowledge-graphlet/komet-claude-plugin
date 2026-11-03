@@ -124,6 +124,9 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         private BlockRewriter rewriter;
     private final BlockContext context;
 
+    /** Gives each block its {@link Live#order}. */
+    private static final java.util.concurrent.atomic.AtomicLong ORDERS = new java.util.concurrent.atomic.AtomicLong();
+
     /** Where a sweep runs: one thread behind the surface; a test may run it in place. */
     static Executor sweepExecutor = Executors.newSingleThreadExecutor(runnable -> {
         Thread thread = new Thread(runnable, "decision-tree-sweep");
@@ -228,8 +231,10 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         TornadoChart tornado;
         Label priceMark;
         final Map<Integer, MeasureChip> parameterChips = new HashMap<>();
-        /** Which rebuild a sweep belongs to: a sweep that lands after the next rebuild is dropped. */
-        int generation;
+        /** Which rebuild a sweep belongs to: a sweep that lands after the next rebuild is dropped, or not started. */
+        volatile int generation;
+        /** When this block was made, among the blocks of every document: the latest of those restating a tree holds it. */
+        final long order = ORDERS.incrementAndGet();
         /** The top of the column: header, parameters and the drawing, redrawn alone during a preview. */
         final VBox top = new VBox(6);
         /** The rollback the block stands at, which a preview is drawn against. */
@@ -319,7 +324,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             findings.addAll(tree.check().castToList());
             // known to the document by its root, so another tree may fold it in; then the document's trees are what this one folds in
             treeId = LinkedTrees.rootIdentifier(tree, ids).orElse(null);
-            context.defineTree(treeId, body, column);
+            context.defineTree(treeId, body, column, order);
             linked = LinkedTrees.of(context.trees(), terms, ids, context.externals());
             Rollback rollback = Rollback.of(tree, coordinate(tree, price), linked);
             rollback.foldedAll().forEachValue(inner ->
@@ -386,6 +391,9 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             String text = body;
             double at = price;
             sweepExecutor.execute(() -> {
+                if (mine != generation) {
+                    return;
+                }
                 Optional<DecisionTreeSensitivity> swept;
                 try {
                     swept = BlockSweep.sweep(text, terms, ids, at, BlockSweep.DEFAULT_STEPS, context.externals(), context.trees());
