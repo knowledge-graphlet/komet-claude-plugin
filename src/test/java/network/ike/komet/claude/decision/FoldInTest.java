@@ -118,6 +118,20 @@ class FoldInTest {
     }
 
     @Test
+    @DisplayName("A tree folded in before its block is read takes the name its root line writes")
+    void foldedTreeIsNamedByItsRootLine() {
+        Identities ids = BlockIdentities.storeFree();
+        // a reply writes the folding tree first, so tree=rda-rupture-consequences is read before the tree's root line
+        DecisionTreeText.parse(CHOICE, T, ids);
+        long consequences = ids.nid("rda-rupture-consequences").orElseThrow();
+        assertEquals("rda-rupture-consequences", ids.label(consequences));
+        DecisionTreeText.parse(CONSEQUENCES, T, ids);
+        assertEquals("Consequences of a rupture", ids.label(consequences));
+        assertEquals("Consequences of a rupture", DecisionTreeText.parse(CHOICE, T, ids).labelled(ids).label(consequences),
+                "the folding tree, read again, names the tree it folds in");
+    }
+
+    @Test
     @DisplayName("The assistant's two trees in one reply fold together; a tree from an earlier reply is passed over")
     void feedbackFoldsTheReplysTrees() {
         String both = "```decision-tree\n" + CONSEQUENCES + "```\n\n```decision-tree\n" + CHOICE + "```\n";

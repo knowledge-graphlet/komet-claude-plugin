@@ -85,11 +85,15 @@ public final class BlockIdentities implements Identities {
     @Override
     public OptionalLong local(String identifier, String label) {
         Long nid = nids.get(identifier);
+        boolean named = label != null && !label.isBlank();
         if (nid == null) {
             nid = FIRST_LOCAL - nids.size();
             nids.put(identifier, nid);
             identifiers.put(nid, identifier);
-            labels.put(nid, label == null || label.isBlank() ? identifier : label);
+            labels.put(nid, named ? label : identifier);
+        } else if (named && identifier.equals(labels.get(nid))) {
+            // read first where only the identifier was written, tree=<identifier>; the line that names it names it
+            labels.put(nid, label);
         }
         return OptionalLong.of(nid);
     }

@@ -76,6 +76,19 @@ class BlockIdentitiesTest {
     }
 
     @Test
+    @DisplayName("A symbol first read without a label takes the label of the line that names it")
+    void aBareReferenceTakesTheNameWrittenLater() {
+        BlockIdentities ids = new BlockIdentities(STORE);
+        // an outcome folds the tree in, tree=rda-consequences, before the tree's root line is read
+        long tree = ids.local("rda-consequences", "").orElseThrow();
+        assertEquals("rda-consequences", ids.label(tree));
+        assertEquals(tree, ids.local("rda-consequences", "What a rupture leads to").orElseThrow());
+        assertEquals("What a rupture leads to", ids.label(tree));
+        assertEquals("What a rupture leads to", ids.label(ids.local("rda-consequences", "another label").orElseThrow()),
+                "a written label, once read, stands");
+    }
+
+    @Test
     @DisplayName("A local nid lies above every nid a store issues, so it can never be mistaken for one")
     void localNidsAreOutOfEveryStore() {
         BlockIdentities ids = BlockIdentities.storeFree();

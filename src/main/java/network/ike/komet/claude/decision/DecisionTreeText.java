@@ -826,6 +826,10 @@ public final class DecisionTreeText {
             }
             OptionalLong nid = ids.nid(id);
             if (nid.isPresent()) {
+                if (ids.isLocal(nid.getAsLong())) {
+                    // made local by another block, perhaps only by its identifier, tree=<identifier>: offer the label
+                    ids.local(id, label);
+                }
                 return nid;
             }
             OptionalLong local = ids.local(id, label);
