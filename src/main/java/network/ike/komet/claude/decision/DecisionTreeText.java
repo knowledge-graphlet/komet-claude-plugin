@@ -394,15 +394,18 @@ public final class DecisionTreeText {
             return new Parsed(Optional.empty(), reader.findings.toImmutable());
         }
         Line root = lines.roots().get(0);
-        if (root.form() != Form.VERTEX || !"decision".equals(root.word())) {
-            reader.findings.add(finding(root, "the root is not a decision"));
+        if (root.form() != Form.VERTEX || !("decision".equals(root.word()) || "chance".equals(root.word()))) {
+            reader.findings.add(finding(root, "the root is not a decision or a chance"));
             return new Parsed(Optional.empty(), reader.findings.toImmutable());
         }
         DecisionTree.Builder builder = DecisionTree.builder(terms);
-        DecisionTree.Builder.Handle rootHandle = builder.decision(reader.concept(root, "a decision"), reader.vertexId(root));
+        // a root chance is a tree of consequences with no choice in it, which other trees fold in
+        DecisionTree.Builder.Handle rootHandle = "chance".equals(root.word())
+                ? builder.rootChance(reader.concept(root, "a chance"), reader.vertexId(root))
+                : builder.decision(reader.concept(root, "a decision"), reader.vertexId(root));
         reader.lines.put(rootHandle.vertexIndex(), root.number());
         reader.attributes(root, rootHandle, false);
-        reader.children(root, rootHandle, "decision");
+        reader.children(root, rootHandle, root.word());
         for (long quantity : reader.readQuantities) {
             if (reader.parameterQuantities.contains(quantity)) {
                 continue;

@@ -308,7 +308,13 @@ public final class DecisionFigureText {
      * many. The outcome names and counts are given in order.
      */
     public static String tally(String alternative, double size, List<String> names, List<Double> counts) {
-        StringBuilder sb = new StringBuilder("Of ").append(count(size)).append(" who take \u201C").append(alternative).append("\u201D: ");
+        return tally(alternative, false, size, names, counts);
+    }
+
+    /** Where a cohort ends up, entering a tree of consequences with no choice at its root when {@code entering}. */
+    public static String tally(String alternative, boolean entering, double size, List<String> names, List<Double> counts) {
+        StringBuilder sb = new StringBuilder("Of ").append(count(size)).append(entering ? " who reach \u201C" : " who take \u201C")
+                .append(alternative).append("\u201D: ");
         for (int i = 0; i < names.size(); i++) {
             if (i > 0) {
                 sb.append(i == names.size() - 1 ? " and " : ", ");

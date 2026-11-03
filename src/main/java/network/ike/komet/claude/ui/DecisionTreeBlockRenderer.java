@@ -67,6 +67,7 @@ import network.ike.komet.claude.decision.Derivations;
 import network.ike.komet.claude.decision.Measure;
 import network.ike.komet.claude.decision.Rollback;
 import network.ike.komet.claude.decision.Tradeoff;
+import network.ike.komet.claude.decision.LinkedTrees;
 import network.ike.komet.claude.decision.TreeStatements;
 import network.ike.komet.claude.anf.AnfAdoc;
 import network.ike.komet.claude.anf.AnfStatement;
@@ -169,7 +170,8 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
 
     /**
      * Whether a block is this profile's: tagged {@code decision-tree}, or {@code property-graph}
-     * with {@code profile=decision-tree}, and opening with a root decision line.
+     * with {@code profile=decision-tree}, and opening with a root decision line, or a root chance
+     * line for a tree of consequences that others fold in.
      */
     static boolean accepts(String info, String literal) {
         if (!DecisionTreeText.isTagged(info)) {
@@ -178,7 +180,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         BlockLines.Parsed lines = BlockLines.parse(literal);
         return lines.roots().size() == 1
                 && lines.roots().get(0).form() == BlockLines.Form.VERTEX
-                && "decision".equals(lines.roots().get(0).word());
+                && ("decision".equals(lines.roots().get(0).word()) || "chance".equals(lines.roots().get(0).word()));
     }
 
     /**
@@ -273,7 +275,32 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             }
         }
 
+        /** Whether a rebuild is running, and whether another was asked for meanwhile, as a tree this one registers may ask. */
+        private boolean rebuilding;
+        private boolean rebuildAgain;
+        /** The identifier of this tree's root, which another tree folds it in by; null when the root names none. */
+        String treeId;
+        /** The trees of the document an outcome of this tree may fold in. */
+        LinkedTrees linked = LinkedTrees.none();
+
         void rebuild() {
+            if (rebuilding) {
+                rebuildAgain = true;
+                return;
+            }
+            rebuilding = true;
+            try {
+                rebuildNow();
+            } finally {
+                rebuilding = false;
+            }
+            if (rebuildAgain) {
+                rebuildAgain = false;
+                rebuild();
+            }
+        }
+
+        private void rebuildNow() {
             generation++;
             tornado = null;
             lastSweep = null;
@@ -290,14 +317,23 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             }
             tree = parsed.tree().get();
             findings.addAll(tree.check().castToList());
-                        Rollback rollback = Rollback.of(tree, coordinate(tree, price));
+            // known to the document by its root, so another tree may fold it in; then the document's trees are what this one folds in
+            treeId = LinkedTrees.rootIdentifier(tree, ids).orElse(null);
+            context.defineTree(treeId, body, column);
+            linked = LinkedTrees.of(context.trees(), terms, ids, context.externals());
+            Rollback rollback = Rollback.of(tree, coordinate(tree, price), linked);
+            rollback.foldedAll().forEachValue(inner ->
+                    LinkedTrees.rootIdentifier(inner.tree(), ids).ifPresent(folded -> context.noteFoldIn(treeId, folded)));
             // a parameter with no line was read from another block; a measure that reads a quantity no
             // parameter states is waiting for one
             // a statement a node names by an anf block not drawn yet is waiting for it, as a quantity is
             readsExternal = tree.nodesOfType(Parameter.class).anySatisfy(p -> parsed.lineOf(p.vertexIndex()).isEmpty())
                     || rollback.findings().anySatisfy(f -> f.message().contains("has no parameter for"))
                     || findings.stream().anyMatch(f -> f.message().contains("has no parameter for"))
-                    || TreeStatements.held(parsed).stream().anyMatch(h -> context.statement(h.name()).isEmpty());
+                    || TreeStatements.held(parsed).stream().anyMatch(h -> context.statement(h.name()).isEmpty())
+                    // a tree it folds in not drawn yet, or a tree others fold in, which links back to them
+                    || rollback.findings().anySatisfy(f -> f.message().equals(Rollback.FOLDS_IN_NOTHING))
+                    || tree.root().filter(r -> !(r instanceof DecisionElement.Decision)).isPresent();
             committed = rollback;
             committedFindings = findings;
             fillTop(tree, rollback, price, Optional.empty(), findings);
@@ -352,7 +388,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             sweepExecutor.execute(() -> {
                 Optional<DecisionTreeSensitivity> swept;
                 try {
-                                        swept = BlockSweep.sweep(text, terms, ids, at, BlockSweep.DEFAULT_STEPS, context.externals());
+                    swept = BlockSweep.sweep(text, terms, ids, at, BlockSweep.DEFAULT_STEPS, context.externals(), context.trees());
                 } catch (RuntimeException e) {
                     swept = Optional.empty();
                 }
@@ -466,8 +502,8 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             // the ledger: every alternative's consequences in their own units
             String healthUnit = unitName(rollback.coordinate().healthSemantic(), "");
             List<List<String>> table = DecisionTreeFigures.ledgerTable(drawn, rollback, shown, symbol(), healthUnit, cohort);
-            if (table.size() > 2) {
-                Label title = new Label(DecisionTreeFigures.ledgerTitle(cohort));
+            if (table.size() > (drawn.decision().isPresent() ? 2 : 1)) {
+                Label title = new Label(DecisionTreeFigures.ledgerTitle(cohort, drawn.decision().isPresent()));
                 title.setFont(Font.font(null, FontWeight.BOLD, base * 0.85));
                 title.setPadding(new Insets(4, 0, 0, 0));
                 top.getChildren().add(title);
@@ -541,7 +577,14 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             Label title = new Label("Decision tree");
             title.setFont(Font.font(null, FontWeight.BOLD, base));
             header.getChildren().add(title);
-            drawn.decision().ifPresent(decision -> concept(decision.concept()).ifPresent(header.getChildren()::add));
+            drawn.root().ifPresent(root -> concept(root.concept()).ifPresent(header.getChildren()::add));
+            // the trees that fold this one in, each a link back to where it is folded in
+            if (treeId != null) {
+                for (String folding : context.foldedBy(treeId)) {
+                    ids.nid(folding).ifPresent(nid -> header.getChildren().add(
+                            treeLink("folded in by", shown.label(nid), folding)));
+                }
+            }
             Label priceLabel = new Label("healthy year at");
             priceLabel.setFont(Font.font(base * 0.9));
             TextField priceField = new TextField(Tokens.number(at));
@@ -682,12 +725,33 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         }
 
         @Override
+        public Optional<Node> foldIn(int outcomeVertex) {
+            return tree.node(outcomeVertex)
+                    .filter(DecisionElement.Outcome.class::isInstance)
+                    .map(DecisionElement.Outcome.class::cast)
+                    .flatMap(outcome -> {
+                        java.util.OptionalLong reference = outcome.treeReference();
+                        if (reference.isEmpty()) {
+                            return Optional.empty();
+                        }
+                        String identifier = ids.identifier(reference.getAsLong()).orElse("");
+                        return Optional.of(treeLink("folds in", shown.label(reference.getAsLong()), identifier));
+                    });
+        }
+
+        @Override
         public Optional<Node> statements(int vertexIndex) {
             List<String> names = parsed.documentStatements(vertexIndex);
-            if (names.isEmpty()) {
+            // a decision whose concept is a complex concept is made in the situation its prerequisites state
+            OptionalLong situation = tree.node(vertexIndex)
+                    .filter(DecisionElement.Decision.class::isInstance)
+                    .map(DecisionElement::concept)
+                    .filter(c -> c.isPresent() && context.complexConcept(c.getAsLong()).isPresent())
+                    .orElse(OptionalLong.empty());
+            if (names.isEmpty() && situation.isEmpty()) {
                 return Optional.empty();
             }
-            return Optional.of(statementMark(names));
+            return Optional.of(statementMark(names, situation));
         }
 
         @Override
@@ -822,7 +886,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             List<ProfileFinding> findings = new ArrayList<>(again.findings().castToList());
             findings.addAll(drawn.check().castToList());
             previewing = true;
-            fillTop(drawn, Rollback.of(drawn, coordinate(drawn, at)), at, Optional.of(committed), findings);
+            fillTop(drawn, Rollback.of(drawn, coordinate(drawn, at), linked), at, Optional.of(committed), findings);
         }
 
         /** Whether the top of the column shows a preview rather than where the block stands; for a test. */
@@ -901,6 +965,30 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         return chip;
     }
 
+    /**
+     * A link to another tree of the document: the words, the tree's name, and a click that scrolls
+     * the surface to it; a tree the document does not draw is named but goes nowhere.
+     */
+    private Node treeLink(String words, String name, String identifier) {
+        Label link = new Label(words + " \u201C" + name + "\u201D \u2197");
+        link.getStyleClass().add("decision-tree-link");
+        link.setId("tree-link-" + identifier);
+        link.setFont(Font.font(base * 0.85));
+        boolean drawn = context.treeNode(identifier).isPresent();
+        link.setStyle("-fx-text-fill: " + (drawn ? "#1f5fa8" : "#8a5a00") + "; -fx-underline: " + drawn + ";");
+        if (drawn) {
+            link.setCursor(javafx.scene.Cursor.HAND);
+            link.setTooltip(new Tooltip("Go to the tree \u201C" + name + "\u201D"));
+            link.setOnMouseClicked(e -> {
+                context.treeNode(identifier).ifPresent(SurfaceNavigation::reveal);
+                e.consume();
+            });
+        } else {
+            link.setTooltip(new Tooltip("No block of this document draws the tree \u201C" + name + "\u201D yet"));
+        }
+        return link;
+    }
+
     /** The statement type of an ANF statement. */
     static TreeStatements.Kind kind(AnfStatement statement) {
         return switch (statement.circumstance()) {
@@ -914,7 +1002,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
      * The mark beside a node's name that it holds ANF statements: resting on it shows each
      * statement as written, a click peeks at each one's card, editable, writing back to its block.
      */
-    private Node statementMark(List<String> names) {
+    private Node statementMark(List<String> names, OptionalLong situation) {
         Label mark = new Label("ANF");
         mark.setId("anf-statement-mark");
         mark.setFont(Font.font(null, FontWeight.BOLD, base * 0.7));
@@ -922,6 +1010,8 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                 + " -fx-padding: 0 4 0 4; -fx-border-color: #9db3d6; -fx-border-radius: 4; -fx-border-width: 1;");
         mark.setCursor(javafx.scene.Cursor.HAND);
         List<String> written = new ArrayList<>();
+        situation.ifPresent(nid -> context.complexConcept(nid).ifPresent(spec ->
+                written.add("The situation, as the complex concept's prerequisites state it:\n" + ComplexConceptText.describe(spec))));
         for (String name : names) {
             written.add(context.statement(name)
                     .map(statement -> "anf:" + name + "\n" + AnfAdoc.toAdoc(statement).strip())
@@ -932,6 +1022,11 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         mark.setTooltip(tip);
         mark.setOnMouseClicked(e -> {
             VBox cards = new VBox(6);
+            situation.ifPresent(nid -> context.complexConceptCard(nid).ifPresent(card -> {
+                Label heading = new Label("The situation: the complex concept's prerequisites, each a performance statement");
+                heading.setFont(Font.font(null, FontWeight.BOLD, base * 0.85));
+                cards.getChildren().addAll(heading, card.get());
+            }));
             for (String name : names) {
                 context.statementCard(name).ifPresent(card -> {
                     Label heading = new Label("anf:" + name + ", " + context.statement(name)

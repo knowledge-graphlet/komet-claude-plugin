@@ -65,7 +65,7 @@ class TreeStatementsTest {
         List<String> findings = TreeStatements.findings(tree, parsed.labelled(BlockIdentities.storeFree()), parsed,
                 name -> Optional.ofNullable(kinds.get(name)), true);
         assertEquals(3, findings.size(), () -> "" + findings);
-        assertTrue(findings.get(0).startsWith("the chance “MRA result” holds anf:perf-positive, but a decision or chance holds no statement"),
+        assertTrue(findings.get(0).startsWith("the chance “MRA result” holds anf:perf-positive, but a chance holds no statement"),
                 findings.get(0));
         assertTrue(findings.get(1).startsWith("the outcome “found” holds anf:req-scan, a request statement"), findings.get(1));
         assertTrue(findings.get(2).contains("anf:perf-negative, which no anf block before the tree names"), findings.get(2));
@@ -93,7 +93,7 @@ class TreeStatementsTest {
         Optional<String> message = DecisionTreeFeedback.message(reply, T, BlockIdentities.storeFree());
         assertTrue(message.isPresent());
         assertTrue(message.get().contains("the event “positive” holds anf:perf-positive, a request statement;"
-                + " an alternative holds a request, an event or outcome a performance"), message.get());
+                + " an alternative holds a request, a decision, an event or an outcome a performance"), message.get());
         assertTrue(!message.get().contains("perf-negative"), "a name the reply does not give is passed over");
     }
 }

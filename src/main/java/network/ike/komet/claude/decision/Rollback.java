@@ -63,10 +63,18 @@ public final class Rollback {
     private final Derivations derivations;
     /** Whether the tree prices nothing: no money and no health anywhere, only counts, so no decision can be made on cost. */
     private final boolean unpriced;
+    /** The trees an outcome may fold in, {@code tree=…}, read under the same identities. */
+    private final LinkedTrees linked;
+    /** The root concepts of the trees being rolled back on the way here, so a tree that folds itself in is refused. */
+    private final java.util.Set<Long> folding;
+    /** By outcome: the rollback of the tree it folds in. */
+    private final MutableIntObjectMap<Rollback> folded = IntObjectMaps.mutable.empty();
 
-    private Rollback(DecisionTree tree, ValuationCoordinate coordinate) {
+    private Rollback(DecisionTree tree, ValuationCoordinate coordinate, LinkedTrees linked, java.util.Set<Long> folding) {
         this.tree = tree;
         this.coordinate = coordinate;
+        this.linked = linked;
+        this.folding = folding;
         this.derivations = Derivations.of(tree);
         this.unpriced = tree.nodesOfType(MoneyCost.class).isEmpty() && tree.nodesOfType(HealthCost.class).isEmpty();
     }
@@ -81,16 +89,48 @@ public final class Rollback {
         return derivations;
     }
 
-    /** Rolls a tree back under a coordinate. */
+    /** Rolls a tree back under a coordinate; an outcome that folds in another tree is not determinable. */
     public static Rollback of(DecisionTree tree, ValuationCoordinate coordinate) {
-        Rollback rollback = new Rollback(tree, coordinate);
-        Optional<Decision> root = tree.decision();
-        if (root.isEmpty()) {
-            rollback.findings.add(ProfileFinding.ofTree("the root is not a decision"));
+        return of(tree, coordinate, LinkedTrees.none());
+    }
+
+    /**
+     * Rolls a tree back under a coordinate, folding in at an outcome that names one, {@code tree=…},
+     * the tree whose root is that concept: its expected cost from its root, at the same price,
+     * added to the outcome's own costs. A tree that folds itself in, on any path, is refused.
+     */
+    public static Rollback of(DecisionTree tree, ValuationCoordinate coordinate, LinkedTrees linked) {
+        return of(tree, coordinate, linked, java.util.Set.of());
+    }
+
+    private static Rollback of(DecisionTree tree, ValuationCoordinate coordinate, LinkedTrees linked, java.util.Set<Long> folding) {
+        java.util.Set<Long> here = new java.util.HashSet<>(folding);
+        tree.root().ifPresent(root -> root.concept().ifPresent(here::add));
+        Rollback rollback = new Rollback(tree, coordinate, linked, java.util.Set.copyOf(here));
+        Optional<DecisionElement> root = tree.root();
+        if (root.isPresent() && root.get() instanceof Decision decision) {
+            rollback.value(decision);
+        } else if (root.isPresent() && root.get() instanceof Chance chance) {
+            rollback.value(chance);
         } else {
-            rollback.value(root.get());
+            rollback.findings.add(ProfileFinding.ofTree("the root is neither a decision nor a chance"));
         }
         return rollback;
+    }
+
+    /** The rollback of the tree an outcome folds in, when it folds one in and that tree was found. */
+    public Optional<Rollback> folded(int outcomeVertex) {
+        return Optional.ofNullable(folded.get(outcomeVertex));
+    }
+
+    /** Every outcome that folds in a tree, with that tree's rollback. */
+    public org.eclipse.collections.api.map.primitive.ImmutableIntObjectMap<Rollback> foldedAll() {
+        return folded.toImmutable();
+    }
+
+    /** The trees this rollback folds in at outcomes, as it was given them. */
+    public LinkedTrees linked() {
+        return linked;
     }
 
     public DecisionTree tree() {
@@ -133,11 +173,36 @@ public final class Rollback {
             case Decision decision -> decide(decision);
             case Chance chance -> expect(chance);
             case Branch branch -> follow(branch);
-            case Outcome outcome -> costs(outcome.vertexIndex(), outcome.costs());
+            case Outcome outcome -> outcome(outcome);
         };
         value.ifPresent(bounds -> values.put(node.vertexIndex(), bounds));
         return value;
     }
+
+    /** An outcome's own costs, and the expected cost of the tree it folds in, when it folds one in. */
+    private Optional<Bounds> outcome(Outcome outcome) {
+        Optional<Bounds> own = costs(outcome.vertexIndex(), outcome.costs());
+        java.util.OptionalLong reference = outcome.treeReference();
+        if (own.isEmpty() || reference.isEmpty()) {
+            return own;
+        }
+        if (folding.contains(reference.getAsLong())) {
+            return notDeterminable(outcome.vertexIndex(), "folds in a tree that folds this one in");
+        }
+        Optional<DecisionTree> other = linked.tree(reference.getAsLong());
+        if (other.isEmpty()) {
+            return notDeterminable(outcome.vertexIndex(), FOLDS_IN_NOTHING);
+        }
+        Rollback inner = of(other.get(), coordinate, linked, folding);
+        folded.put(outcome.vertexIndex(), inner);
+        if (inner.rootValue().isEmpty()) {
+            return notDeterminable(outcome.vertexIndex(), "the tree it folds in is not determinable");
+        }
+        return Optional.of(own.get().plus(inner.rootValue().get()));
+    }
+
+    /** The finding on an outcome whose {@code tree=} names no tree the document draws. */
+    public static final String FOLDS_IN_NOTHING = "folds in a tree that no block of the document draws";
 
     private Optional<Bounds> decide(Decision decision) {
         ImmutableList<Alternative> alternatives = decision.alternatives();

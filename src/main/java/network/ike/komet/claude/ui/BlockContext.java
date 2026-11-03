@@ -183,6 +183,55 @@ public final class BlockContext {
         return Optional.ofNullable(complexConcepts.get(conceptNid));
     }
 
+    /** By root identifier: the body of each decision-tree block, which an outcome of another tree may fold in. */
+    private final Map<String, String> trees = new java.util.LinkedHashMap<>();
+    /** By root identifier: the node that draws the tree, which a link from another tree scrolls to. */
+    private final Map<String, Node> treeNodes = new HashMap<>();
+    /** By root identifier: the trees that fold that tree in at an outcome. */
+    private final Map<String, java.util.Set<String>> foldedBy = new HashMap<>();
+
+    /**
+     * A decision-tree block has read: its body is known by its root's identifier, so an outcome
+     * of another tree may fold it in, {@code tree=…}, and its node is where a link to it goes.
+     * Listeners hear only when the body changed.
+     */
+    public synchronized void defineTree(String identifier, String body, Node node) {
+        if (identifier == null || identifier.isBlank() || body == null) {
+            return;
+        }
+        if (node != null) {
+            treeNodes.put(identifier, node);
+        }
+        if (!body.equals(trees.put(identifier, body))) {
+            notifyListeners();
+        }
+    }
+
+    /** Every tree block of the document, by its root's identifier. */
+    public synchronized Map<String, String> trees() {
+        return Map.copyOf(trees);
+    }
+
+    /** The node that draws the tree whose root has an identifier, when a block draws it. */
+    public synchronized Optional<Node> treeNode(String identifier) {
+        return Optional.ofNullable(treeNodes.get(identifier));
+    }
+
+    /** A tree folds another in at an outcome: the other may link back. Listeners hear only the first time. */
+    public synchronized void noteFoldIn(String folding, String folded) {
+        if (folding == null || folded == null) {
+            return;
+        }
+        if (foldedBy.computeIfAbsent(folded, k -> new java.util.LinkedHashSet<>()).add(folding)) {
+            notifyListeners();
+        }
+    }
+
+    /** The trees that fold in the tree whose root has an identifier, by their roots' identifiers. */
+    public synchronized java.util.Set<String> foldedBy(String identifier) {
+        return java.util.Set.copyOf(foldedBy.getOrDefault(identifier, java.util.Set.of()));
+    }
+
     /** An anf block named its statement: a peek from another block raises the card this supplies, editable. */
     public synchronized void defineStatementCard(String name, Supplier<Node> card) {
         if (name != null && !name.isBlank() && card != null) {

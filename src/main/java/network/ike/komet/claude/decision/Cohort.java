@@ -59,23 +59,43 @@ public final class Cohort {
 
     private final double size;
     private final MutableIntDoubleMap counts = IntDoubleMaps.mutable.empty();
+    /** By outcome: the count of the tree it folds in, for those who reach the outcome. */
+    private final org.eclipse.collections.api.map.primitive.MutableIntObjectMap<Cohort> folded =
+            org.eclipse.collections.api.factory.primitive.IntObjectMaps.mutable.empty();
     private final ImmutableList<Tally> tallies;
 
     private Cohort(DecisionTree tree, Rollback rollback, double size) {
         this.size = size;
         MutableList<Tally> tallies = Lists.mutable.empty();
-        Optional<Decision> root = tree.decision();
-        if (root.isPresent()) {
-            walk(root.get(), rollback, size);
-            for (Alternative alternative : root.get().alternatives()) {
+        Optional<DecisionElement> root = tree.root();
+        if (root.isPresent() && root.get() instanceof Decision decision) {
+            walk(decision, rollback, size);
+            for (Alternative alternative : decision.alternatives()) {
                 Map<Object, Leaf> leaves = new LinkedHashMap<>();
                 gather(alternative, rollback, leaves);
-                MutableList<Leaf> sorted = Lists.mutable.withAll(leaves.values());
-                sorted.sortThis(Comparator.comparingDouble(Leaf::count).reversed());
-                tallies.add(new Tally(alternative.vertexIndex(), size, sorted.toImmutable()));
+                tallies.add(new Tally(alternative.vertexIndex(), size, sorted(leaves)));
             }
+        } else if (root.isPresent() && root.get() instanceof Chance chance) {
+            // a tree of consequences: one tally, of everyone who enters it
+            walk(chance, rollback, size);
+            Map<Object, Leaf> leaves = new LinkedHashMap<>();
+            for (Event event : chance.events()) {
+                gather(event, rollback, leaves);
+            }
+            tallies.add(new Tally(chance.vertexIndex(), size, sorted(leaves)));
         }
         this.tallies = tallies.toImmutable();
+    }
+
+    private static ImmutableList<Leaf> sorted(Map<Object, Leaf> leaves) {
+        MutableList<Leaf> sorted = Lists.mutable.withAll(leaves.values());
+        sorted.sortThis(Comparator.comparingDouble(Leaf::count).reversed());
+        return sorted.toImmutable();
+    }
+
+    /** The count of the tree an outcome folds in, for those who reach the outcome, when it folds one in. */
+    public Optional<Cohort> folded(int outcomeVertex) {
+        return Optional.ofNullable(folded.get(outcomeVertex));
     }
 
     /** Counts a tree out for a cohort of a size, following the rollback's choices beneath the root. */
@@ -116,7 +136,8 @@ public final class Cohort {
                 }
             }
             case Branch branch -> branch.next().ifPresent(next -> walk(next, rollback, count));
-            case Outcome outcome -> { }
+            case Outcome outcome -> rollback.folded(outcome.vertexIndex()).ifPresent(inner ->
+                    folded.put(outcome.vertexIndex(), new Cohort(inner.tree(), inner, count)));
         }
     }
 
@@ -158,7 +179,21 @@ public final class Cohort {
             return;
         }
         switch (next.get()) {
-            case Outcome outcome -> leaf(outcome, here.getAsDouble(), leaves);
+            case Outcome outcome -> {
+                // an outcome that folds in a tree ends where that tree's leaves do
+                Cohort inner = folded.get(outcome.vertexIndex());
+                if (inner == null) {
+                    leaf(outcome, here.getAsDouble(), leaves);
+                } else {
+                    for (Tally tally : inner.tallies()) {
+                        for (Leaf leaf : tally.leaves()) {
+                            Object key = leaf.concept().isPresent() ? (Object) leaf.concept().getAsLong() : (Object) ("folded " + leaf.vertexIndex());
+                            Leaf was = leaves.get(key);
+                            leaves.put(key, new Leaf(leaf.concept(), leaf.vertexIndex(), (was == null ? 0 : was.count()) + leaf.count()));
+                        }
+                    }
+                }
+            }
             case Chance chance -> {
                 for (Event event : chance.events()) {
                     gather(event, rollback, leaves);

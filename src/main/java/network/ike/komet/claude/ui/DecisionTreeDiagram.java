@@ -93,6 +93,11 @@ final class DecisionTreeDiagram extends Region {
             return concept(nid);
         }
 
+        /** The link from an outcome to the tree it folds in, beside its name, or empty when it folds in none. */
+        default Optional<Node> foldIn(int outcomeVertex) {
+            return Optional.empty();
+        }
+
         /** The mark of the ANF statements a node holds, beside its name, or empty when it holds none. */
         default Optional<Node> statements(int vertexIndex) {
             return Optional.empty();
@@ -251,6 +256,7 @@ final class DecisionTreeDiagram extends Region {
         } else {
             host.concept(node.concept()).ifPresent(nameLine.getChildren()::add);
             host.statements(index).ifPresent(nameLine.getChildren()::add);
+            host.foldIn(index).ifPresent(nameLine.getChildren()::add);
         }
         if (terminal) {
             // value and name on one line, the outcome's own costs beneath

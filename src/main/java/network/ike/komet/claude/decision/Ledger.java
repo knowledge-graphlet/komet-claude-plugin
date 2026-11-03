@@ -68,23 +68,34 @@ public final class Ledger {
 
     /** The ledger of a tree rolled back under a coordinate; empty when the root is not a decision. */
     public static Optional<Ledger> of(DecisionTree tree, Rollback rollback) {
-        Optional<Decision> root = tree.decision();
-        if (root.isEmpty()) {
+        Optional<DecisionElement> root = tree.root();
+        if (root.isEmpty() || !(root.get() instanceof Decision || root.get() instanceof Chance)) {
             return Optional.empty();
         }
         List<Long> units = new ArrayList<>();
-        for (CountCost count : tree.nodesOfType(CountCost.class)) {
+        units(rollback, units);
+        List<Entry> entries = new ArrayList<>();
+        if (root.get() instanceof Decision decision) {
+            for (Alternative alternative : decision.alternatives()) {
+                expected(tree, rollback, alternative.vertexIndex()).ifPresent(entries::add);
+            }
+        } else {
+            // a tree of consequences: one row, what everyone who enters it can expect
+            expected(tree, rollback, tree.rootIndex()).ifPresent(entries::add);
+        }
+        return Optional.of(new Ledger(org.eclipse.collections.api.factory.Lists.immutable.withAll(entries), units,
+                rollback.chosen(tree.rootIndex())));
+    }
+
+    /** The units a tree counts, then those of every tree it folds in, in order of first appearance. */
+    private static void units(Rollback rollback, List<Long> units) {
+        for (CountCost count : rollback.tree().nodesOfType(CountCost.class)) {
             long unit = count.measure().semanticNid();
             if (unit != 0 && !units.contains(unit)) {
                 units.add(unit);
             }
         }
-        List<Entry> entries = new ArrayList<>();
-        for (Alternative alternative : root.get().alternatives()) {
-            expected(tree, rollback, alternative.vertexIndex()).ifPresent(entries::add);
-        }
-        return Optional.of(new Ledger(org.eclipse.collections.api.factory.Lists.immutable.withAll(entries), units,
-                rollback.chosen(tree.rootIndex())));
+        rollback.foldedAll().forEachValue(inner -> units(inner, units));
     }
 
     /** One entry per alternative at the root, in the tree's order, those with a determinable course. */
@@ -148,7 +159,16 @@ public final class Ledger {
                 Optional<Entry> ahead = expected(tree, base, next.get().vertexIndex());
                 yield ahead.map(a -> plus(own.get(), a, 1));
             }
-            case Outcome outcome -> costs(base, vertexIndex, outcome.costs());
+            case Outcome outcome -> {
+                Optional<Entry> own = costs(base, vertexIndex, outcome.costs());
+                Optional<Rollback> inner = base.folded(vertexIndex);
+                if (own.isEmpty() || inner.isEmpty()) {
+                    yield own;
+                }
+                // what the tree it folds in holds for everyone who enters it
+                Optional<Entry> ahead = expected(inner.get().tree(), inner.get(), inner.get().tree().rootIndex());
+                yield ahead.map(a -> plus(own.get(), a, 1));
+            }
         };
     }
 

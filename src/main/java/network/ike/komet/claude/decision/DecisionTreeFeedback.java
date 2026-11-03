@@ -125,6 +125,16 @@ public final class DecisionTreeFeedback {
      * block may be in an earlier one.
      */
     public static List<String> problems(Block block, DecisionTerms terms, Identities ids, Map<String, TreeStatements.Kind> anfKinds) {
+        return problems(block, terms, ids, anfKinds, Map.of());
+    }
+
+    /**
+     * What is wrong with one block, folding in at its outcomes the trees of the reply's other
+     * blocks, by their root identifiers; an outcome that folds in a tree the reply does not give is
+     * passed over, since its block may be in an earlier one.
+     */
+    public static List<String> problems(Block block, DecisionTerms terms, Identities ids, Map<String, TreeStatements.Kind> anfKinds,
+                                        Map<String, String> treeBodies) {
         Set<String> problems = new LinkedHashSet<>();
         DecisionTreeText.Parsed parsed = DecisionTreeText.parse(block.body(), terms, ids);
         for (ProfileFinding finding : parsed.findings()) {
@@ -144,9 +154,14 @@ public final class DecisionTreeFeedback {
         ValuationCoordinate coordinate = ValuationCoordinate.pricingHealthAt(Bounds.point(price),
                 semantic(tree, MoneyCost.class, terms.moneySemantic()),
                 semantic(tree, HealthCost.class, terms.healthSemantic()));
-        Rollback rollback = Rollback.of(tree, coordinate);
+        Rollback rollback = Rollback.of(tree, coordinate, LinkedTrees.of(treeBodies, terms, ids, ExternalQuantities.none()));
+        // a tree folded in from an earlier reply is not here to roll back, and what it leaves open cascades to
+        // the root: the person sees it on the card, so it is not sent back
+        boolean foldsInElsewhere = rollback.findings().anySatisfy(f -> f.message().equals(Rollback.FOLDS_IN_NOTHING));
         for (ProfileFinding finding : rollback.findings()) {
-            problems.add(describe(tree, ids, finding));
+            if (!foldsInElsewhere) {
+                problems.add(describe(tree, ids, finding));
+            }
         }
         return new ArrayList<>(problems);
     }
@@ -158,10 +173,11 @@ public final class DecisionTreeFeedback {
     public static Optional<String> message(String reply, DecisionTerms terms, Identities ids) {
         List<Block> blocks = blocks(reply);
         Map<String, TreeStatements.Kind> anfKinds = TreeStatements.fenceKinds(reply);
+        Map<String, String> treeBodies = treeBodies(blocks, terms, ids);
         List<List<String>> problems = new ArrayList<>();
         boolean any = false;
         for (Block block : blocks) {
-            List<String> found = problems(block, terms, ids, anfKinds);
+            List<String> found = problems(block, terms, ids, anfKinds, treeBodies);
             problems.add(found);
             any |= !found.isEmpty();
         }
@@ -186,6 +202,17 @@ public final class DecisionTreeFeedback {
                 + "the block's structure otherwise. Do not explain the correction. Load the Decision tree skill "
                 + "if you need the grammar.");
         return Optional.of(message.toString());
+    }
+
+    /** The reply's tree blocks by their root identifiers, so an outcome may fold in another of them. */
+    static Map<String, String> treeBodies(List<Block> blocks, DecisionTerms terms, Identities ids) {
+        Map<String, String> bodies = new java.util.LinkedHashMap<>();
+        for (Block block : blocks) {
+            DecisionTreeText.parse(block.body(), terms, ids).tree()
+                    .flatMap(tree -> LinkedTrees.rootIdentifier(tree, ids))
+                    .ifPresent(identifier -> bodies.putIfAbsent(identifier, block.body()));
+        }
+        return bodies;
     }
 
     /** Whether a transcript turn is Komet's feedback rather than a person's words. */

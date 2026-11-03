@@ -32,10 +32,12 @@ import java.util.function.Function;
 
 /**
  * The ANF statements a decision tree's nodes hold by naming the document's {@code anf} blocks,
- * {@code statement=anf:req-scan} ({@code dev-decision-point-knowledge}): an alternative is a
- * course someone asks for, so it holds a request statement; an event or outcome is what is found
- * or happens, so it holds a performance statement. The null course, "do not scan", holds none, and
- * a decision or chance holds none of its own: the alternatives and events beneath it do. Statements
+ * {@code statement=anf:req-scan} ({@code dev-decision-point-knowledge}): a decision is made in a
+ * situation, so it holds the performance statements that describe it, or names a complex concept
+ * whose prerequisites do; an alternative is a course someone asks for, so it holds a request
+ * statement; an event is a situation the world reveals and an outcome a situation the course ends
+ * in, so each holds a performance statement. The null course, "do not scan", holds none, and a
+ * chance holds none of its own: the events beneath it do. Statements
  * on a tree are templates, so they carry no subject of record, author or statement time; the
  * tree is the note.
  *
@@ -75,9 +77,10 @@ public final class TreeStatements {
         return held;
     }
 
-    /** The kind of statement a node holds: a request for an alternative, a performance for an event or outcome; none otherwise. */
+    /** The kind of statement a node holds: a request for an alternative, a performance for a decision's situation, an event or an outcome; none for a chance. */
     public static Optional<Kind> expected(DecisionElement element) {
         return switch (element) {
+            case DecisionElement.Decision d -> Optional.of(Kind.PERFORMANCE);
             case Alternative a -> Optional.of(Kind.REQUEST);
             case Event e -> Optional.of(Kind.PERFORMANCE);
             case Outcome o -> Optional.of(Kind.PERFORMANCE);
@@ -133,8 +136,8 @@ public final class TreeStatements {
             String node = DecisionTreeFeedback.describe(tree, ids, element.get());
             Optional<Kind> expected = expected(element.get());
             if (expected.isEmpty()) {
-                findings.add(node + " holds anf:" + held.name() + ", but a decision or chance holds no statement;"
-                        + " the alternatives and events beneath it do");
+                findings.add(node + " holds anf:" + held.name() + ", but a chance holds no statement;"
+                        + " the events beneath it do");
                 continue;
             }
             Optional<Kind> kind = kindOf.apply(held.name());
@@ -146,7 +149,7 @@ public final class TreeStatements {
             }
             if (kind.get() != expected.get()) {
                 findings.add(node + " holds anf:" + held.name() + ", a " + kind.get().word() + " statement;"
-                        + " an alternative holds a request, an event or outcome a performance");
+                        + " an alternative holds a request, a decision, an event or an outcome a performance");
             }
         }
         return findings;

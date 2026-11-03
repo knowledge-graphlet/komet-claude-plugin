@@ -43,11 +43,13 @@ class DecisionTreeBlockRendererTest {
     }
 
     @Test
-    @DisplayName("Another block, or one with no root decision, is declined to preformatted text")
+    @DisplayName("Another block, or one whose root is neither a decision nor a chance, is declined to preformatted text")
     void declinesTheRest() {
         assertFalse(DecisionTreeBlockRenderer.accepts("koncept-tree", TREE));
         assertFalse(DecisionTreeBlockRenderer.accepts("property-graph", TREE));
-        assertFalse(DecisionTreeBlockRenderer.accepts("decision-tree", "chance: k:X[x] @id=c1\n"));
+        assertTrue(DecisionTreeBlockRenderer.accepts("decision-tree", "chance: k:X[x] @id=c1\n"),
+                "a tree of consequences, which other trees fold in, has a chance at its root");
+        assertFalse(DecisionTreeBlockRenderer.accepts("decision-tree", "outcome: k:X[x] @id=c1\n"));
         assertFalse(DecisionTreeBlockRenderer.accepts("decision-tree", "not a block at all"));
         assertFalse(DecisionTreeBlockRenderer.accepts(null, TREE));
     }

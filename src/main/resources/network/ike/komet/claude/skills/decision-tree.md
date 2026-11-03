@@ -33,7 +33,7 @@ decision: k:ScanNow[Scan now?] @id=rda-scan-now
 
 - `decision:` the root, and any later decision; `alternative:` a choice beneath a decision.
 - `chance:` an uncertain fork; `event:` one of its branches, carrying a `p =` line; `residual:` the branch that takes whatever probability is left, carrying no `p =` line. One residual per chance.
-- `outcome:` a leaf. A node may carry `statement=<identity>;<identity>` naming the ANF statements that say what it is (see *Statements on the tree*).
+- `outcome:` a leaf. An outcome that is an event with consequences of its own, a rupture say, carries `tree=<identity>` naming the root of another tree block that states those consequences once (see *Linked trees*). A node may carry `statement=<identity>;<identity>` naming the ANF statements that say what it is (see *Statements on the tree*).
 
 ### Values, `word = ...`
 
@@ -72,10 +72,28 @@ method:: k:MraHead[Magnetic resonance angiography of head without contrast] @id=
 
 and in the tree `alternative: k:Scan[scan] @id=437731000119100 statement=anf:req-scan`, `event: k:Positive[positive] @id=rda-mra-positive statement=anf:perf-mra-positive`.
 
-- **An alternative holds a request** (`type=request`): what is asked for, its `timing::`, its `purpose::`, a `requested_result::` when one is wanted. **An event or outcome holds a performance** (`type=performance`): what is found or happens, its `result::` on the presence scale `[1,1]`, `[0,0]`, or a measure, its `method::`. A decision and a chance hold none; the alternatives and events beneath them do. **The null course holds none**: "no scan" is not a statement of anything, never a negated topic.
+- **A decision holds the situation it is made in**: when the decision's concept is a complex concept, its prerequisites are that situation and nothing more is written; otherwise the decision holds performance statements of the patient's state. **An alternative holds a request** (`type=request`): what is asked for, its `timing::`, its `purpose::`, a `requested_result::` when one is wanted. **Every event holds the situation it reveals** as a performance (`type=performance`): what is found or is so, its `result::` on the presence scale `[1,1]` present, `[0,0]` absent, or a measure, and its `method::` when a test reveals it; a residual event is a situation too ("no reopening" is the reopening, `[0,0]`). **An outcome holds the situation the course ends in**, an endpoint such as a rupture, a death or a recovery. A chance holds none; its events do. **The null course holds none**: "no scan" is not a statement of anything, never a negated topic.
 - The statements are templates: no `subject_of_record::`, `author::` or `statement_time::`; the tree is the note.
 - Inside an `anf` block a concept is a grounded `k:Key[label] @id=<identity>` the knowledge base holds, a SNOMED CT identifier or the identifier a tool returned, or **`candidate[label] disp=PENDING`** when it lacks one. Never a block-local symbol such as `@id=rda-reopening`: those belong to the tree and complex-concept blocks only.
 - Komet draws an ANF mark beside each node that holds a statement: resting on it shows the statement, a click opens it editable. A statement of the wrong type, or on a decision or chance, comes back as a finding.
+
+### Linked trees
+
+Consequences that recur, what a rupture leads to say, are written **once** as their own tree block whose root is a chance with no choice in it, and folded in at every outcome that ends in that event with `tree=<identity>` of that root:
+
+```decision-tree cohort=1000
+chance: k:RuptureConsequences[Consequences of a rupture] @id=rda-rupture-consequences
+  parameter = [0.35,0.35] k:CaseFatality[Case fatality of a rupture] @id=rda-case-fatality basis=estimated
+  event: k:Death[death] @id=419620001 statement=anf:perf-death
+    p = from k:CaseFatality[] @id=rda-case-fatality
+    health = [20,20] k:Qaly[QALY] @id=rda-qaly basis=estimated
+    count = [1,1] k:Deaths[deaths] @id=rda-deaths
+    outcome: k:Dead[death] @id=rda-dead
+  residual: k:Survival[survival] @id=rda-survival
+    ...
+```
+
+and in the main tree `outcome: k:Ruptured[rupture] @id=rda-ruptured tree=rda-rupture-consequences`. The outcome then costs what the linked tree costs from its root, at the same price; its counts join the ledger and its leaves the tally. The linked tree's parameters live in its own block, its costs on the same money and health units. Komet links the two both ways, so the reader can go from the outcome to the consequences and back. A tree never folds itself in.
 
 ## Answering
 

@@ -151,8 +151,8 @@ public final class DecisionTree extends ProfiledTree<DecisionElement> {
         MutableList<ProfileFinding> findings = Lists.mutable.empty();
         checkProfiled(findings);
         Optional<DecisionElement> root = root();
-        if (root.isEmpty() || !(root.get() instanceof Decision)) {
-            findings.add(ProfileFinding.ofTree("the root is not a decision"));
+        if (root.isEmpty() || !(root.get() instanceof Decision || root.get() instanceof Chance)) {
+            findings.add(ProfileFinding.ofTree("the root is neither a decision nor a chance"));
         }
         for (DecisionElement element : nodes()) {
             switch (element) {
@@ -231,7 +231,11 @@ public final class DecisionTree extends ProfiledTree<DecisionElement> {
     }
 
     private void checkChance(MutableList<ProfileFinding> findings, Chance chance) {
-        childrenOnly(findings, chance.vertexIndex(), "a chance", Event.class);
+        if (chance.vertexIndex() == rootIndex()) {
+            childrenOnly(findings, chance.vertexIndex(), "a chance", Event.class, Parameter.class);
+        } else {
+            childrenOnly(findings, chance.vertexIndex(), "a chance", Event.class);
+        }
         ImmutableList<Event> events = chance.events();
         if (events.isEmpty()) {
             findings.add(new ProfileFinding(chance.vertexIndex(), "a chance has no event"));
@@ -350,6 +354,16 @@ public final class DecisionTree extends ProfiledTree<DecisionElement> {
         /** The root decision, with the vertex identity given. */
         public Handle decision(long conceptNid, UUID vertexId) {
             Handle root = new Handle(terms.decisionNode(), conceptNid, vertexId);
+            tree.setRoot(root.vertex);
+            return root;
+        }
+
+        /**
+         * A root chance, with the vertex identity given: a tree with no choice in it, the
+         * consequences of one event that other trees fold in at an outcome, {@code tree=…}.
+         */
+        public Handle rootChance(long conceptNid, UUID vertexId) {
+            Handle root = new Handle(terms.chanceNode(), conceptNid, vertexId);
             tree.setRoot(root.vertex);
             return root;
         }

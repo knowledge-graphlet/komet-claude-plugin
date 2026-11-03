@@ -43,9 +43,12 @@ public final class BlockSweep implements DecisionTreeSensitivity.Mover {
     private final Identities ids;
     private final double price;
     private final ExternalQuantities externals;
+    /** The trees an outcome folds in, read under this sweep's own identities. */
+    private final LinkedTrees linked;
 
     private BlockSweep(String baseBody, DecisionTreeText.Parsed stated, DecisionTreeText.Parsed base, DecisionTerms terms,
-                       Identities ids, double price, ExternalQuantities externals) {
+                       Identities ids, double price, ExternalQuantities externals, LinkedTrees linked) {
+        this.linked = linked;
         this.baseBody = baseBody;
         this.stated = stated;
         this.base = base;
@@ -73,10 +76,20 @@ public final class BlockSweep implements DecisionTreeSensitivity.Mover {
     /** Sweeps a block that may read quantities another block computes. */
     public static Optional<DecisionTreeSensitivity> sweep(String body, DecisionTerms terms, Identities ids,
                                                           double price, int steps, ExternalQuantities externals) {
-        return open(body, terms, ids, price, externals).map(mover -> {
+        return sweep(body, terms, ids, price, steps, externals, java.util.Map.of());
+    }
+
+    /**
+     * Sweeps a block whose outcomes may fold in other blocks' trees, given by their root
+     * identifiers; those trees are read under the sweep's identities, at their stated values.
+     */
+    public static Optional<DecisionTreeSensitivity> sweep(String body, DecisionTerms terms, Identities ids,
+                                                          double price, int steps, ExternalQuantities externals,
+                                                          java.util.Map<String, String> linkedBodies) {
+        return open(body, terms, ids, price, externals, linkedBodies).map(mover -> {
             DecisionTree base = mover.base.tree().orElseThrow();
             return DecisionTreeSensitivity.of(mover.stated.tree().orElseThrow(),
-                    Rollback.of(base, coordinate(base, price)), mover, steps);
+                    Rollback.of(base, coordinate(base, price), mover.linked), mover, steps);
         });
     }
 
@@ -88,13 +101,20 @@ public final class BlockSweep implements DecisionTreeSensitivity.Mover {
     /** The mover alone, over a block that may read quantities another block computes. */
     public static Optional<BlockSweep> open(String body, DecisionTerms terms, Identities ids, double price,
                                             ExternalQuantities externals) {
+        return open(body, terms, ids, price, externals, java.util.Map.of());
+    }
+
+    /** The mover alone, over a block whose outcomes may fold in other blocks' trees. */
+    public static Optional<BlockSweep> open(String body, DecisionTerms terms, Identities ids, double price,
+                                            ExternalQuantities externals, java.util.Map<String, String> linkedBodies) {
+        LinkedTrees linked = LinkedTrees.of(linkedBodies, terms, ids, externals);
         DecisionTreeText.Parsed first = DecisionTreeText.parse(body, terms, ids, externals);
         if (first.tree().isEmpty()) {
             return Optional.empty();
         }
         String baseBody = baseBody(body, first);
         DecisionTreeText.Parsed base = baseBody.equals(body) ? first : DecisionTreeText.parse(baseBody, terms, ids, externals);
-        return base.tree().map(tree -> new BlockSweep(baseBody, first, base, terms, ids, price, externals));
+        return base.tree().map(tree -> new BlockSweep(baseBody, first, base, terms, ids, price, externals, linked));
     }
 
     /** The body with every stated interval collapsed to its midpoint. */
@@ -140,11 +160,11 @@ public final class BlockSweep implements DecisionTreeSensitivity.Mover {
         }
         return DecisionTreeEdits.restate(baseBody, line.getAsInt(), bounds)
                 .flatMap(text -> DecisionTreeText.parse(text, terms, ids, externals).tree())
-                .map(tree -> Rollback.of(tree, coordinate(tree, price)));
+                .map(tree -> Rollback.of(tree, coordinate(tree, price), linked));
     }
 
     @Override
     public Optional<Rollback> priced(double healthPrice) {
-        return base.tree().map(tree -> Rollback.of(tree, coordinate(tree, healthPrice)));
+        return base.tree().map(tree -> Rollback.of(tree, coordinate(tree, healthPrice), linked));
     }
 }

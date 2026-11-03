@@ -118,6 +118,9 @@ public final class DecisionTreeFigures {
         return builder.build();
     }
 
+    /** The colour of the words that name the tree an outcome folds in: a link's blue. */
+    static final String FOLD_IN = "#1f5fa8";
+
     /** The colour of the mark that a node holds ANF statements: the chosen run's blue. */
     static final String STATEMENT_MARK = "#1f3b73";
 
@@ -217,14 +220,15 @@ public final class DecisionTreeFigures {
             double y = layout.height() + 2;
             // the ledger: every alternative's consequences in their own units, per cohort when one is counted
             List<List<String>> table = ledgerTable(tree, rollback, ids, symbol, healthUnit, cohort);
-            if (table.size() > 2) {
+            if (table.size() > (tree.decision().isPresent() ? 2 : 1)) {
                 double[] widths = new double[table.get(0).size()];
                 for (List<String> row : table) {
                     for (int i = 0; i < row.size(); i++) {
                         widths[i] = Math.max(widths[i], DecisionFigureText.width(row.get(i), legendSize, true) + 18);
                     }
                 }
-                marks.add(new Text(6, y, ledgerTitle(cohort), legendSize, true, false, DecisionFigureText.INK, "ledger-title"));
+                marks.add(new Text(6, y, ledgerTitle(cohort, tree.decision().isPresent()), legendSize, true, false,
+                        DecisionFigureText.INK, "ledger-title"));
                 y += legendLine;
                 OptionalInt chosenAlternative = rollback.chosen(tree.rootIndex());
                 for (int r = 0; r < table.size(); r++) {
@@ -333,6 +337,7 @@ public final class DecisionTreeFigures {
             if (!(node instanceof Branch)) {
                 concept(node).ifPresent(label -> name.add(new Span(label, size, false, false, DecisionFigureText.INK, "name")));
                 statementMark(index).ifPresent(name::add);
+                foldIn(node).ifPresent(name::add);
             }
             if (terminal) {
                 List<Span> top = new ArrayList<>();
@@ -357,6 +362,15 @@ public final class DecisionTreeFigures {
                     branch.next().ifPresent(this::node);
                 }
             }
+        }
+
+        /** What an outcome folds in, {@code tree=…}, named beside it as the live drawing links it. */
+        private Optional<Span> foldIn(Node node) {
+            if (!(node instanceof Outcome outcome) || outcome.treeReference().isEmpty()) {
+                return Optional.empty();
+            }
+            return Optional.of(new Span("folds in \u201C" + ids.label(outcome.treeReference().getAsLong()) + "\u201D \u2197",
+                    size * 0.85, false, true, FOLD_IN, "fold-in"));
         }
 
         /** The mark beside a node's name that it holds ANF statements, as the live drawing marks it. */
@@ -626,7 +640,8 @@ public final class DecisionTreeFigures {
                 }
                 List<Map.Entry<String, Double>> entries = new ArrayList<>(byName.entrySet());
                 entries.sort(Map.Entry.<String, Double>comparingByValue().reversed());
-                lines.add(DecisionFigureText.tally(nodeName(tree, ids, tally.alternativeVertex()), tally.count(),
+                lines.add(DecisionFigureText.tally(nodeName(tree, ids, tally.alternativeVertex()),
+                        tally.alternativeVertex() == tree.rootIndex(), tally.count(),
                         entries.stream().map(Map.Entry::getKey).toList(), entries.stream().map(Map.Entry::getValue).toList()));
             }
         });
@@ -640,6 +655,14 @@ public final class DecisionTreeFigures {
 
     /** The ledger's title: what one row is counted for. */
     public static String ledgerTitle(Optional<Cohort> cohort) {
+        return ledgerTitle(cohort, true);
+    }
+
+    /** The ledger's title, for a tree with a choice at its root or, when not {@code decided}, a tree of consequences. */
+    public static String ledgerTitle(Optional<Cohort> cohort, boolean decided) {
+        if (!decided) {
+            return cohort.isPresent() ? "Per " + DecisionFigureText.count(cohort.get().size()) + " who reach it" : "Per case that reaches it";
+        }
         return cohort.isPresent() ? "Per " + DecisionFigureText.count(cohort.get().size()) + " who take each alternative"
                 : "Per case who takes each alternative";
     }
@@ -653,7 +676,9 @@ public final class DecisionTreeFigures {
     public static List<List<String>> ledgerTable(DecisionTree tree, Rollback rollback, Identities ids, String symbol,
                                                  String healthUnit, Optional<Cohort> cohort) {
         Optional<Ledger> ledger = Ledger.of(tree, rollback);
-        if (ledger.isEmpty() || ledger.get().entries().size() < 2) {
+        // a choice needs two rows to weigh; a tree of consequences has one, what everyone who reaches it can expect
+        int least = tree.decision().isPresent() ? 2 : 1;
+        if (ledger.isEmpty() || ledger.get().entries().size() < least) {
             return List.of();
         }
         double per = cohort.map(Cohort::size).orElse(1.0);
