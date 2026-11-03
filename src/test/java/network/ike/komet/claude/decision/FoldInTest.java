@@ -128,11 +128,23 @@ class FoldInTest {
     }
 
     @Test
-    @DisplayName("The sweep re-reads the folded tree under its own identities")
+    @DisplayName("The sweep re-reads the folded tree under its own identities, and swings the folded tree's values too")
     void sweepFoldsIn() {
-        Optional<DecisionTreeSensitivity> swept = BlockSweep.sweep(CHOICE, T, BlockIdentities.storeFree(), 100_000, 4,
+        Identities ids = BlockIdentities.storeFree();
+        Optional<DecisionTreeSensitivity> swept = BlockSweep.sweep(CHOICE, T, ids, 100_000, 4,
                 ExternalQuantities.none(), Map.of("rda-rupture-consequences", CONSEQUENCES));
         assertTrue(swept.isPresent());
-        assertTrue(swept.get().base().determinable());
+        DecisionTreeSensitivity sweep = swept.get();
+        assertTrue(sweep.base().determinable());
+        java.util.List<DecisionTreeSensitivity.Swing> folded = sweep.swings()
+                .select(s -> sweep.folded(s.measureVertex()).isPresent()).castToList();
+        assertEquals(3, folded.size(), "the case fatality and the two money costs of the folded tree");
+        DecisionTreeSensitivity.Swing fatality = folded.stream()
+                .filter(s -> network.ike.komet.claude.decision.render.SweptQuantity.name(sweep, ids, s.measureVertex())
+                        .equals("Case fatality of a rupture in \u201CConsequences of a rupture\u201D"))
+                .findFirst().orElseThrow();
+        // more deaths, which cost less than survival here, make waiting cheaper: the root's cost falls as fatality rises
+        assertTrue(fatality.rootAtHigh() < fatality.rootAtLow(), () -> fatality.rootAtLow() + " to " + fatality.rootAtHigh());
+        assertTrue(fatality.measureVertex() <= DecisionTreeSensitivity.FOLDED);
     }
 }

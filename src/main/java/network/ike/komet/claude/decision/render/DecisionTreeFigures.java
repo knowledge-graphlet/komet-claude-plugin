@@ -752,7 +752,7 @@ public final class DecisionTreeFigures {
                 ticks.add(new Tick(at(sweep, swing, flip.at(), net), flip.decisionVertex() == rootDecision,
                         quantity.print(flip.at())));
             }
-            bars.add(new Bar(SweptQuantity.name(tree, ids, swing.measureVertex()),
+            bars.add(new Bar(SweptQuantity.name(sweep, ids, swing.measureVertex()),
                     quantity.print(swing.range().lower()), quantity.print(swing.range().upper()), swing.stated(),
                     net ? swing.netAtLow() : swing.rootAtLow(), net ? swing.netAtHigh() : swing.rootAtHigh(),
                     net ? swing.leastNet() : swing.least(), net ? swing.greatestNet() : swing.greatest(), segments, ticks));
@@ -763,7 +763,7 @@ public final class DecisionTreeFigures {
             notes.add(still == 1 ? "One value does not move the answer." : still + " values do not move the answer.");
         }
         for (Unswept unswept : sweep.unswept()) {
-            notes.add("Not swept: " + SweptQuantity.name(tree, ids, unswept.measureVertex()) + ", " + unswept.why() + ".");
+            notes.add("Not swept: " + SweptQuantity.name(sweep, ids, unswept.measureVertex()) + ", " + unswept.why() + ".");
         }
         String unit = symbol == null || symbol.isBlank() ? "" : ", in " + symbol;
         String title = net

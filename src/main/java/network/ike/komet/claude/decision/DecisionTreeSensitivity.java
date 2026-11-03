@@ -84,6 +84,22 @@ public final class DecisionTreeSensitivity {
 
         /** The base tree rolled back at another price of a healthy year. */
         Optional<Rollback> priced(double healthPrice);
+
+        /**
+         * The base tree rolled back with one stated measure of a tree it folds in, the tree whose
+         * root is a concept, at other bounds; empty when that measure cannot be moved.
+         */
+        default Optional<Rollback> movedIn(long treeRoot, int measureVertex, Bounds bounds) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * A value of a tree the swept tree folds in at an outcome: the folded tree, its root's concept,
+     * the measure's vertex there, and that tree's rollback at the base. Its swing is keyed by a code
+     * of its own, below {@link #HEALTH_PRICE}.
+     */
+    public record FoldedValue(long treeRoot, DecisionTree tree, int vertex, Rollback base) {
     }
 
     /**
@@ -267,6 +283,8 @@ public final class DecisionTreeSensitivity {
         }
         MutableList<Swing> swings = Lists.mutable.empty();
         MutableList<Unswept> unswept = Lists.mutable.empty();
+        org.eclipse.collections.api.map.primitive.MutableIntObjectMap<FoldedValue> folded =
+                org.eclipse.collections.api.factory.primitive.IntObjectMaps.mutable.empty();
         int baseChosen = base.chosen(tree.rootIndex()).orElse(-1);
         if (base.determinable()) {
             for (DecisionElement element : tree.nodes()) {
@@ -294,6 +312,41 @@ public final class DecisionTreeSensitivity {
                         .ifPresentOrElse(swings::add,
                                 () -> unswept.add(new Unswept(vertex, "the tree is not determinable when it moves")));
             }
+            // the values of every tree folded in at an outcome, each moved in its own block and the whole tree rolled back
+            java.util.Set<Long> seen = new java.util.HashSet<>();
+            for (Rollback inner : base.foldedAll().values()) {
+                java.util.OptionalLong root = inner.tree().root().map(DecisionElement::concept).orElse(java.util.OptionalLong.empty());
+                if (root.isEmpty() || !seen.add(root.getAsLong())) {
+                    continue;
+                }
+                for (DecisionElement element : inner.tree().nodes()) {
+                    Measure measure = switch (element) {
+                        case DecisionElement.CountCost count -> null;
+                        case Cost cost -> cost.measure();
+                        case Probability probability -> probability.measure();
+                        case Parameter parameter -> parameter.measure();
+                        default -> null;
+                    };
+                    if (measure == null || !measure.stated()) {
+                        continue;
+                    }
+                    int code = FOLDED - folded.size();
+                    int vertex = element.vertexIndex();
+                    long treeRoot = root.getAsLong();
+                    folded.put(code, new FoldedValue(treeRoot, inner.tree(), vertex, inner));
+                    Optional<Bounds> range = range(inner.tree(), inner, element, measure);
+                    if (range.isEmpty()) {
+                        unswept.add(new Unswept(code, element instanceof Probability
+                                ? "its chance has no residual event to take up what it gives or takes"
+                                : "a value of zero has no assumed range"));
+                        continue;
+                    }
+                    sweep(tree, baseChosen, code, range.get(), !measure.bounds().isPoint(), measure.bounds().midpoint(),
+                            value -> mover.movedIn(treeRoot, vertex, Bounds.point(value)), steps)
+                            .ifPresentOrElse(swings::add,
+                                    () -> unswept.add(new Unswept(code, "the tree is not determinable when it moves")));
+                }
+            }
             double price = base.coordinate().healthPrice().midpoint();
             if (price > 0) {
                 sweep(tree, baseChosen, HEALTH_PRICE, Bounds.of(price / 2, price * 2), false, price, mover::priced, steps)
@@ -303,7 +356,20 @@ public final class DecisionTreeSensitivity {
         // longest first on the axis a tornado draws: the net value where every swing carries one, else the cost
         boolean net = swings.allSatisfy(Swing::hasNet);
         swings.sortThis(Comparator.comparingDouble(net ? Swing::netWidth : Swing::width).reversed());
-        return new DecisionTreeSensitivity(tree, base, swings.toImmutable(), unswept.toImmutable());
+        DecisionTreeSensitivity sensitivity = new DecisionTreeSensitivity(tree, base, swings.toImmutable(), unswept.toImmutable());
+        sensitivity.folded = folded.toImmutable();
+        return sensitivity;
+    }
+
+    /** The first code a value of a folded tree is keyed by; each further one counts down. */
+    public static final int FOLDED = -2;
+
+    private org.eclipse.collections.api.map.primitive.ImmutableIntObjectMap<FoldedValue> folded =
+            org.eclipse.collections.api.factory.primitive.IntObjectMaps.immutable.empty();
+
+    /** The value of a folded tree a swing's code stands for, when it stands for one. */
+    public Optional<FoldedValue> folded(int measureVertex) {
+        return Optional.ofNullable(folded.get(measureVertex));
     }
 
     /** The range a measure swings over: its stated bounds, or the assumed range for a point. */

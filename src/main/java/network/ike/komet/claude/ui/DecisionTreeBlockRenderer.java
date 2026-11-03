@@ -793,7 +793,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
 
         @Override
         public String nameOf(int measureVertex) {
-            return SweptQuantity.name(tree, shown, measureVertex);
+            return lastSweep != null ? SweptQuantity.name(lastSweep, shown, measureVertex) : SweptQuantity.name(tree, shown, measureVertex);
         }
 
         @Override
@@ -865,8 +865,17 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         private void drawPreview(int measureVertex, double value) {
             String text = body;
             double at = price;
+            LinkedTrees links = linked;
+            Optional<DecisionTreeSensitivity.FoldedValue> folded = lastSweep == null ? Optional.empty() : lastSweep.folded(measureVertex);
             if (measureVertex == DecisionTreeSensitivity.HEALTH_PRICE) {
                 at = value;
+            } else if (folded.isPresent()) {
+                // a value of a tree folded in: that tree's block restated, this tree rolled back over it
+                Optional<LinkedTrees> moved = movedLinks(folded.get(), value);
+                if (moved.isEmpty()) {
+                    return;
+                }
+                links = moved.get();
             } else {
                 OptionalInt line = parsed.lineOf(measureVertex);
                 if (line.isEmpty()) {
@@ -886,7 +895,25 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             List<ProfileFinding> findings = new ArrayList<>(again.findings().castToList());
             findings.addAll(drawn.check().castToList());
             previewing = true;
-            fillTop(drawn, Rollback.of(drawn, coordinate(drawn, at), linked), at, Optional.of(committed), findings);
+            fillTop(drawn, Rollback.of(drawn, coordinate(drawn, at), links), at, Optional.of(committed), findings);
+        }
+
+        /** The document's trees with one value of a folded tree restated, for a preview. */
+        private Optional<LinkedTrees> movedLinks(DecisionTreeSensitivity.FoldedValue folded, double value) {
+            Optional<String> identifier = ids.identifier(folded.treeRoot());
+            Map<String, String> bodies = new java.util.LinkedHashMap<>(context.trees());
+            if (identifier.isEmpty() || !bodies.containsKey(identifier.get())) {
+                return Optional.empty();
+            }
+            String linkedBody = bodies.get(identifier.get());
+            OptionalInt line = DecisionTreeText.parse(linkedBody, terms, ids, context.externals()).lineOf(folded.vertex());
+            if (line.isEmpty()) {
+                return Optional.empty();
+            }
+            return DecisionTreeEdits.restate(linkedBody, line.getAsInt(), Bounds.point(value)).map(restated -> {
+                bodies.put(identifier.get(), restated);
+                return LinkedTrees.of(bodies, terms, ids, context.externals());
+            });
         }
 
         /** Whether the top of the column shows a preview rather than where the block stands; for a test. */
@@ -896,6 +923,12 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
 
         @Override
         public void tryValue(int measureVertex, double value) {
+            // a value of a tree folded in is tried where it is stated: go to that tree
+            Optional<DecisionTreeSensitivity.FoldedValue> folded = lastSweep == null ? Optional.empty() : lastSweep.folded(measureVertex);
+            if (folded.isPresent()) {
+                ids.identifier(folded.get().treeRoot()).flatMap(context::treeNode).ifPresent(SurfaceNavigation::reveal);
+                return;
+            }
             if (measureVertex == DecisionTreeSensitivity.HEALTH_PRICE) {
                 if (value != price) {
                     price = value;

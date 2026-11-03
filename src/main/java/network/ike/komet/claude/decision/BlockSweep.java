@@ -45,6 +45,8 @@ public final class BlockSweep implements DecisionTreeSensitivity.Mover {
     private final ExternalQuantities externals;
     /** The trees an outcome folds in, read under this sweep's own identities. */
     private final LinkedTrees linked;
+    /** The bodies of those trees with every stated interval at its midpoint, by their roots' identifiers. */
+    private java.util.Map<String, String> linkedBodies = java.util.Map.of();
 
     private BlockSweep(String baseBody, DecisionTreeText.Parsed stated, DecisionTreeText.Parsed base, DecisionTerms terms,
                        Identities ids, double price, ExternalQuantities externals, LinkedTrees linked) {
@@ -107,14 +109,24 @@ public final class BlockSweep implements DecisionTreeSensitivity.Mover {
     /** The mover alone, over a block whose outcomes may fold in other blocks' trees. */
     public static Optional<BlockSweep> open(String body, DecisionTerms terms, Identities ids, double price,
                                             ExternalQuantities externals, java.util.Map<String, String> linkedBodies) {
-        LinkedTrees linked = LinkedTrees.of(linkedBodies, terms, ids, externals);
+        // the trees folded in stand at their midpoints, as the swept tree does
+        java.util.Map<String, String> linkedBase = new java.util.LinkedHashMap<>();
+        linkedBodies.forEach((identifier, linkedBody) -> {
+            DecisionTreeText.Parsed read = DecisionTreeText.parse(linkedBody, terms, ids, externals);
+            linkedBase.put(identifier, read.tree().isPresent() ? baseBody(linkedBody, read) : linkedBody);
+        });
+        LinkedTrees linked = LinkedTrees.of(linkedBase, terms, ids, externals);
         DecisionTreeText.Parsed first = DecisionTreeText.parse(body, terms, ids, externals);
         if (first.tree().isEmpty()) {
             return Optional.empty();
         }
         String baseBody = baseBody(body, first);
         DecisionTreeText.Parsed base = baseBody.equals(body) ? first : DecisionTreeText.parse(baseBody, terms, ids, externals);
-        return base.tree().map(tree -> new BlockSweep(baseBody, first, base, terms, ids, price, externals, linked));
+        return base.tree().map(tree -> {
+            BlockSweep sweep = new BlockSweep(baseBody, first, base, terms, ids, price, externals, linked);
+            sweep.linkedBodies = java.util.Map.copyOf(linkedBase);
+            return sweep;
+        });
     }
 
     /** The body with every stated interval collapsed to its midpoint. */
@@ -161,6 +173,25 @@ public final class BlockSweep implements DecisionTreeSensitivity.Mover {
         return DecisionTreeEdits.restate(baseBody, line.getAsInt(), bounds)
                 .flatMap(text -> DecisionTreeText.parse(text, terms, ids, externals).tree())
                 .map(tree -> Rollback.of(tree, coordinate(tree, price), linked));
+    }
+
+    @Override
+    public Optional<Rollback> movedIn(long treeRoot, int measureVertex, Bounds bounds) {
+        Optional<String> identifier = ids.identifier(treeRoot);
+        if (identifier.isEmpty() || !linkedBodies.containsKey(identifier.get())) {
+            return Optional.empty();
+        }
+        String linkedBody = linkedBodies.get(identifier.get());
+        OptionalInt line = DecisionTreeText.parse(linkedBody, terms, ids, externals).lineOf(measureVertex);
+        if (line.isEmpty()) {
+            return Optional.empty();
+        }
+        return DecisionTreeEdits.restate(linkedBody, line.getAsInt(), bounds).flatMap(restated -> {
+            java.util.Map<String, String> moved = new java.util.LinkedHashMap<>(linkedBodies);
+            moved.put(identifier.get(), restated);
+            LinkedTrees movedLinks = LinkedTrees.of(moved, terms, ids, externals);
+            return base.tree().map(tree -> Rollback.of(tree, coordinate(tree, price), movedLinks));
+        });
     }
 
     @Override

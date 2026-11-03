@@ -44,13 +44,16 @@ public record SweptQuantity(Unit unit, String symbol) {
 
     /** The quantity a swept measure is, read from the tree and the coordinate it was rolled back under. */
     public static SweptQuantity of(DecisionTreeSensitivity sweep, Identities ids, int measureVertex, String moneySymbol) {
-        DecisionTree tree = sweep.tree();
-        ValuationCoordinate coordinate = sweep.base().coordinate();
         String symbol = moneySymbol == null ? "" : moneySymbol;
         if (measureVertex == DecisionTreeSensitivity.HEALTH_PRICE) {
             return new SweptQuantity(Unit.MONEY, symbol);
         }
-        Optional<DecisionElement> element = tree.node(measureVertex);
+        // a value of a tree folded in reads as that tree reads it
+        Optional<DecisionTreeSensitivity.FoldedValue> folded = sweep.folded(measureVertex);
+        DecisionTree tree = folded.map(DecisionTreeSensitivity.FoldedValue::tree).orElse(sweep.tree());
+        ValuationCoordinate coordinate = folded.map(f -> f.base().coordinate()).orElse(sweep.base().coordinate());
+        int vertex = folded.map(DecisionTreeSensitivity.FoldedValue::vertex).orElse(measureVertex);
+        Optional<DecisionElement> element = tree.node(vertex);
         if (element.isEmpty()) {
             return new SweptQuantity(Unit.PLAIN, "");
         }
@@ -90,6 +93,15 @@ public record SweptQuantity(Unit unit, String symbol) {
      * How a swept measure is named: its quantity for a parameter, the price of a healthy year, or
      * its kind at the node that carries it, the node's name in quotes.
      */
+    public static String name(DecisionTreeSensitivity sweep, Identities ids, int measureVertex) {
+        Optional<DecisionTreeSensitivity.FoldedValue> folded = sweep.folded(measureVertex);
+        if (folded.isEmpty()) {
+            return name(sweep.tree(), ids, measureVertex);
+        }
+        return name(folded.get().tree(), ids, folded.get().vertex()) + " in \u201C" + ids.label(folded.get().treeRoot()) + "\u201D";
+    }
+
+    /** How a measure of a tree is named, as {@link #name(DecisionTreeSensitivity, Identities, int)} names it there. */
     public static String name(DecisionTree tree, Identities ids, int measureVertex) {
         if (measureVertex == DecisionTreeSensitivity.HEALTH_PRICE) {
             return "price of a healthy year";
