@@ -315,7 +315,12 @@ public final class ComplexConceptText {
         if (presence && lower != null && lower == 1 && (upper == null || upper == 1)) {
             return "present";
         }
-        String suffix = unit.isEmpty() ? "" : " " + unit;
+        // a count is its number; a lower-case unit word is plural beside any number but one
+        String suffix = unit.isEmpty() || unit.equalsIgnoreCase("count") ? "" : " " + unit;
+        boolean one = lower != null && upper != null && lower.equals(upper) && lower == 1;
+        if (!suffix.isEmpty() && !one && unit.matches("[a-z]+") && !unit.endsWith("s")) {
+            suffix = suffix + "s";
+        }
         if (lower != null && upper != null && lower.equals(upper)) {
             return Tokens.number(lower) + suffix;
         }

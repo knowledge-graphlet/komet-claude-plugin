@@ -63,7 +63,7 @@ class ComplexConceptTextTest {
         Focused focused = (Focused) spec.shape().orElseThrow();
         assertEquals(3, focused.prerequisites().size());
         assertEquals("present", ComplexConceptText.valueWords(focused.prerequisites().get(0)));
-        assertEquals("2 year", ComplexConceptText.valueWords(focused.prerequisites().get(1)));
+        assertEquals("2 years", ComplexConceptText.valueWords(focused.prerequisites().get(1)));
         assertEquals("absent", ComplexConceptText.valueWords(focused.prerequisites().get(2)));
         assertEquals("precondition", focused.prerequisites().get(2).association());
         assertEquals(focused.prerequisites().get(0).unit().orElseThrow().nid(),
@@ -74,7 +74,7 @@ class ComplexConceptTextTest {
                 "rda-time-since-seal", "rda-year", "rda-aneurysm-symptoms"), parsed.localSymbols(), "in reading order, a value before the next prerequisite");
         assertEquals("Complex concept, a kind of Surveillance imaging decision; focused on"
                 + " Surveillance imaging decision, given Intracranial aneurysm sealed by endovascular"
-                + " treatment present, Time since the seal 2 year, Symptoms attributable to the aneurysm absent.",
+                + " treatment present, Time since the seal 2 years, Symptoms attributable to the aneurysm absent.",
                 ComplexConceptText.describe(spec));
     }
 
