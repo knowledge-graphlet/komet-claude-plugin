@@ -32,6 +32,7 @@ import org.eclipse.collections.api.list.ImmutableList;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
@@ -115,6 +116,15 @@ public final class DecisionTreeFeedback {
      * find it: empty for a block that reads clean and rolls back at every node.
      */
     public static List<String> problems(Block block, DecisionTerms terms, Identities ids) {
+        return problems(block, terms, ids, Map.of());
+    }
+
+    /**
+     * What is wrong with one block, the statements its nodes hold checked against the kinds of the
+     * {@code anf} fences of the same reply; a name the reply does not give is passed over, since its
+     * block may be in an earlier one.
+     */
+    public static List<String> problems(Block block, DecisionTerms terms, Identities ids, Map<String, TreeStatements.Kind> anfKinds) {
         Set<String> problems = new LinkedHashSet<>();
         DecisionTreeText.Parsed parsed = DecisionTreeText.parse(block.body(), terms, ids);
         for (ProfileFinding finding : parsed.findings()) {
@@ -129,6 +139,7 @@ public final class DecisionTreeFeedback {
         for (ProfileFinding finding : tree.check()) {
             problems.add(describe(tree, ids, finding));
         }
+        problems.addAll(TreeStatements.findings(tree, ids, parsed, name -> Optional.ofNullable(anfKinds.get(name)), false));
         double price = DecisionTreeText.healthPrice(block.info()).orElse(DecisionTreeText.DEFAULT_HEALTH_PRICE);
         ValuationCoordinate coordinate = ValuationCoordinate.pricingHealthAt(Bounds.point(price),
                 semantic(tree, MoneyCost.class, terms.moneySemantic()),
@@ -146,10 +157,11 @@ public final class DecisionTreeFeedback {
      */
     public static Optional<String> message(String reply, DecisionTerms terms, Identities ids) {
         List<Block> blocks = blocks(reply);
+        Map<String, TreeStatements.Kind> anfKinds = TreeStatements.fenceKinds(reply);
         List<List<String>> problems = new ArrayList<>();
         boolean any = false;
         for (Block block : blocks) {
-            List<String> found = problems(block, terms, ids);
+            List<String> found = problems(block, terms, ids, anfKinds);
             problems.add(found);
             any |= !found.isEmpty();
         }
@@ -202,7 +214,7 @@ public final class DecisionTreeFeedback {
         return describe(tree, ids, element.get()) + ": " + finding.message();
     }
 
-    private static String describe(DecisionTree tree, Identities ids, DecisionElement element) {
+    static String describe(DecisionTree tree, Identities ids, DecisionElement element) {
         return switch (element) {
             case Decision d -> "the decision " + label(ids, d.concept());
             case Alternative a -> "the alternative " + label(ids, a.concept());

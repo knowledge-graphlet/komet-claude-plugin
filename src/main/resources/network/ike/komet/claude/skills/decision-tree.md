@@ -33,7 +33,7 @@ decision: k:ScanNow[Scan now?] @id=rda-scan-now
 
 - `decision:` the root, and any later decision; `alternative:` a choice beneath a decision.
 - `chance:` an uncertain fork; `event:` one of its branches, carrying a `p =` line; `residual:` the branch that takes whatever probability is left, carrying no `p =` line. One residual per chance.
-- `outcome:` a leaf. A node may carry `statement=<identity>;<identity>` naming the ANF statements that say what it is.
+- `outcome:` a leaf. A node may carry `statement=<identity>;<identity>` naming the ANF statements that say what it is (see *Statements on the tree*).
 
 ### Values, `word = ...`
 
@@ -53,6 +53,29 @@ Inside this block a concept is always `k:Key[label] @id=<identity>`: a short Cam
 - A concept the knowledge base lacks (a quantity, a currency, a situation the model names) carries a short symbolic identity of your own, `@id=rda-usd`, the same symbol wherever it recurs; Komet reads it as a concept local to the block, draws it as a dashed chip, and lists the symbols beneath the tree. Never invent a store identifier for one.
 - A decision point, an alternative or an event that the knowledge base lacks may be stated as a complex concept in a `complex-concept` block in the same answer (the `complex-concept` skill): the tree's token then carries that block's symbol as its `@id`, so the chip on the tree says what the concept is, and the decision names the patient it is for through the block's prerequisites.
 - A derivation kind is written as its bare name after `from` (`from CumulativeHazard of ...`) or as a token with no identity (`from k:CumulativeHazard[] of ...`); its operands after `of` are the quantities' tokens, each with the quantity's `@id=`.
+
+### Statements on the tree
+
+When the person asks for the tree's courses and findings in ANF, state each as an `anf` fenced block **before** the tree, naming it for the document, and let the node hold it by that name with `statement=anf:<name>`:
+
+```anf type=request id=req-scan
+topic:: k:MraHead[Magnetic resonance angiography of head without contrast] @id=437731000119100
+timing:: [2,2] k:Year[year] @id=258707000
+purpose:: candidate[detection of reopening of the sealed aneurysm] disp=PENDING
+```
+
+```anf type=performance id=perf-mra-positive
+topic:: candidate[reopening of the sealed aneurysm] disp=PENDING
+result:: [1,1] k:Presence[presence] @id=705057003
+method:: k:MraHead[Magnetic resonance angiography of head without contrast] @id=437731000119100
+```
+
+and in the tree `alternative: k:Scan[scan] @id=437731000119100 statement=anf:req-scan`, `event: k:Positive[positive] @id=rda-mra-positive statement=anf:perf-mra-positive`.
+
+- **An alternative holds a request** (`type=request`): what is asked for, its `timing::`, its `purpose::`, a `requested_result::` when one is wanted. **An event or outcome holds a performance** (`type=performance`): what is found or happens, its `result::` on the presence scale `[1,1]`, `[0,0]`, or a measure, its `method::`. A decision and a chance hold none; the alternatives and events beneath them do. **The null course holds none**: "no scan" is not a statement of anything, never a negated topic.
+- The statements are templates: no `subject_of_record::`, `author::` or `statement_time::`; the tree is the note.
+- Inside an `anf` block a concept is a grounded `k:Key[label] @id=<identity>` the knowledge base holds, a SNOMED CT identifier or the identifier a tool returned, or **`candidate[label] disp=PENDING`** when it lacks one. Never a block-local symbol such as `@id=rda-reopening`: those belong to the tree and complex-concept blocks only.
+- Komet draws an ANF mark beside each node that holds a statement: resting on it shows the statement, a click opens it editable. A statement of the wrong type, or on a decision or chance, comes back as a finding.
 
 ## Answering
 

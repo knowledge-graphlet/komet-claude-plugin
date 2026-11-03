@@ -93,6 +93,11 @@ final class DecisionTreeDiagram extends Region {
             return concept(nid);
         }
 
+        /** The mark of the ANF statements a node holds, beside its name, or empty when it holds none. */
+        default Optional<Node> statements(int vertexIndex) {
+            return Optional.empty();
+        }
+
         /** Whether a stated measure can be moved as a what-if. */
         boolean editable(int measureVertex);
 
@@ -245,6 +250,7 @@ final class DecisionTreeDiagram extends Region {
             // a branch that ends: its name is on its run already
         } else {
             host.concept(node.concept()).ifPresent(nameLine.getChildren()::add);
+            host.statements(index).ifPresent(nameLine.getChildren()::add);
         }
         if (terminal) {
             // value and name on one line, the outcome's own costs beneath
@@ -301,6 +307,7 @@ final class DecisionTreeDiagram extends Region {
         // bottom-aligned, so a wrapped name's last line and the value sit just above the run
         above.setAlignment(Pos.BOTTOM_LEFT);
         host.concept(branch.concept(), true).ifPresent(above.getChildren()::add);
+        host.statements(index).ifPresent(above.getChildren()::add);
         if (branch instanceof Event event) {
             Optional<DecisionElement.Probability> probability = event.probability();
             if (probability.isPresent()) {

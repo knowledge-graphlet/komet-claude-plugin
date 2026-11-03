@@ -154,10 +154,27 @@ public final class DecisionTreeText {
      * number can restate the line that states it.
      */
     public record Parsed(Optional<DecisionTree> tree, ImmutableList<ProfileFinding> findings,
-                         ImmutableIntIntMap lines, java.util.Map<Long, String> labels) {
+                         ImmutableIntIntMap lines, java.util.Map<Long, String> labels,
+                         java.util.Map<Integer, java.util.List<String>> documentStatements) {
 
         public Parsed(Optional<DecisionTree> tree, ImmutableList<ProfileFinding> findings, ImmutableIntIntMap lines) {
-            this(tree, findings, lines, java.util.Map.of());
+            this(tree, findings, lines, java.util.Map.of(), java.util.Map.of());
+        }
+
+        public Parsed(Optional<DecisionTree> tree, ImmutableList<ProfileFinding> findings, ImmutableIntIntMap lines,
+                      java.util.Map<Long, String> labels) {
+            this(tree, findings, lines, labels, java.util.Map.of());
+        }
+
+        /**
+         * The names of the document's {@code anf} blocks a vertex's line holds as its statements,
+         * {@code statement=anf:req-scan}: an alternative's request, an event's or outcome's
+         * performance. They are names in the document, not identities in the store, so they stay
+         * text; the surface looks each up among the blocks it has drawn.
+         */
+        public java.util.List<String> documentStatements(int vertexIndex) {
+            OptionalInt line = lineOf(vertexIndex);
+            return line.isEmpty() ? java.util.List.of() : documentStatements.getOrDefault(line.getAsInt(), java.util.List.of());
         }
 
         /**
@@ -208,6 +225,12 @@ public final class DecisionTreeText {
             return lines.containsKey(vertexIndex) ? OptionalInt.of(lines.get(vertexIndex)) : OptionalInt.empty();
         }
     }
+
+    /**
+     * The prefix of a statement that names an {@code anf} block of the document rather than a
+     * statement the store holds, as a calculate block binds to one: {@code statement=anf:req-scan}.
+     */
+    public static final String ANF_REFERENCE = "anf:";
 
     // ── Emit ─────────────────────────────────────────────────────────────────
 
@@ -412,7 +435,7 @@ public final class DecisionTreeText {
                     + String.join(", ", reader.localSymbols)));
         }
         return new Parsed(Optional.of(tree), reader.findings.toImmutable(), reader.lines.toImmutable(),
-                java.util.Map.copyOf(reader.labels));
+                java.util.Map.copyOf(reader.labels), java.util.Map.copyOf(reader.documentStatements));
     }
 
     private static ProfileFinding finding(Line line, String message) {
@@ -458,6 +481,8 @@ public final class DecisionTreeText {
         private final Set<String> localSymbols = new LinkedHashSet<>();
         /** The label the block wrote beside each concept it named, the first per concept. */
         private final java.util.Map<Long, String> labels = new java.util.LinkedHashMap<>();
+        /** By line: the names of the document's anf blocks a vertex holds, {@code statement=anf:<name>}. */
+        private final java.util.Map<Integer, java.util.List<String>> documentStatements = new java.util.LinkedHashMap<>();
 
         /** The quantities read with from alone, and the quantities the block's parameters name, for the externals. */
         private final Set<Long> readQuantities = new LinkedHashSet<>();
@@ -688,7 +713,17 @@ public final class DecisionTreeText {
                 switch (name) {
                     case "statement" -> {
                         for (String identifier : value.split(";")) {
-                            resolve(line, identifier, "a statement").ifPresent(handle::statement);
+                            String reference = identifier.strip();
+                            if (reference.startsWith(ANF_REFERENCE)) {
+                                String blockName = reference.substring(ANF_REFERENCE.length()).strip();
+                                if (blockName.isEmpty()) {
+                                    findings.add(finding(line, "statement=anf: names no anf block"));
+                                } else {
+                                    documentStatements.computeIfAbsent(line.number(), n -> new java.util.ArrayList<>()).add(blockName);
+                                }
+                            } else {
+                                resolve(line, reference, "a statement").ifPresent(handle::statement);
+                            }
                         }
                     }
                     case "input" -> resolve(line, value, "an input kind").ifPresent(handle::inputKind);

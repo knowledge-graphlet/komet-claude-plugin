@@ -102,8 +102,24 @@ public final class DecisionTreeFigures {
     /** The tree, counted out for a cohort when one is given: how many go each way beneath every run, and where they end up. */
     static DecisionFigure tree(DecisionTree tree, Rollback rollback, Identities ids, IntPredicate collapsed,
                                Optional<DecisionTreeSensitivity> sweep, String symbol, OptionalDouble cohort) {
-        return new TreeBuilder(tree, rollback, ids, collapsed, sweep, symbol, cohort).build();
+        return tree(tree, rollback, ids, collapsed, sweep, symbol, cohort,
+                v -> tree.node(v).filter(n -> n instanceof Node node && !node.statements().isEmpty()).isPresent());
     }
+
+    /**
+     * The tree, with the nodes that hold ANF statements marked beside their names: by default those
+     * whose statements the store holds; a surface that also reads the document's anf blocks says which.
+     */
+    static DecisionFigure tree(DecisionTree tree, Rollback rollback, Identities ids, IntPredicate collapsed,
+                               Optional<DecisionTreeSensitivity> sweep, String symbol, OptionalDouble cohort,
+                               IntPredicate stated) {
+        TreeBuilder builder = new TreeBuilder(tree, rollback, ids, collapsed, sweep, symbol, cohort);
+        builder.stated = stated;
+        return builder.build();
+    }
+
+    /** The colour of the mark that a node holds ANF statements: the chosen run's blue. */
+    static final String STATEMENT_MARK = "#1f3b73";
 
     private static final class TreeBuilder {
         private final DecisionTree tree;
@@ -129,6 +145,8 @@ public final class DecisionTreeFigures {
         private final Set<Integer> barred = new HashSet<>();
         private final Set<Integer> flagged = new HashSet<>();
         private final Set<Integer> chosenBranches = new HashSet<>();
+        /** Which nodes hold ANF statements, marked beside their names. */
+        private IntPredicate stated = v -> false;
 
         TreeBuilder(DecisionTree tree, Rollback rollback, Identities ids, IntPredicate collapsed,
                     Optional<DecisionTreeSensitivity> sweep, String symbol, OptionalDouble cohortSize) {
@@ -314,6 +332,7 @@ public final class DecisionTreeFigures {
             List<Span> name = new ArrayList<>();
             if (!(node instanceof Branch)) {
                 concept(node).ifPresent(label -> name.add(new Span(label, size, false, false, DecisionFigureText.INK, "name")));
+                statementMark(index).ifPresent(name::add);
             }
             if (terminal) {
                 List<Span> top = new ArrayList<>();
@@ -340,6 +359,13 @@ public final class DecisionTreeFigures {
             }
         }
 
+        /** The mark beside a node's name that it holds ANF statements, as the live drawing marks it. */
+        private Optional<Span> statementMark(int index) {
+            return stated.test(index)
+                    ? Optional.of(new Span("ANF", size * 0.72, true, false, STATEMENT_MARK, "anf-mark"))
+                    : Optional.empty();
+        }
+
         private void branch(Branch branch, boolean decided, boolean chosen) {
             int index = branch.vertexIndex();
             if (chosen) {
@@ -347,6 +373,7 @@ public final class DecisionTreeFigures {
             }
             List<Span> above = new ArrayList<>();
             concept(branch).ifPresent(label -> above.add(new Span(label, size, false, false, DecisionFigureText.INK, "name")));
+            statementMark(index).ifPresent(above::add);
             if (branch instanceof Event event) {
                 Optional<Probability> probability = event.probability();
                 if (probability.isPresent()) {

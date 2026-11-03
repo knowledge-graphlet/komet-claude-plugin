@@ -258,6 +258,7 @@ final class AnfBlockRenderer implements BlockRenderer {
             statement = element && body.isBlank() ? null : parse(body);
             idOf(info).ifPresent(name -> {
                 if (statement != null) {
+                    context.defineStatementCard(name, this::card);
                     context.defineStatement(name, statement);
                 }
             });
@@ -532,6 +533,16 @@ final class AnfBlockRenderer implements BlockRenderer {
                 }
             });
             return tree;
+        }
+
+        /** The statement's editable tree for a peek from another block, on a plain background, writing back as this block does. */
+        private Node card() {
+            AnfStatementControl tree = tree();
+            tree.setPadding(new Insets(4));
+            VBox card = new VBox(4, tree);
+            card.setStyle("-fx-background-color: white;");
+            card.getStyleClass().add("anf-statement-card");
+            return card;
         }
 
         /** Redraws the folded line after an edit. */

@@ -53,6 +53,8 @@ public final class BlockContext {
     private final Map<String, AnfStatement> statements = new HashMap<>();
     private final Map<Long, ComplexConceptText.Spec> complexConcepts = new HashMap<>();
     private final Map<Long, Supplier<Node>> complexConceptCards = new HashMap<>();
+    /** By name: a fresh editable card over the statement an anf block of this document names, for a peek from a tree. */
+    private final Map<String, Supplier<Node>> statementCards = new HashMap<>();
     private final Map<Long, ExternalQuantities.Value> values = new HashMap<>();
     private final List<WeakReference<Runnable>> listeners = new ArrayList<>();
     private Shared identities;
@@ -179,6 +181,18 @@ public final class BlockContext {
     /** The complex concept a block of this document specifies under a nid, when one does. */
     public synchronized Optional<ComplexConceptText.Spec> complexConcept(long conceptNid) {
         return Optional.ofNullable(complexConcepts.get(conceptNid));
+    }
+
+    /** An anf block named its statement: a peek from another block raises the card this supplies, editable. */
+    public synchronized void defineStatementCard(String name, Supplier<Node> card) {
+        if (name != null && !name.isBlank() && card != null) {
+            statementCards.put(name, card);
+        }
+    }
+
+    /** A fresh card over the statement an anf block of this document named, when one did. */
+    public synchronized Optional<Supplier<Node>> statementCard(String name) {
+        return Optional.ofNullable(statementCards.get(name));
     }
 
     /** The statement an anf block of this document named. */

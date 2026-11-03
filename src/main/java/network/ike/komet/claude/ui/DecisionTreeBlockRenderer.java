@@ -67,6 +67,10 @@ import network.ike.komet.claude.decision.Derivations;
 import network.ike.komet.claude.decision.Measure;
 import network.ike.komet.claude.decision.Rollback;
 import network.ike.komet.claude.decision.Tradeoff;
+import network.ike.komet.claude.decision.TreeStatements;
+import network.ike.komet.claude.anf.AnfAdoc;
+import network.ike.komet.claude.anf.AnfStatement;
+import network.ike.komet.claude.anf.Circumstance;
 import network.ike.komet.claude.decision.ValuationCoordinate;
 import network.ike.komet.claude.decision.ViewIdentities;
 import network.ike.komet.claude.decision.render.DecisionFigureText;
@@ -289,9 +293,11 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                         Rollback rollback = Rollback.of(tree, coordinate(tree, price));
             // a parameter with no line was read from another block; a measure that reads a quantity no
             // parameter states is waiting for one
+            // a statement a node names by an anf block not drawn yet is waiting for it, as a quantity is
             readsExternal = tree.nodesOfType(Parameter.class).anySatisfy(p -> parsed.lineOf(p.vertexIndex()).isEmpty())
                     || rollback.findings().anySatisfy(f -> f.message().contains("has no parameter for"))
-                    || findings.stream().anyMatch(f -> f.message().contains("has no parameter for"));
+                    || findings.stream().anyMatch(f -> f.message().contains("has no parameter for"))
+                    || TreeStatements.held(parsed).stream().anyMatch(h -> context.statement(h.name()).isEmpty());
             committed = rollback;
             committedFindings = findings;
             fillTop(tree, rollback, price, Optional.empty(), findings);
@@ -303,6 +309,8 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             findings.stream().filter(finding -> !DecisionTreeFeedback.isLocalSymbolsNote(finding))
                     .forEach(finding -> messages.add(DecisionTreeFeedback.describe(tree, shown, finding)));
             rollback.findings().forEach(finding -> messages.add(DecisionTreeFeedback.describe(tree, shown, finding)));
+            messages.addAll(TreeStatements.findings(tree, shown, parsed,
+                    name -> context.statement(name).map(DecisionTreeBlockRenderer::kind), true));
             if (!messages.isEmpty()) {
                 Label gaps = new Label(String.join("\n", messages));
                 gaps.setFont(Font.font(base * 0.9));
@@ -674,6 +682,15 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         }
 
         @Override
+        public Optional<Node> statements(int vertexIndex) {
+            List<String> names = parsed.documentStatements(vertexIndex);
+            if (names.isEmpty()) {
+                return Optional.empty();
+            }
+            return Optional.of(statementMark(names));
+        }
+
+        @Override
         public boolean editable(int measureVertex) {
             return parsed.lineOf(measureVertex).isPresent() && tree.measure(measureVertex).stated();
         }
@@ -882,6 +899,57 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             }
         });
         return chip;
+    }
+
+    /** The statement type of an ANF statement. */
+    static TreeStatements.Kind kind(AnfStatement statement) {
+        return switch (statement.circumstance()) {
+            case Circumstance.Request r -> TreeStatements.Kind.REQUEST;
+            case Circumstance.Performance p -> TreeStatements.Kind.PERFORMANCE;
+            case Circumstance.Narrative n -> TreeStatements.Kind.NARRATIVE;
+        };
+    }
+
+    /**
+     * The mark beside a node's name that it holds ANF statements: resting on it shows each
+     * statement as written, a click peeks at each one's card, editable, writing back to its block.
+     */
+    private Node statementMark(List<String> names) {
+        Label mark = new Label("ANF");
+        mark.setId("anf-statement-mark");
+        mark.setFont(Font.font(null, FontWeight.BOLD, base * 0.7));
+        mark.setStyle("-fx-background-color: #e6eef8; -fx-text-fill: #1f3b73; -fx-background-radius: 4;"
+                + " -fx-padding: 0 4 0 4; -fx-border-color: #9db3d6; -fx-border-radius: 4; -fx-border-width: 1;");
+        mark.setCursor(javafx.scene.Cursor.HAND);
+        List<String> written = new ArrayList<>();
+        for (String name : names) {
+            written.add(context.statement(name)
+                    .map(statement -> "anf:" + name + "\n" + AnfAdoc.toAdoc(statement).strip())
+                    .orElse("anf:" + name + ": no anf block before the tree names it"));
+        }
+        Tooltip tip = new Tooltip(String.join("\n\n", written) + "\n\nClick to see and edit the statement");
+        tip.setFont(Font.font("Menlo", base * 0.8));
+        mark.setTooltip(tip);
+        mark.setOnMouseClicked(e -> {
+            VBox cards = new VBox(6);
+            for (String name : names) {
+                context.statementCard(name).ifPresent(card -> {
+                    Label heading = new Label("anf:" + name + ", " + context.statement(name)
+                            .map(statement -> kind(statement).word() + " statement").orElse("statement"));
+                    heading.setFont(Font.font(null, FontWeight.BOLD, base * 0.85));
+                    cards.getChildren().addAll(heading, card.get());
+                });
+            }
+            if (cards.getChildren().isEmpty()) {
+                return;
+            }
+            javafx.geometry.Bounds at = mark.localToScreen(mark.getBoundsInLocal());
+            double x = at == null ? 0 : at.getMinX() + at.getWidth() / 2;
+            double y = at == null ? 0 : at.getMaxY();
+            dev.ikm.komet.framework.controls.PeekPopover.show(cards, PEEK_WIDTH, "ANF statement", mark, x, y, null, () -> { });
+            e.consume();
+        });
+        return mark;
     }
 
     /** The menu item that peeks at the complex concept's card beside the chip; the peek stays editable. */
