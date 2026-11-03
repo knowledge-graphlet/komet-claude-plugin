@@ -34,6 +34,9 @@ import dev.ikm.komet.preferences.KometPreferences;
 import dev.ikm.komet.terms.KometConcept;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.service.PrimitiveData;
+import dev.ikm.komet.layout.controls.FilterOptionsPopup;
+import dev.ikm.komet.layout.controls.ViewOptionsPopupHelper;
+import dev.ikm.tinkar.common.util.time.DateTimeUtil;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.Coordinates;
 import dev.ikm.tinkar.coordinate.edit.EditCoordinateRecord;
@@ -51,6 +54,7 @@ import javafx.scene.control.ChoiceBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
+import javafx.scene.control.ContentDisplay;
 import javafx.scene.control.MenuButton;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.ScrollPane;
@@ -285,6 +289,10 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     private Map<String, PublicId> anchors = new LinkedHashMap<>();
     /** The host document: the one the person opened. */
     private StoredDocument shown;
+    /** The time the shown document is read as of: {@link Long#MAX_VALUE} for the latest, else the view's past time. */
+    private long shownAsOf = Long.MAX_VALUE;
+    /** The document last opened, read again when the card refreshes, as when its view's time moves. */
+    private PublicId reading;
     /** The host with its children shown in place. */
     private DocumentAssembly assembly;
     /** What was read for each member, by recorded path: committed numbers and text, pending edit, summaries. */
@@ -563,11 +571,32 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         pendingGroup.setId("stampedDocumentPendingGroup");
         pendingGroup.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
         showPending(false, false);
-        toolBar.getChildren().addAll(documents, views, modes, layerMenu, overflow, pendingGroup);
+        toolBar.getChildren().addAll(coordinateButton(), documents, views, modes, layerMenu, overflow, pendingGroup);
         // Names beside the icons while the card is wide enough for them; icons alone when it is not.
         fxObject().widthProperty().addListener((obs, was, is) -> labelToolbar());
         modes.visibleProperty().addListener((obs, was, is) -> labelToolbar());
         labelToolbar();
+    }
+
+    /**
+     * The card's view coordinates, as the assistant card shows them: the view the document is read
+     * under, its time among them. Moving the time refreshes the card, as any change of its view
+     * does, which reads the document again as it stood then.
+     */
+    private MenuButton coordinateButton() {
+        MenuButton button = new MenuButton();
+        button.setId("stampedDocumentCoordinates");
+        button.getStyleClass().add("coordinate");
+        button.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
+        button.setTooltip(new Tooltip("Coordinates: the view the document is read under; its time reads the document as it stood then"));
+        if (getCardViewProperties() == null) {
+            button.setDisable(true);
+            return button;
+        }
+        ViewOptionsPopupHelper.setupViewCoordinateOptionsPopup(getCardViewProperties(),
+                FilterOptionsPopup.FILTER_TYPE.CHAPTER_WINDOW, fxObject(), button, () -> { });
+        wireCoordinateOverrideIndicator(button);
+        return button;
     }
 
     /** Shows each toolbar control's name beside its icon when the card is wide enough, its icon alone otherwise. */
@@ -684,6 +713,17 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
 
     // ── the Host ──────────────────────────────────────────────────────────────
 
+    /**
+     * The time the card's view reads at: {@link Long#MAX_VALUE} for the latest, else a past time,
+     * which the document is read as of (ike-lab-documents topic {@code dev-decision-document},
+     * "Time travel").
+     *
+     * @return the view's time
+     */
+    long asOf() {
+        return view().viewCoordinateRecord().stampCoordinate().stampPosition().time();
+    }
+
     /** The card's view, or the default one before the card is hosted. */
     @Override
     public ViewCalculator view() {
@@ -740,6 +780,8 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
                 } else {
                     documents.setValue(wanted);
                 }
+            } else if (reading != null) {
+                open(reading);                                 // a document opened directly, which the chooser may not name
             } else {
                 statusLine.setText(found.size() + " document(s) in the store; choose one.");
             }
@@ -752,6 +794,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
      * @param anchor the document anchor's id
      */
     public void open(PublicId anchor) {
+        reading = anchor;
         open(anchor, null, null);
         listShown(anchor);
     }
@@ -799,13 +842,16 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     private record Loaded(StoredDocument document, Map<Long, Integer> committedNumbers, List<String> committedLines, String path,
                           boolean pending, boolean restorable, CommitSummaries summaries) {
 
-        /** Reads one document; off the FX thread. The committed text is read again only when an edit is pending. */
-        static Optional<Loaded> read(PublicId anchor, Path root, boolean host) {
-            Optional<StoredDocument> loaded = GitDocumentMaterializer.load(anchor, true);
+        /**
+         * Reads one document as of a time; off the FX thread. The committed text is read again only
+         * when an edit is pending; a reading of a past time has none.
+         */
+        static Optional<Loaded> read(PublicId anchor, Path root, boolean host, long asOf) {
+            Optional<StoredDocument> loaded = GitDocumentMaterializer.load(anchor, true, asOf);
             if (loaded.isEmpty()) {
                 return Optional.empty();
             }
-            boolean pending = DocumentEditor.pending(anchor).isPresent();
+            boolean pending = asOf == Long.MAX_VALUE && DocumentEditor.pending(anchor).isPresent();
             StoredDocument committed = pending ? GitDocumentMaterializer.load(anchor, false).orElse(loaded.get()) : loaded.get();
             Map<Long, Integer> numbers = new HashMap<>();
             for (int i = 0; i < committed.lines().size(); i++) {
@@ -815,23 +861,30 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
             Path relative = path == null ? null : Path.of(path);
             boolean rootHoldsFile = root != null && relative != null && Files.isRegularFile(root.resolve(relative));
             return Optional.of(new Loaded(loaded.get(), numbers, committed.lines().stream().map(StoredLine::text).toList(), path,
-                    pending, host && !DocumentEditor.restorable(anchor).isEmpty(),
+                    pending, host && asOf == Long.MAX_VALUE && !DocumentEditor.restorable(anchor).isEmpty(),
                     CommitSummaries.read(anchor, rootHoldsFile ? root : null, relative)));
         }
     }
 
-    /** What one open reads off the FX thread: the host, its children by path, and the assembly over them. */
-    private record Opened(Loaded host, Map<String, Loaded> members, DocumentAssembly assembly) { }
+    /** What one open reads off the FX thread: the host, its children by path, the assembly over them, and the time they are read as of. */
+    private record Opened(Loaded host, Map<String, Loaded> members, DocumentAssembly assembly, long asOf) { }
 
     /**
      * Reads the host and every document its includes resolve to, by recorded path: under a known
      * working tree the child's anchor is the identity its file materializes under; without one,
      * the store's documents of that path (the first when two repositories hold it).
      */
-    private static Opened read(PublicId anchor, Path root) {
-        Optional<Loaded> host = Loaded.read(anchor, root, true);
+    private static Opened read(PublicId anchor, Path root, long asOf) {
+        Optional<Loaded> host = Loaded.read(anchor, root, true, asOf);
         if (host.isEmpty()) {
-            return null;
+            if (asOf == Long.MAX_VALUE) {
+                return null;
+            }
+            // the document did not exist yet at that time: nothing is shown as it stood then, rather than what it is now
+            StoredDocument nothing = StoredDocument.nothing(anchor);
+            DocumentAssembly empty = DocumentAssembly.single(nothing, "");
+            Loaded before = new Loaded(nothing, Map.of(), List.of(), null, false, false, CommitSummaries.NONE);
+            return new Opened(before, Map.of(empty.host().path(), before), empty, asOf);
         }
         Map<String, Loaded> loaded = new LinkedHashMap<>();
         Map<String, List<PublicId>> byPath = root == null ? GitDocumentMaterializer.storedDocumentsByPath() : Map.of();
@@ -845,7 +898,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
             if (child == null || child.equals(anchor)) {
                 return Optional.empty();
             }
-            Optional<Loaded> read = Loaded.read(child, root, false);
+            Optional<Loaded> read = Loaded.read(child, root, false, asOf);
             read.ifPresent(l -> loaded.put(path, l));
             return read.map(Loaded::document);
         };
@@ -858,14 +911,15 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
                 members.put(child.path(), l);
             }
         }
-        return new Opened(host.get(), members, assembly);
+        return new Opened(host.get(), members, assembly, asOf);
     }
 
     /** As {@link #open(PublicId)}, then puts a report on the status line and runs {@code afterShow} once drawn. */
     private void open(PublicId anchor, String report, Runnable afterShow) {
         statusLine.setText("Reading from the store …");
         Path root = repoRoot;
-        CompletableFuture.supplyAsync(() -> read(anchor, root)).whenComplete((loaded, failure) -> Platform.runLater(() -> {
+        long asOf = asOf();
+        CompletableFuture.supplyAsync(() -> read(anchor, root, asOf)).whenComplete((loaded, failure) -> Platform.runLater(() -> {
             if (failure != null) {
                 statusLine.setText("Could not read the document: " + failure.getMessage());
                 LOG.warn("Loading {} failed", anchor, failure);
@@ -893,7 +947,9 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         histories.clear();
         facts.clear();
         shownPath = loaded.path();
+        shownAsOf = opened.asOf();
         summaries = CommitSummaries.merge(members.values().stream().map(Loaded::summaries).toList());
+        surface.setPast(shownAsOf != Long.MAX_VALUE);
         surface.show(assembly);
         pendingEdit = members.values().stream().anyMatch(Loaded::pending);
         repositoryPanel.refresh(state -> state.remotes().stream().findFirst()
@@ -917,7 +973,13 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         String tail = shown.root() == null ? "no structure; re-materialize to add it"
                 : assembly.members().stream().mapToInt(m -> m.document().blocks().size()).sum() + " blocks, " + references + " references, "
                 + affirmed + " affirmed lines";
-        statusLine.setText(status(shown, tail
+        if (shownAsOf != Long.MAX_VALUE && shown.lines().isEmpty()) {
+            statusLine.setText("The document has no version as of " + DateTimeUtil.format(shownAsOf) + "; move the view's time later to read it.");
+            return;
+        }
+        statusLine.setText((shownAsOf == Long.MAX_VALUE ? "" : "As of " + DateTimeUtil.format(shownAsOf)
+                + ", read only: the document as it stood then; move the view's time to the latest to edit it. ")
+                + status(shown, tail
                 + (children == 0 ? "" : "; " + children + " included document(s) shown in place")
                 + (unresolved.isEmpty() ? "" : "; " + unresolved.size() + " include(s) left as lines: "
                 + unresolved.stream().map(DocumentAssembly.Include::target).limit(3).collect(Collectors.joining(", ")) + (unresolved.size() > 3 ? ", …" : ""))
@@ -2231,6 +2293,18 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     }
 
     // ── editing ───────────────────────────────────────────────────────────────
+
+    /**
+     * Moves the card's view to a time, for UI automation; the coordinates menu's time does the
+     * same, and the document is read again as it stood then.
+     *
+     * @param time the time, {@link Long#MAX_VALUE} for the latest
+     */
+    public void setViewTime(long time) {
+        if (getCardViewProperties() != null) {
+            getCardViewProperties().nodeView().stampCoordinate().timeProperty().setValue(time);
+        }
+    }
 
     /** Opens a block for editing in place, for UI automation; the context menu's Edit block does the same for the selection. */
     public boolean editBlock(long blockNid) {

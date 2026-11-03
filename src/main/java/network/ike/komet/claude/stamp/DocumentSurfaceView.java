@@ -229,6 +229,8 @@ final class DocumentSurfaceView {
     private List<Area> target;
     /** Whether the build in progress is the Page layout: no front matter, comments or attribute lines, print spacing. */
     private boolean print;
+    /** Whether the shown document is a reading of a past time, which is read, never edited. */
+    private boolean past;
     /** The index of the top-level block of the print model the build is in, as the Typst writer labels them. */
     private int modelOrdinal;
     /** How deep inside containers the print build is: only blocks outside any are top-level blocks of the model. */
@@ -353,6 +355,17 @@ final class DocumentSurfaceView {
         selection = null;
         render();
         host.selectionChanged();
+    }
+
+    /**
+     * Marks the next {@link #show} as a reading of a past time (ike-lab-documents topic
+     * {@code dev-decision-document}, "Time travel"): no block is edited and nothing is written
+     * back, since an edit is made to the document as it is now.
+     *
+     * @param past whether the document is read as of a past time
+     */
+    void setPast(boolean past) {
+        this.past = past;
     }
 
     /** @return whether a block is being edited in place */
@@ -982,7 +995,7 @@ final class DocumentSurfaceView {
 
     /** Adds one Reading-view area: the block's body with its references beneath, and its marginalia for the margins. */
     private Area addArea(DocumentAssembly.Member member, StoredBlock block, List<StoredLine> lines, LineRunModel.Spec spec, int depth, boolean editable, String section) {
-        Area area = new Area(member, block, lines, spec, editable, section);
+        Area area = new Area(member, block, lines, spec, editable && !past, section);
         target.add(area);
         if (block != null && editable && !print) {
             areasByBlock.put(block.nid(), area);
@@ -1870,7 +1883,7 @@ final class DocumentSurfaceView {
     /** Opens a block for editing by its nid, for the host's automation. */
     boolean editBlock(long blockNid) {
         Area area = areasByBlock.get(blockNid);
-        if (area == null || editing != null) {
+        if (area == null || !area.editable || editing != null) {
             return false;
         }
         if (view != View.READING) {

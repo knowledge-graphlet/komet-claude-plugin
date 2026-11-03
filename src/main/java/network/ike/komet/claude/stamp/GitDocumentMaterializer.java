@@ -842,6 +842,16 @@ public final class GitDocumentMaterializer {
                                  List<String> attributes, StoredBlock root, Map<Long, StoredBlock> blocks,
                                  Map<Long, List<StoredReference>> references, Map<Long, List<StoredSentence>> sentences) {
 
+        /**
+         * A document with nothing in it: how a document reads as of a time before its first commit.
+         *
+         * @param anchor the document's anchor
+         * @return the empty document
+         */
+        public static StoredDocument nothing(PublicId anchor) {
+            return new StoredDocument(anchor, "", List.of(), 0, List.of(), null, Map.of(), Map.of(), Map.of());
+        }
+
         /** A document with no stored sentences: the prose-element model, or a store that predates them. */
         public StoredDocument(PublicId anchor, String commit, List<StoredLine> lines, int manifestVersions, List<String> attributes,
                               StoredBlock root, Map<Long, StoredBlock> blocks, Map<Long, List<StoredReference>> references) {
@@ -877,8 +887,22 @@ public final class GitDocumentMaterializer {
      * @return the document, or empty when the anchor has no manifest
      */
     public static Optional<StoredDocument> load(PublicId anchor, boolean pending) {
+        return load(anchor, pending, Long.MAX_VALUE);
+    }
+
+    /**
+     * Rebuild a document from the store as it stood at a time: a document stored as vertices
+     * reads every vertex as of {@code asOf} ({@link VertexReader#load(PublicId, boolean, long)});
+     * the prose-element model has no reading of a past time and reads its latest.
+     *
+     * @param anchor  the document anchor id
+     * @param pending whether to include uncommitted versions; ignored for a past time
+     * @param asOf    the time, {@link Long#MAX_VALUE} for the latest
+     * @return the document, or empty when the anchor has no manifest
+     */
+    public static Optional<StoredDocument> load(PublicId anchor, boolean pending, long asOf) {
         if (VertexReader.isVertexDocument(anchor)) {
-            return VertexReader.load(anchor, pending);                      // IKE-Network/ike-issues#1313
+            return VertexReader.load(anchor, pending, asOf);                // IKE-Network/ike-issues#1313
         }
         long anchorNid = EntityService.get().nidForPublicId(anchor);
         List<SemanticEntity<SemanticEntityVersion>> manifests = EntityService.get()

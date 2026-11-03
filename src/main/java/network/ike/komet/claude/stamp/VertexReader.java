@@ -112,16 +112,45 @@ public final class VertexReader {
      * @return the document, or empty when the anchor is no vertex document
      */
     public static Optional<StoredDocument> load(PublicId anchor, boolean pending) {
+        return load(anchor, pending, Long.MAX_VALUE);
+    }
+
+    /**
+     * Reads the document as it stood at a time (ike-lab-documents topic {@code dev-decision-document},
+     * "Time travel"): every vertex its latest committed version no later than {@code asOf}, so the
+     * prose of that time and each structured block's text of that time, from which its tree,
+     * statement or concept is drawn. An uncommitted edit is the present, so a reading of a past
+     * time has none, and annotations and commits made after it are left out.
+     *
+     * @param anchor  the root vertex's id
+     * @param pending whether to include uncommitted versions; ignored for a past time
+     * @param asOf    the time, {@link Long#MAX_VALUE} for the latest
+     * @return the document, or empty when the anchor is no vertex document or the time is before its first commit
+     */
+    public static Optional<StoredDocument> load(PublicId anchor, boolean pending, long asOf) {
         if (!isVertexDocument(anchor)) {
             return Optional.empty();
         }
+        if (asOf != Long.MAX_VALUE) {
+            pending = false;
+        }
         long rootNid = EntityService.get().nidForPublicId(anchor);
-        long base = pending ? DocumentEditor.pendingBase(anchor) : Long.MAX_VALUE;
+        long base = Math.min(asOf, pending ? DocumentEditor.pendingBase(anchor) : Long.MAX_VALUE);
         SemanticEntityVersion rootVersion = latestOf(versions(rootNid, pending, base));
         if (rootVersion == null || !(rootVersion.fieldValues().get(0) instanceof EntityVertex root)) {
             return Optional.empty();
         }
         Map<Long, List<StoredAnnotation>> annotated = GitDocumentMaterializer.annotationsByElement(rootNid);
+        if (asOf != Long.MAX_VALUE) {
+            Map<Long, List<StoredAnnotation>> then = new HashMap<>();
+            annotated.forEach((element, annotations) -> {
+                List<StoredAnnotation> made = annotations.stream().filter(a -> a.stamp().time() <= asOf).toList();
+                if (!made.isEmpty()) {
+                    then.put(element, made);
+                }
+            });
+            annotated = then;
+        }
         List<StoredLine> lines = new ArrayList<>();
         Map<Long, StoredBlock> blocks = new LinkedHashMap<>();
         Map<Long, List<StoredReference>> references = new HashMap<>();
@@ -145,7 +174,7 @@ public final class VertexReader {
                 .semanticsForComponentOfPattern(rootNid, IkePattern.GIT_SOURCE_PATTERN.nid()).toList()) {
             SemanticEntityVersion latest = null;
             for (SemanticEntityVersion v : source.versions()) {
-                if (v.canceled() || v.time() == Long.MAX_VALUE) {
+                if (v.canceled() || v.time() == Long.MAX_VALUE || v.time() > asOf) {
                     continue;
                 }
                 commits++;
