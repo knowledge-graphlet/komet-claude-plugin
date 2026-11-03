@@ -56,6 +56,7 @@ import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredDocument;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredLine;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredReference;
 import network.ike.komet.claude.stamp.LineRunModel.LineRun;
+import network.ike.komet.claude.ui.BlockContext;
 import network.ike.komet.claude.ui.MarkdownRichText;
 
 import java.io.ByteArrayInputStream;
@@ -222,6 +223,8 @@ final class DocumentSurfaceView {
 
     /** The styles of the build in progress: the screen's, or a print theme's while the Page layout is built. */
     private Styles st = Styles.SCREEN;
+    /** What the structured blocks of the shown document know of each other; a new one each time a document is shown. */
+    private BlockContext blocks = new BlockContext();
     /** Where the build in progress adds its areas: the Reading view's, or the Page layout's. */
     private List<Area> target;
     /** Whether the build in progress is the Page layout: no front matter, comments or attribute lines, print spacing. */
@@ -441,6 +444,8 @@ final class DocumentSurfaceView {
         hidePopover();
         editing = null;
         assembly = shown;
+        // the structured blocks of this document read each other here: trees folded in, statements named, values computed
+        blocks = new BlockContext();
         areas.clear();
         pages.clear();
         units.clear();
@@ -644,6 +649,17 @@ final class DocumentSurfaceView {
                     children.add(child);
                 }
             }
+        }
+        if (!print && block.kind() == Block.Kind.OPEN && StructuredBlocks.kindOf(block).isPresent()) {
+            // a structured open block, [anf] over --, reads as a listing does: its source, then its kind's control
+            List<StoredLine> all = StructuredBlocks.lines(document, block);
+            Area area = add(member, block, all, paragraphs(all, "", st.mono(), null), depth, true, section);
+            if (area != null) {
+                area.area.setStyle("-fx-background-color: #F4F3F1; -fx-background-radius: 4;");
+                title(area, block);
+                attachStructured(area, document, block);
+            }
+            return;
         }
         switch (block.kind()) {
             case DOCUMENT -> {
@@ -1964,7 +1980,7 @@ final class DocumentSurfaceView {
         StructuredBlockKind.Source source = StructuredBlocks.source(document, block);
         Node view;
         try {
-            view = kind.get().view(source, new StructuredBlockKind.Context(host.view()));
+            view = kind.get().view(source, new StructuredBlockKind.Context(host.view(), blocks, st.base()));
         } catch (RuntimeException failure) {
             host.status("The " + kind.get().name() + " block could not be read; it is shown as its text: " + failure.getMessage());
             return;
@@ -1995,7 +2011,7 @@ final class DocumentSurfaceView {
 
     private Optional<StructuredBlockKind.Editor> structuredEditor(Area area) {
         try {
-            return area.structured.editor(area.structuredSource, new StructuredBlockKind.Context(host.view()));
+            return area.structured.editor(area.structuredSource, new StructuredBlockKind.Context(host.view(), blocks, st.base()));
         } catch (RuntimeException failure) {
             host.status("The " + area.structured.name() + " editor could not open; the block is edited as its text: " + failure.getMessage());
             return Optional.empty();

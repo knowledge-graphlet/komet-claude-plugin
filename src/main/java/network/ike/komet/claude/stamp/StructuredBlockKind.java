@@ -17,6 +17,7 @@ package network.ike.komet.claude.stamp;
 
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import javafx.scene.Node;
+import network.ike.komet.claude.ui.BlockContext;
 
 import java.util.List;
 import java.util.Optional;
@@ -89,21 +90,11 @@ public interface StructuredBlockKind {
 
         /** @return the content between the block's fences, one source line per text line */
         public String content() {
-            int open = -1;
-            int close = -1;
-            for (int i = 0; i < lines.size(); i++) {
-                if (isFence(lines.get(i))) {
-                    if (open < 0) {
-                        open = i;
-                    } else {
-                        close = i;
-                    }
-                }
-            }
-            if (open < 0) {
+            int[] fences = fences();
+            if (fences[0] < 0) {
                 return String.join("\n", lines);
             }
-            return String.join("\n", lines.subList(open + 1, close < 0 ? lines.size() : close));
+            return String.join("\n", lines.subList(fences[0] + 1, fences[1] < 0 ? lines.size() : fences[1]));
         }
 
         /**
@@ -114,17 +105,9 @@ public interface StructuredBlockKind {
          * @return the block's text
          */
         public String withContent(String content) {
-            int open = -1;
-            int close = -1;
-            for (int i = 0; i < lines.size(); i++) {
-                if (isFence(lines.get(i))) {
-                    if (open < 0) {
-                        open = i;
-                    } else {
-                        close = i;
-                    }
-                }
-            }
+            int[] fences = fences();
+            int open = fences[0];
+            int close = fences[1];
             if (open < 0) {
                 return content;
             }
@@ -141,19 +124,58 @@ public interface StructuredBlockKind {
             return text.toString();
         }
 
+        /**
+         * The opening fence and the last line that closes it, by index; -1 where there is none.
+         * A listing opens with four dashes or more, an open block with two, and the block closes
+         * with the line that opened it, so a {@code --} line inside a listing is content.
+         */
+        private int[] fences() {
+            int open = -1;
+            for (int i = 0; i < lines.size(); i++) {
+                if (isFence(lines.get(i))) {
+                    open = i;
+                    break;
+                }
+            }
+            int close = -1;
+            if (open >= 0) {
+                String fence = lines.get(open).strip();
+                for (int i = lines.size() - 1; i > open; i--) {
+                    if (lines.get(i).strip().equals(fence)) {
+                        close = i;
+                        break;
+                    }
+                }
+            }
+            return new int[] {open, close};
+        }
+
         private static boolean isFence(String line) {
             String stripped = line.strip();
-            return stripped.length() >= 4 && stripped.chars().allMatch(c -> c == '-');
+            return (stripped.length() >= 4 || stripped.length() == 2) && stripped.chars().allMatch(c -> c == '-');
         }
     }
 
     /**
      * What a structured block's control may read: the view its names and concepts are read
-     * under. Writes go through the editor's text, never through the context.
+     * under, what the document's other blocks have made known, and the surface's base size.
+     * Writes go through the editor's text, never through the context.
      *
-     * @param view the view of the surface showing the block
+     * @param view   the view of the surface showing the block
+     * @param blocks what the blocks of the shown document know of each other: the trees an
+     *               outcome may fold in, the statements a node names, the calculators and their
+     *               values; one per document shown
+     * @param base   the surface's base font size, in points
      */
-    record Context(ViewCalculator view) { }
+    record Context(ViewCalculator view, BlockContext blocks, double base) {
+        /** The default base size, when the surface gives none. */
+        public static final double DEFAULT_BASE = 14;
+
+        /** A context over a view alone: a block reads no other block. */
+        public Context(ViewCalculator view) {
+            this(view, new BlockContext(), DEFAULT_BASE);
+        }
+    }
 
     /** An open editor of one structured block. */
     interface Editor {

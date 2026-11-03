@@ -113,7 +113,8 @@ public final class StructuredBlocks {
      * @return the kind
      */
     public static Optional<StructuredBlockKind> kindOf(StoredBlock block) {
-        if (block == null || block.kind() != Block.Kind.LISTING) {
+        // a listing, ----, or an open block, --, the form the ANF blocks of the lab documents take
+        if (block == null || (block.kind() != Block.Kind.LISTING && block.kind() != Block.Kind.OPEN)) {
             return Optional.empty();
         }
         return style(block.parameters()).flatMap(StructuredBlocks::kindFor);
@@ -142,10 +143,31 @@ public final class StructuredBlocks {
      * @return the source
      */
     public static StructuredBlockKind.Source source(StoredDocument document, StoredBlock block) {
-        List<String> lines = new ArrayList<>();
+        return new StructuredBlockKind.Source(block.parameters(), lines(document, block).stream().map(StoredLine::text).toList());
+    }
+
+    /**
+     * Every line of a block in document order, its children's included, the members being in
+     * document order: an open block's content is read as AsciiDoc, so its lines sit in child
+     * blocks, while a listing holds its own.
+     *
+     * @param document the block's document
+     * @param block    the block
+     * @return the lines
+     */
+    public static List<StoredLine> lines(StoredDocument document, StoredBlock block) {
+        List<StoredLine> lines = new ArrayList<>();
         for (long member : block.members()) {
-            document.line(member).map(StoredLine::text).ifPresent(lines::add);
+            Optional<StoredLine> line = document.line(member);
+            if (line.isPresent()) {
+                lines.add(line.get());
+            } else {
+                StoredBlock child = document.blocks().get(member);
+                if (child != null) {
+                    lines.addAll(lines(document, child));
+                }
+            }
         }
-        return new StructuredBlockKind.Source(block.parameters(), lines);
+        return lines;
     }
 }

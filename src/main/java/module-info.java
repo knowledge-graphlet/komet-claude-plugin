@@ -193,6 +193,16 @@ module komet.claude {
     provides dev.ikm.komet.layout.trash.KlTrashProvider
             with network.ike.komet.claude.trash.PluginTrashProvider;
 
+    // The decision blocks as structured kinds of a stored document: a [decision-tree],
+    // [complex-concept], [anf], [calculator] or [calculate] listing block draws on the stamped
+    // surface through the transcript's renderers (ike-lab-documents dev-decision-document).
+    provides network.ike.komet.claude.stamp.StructuredBlockKind
+            with network.ike.komet.claude.ui.DocumentBlockKinds.DecisionTree,
+                    network.ike.komet.claude.ui.DocumentBlockKinds.ComplexConcept,
+                    network.ike.komet.claude.ui.DocumentBlockKinds.Anf,
+                    network.ike.komet.claude.ui.DocumentBlockKinds.Calculator,
+                    network.ike.komet.claude.ui.DocumentBlockKinds.Calculation;
+
     // The identity tables of ANF statement and complex concept specification trees, which
     // tinkar-core's write path correlates by
     // (IKE-Network/ike-issues#1310, #1312).

@@ -201,7 +201,7 @@ final class KonceptChips {
      * @return the same chip
      */
     static Node capped(Node chip, double maxWidthPx, boolean wrap) {
-        if (chip instanceof KonceptBadge badge && badge.prefWidth(-1) > maxWidthPx) {
+        if (chip instanceof KonceptBadge badge && naturalWidth(badge) > maxWidthPx) {
             if (wrap) {
                 badge.setMultiLineLabel(true);
             }
@@ -209,6 +209,42 @@ final class KonceptChips {
             badge.setMaxWidth(maxWidthPx);
         }
         return chip;
+    }
+
+    /**
+     * How wide a chip will draw, measured before it is shown: a label has no skin until it is in a
+     * scene, so its own preferred width is only its padding, and a chip is measured by its text
+     * in the label's font instead. Once shown, the node's own preferred width.
+     *
+     * @param node a chip, a label, or a row of them
+     * @return the width, in pixels
+     */
+    static double naturalWidth(Node node) {
+        if (node == null || !node.isManaged()) {
+            return 0;
+        }
+        if (node.getScene() != null) {
+            return node.prefWidth(-1);
+        }
+        if (node instanceof javafx.scene.control.Labeled labeled) {
+            javafx.scene.text.Text text = new javafx.scene.text.Text(labeled.getText() == null ? "" : labeled.getText());
+            text.setFont(labeled.getFont());
+            javafx.geometry.Insets padding = labeled.getPadding();
+            double graphic = labeled.getGraphic() == null ? 0 : naturalWidth(labeled.getGraphic()) + labeled.getGraphicTextGap();
+            return text.getLayoutBounds().getWidth() + padding.getLeft() + padding.getRight() + graphic;
+        }
+        if (node instanceof javafx.scene.layout.HBox row) {
+            double width = row.getPadding().getLeft() + row.getPadding().getRight();
+            int shown = 0;
+            for (Node child : row.getChildren()) {
+                if (child.isManaged()) {
+                    width += naturalWidth(child);
+                    shown++;
+                }
+            }
+            return width + Math.max(0, shown - 1) * row.getSpacing();
+        }
+        return node.prefWidth(-1);
     }
 
     /** True if the component's latest version in the current view is inactive (retired). */
