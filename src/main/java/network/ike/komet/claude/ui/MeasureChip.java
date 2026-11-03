@@ -148,6 +148,8 @@ final class MeasureChip extends StackPane {
         field.setId("what-if-field");
         field.setFont(Font.font(base * 0.9));
         field.setPrefColumnCount(Math.max(5, field.getText().length()));
+        // never squeezed below its text, which would lay the card out on every pulse
+        field.setMinWidth(javafx.scene.layout.Region.USE_PREF_SIZE);
         Runnable restore = () -> getChildren().setAll(row);
         field.setOnAction(e -> {
             Optional<Bounds> typed = DecisionTreeEdits.typed(field.getText());

@@ -189,6 +189,8 @@ final class MeasureControl extends VBox {
         TextField field = new TextField(TornadoChart.value(value).replace(",", ""));
         field.setFont(Font.font(base * 0.85));
         field.setPrefColumnCount(7);
+        // never squeezed below its text, which would lay the card out on every pulse
+        field.setMinWidth(javafx.scene.layout.Region.USE_PREF_SIZE);
         return field;
     }
 

@@ -610,6 +610,9 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             priceField.setId("health-price-field");
             priceField.setFont(Font.font(base * 0.9));
             priceField.setPrefColumnCount(8);
+            // never squeezed below its text: a field narrower than its caret moves its text back and forth on
+            // every layout, and the card is laid out and repainted on every pulse
+            priceField.setMinWidth(Region.USE_PREF_SIZE);
             priceField.setOnAction(event -> {
                 try {
                     double typed = Double.parseDouble(priceField.getText().replace(",", "").replace("$", "").strip());
