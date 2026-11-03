@@ -75,6 +75,21 @@ public interface StructuredBlockKind {
     Optional<Editor> editor(Source source, Context context);
 
     /**
+     * Writes the knowledge a block of this kind states, after the block's text was saved: a
+     * decision tree as a version of its tree semantic. The versions are uncommitted, by the edit's
+     * author, kept or cancelled with the document's edit. A kind whose blocks state nothing the
+     * store keeps writes nothing.
+     *
+     * @param source the block's source as saved
+     * @param view   the view its identifiers are read under
+     * @param edit   whose change it is, in which module and on which path
+     * @return a sentence for the person, empty when the kind writes nothing
+     */
+    default Optional<String> write(Source source, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
+        return Optional.empty();
+    }
+
+    /**
      * A structured block's source as its document holds it.
      *
      * @param parameters the block's attribute line, verbatim, as {@code [anf,type=performance]}
@@ -86,6 +101,28 @@ public interface StructuredBlockKind {
         /** Copies the lines. */
         public Source {
             lines = List.copyOf(lines);
+        }
+
+        /**
+         * A block's source from its whole text, as a save writes it: the attribute line is the
+         * last line before the opening fence that is one.
+         *
+         * @param text the block's text, one line per line
+         * @return the source
+         */
+        public static Source of(String text) {
+            List<String> lines = List.of(text.split("\n", -1));
+            String parameters = "";
+            for (String line : lines) {
+                String stripped = line.strip();
+                if (isFence(line)) {
+                    break;
+                }
+                if (stripped.startsWith("[") && stripped.endsWith("]")) {
+                    parameters = stripped;
+                }
+            }
+            return new Source(parameters, lines);
         }
 
         /** @return the content between the block's fences, one source line per text line */
@@ -125,6 +162,32 @@ public interface StructuredBlockKind {
         }
 
         /**
+         * The block's whole text with a new attribute line and new content: what a write back
+         * saves when the reader changed the block's parameters too, a decision tree's health
+         * price among them. The lines before the fence other than the attribute line, a title
+         * among them, are kept.
+         *
+         * @param newParameters the new attribute line, {@code [decision-tree, health-price=50000]}
+         * @param content       the new content
+         * @return the block's text
+         */
+        public String withParameters(String newParameters, String content) {
+            String text = withContent(content);
+            if (parameters == null || parameters.isBlank() || newParameters == null || newParameters.equals(parameters)) {
+                return text;
+            }
+            List<String> restated = new java.util.ArrayList<>(List.of(text.split("\n", -1)));
+            int open = fences()[0];
+            for (int i = 0; i < restated.size() && (open < 0 || i < open); i++) {
+                if (restated.get(i).strip().equals(parameters.strip())) {
+                    restated.set(i, newParameters);
+                    break;
+                }
+            }
+            return String.join("\n", restated);
+        }
+
+        /**
          * The opening fence and the last line that closes it, by index; -1 where there is none.
          * A listing opens with four dashes or more, an open block with two, and the block closes
          * with the line that opened it, so a {@code --} line inside a listing is content.
@@ -157,23 +220,32 @@ public interface StructuredBlockKind {
     }
 
     /**
-     * What a structured block's control may read: the view its names and concepts are read
-     * under, what the document's other blocks have made known, and the surface's base size.
-     * Writes go through the editor's text, never through the context.
+     * What a structured block's control may read, and where it writes: the view its names and
+     * concepts are read under, what the document's other blocks have made known, the surface's
+     * base size, and the save that restates the block's text. A control writes only through its
+     * block's text: an editor's content, or a write back of what the reader tried, as the save.
      *
      * @param view   the view of the surface showing the block
      * @param blocks what the blocks of the shown document know of each other: the trees an
      *               outcome may fold in, the statements a node names, the calculators and their
      *               values; one per document shown
      * @param base   the surface's base font size, in points
+     * @param save   saves the block's whole new text, attribute line and fences included, as an
+     *               uncommitted edit of the document; null where the surface may not edit, and
+     *               a control then offers no write back
      */
-    record Context(ViewCalculator view, BlockContext blocks, double base) {
+    record Context(ViewCalculator view, BlockContext blocks, double base, java.util.function.Consumer<String> save) {
         /** The default base size, when the surface gives none. */
         public static final double DEFAULT_BASE = 14;
 
-        /** A context over a view alone: a block reads no other block. */
+        /** A context over a view alone: a block reads no other block and writes nothing. */
         public Context(ViewCalculator view) {
-            this(view, new BlockContext(), DEFAULT_BASE);
+            this(view, new BlockContext(), DEFAULT_BASE, null);
+        }
+
+        /** A context that writes nothing. */
+        public Context(ViewCalculator view, BlockContext blocks, double base) {
+            this(view, blocks, base, null);
         }
     }
 

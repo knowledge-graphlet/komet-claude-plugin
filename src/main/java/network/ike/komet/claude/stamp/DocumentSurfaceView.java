@@ -1980,7 +1980,9 @@ final class DocumentSurfaceView {
         StructuredBlockKind.Source source = StructuredBlocks.source(document, block);
         Node view;
         try {
-            view = kind.get().view(source, new StructuredBlockKind.Context(host.view(), blocks, st.base()));
+            // a write back is an uncommitted edit of the block's lines, as the structured editor's Save is
+            view = kind.get().view(source, new StructuredBlockKind.Context(host.view(), blocks, st.base(),
+                    area.editable ? text -> host.saveEdit(block, text) : null));
         } catch (RuntimeException failure) {
             host.status("The " + kind.get().name() + " block could not be read; it is shown as its text: " + failure.getMessage());
             return;

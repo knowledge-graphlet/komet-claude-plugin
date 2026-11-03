@@ -351,7 +351,19 @@ public final class ComplexConceptText {
 
     /** The public id a local concept is proposed under: one per symbol, wherever it is written. */
     public static UUID localPublicId(Ref ref) {
-        return UuidT5Generator.get(LOCAL_NAMESPACE, "complex-concept block: " + ref.token().identifier().orElse(ref.label()));
+        return localPublicId(ref.token().identifier().orElse(ref.label()));
+    }
+
+    /**
+     * The public id a block-local symbol's concept is written under, by any block that writes it:
+     * a complex concept's Propose and a decision tree's version derive the same identity for the
+     * same symbol, so the decision point both name is one concept.
+     *
+     * @param identifier the symbol, as written after {@code @id=}
+     * @return the public id
+     */
+    public static UUID localPublicId(String identifier) {
+        return UuidT5Generator.get(LOCAL_NAMESPACE, "complex-concept block: " + identifier);
     }
 
     /**

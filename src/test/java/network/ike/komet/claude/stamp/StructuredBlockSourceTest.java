@@ -34,6 +34,24 @@ class StructuredBlockSourceTest {
     }
 
     @Test
+    void aWriteBackMayRestateTheAttributeLineAndKeepsTheTitle() {
+        StructuredBlockKind.Source source = new StructuredBlockKind.Source("[decision-tree, health-price=100000]", List.of(
+                ".Should we scan?", "[decision-tree, health-price=100000]", "----", "decision: k:A[A] @id=a", "----"));
+        assertEquals(".Should we scan?\n[decision-tree, health-price=50000]\n----\ndecision: k:B[B] @id=b\n----",
+                source.withParameters("[decision-tree, health-price=50000]", "decision: k:B[B] @id=b"));
+        assertEquals(source.withContent("x"), source.withParameters("[decision-tree, health-price=100000]", "x"),
+                "the same attribute line is the content alone restated");
+    }
+
+    @Test
+    void aSavedTextReadsBackAsItsSource() {
+        StructuredBlockKind.Source source = StructuredBlockKind.Source.of(
+                ".Should we scan?\n[decision-tree, id=scan]\n----\ndecision: k:A[A] @id=a\n[not, an, attribute, line]\n----");
+        assertEquals("[decision-tree, id=scan]", source.parameters(), "the attribute line is the last before the fence");
+        assertEquals("decision: k:A[A] @id=a\n[not, an, attribute, line]", source.content());
+    }
+
+    @Test
     void aListingClosesOnlyWithTheFenceThatOpenedIt() {
         StructuredBlockKind.Source source = new StructuredBlockKind.Source("[decision-tree]", List.of(
                 "[decision-tree]", "----", "decision: k:A[A] @id=a", "--", "  alternative: k:B[B] @id=b", "----"));

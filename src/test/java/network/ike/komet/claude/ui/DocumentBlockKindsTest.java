@@ -39,6 +39,15 @@ class DocumentBlockKindsTest {
     }
 
     @Test
+    void anInfoStringReadsBackAsTheAttributeLineItCameFrom() {
+        String line = "[decision-tree, health-price=50000, cohort=100, title=\"Inspect the site, or not?\"]";
+        assertEquals(line, DocumentBlockKinds.attributeLine(DocumentBlockKinds.info(line)));
+        assertEquals("[anf, type=request, id=req-inspection]",
+                DocumentBlockKinds.attributeLine(DocumentBlockKinds.info("[anf,type=request,id=req-inspection]")),
+                "spacing is the one thing not kept");
+    }
+
+    @Test
     void eachKindIsNamedByItsRenderersTag() {
         assertEquals(List.of("decision-tree", "complex-concept", "anf", "calculator", "calculate"),
                 List.of(new DocumentBlockKinds.DecisionTree().style(), new DocumentBlockKinds.ComplexConcept().style(),

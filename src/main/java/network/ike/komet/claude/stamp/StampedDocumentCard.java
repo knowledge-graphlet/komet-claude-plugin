@@ -2237,10 +2237,15 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         return surface.editBlock(blockNid);
     }
 
+    /** A saved block edit: the action's result, and what a structured block wrote of what it states, when it did. */
+    private record Saved(dev.ikm.komet.actions.KometActionResult result, Optional<String> wrote) {
+    }
+
     /**
      * Saves an edit of one block as uncommitted versions by performing the starter set's
-     * {@code Edit document block} action, off the FX thread, and re-reads the document. A refused
-     * or failed run leaves the editor open with the reason.
+     * {@code Edit document block} action, off the FX thread, and re-reads the document. A
+     * structured block then writes what it states, a decision tree a version of its tree, under
+     * the same edit. A refused or failed run leaves the editor open with the reason.
      */
     @Override
     public void saveEdit(StoredBlock block, String text) {
@@ -2248,21 +2253,33 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         EditCoordinateRecord edit = editCoordinate();
         ViewCalculator view = view();
         statusLine.setText("Saving the edit …");
-        CompletableFuture.supplyAsync(() -> KometActions.expect(KometConcept.EDIT_DOCUMENT_BLOCK)
-                        .perform(EditDocumentBlock.input(block.nid(), text), view, edit))
-                .whenComplete((result, failure) -> Platform.runLater(() -> {
+        CompletableFuture.supplyAsync(() -> {
+                    var result = KometActions.expect(KometConcept.EDIT_DOCUMENT_BLOCK)
+                            .perform(EditDocumentBlock.input(block.nid(), text), view, edit);
+                    if (!result.completed()) {
+                        return new Saved(result, Optional.empty());
+                    }
+                    StructuredBlockKind.Source source = StructuredBlockKind.Source.of(text);
+                    return new Saved(result, StructuredBlocks.style(source.parameters()).flatMap(StructuredBlocks::kindFor)
+                            .flatMap(kind -> kind.write(source, view, edit)));
+                })
+                .whenComplete((saved, failure) -> Platform.runLater(() -> {
                     if (failure != null) {
                         Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
                         statusLine.setText("Edit not saved: " + cause.getMessage());
                         LOG.warn("Editing block {} of {} failed", block.nid(), anchor, cause);
                         return;
                     }
-                    if (!result.completed()) {
-                        statusLine.setText("Edit not saved: " + result.message());
+                    if (!saved.result().completed()) {
+                        statusLine.setText("Edit not saved: " + saved.result().message());
                         return;
                     }
                     surface.cancelEdit();
                     open(anchor);
+                    saved.wrote().ifPresent(wrote -> {
+                        LOG.info("Block {} of {} saved: {}", block.nid(), anchor.idString(), wrote);
+                        statusLine.setText(wrote);
+                    });
                 }));
     }
 

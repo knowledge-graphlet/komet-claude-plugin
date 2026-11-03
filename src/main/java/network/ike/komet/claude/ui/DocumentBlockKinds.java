@@ -39,8 +39,9 @@ import java.util.Optional;
  *
  * <p>The block's attribute line becomes the renderer's info string, {@code [decision-tree,
  * cohort=100]} the info {@code decision-tree cohort=100}, and its content the renderer's literal.
- * Each kind is edited as its text for now; a renderer's write back is not offered here, since
- * nothing yet writes a version from this surface.
+ * Each kind is edited as its text; what the reader tries in the drawing, a decision tree's
+ * what-if, an ANF statement or a complex concept edited on its card, is written back as an
+ * uncommitted edit of the block's lines, through the surface's save, where the surface edits.
  */
 public final class DocumentBlockKinds {
 
@@ -80,6 +81,18 @@ public final class DocumentBlockKinds {
         return String.join(" ", attributes);
     }
 
+    /**
+     * An info string as a block's attribute line, the inverse of {@link #info}: the words,
+     * separated by commas. {@code decision-tree health-price=50000 title="Inspect, or not?"}
+     * reads {@code [decision-tree, health-price=50000, title="Inspect, or not?"]}.
+     *
+     * @param info the info string
+     * @return the attribute line
+     */
+    static String attributeLine(String info) {
+        return "[" + String.join(", ", network.ike.komet.claude.block.Tokens.words(info == null ? "" : info)) + "]";
+    }
+
     /** A kind drawn by one of the transcript's block renderers. */
     private abstract static class RenderedKind implements StructuredBlockKind {
         private final String style;
@@ -90,8 +103,8 @@ public final class DocumentBlockKinds {
             this.name = name;
         }
 
-        /** The renderer, over the document's context. */
-        abstract BlockRenderer renderer(ViewCalculator view, double base, BlockContext blocks);
+        /** The renderer, over the document's context, writing back through the rewriter when there is one. */
+        abstract BlockRenderer renderer(ViewCalculator view, double base, BlockContext blocks, BlockRewriter rewriter);
 
         @Override
         public final String style() {
@@ -106,7 +119,11 @@ public final class DocumentBlockKinds {
         @Override
         public final Node view(Source source, Context context) {
             String content = source.content();
-            List<BlockPiece> pieces = renderer(context.view(), context.base(), context.blocks())
+            // a write back restates the block's text in the document: its content, and its attribute line when that changed
+            BlockRewriter rewriter = context.save() == null ? null
+                    : (info, literal, newInfo, newLiteral) -> context.save().accept(newInfo.equals(info)
+                            ? source.withContent(newLiteral) : source.withParameters(attributeLine(newInfo), newLiteral));
+            List<BlockPiece> pieces = renderer(context.view(), context.base(), context.blocks(), rewriter)
                     .render(info(source.parameters()), content.endsWith("\n") ? content : content + "\n", null);
             if (pieces.isEmpty()) {
                 throw new IllegalArgumentException("not a " + name + " block the surface can draw");
@@ -127,8 +144,17 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        BlockRenderer renderer(ViewCalculator view, double base, BlockContext blocks) {
-            return new DecisionTreeBlockRenderer(view, base, blocks);
+        BlockRenderer renderer(ViewCalculator view, double base, BlockContext blocks, BlockRewriter rewriter) {
+            DecisionTreeBlockRenderer renderer = new DecisionTreeBlockRenderer(view, base, blocks);
+            renderer.setRewriter(rewriter);
+            return renderer;
+        }
+
+        /** The tree, as a version of its tree semantic. */
+        @Override
+        public Optional<String> write(Source source, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
+            return Optional.of(network.ike.komet.claude.decision.DecisionTreeWrites
+                    .write(info(source.parameters()), source.content(), view, edit).message());
         }
     }
 
@@ -139,8 +165,10 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        BlockRenderer renderer(ViewCalculator view, double base, BlockContext blocks) {
-            return new ComplexConceptBlockRenderer(view, base, blocks);
+        BlockRenderer renderer(ViewCalculator view, double base, BlockContext blocks, BlockRewriter rewriter) {
+            ComplexConceptBlockRenderer renderer = new ComplexConceptBlockRenderer(view, base, blocks);
+            renderer.setRewriter(rewriter);
+            return renderer;
         }
     }
 
@@ -151,8 +179,10 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        BlockRenderer renderer(ViewCalculator view, double base, BlockContext blocks) {
-            return new AnfBlockRenderer(view, base, blocks);
+        BlockRenderer renderer(ViewCalculator view, double base, BlockContext blocks, BlockRewriter rewriter) {
+            AnfBlockRenderer renderer = new AnfBlockRenderer(view, base, blocks);
+            renderer.setRewriter(rewriter);
+            return renderer;
         }
     }
 
@@ -163,8 +193,10 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        BlockRenderer renderer(ViewCalculator view, double base, BlockContext blocks) {
-            return new CalculatorBlockRenderer(view, base, blocks);
+        BlockRenderer renderer(ViewCalculator view, double base, BlockContext blocks, BlockRewriter rewriter) {
+            CalculatorBlockRenderer renderer = new CalculatorBlockRenderer(view, base, blocks);
+            renderer.setRewriter(rewriter);
+            return renderer;
         }
     }
 
@@ -175,8 +207,10 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        BlockRenderer renderer(ViewCalculator view, double base, BlockContext blocks) {
-            return new CalculatorBlockRenderer(view, base, blocks);
+        BlockRenderer renderer(ViewCalculator view, double base, BlockContext blocks, BlockRewriter rewriter) {
+            CalculatorBlockRenderer renderer = new CalculatorBlockRenderer(view, base, blocks);
+            renderer.setRewriter(rewriter);
+            return renderer;
         }
     }
 }

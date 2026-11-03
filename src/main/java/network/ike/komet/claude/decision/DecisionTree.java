@@ -130,6 +130,7 @@ public final class DecisionTree extends ProfiledTree<DecisionElement> {
             case EntityFacade facade -> result.add(facade.nid());
             case long[] nids -> result.addAll(nids);
             case ImmutableLongList nids -> result.addAll(nids);
+            case dev.ikm.tinkar.common.id.LongIdList nids -> result.addAll(nids.toArray());
             case Iterable<?> items -> items.forEach(item -> {
                 switch (item) {
                     case Long nid -> result.add(nid);

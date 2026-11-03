@@ -203,12 +203,13 @@ module komet.claude {
                     network.ike.komet.claude.ui.DocumentBlockKinds.Calculator,
                     network.ike.komet.claude.ui.DocumentBlockKinds.Calculation;
 
-    // The identity tables of ANF statement and complex concept specification trees, which
+    // The identity tables of ANF statement, complex concept specification and decision trees, which
     // tinkar-core's write path correlates by
     // (IKE-Network/ike-issues#1310, #1312).
     provides dev.ikm.tinkar.entity.graph.VertexIdentityTable
             with network.ike.komet.claude.anf.model.AnfIdentityTable,
-                 network.ike.komet.claude.complexconcept.model.ComplexConceptIdentityTable;
+                 network.ike.komet.claude.complexconcept.model.ComplexConceptIdentityTable,
+                 network.ike.komet.claude.decision.DecisionTreeIdentityTable;
 
     // Evrete accesses the rule class via MethodHandles. Like komet/rules (an
     // `open module`), the rule package must be opened UNQUALIFIED — a qualified
