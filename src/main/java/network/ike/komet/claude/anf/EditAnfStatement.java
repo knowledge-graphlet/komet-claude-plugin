@@ -21,7 +21,6 @@ import dev.ikm.komet.actions.KometActionResult;
 import dev.ikm.komet.terms.KometConcept;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.coordinate.edit.EditCoordinate;
-import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
@@ -99,8 +98,8 @@ public final class EditAnfStatement implements KometAction {
         if (broken.isPresent()) {
             return KometActionResult.refused(input, broken.get());
         }
-        Latest<SemanticEntityVersion> latest = view.latest(statement);
-        if (latest.isAbsent()) {
+        Optional<SemanticEntityVersion> latest = AnfStatementWrites.head(record, view);
+        if (latest.isEmpty()) {
             return KometActionResult.refused(input, "No version of the statement is visible in this view.");
         }
         SemanticEntityVersion head = latest.get();

@@ -2244,7 +2244,8 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     /**
      * Saves an edit of one block as uncommitted versions by performing the starter set's
      * {@code Edit document block} action, off the FX thread, and re-reads the document. A
-     * structured block then writes what it states, a decision tree a version of its tree, under
+     * structured block then writes what it states, a decision tree a version of its tree, an ANF
+     * statement its statement and a complex concept its specification, under
      * the same edit. A refused or failed run leaves the editor open with the reason.
      */
     @Override
@@ -2261,7 +2262,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
                     }
                     StructuredBlockKind.Source source = StructuredBlockKind.Source.of(text);
                     return new Saved(result, StructuredBlocks.style(source.parameters()).flatMap(StructuredBlocks::kindFor)
-                            .flatMap(kind -> kind.write(source, view, edit)));
+                            .flatMap(kind -> kind.write(source, block.nid(), view, edit)));
                 })
                 .whenComplete((saved, failure) -> Platform.runLater(() -> {
                     if (failure != null) {

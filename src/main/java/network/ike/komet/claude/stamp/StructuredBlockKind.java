@@ -76,16 +76,18 @@ public interface StructuredBlockKind {
 
     /**
      * Writes the knowledge a block of this kind states, after the block's text was saved: a
-     * decision tree as a version of its tree semantic. The versions are uncommitted, by the edit's
+     * decision tree as a version of its tree semantic, an ANF statement as a statement of its block,
+     * a complex concept as a version of its specification. The versions are uncommitted, by the edit's
      * author, kept or cancelled with the document's edit. A kind whose blocks state nothing the
      * store keeps writes nothing.
      *
      * @param source the block's source as saved
+     * @param block  the nid of the block's element semantic, which an ANF statement references
      * @param view   the view its identifiers are read under
      * @param edit   whose change it is, in which module and on which path
      * @return a sentence for the person, empty when the kind writes nothing
      */
-    default Optional<String> write(Source source, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
+    default Optional<String> write(Source source, long block, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
         return Optional.empty();
     }
 

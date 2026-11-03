@@ -16,8 +16,16 @@
 package network.ike.komet.claude.anf;
 
 import dev.ikm.komet.actions.KometActionInput;
+import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
+import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
+import dev.ikm.tinkar.entity.EntityHandle;
+import dev.ikm.tinkar.entity.SemanticEntity;
+import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
+import network.ike.foundation.ike.bindings.IkePattern;
 import network.ike.komet.claude.anf.model.AnfExpressionBuilder;
+import network.ike.komet.claude.stamp.GitDocumentMaterializer;
+import network.ike.komet.claude.stamp.VertexReader;
 
 import java.util.List;
 import java.util.Optional;
@@ -41,6 +49,31 @@ final class AnfStatementWrites {
             return Optional.of(tree);
         }
         return Optional.empty();
+    }
+
+    /**
+     * The latest version of a block or statement: as the view sees it, or, for an element of a
+     * document stored from git and a statement about one, as the document reads it, since those
+     * live in the working tree's module, the repository being their record, which a view need not
+     * see.
+     *
+     * @param semantic a block's element semantic, or a statement
+     * @param view     the view
+     * @return the latest version, empty when there is none
+     */
+    static Optional<SemanticEntityVersion> head(SemanticEntity<?> semantic, ViewCalculator view) {
+        SemanticEntity<?> element = semantic;
+        if (semantic.patternNid() == IkePattern.ANF_STATEMENT_PATTERN.nid()
+                && EntityHandle.get(semantic.referencedComponentNid()).orNull() instanceof SemanticEntity<?> block) {
+            element = block;
+        }
+        if (VertexReader.isDocumentPattern(element.patternNid())) {
+            @SuppressWarnings("unchecked")
+            SemanticEntity<SemanticEntityVersion> versions = (SemanticEntity<SemanticEntityVersion>) semantic;
+            return Optional.ofNullable(GitDocumentMaterializer.latest(versions, true));
+        }
+        Latest<SemanticEntityVersion> latest = view.latest(semantic.nid());
+        return latest.isPresent() ? Optional.of(latest.get()) : Optional.empty();
     }
 
     /**

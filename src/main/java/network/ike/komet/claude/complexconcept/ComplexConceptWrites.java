@@ -17,8 +17,11 @@ package network.ike.komet.claude.complexconcept;
 
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
+import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.edit.EditCoordinate;
-import dev.ikm.tinkar.entity.StampEntity;
+import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
+import dev.ikm.tinkar.entity.EntityService;
+import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.entity.transaction.StampedWriter;
 import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityProxy;
@@ -27,88 +30,164 @@ import dev.ikm.tinkar.terms.KernelPattern;
 import dev.ikm.tinkar.terms.State;
 import network.ike.foundation.ike.bindings.IkeConcept;
 import network.ike.foundation.ike.bindings.IkePattern;
+import network.ike.komet.claude.block.BlockIdentities;
+import network.ike.komet.claude.complexconcept.ComplexConceptText.Parsed;
 import network.ike.komet.claude.complexconcept.ComplexConceptText.Ref;
 import network.ike.komet.claude.complexconcept.ComplexConceptText.Spec;
 import network.ike.komet.claude.complexconcept.model.ComplexConceptBuilder;
 import network.ike.komet.claude.complexconcept.model.ComplexConceptRefusal;
+import network.ike.komet.claude.decision.ViewIdentities;
+import network.ike.komet.claude.stamp.SemanticVersions;
+import org.eclipse.collections.api.factory.Lists;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
- * Proposes the complex concept a {@code complex-concept} block states: one uncommitted change,
- * in one transaction, as {@link PromoteToComplexConcept} writes a promotion
- * (IKE-Network/ike-issues#812, #1312).
+ * Writes the complex concept a {@code complex-concept} block states, uncommitted, as
+ * {@link PromoteToComplexConcept} writes a promotion (IKE-Network/ike-issues#812, #1312;
+ * ike-lab-documents topic {@code dev-decision-document}, "Versions").
  *
- * <p>The change writes the complex concept in the Complex concepts module, named by the block's
- * label as its fully qualified name and its regular name, both preferred in US English; its
- * specification, built through {@link ComplexConceptBuilder} so every rule holds; and, first, a
- * concept for every symbol the block names that the store lacks, under the public id the symbol
- * derives, since pre-coordination at write time creates the concept a statement needs rather than
- * leaving a composition in the data ({@code arch-anf-precoordination}). Nothing is written when
- * the builder refuses.
+ * <p>The first write is the block's Propose: the complex concept in the Complex concepts module,
+ * named by the block's label as its fully qualified name and its regular name, both preferred in
+ * US English; its specification, built through {@link ComplexConceptBuilder} so every rule holds;
+ * and, first, a concept for every symbol the block names that the store lacks, under the public
+ * id the symbol derives, since pre-coordination at write time creates the concept a statement
+ * needs rather than leaving a composition in the data ({@code arch-anf-precoordination}). Each
+ * write after is a version of the same specification semantic, never a second one: one author's
+ * edits before a commit rewrite the pending version, and after a commit the next edit is a new
+ * version. Nothing is written when the block has a finding, is not yet complete, or the builder
+ * refuses it.
  */
 public final class ComplexConceptWrites {
 
     private ComplexConceptWrites() {
     }
 
-    /** What a proposal wrote: the complex concept's public id and the stamp, with a sentence for the person. */
-    public record Proposed(PublicId concept, StampEntity<?> stamp, String message) {
+    /** What a write did: the complex concept's public id when it was written, and a sentence for the person. */
+    public record Written(Optional<PublicId> concept, String message) {
+        static Written refused(String message) {
+            return new Written(Optional.empty(), message);
+        }
+
+        /** @return whether anything was written */
+        public boolean wrote() {
+            return concept.isPresent();
+        }
     }
 
     /**
-     * Writes the proposal.
+     * Writes the complex concept a block's text states, after the block was saved.
      *
-     * @param spec the block's spec, complete and without findings
+     * @param body the block's text
+     * @param view the view the block's identifiers are read under
      * @param edit whose change it is, and on which path
-     * @return what was written
-     * @throws ComplexConceptRefusal     if the spec breaks a rule of specifications; nothing is written
-     * @throws IllegalStateException     if the store refuses the write; nothing is written
+     * @return what was written, or why nothing was
      */
-    public static Proposed propose(Spec spec, EditCoordinate edit) {
+    public static Written write(String body, ViewCalculator view, EditCoordinate edit) {
+        Parsed parsed = ComplexConceptText.parse(body, new BlockIdentities(new ViewIdentities(view)));
+        if (parsed.spec().isEmpty()) {
+            return Written.refused("The block states no complex concept, so none was written.");
+        }
+        List<String> findings = parsed.problems();
+        if (!findings.isEmpty()) {
+            return Written.refused("The complex concept was not written: " + findings.getFirst()
+                    + (findings.size() > 1 ? ", and " + (findings.size() - 1) + " more." : "."));
+        }
+        return write(parsed.spec().get(), view, edit);
+    }
+
+    /**
+     * Writes a complex concept: its first version, as Propose does, or a version of its
+     * specification.
+     *
+     * @param spec the block's spec, without findings
+     * @param view the view the store is read under
+     * @param edit whose change it is, and on which path
+     * @return what was written, or why nothing was
+     */
+    public static Written write(Spec spec, ViewCalculator view, EditCoordinate edit) {
+        List<String> missing = ComplexConceptText.completeness(spec);
+        if (!missing.isEmpty()) {
+            return Written.refused("The complex concept is not written yet: the specification still needs "
+                    + String.join("; ", missing) + ".");
+        }
         String name = spec.concept().label();
+        // each local symbol builds as the concept its symbol derives; the ones the store lacks are written first
+        Map<Ref, ConceptFacade> facades = new LinkedHashMap<>();
+        Map<PublicId, String> lacking = new LinkedHashMap<>();
+        for (Ref ref : spec.refs()) {
+            if (facades.containsKey(ref)) {
+                continue;
+            }
+            ConceptFacade facade = ComplexConceptText.facade(ref);
+            facades.put(ref, facade);
+            if (ref.local() && !SemanticVersions.exists(facade.publicId(), view)) {
+                lacking.putIfAbsent(facade.publicId(), ref.label());
+            }
+        }
+        PublicId complexConcept = facades.get(spec.concept()).publicId();
+        DiTreeEntity specification;
+        try {
+            specification = ComplexConceptText.builder(spec, facades::get).asDiTree();
+        } catch (ComplexConceptRefusal refused) {
+            return Written.refused("The complex concept was not written: " + refused.getMessage());
+        }
+        OptionalLong existing = lacking.containsKey(complexConcept) ? OptionalLong.empty() : specificationOf(complexConcept, view);
         ConceptFacade author = ConceptFacade.make(edit.getAuthorNidForChanges());
         ConceptFacade path = ConceptFacade.make(edit.getDefaultPathNid());
-        StampedWriter writer = StampedWriter.open("Complex concept block: " + name, State.ACTIVE,
-                author, IkeConcept.COMPLEX_CONCEPTS_MODULE, path);
+        StampedWriter writer = lacking.isEmpty() && existing.isPresent() ? null
+                : StampedWriter.open("Complex concept block: " + name, State.ACTIVE, author, IkeConcept.COMPLEX_CONCEPTS_MODULE, path);
         try {
-            Map<Ref, ConceptFacade> facades = new LinkedHashMap<>();
-            PublicId complexConcept = null;
-            for (Ref ref : spec.refs()) {
-                if (facades.containsKey(ref)) {
-                    continue;
-                }
-                if (!ref.local()) {
-                    facades.put(ref, ComplexConceptText.facade(ref));
-                    continue;
-                }
-                PublicId publicId = PublicIds.of(ComplexConceptText.localPublicId(ref));
-                boolean written = facades.values().stream().anyMatch(f -> f.publicId().equals(publicId));
-                if (!written) {
-                    writer.concept(publicId);
-                    name(writer, publicId, ref.label());
-                }
-                facades.put(ref, EntityProxy.Concept.make(ref.label(), publicId));
-                if (ref == spec.concept()) {
-                    complexConcept = publicId;
-                }
+            if (writer != null) {
+                lacking.forEach((concept, label) -> {
+                    writer.concept(concept);
+                    name(writer, concept, label);
+                });
             }
-            if (complexConcept == null) {
-                complexConcept = facades.get(spec.concept()).publicId();
+            int others = lacking.size() - (lacking.containsKey(complexConcept) ? 1 : 0);
+            String concepts = others == 0 ? "" : ", with " + others + (others == 1 ? " concept" : " concepts")
+                    + " the knowledge base lacked";
+            if (existing.isEmpty()) {
+                writer.semantic(PublicIds.newRandom(), IkePattern.COMPLEX_CONCEPT_PATTERN.publicId(), complexConcept, specification);
+                return new Written(Optional.of(complexConcept), "Proposed the complex concept " + name + ", "
+                        + complexConcept.idString() + ", with its specification" + concepts + "; uncommitted, commit to keep it.");
             }
-            ComplexConceptBuilder specification = ComplexConceptText.builder(spec, facades::get);
-            writer.semantic(PublicIds.newRandom(), IkePattern.COMPLEX_CONCEPT_PATTERN.publicId(), complexConcept,
-                    specification.asDiTree());
-            StampEntity<?> stamp = writer.stamp();
-            return new Proposed(complexConcept, stamp, "Proposed the complex concept " + name + ", "
-                    + complexConcept.idString() + ", with its specification; uncommitted, commit to keep it.");
-        } catch (ComplexConceptRefusal refused) {
-            writer.cancel();
-            throw refused;
+            SemanticVersions.Versioned versioned = SemanticVersions.version(existing.getAsLong(),
+                    IkePattern.COMPLEX_CONCEPT_PATTERN.nid(), Lists.immutable.of(specification), view, edit, "specification");
+            if (versioned.refusal().isPresent()) {
+                cancel(writer);
+                return Written.refused(versioned.refusal().get());
+            }
+            return new Written(Optional.of(complexConcept), (versioned.replacedPending()
+                    ? "Rewrote the specification of " + name + " in its uncommitted version"
+                    : "Wrote a new version of the specification of " + name) + concepts + "; uncommitted, commit to keep it.");
         } catch (RuntimeException e) {
+            cancel(writer);
+            return Written.refused("The complex concept was not written: " + e.getMessage());
+        }
+    }
+
+    /** The specification semantic a complex concept has, when it has one this view sees. */
+    private static OptionalLong specificationOf(PublicId concept, ViewCalculator view) {
+        if (!SemanticVersions.exists(concept, view)) {
+            return OptionalLong.empty();
+        }
+        for (var semantic : EntityService.get().semanticsForComponentOfPattern(PrimitiveData.nid(concept),
+                IkePattern.COMPLEX_CONCEPT_PATTERN.nid()).toList()) {
+            if (SemanticVersions.visible(semantic.nid(), view)) {
+                return OptionalLong.of(semantic.nid());
+            }
+        }
+        return OptionalLong.empty();
+    }
+
+    private static void cancel(StampedWriter writer) {
+        if (writer != null) {
             writer.cancel();
-            throw new IllegalStateException("Could not propose the complex concept: " + e.getMessage(), e);
         }
     }
 

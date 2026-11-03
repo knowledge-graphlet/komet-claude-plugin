@@ -517,6 +517,33 @@ public final class DocumentEditor {
                 EntityProxy.Concept.make(vertex.getMeaningNid()), properties)));
     }
 
+    /**
+     * Every line of a structured open block, its child blocks' included, in document order: an
+     * {@code [anf]} block over {@code --} holds its content as AsciiDoc does, in child blocks, and
+     * is still edited as the text it is. The edit's new version of the block holds its lines
+     * directly, and the child blocks leave the document with it, as the next materialization of
+     * the committed file reads the content into children again.
+     *
+     * @return the lines, empty when a member is neither a line nor a block of lines
+     */
+    private static Optional<List<Long>> linesOf(GitDocumentMaterializer.StoredDocument document, GitDocumentMaterializer.StoredBlock block,
+                                                Set<Long> lineNids) {
+        List<Long> lines = new ArrayList<>();
+        for (long member : block.members()) {
+            if (lineNids.contains(member)) {
+                lines.add(member);
+                continue;
+            }
+            GitDocumentMaterializer.StoredBlock child = document.blocks().get(member);
+            Optional<List<Long>> childLines = child == null ? Optional.empty() : linesOf(document, child, lineNids);
+            if (childLines.isEmpty()) {
+                return Optional.empty();
+            }
+            lines.addAll(childLines.get());
+        }
+        return Optional.of(lines);
+    }
+
     /** The edit under an author and path given directly: the edit coordinate's, or, on a rebase, the edit's own. */
     private static Edit editBlock(PublicId anchor, long block, String text, long authorNid, long pathNid) {
         DocumentVocabulary.requirePresent();
@@ -528,12 +555,15 @@ public final class DocumentEditor {
         }
         List<Long> manifest = new ArrayList<>(document.lines().stream().map(GitDocumentMaterializer.StoredLine::nid).toList());
         Set<Long> lineNids = Set.copyOf(manifest);
-        if (!lineNids.containsAll(stored.members())) {
+        boolean vertices = VertexReader.isVertexDocument(anchor);
+        List<Long> oldNids = lineNids.containsAll(stored.members()) ? stored.members()
+                : vertices && StructuredBlocks.kindOf(stored).isPresent() ? linesOf(document, stored, lineNids).orElse(null) : null;
+        if (oldNids == null || oldNids.isEmpty()) {
             throw new IllegalArgumentException("A " + stored.kind() + " block holding other blocks is not edited as text");
         }
-        int start = manifest.indexOf(stored.members().getFirst());
-        for (int i = 0; i < stored.members().size(); i++) {
-            if (start + i >= manifest.size() || manifest.get(start + i).longValue() != stored.members().get(i)) {
+        int start = manifest.indexOf(oldNids.getFirst());
+        for (int i = 0; i < oldNids.size(); i++) {
+            if (start + i >= manifest.size() || manifest.get(start + i).longValue() != oldNids.get(i)) {
                 throw new IllegalArgumentException("The block's lines are not contiguous in the document");
             }
         }
@@ -541,7 +571,6 @@ public final class DocumentEditor {
         if (newLines.isEmpty()) {
             throw new IllegalArgumentException("A block keeps at least one line; removing a block is not an edit of its text");
         }
-        List<Long> oldNids = stored.members();
         List<String> oldLines = oldNids.stream().map(nid -> document.line(nid).orElseThrow().text()).toList();
         List<Step> steps = diff(oldLines, newLines);
         if (steps.stream().allMatch(step -> step.kind == Kind.KEEP)) {
@@ -554,13 +583,12 @@ public final class DocumentEditor {
             return made;
         });
         long anchorNid = EntityService.get().nidForPublicId(anchor);
-        boolean vertices = VertexReader.isVertexDocument(anchor);
         long manifestNid = vertices ? 0 : manifestNid(anchor);
         // The edit is written in the document's own module: the manifest's, or the root vertex's.
         SemanticEntityVersion head = GitDocumentMaterializer.latest(semantic(vertices ? anchorNid : manifestNid), true);
         StampEntity<?> stamp = transaction.getStamp(State.ACTIVE, Long.MAX_VALUE, authorNid, head.moduleNid(), pathNid);
         if (vertices) {
-            return editVertices(transaction, stamp, document, block, start, steps, newLines, anchorNid);
+            return editVertices(transaction, stamp, document, block, oldNids, start, steps, newLines, anchorNid);
         }
         List<Long> newNids = new ArrayList<>();
         int changed = 0;
@@ -604,9 +632,7 @@ public final class DocumentEditor {
      * hanging from it, which stay as committed, as they do in the prose-element model.
      */
     private static Edit editVertices(Transaction transaction, StampEntity<?> stamp, GitDocumentMaterializer.StoredDocument document,
-                                     long block, int start, List<Step> steps, List<String> newLines, long anchorNid) {
-        GitDocumentMaterializer.StoredBlock stored = document.blocks().get(block);
-        List<Long> oldNids = stored.members();
+                                     long block, List<Long> oldNids, int start, List<Step> steps, List<String> newLines, long anchorNid) {
         List<String> file = new ArrayList<>(document.lines().stream().map(GitDocumentMaterializer.StoredLine::text).toList());
         List<String> edited = new ArrayList<>(file.subList(0, start));
         edited.addAll(newLines);

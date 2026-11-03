@@ -21,18 +21,10 @@ import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.util.uuid.UuidT5Generator;
 import dev.ikm.tinkar.coordinate.edit.EditCoordinate;
-import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
-import dev.ikm.tinkar.entity.EntityHandle;
-import dev.ikm.tinkar.entity.EntityService;
-import dev.ikm.tinkar.entity.SemanticEntityVersion;
-import dev.ikm.tinkar.entity.SemanticRecord;
-import dev.ikm.tinkar.entity.SemanticVersionRecord;
-import dev.ikm.tinkar.entity.StampEntity;
 import dev.ikm.tinkar.entity.transaction.StampedWriter;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.entity.graph.EntityVertex;
-import dev.ikm.tinkar.entity.transaction.Transaction;
 import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.KernelConcept;
@@ -43,7 +35,8 @@ import network.ike.komet.claude.block.BlockIdentities;
 import network.ike.komet.claude.block.Identities;
 import network.ike.komet.claude.block.Tokens;
 import network.ike.komet.claude.complexconcept.ComplexConceptText;
-import network.ike.komet.claude.stamp.StampNames;
+import network.ike.komet.claude.stamp.SemanticVersions;
+import network.ike.komet.claude.stamp.SemanticVersions.Versioned;
 import org.eclipse.collections.api.factory.Lists;
 import org.eclipse.collections.api.factory.primitive.LongObjectMaps;
 import org.eclipse.collections.api.map.primitive.MutableLongObjectMap;
@@ -127,7 +120,7 @@ public final class DecisionTreeWrites {
         Map<PublicId, String> missing = new LinkedHashMap<>();
         for (String identifier : read.localIdentifiers()) {
             PublicId concept = PublicIds.of(ComplexConceptText.localPublicId(identifier));
-            if (!exists(concept, view)) {
+            if (!SemanticVersions.exists(concept, view)) {
                 missing.put(concept, read.label(read.nid(identifier).orElseThrow()));
             }
         }
@@ -151,7 +144,7 @@ public final class DecisionTreeWrites {
             PublicId semantic = treeId(id.get());
             String concepts = missing.isEmpty() ? "" : ", with " + missing.size()
                     + (missing.size() == 1 ? " concept" : " concepts") + " the knowledge base lacked";
-            if (!exists(semantic, view)) {
+            if (!SemanticVersions.exists(semantic, view)) {
                 StampedWriter firstVersion = writer != null ? writer : StampedWriter.open("Decision tree block: " + id.get(),
                         State.ACTIVE, author, ConceptFacade.make(edit.getDefaultModuleNid()), path);
                 firstVersion.semantic(semantic, IkePattern.DECISION_TREE_PATTERN.publicId(), PrimitiveData.publicId(root.getAsLong()),
@@ -159,7 +152,8 @@ public final class DecisionTreeWrites {
                 return new Written(Optional.of(semantic), "Wrote the tree " + id.get() + " as its first version"
                         + concepts + "; uncommitted, commit to keep it.");
             }
-            Versioned versioned = version(semantic, tree, view, edit);
+            Versioned versioned = SemanticVersions.version(PrimitiveData.nid(semantic), IkePattern.DECISION_TREE_PATTERN.nid(),
+                    Lists.immutable.of(tree.source()), view, edit, "tree");
             if (versioned.refusal().isPresent()) {
                 cancel(writer);
                 return Written.refused(versioned.refusal().get());
@@ -170,53 +164,6 @@ public final class DecisionTreeWrites {
         } catch (RuntimeException e) {
             cancel(writer);
             return Written.refused("The tree was not written: " + e.getMessage());
-        }
-    }
-
-    /**
-     * What writing a version did: why nothing was written, or whether the version replaced the
-     * author's own uncommitted one, as one author's edits before a commit are one change.
-     */
-    private record Versioned(Optional<String> refusal, boolean replacedPending) {
-        static Versioned refused(String why) {
-            return new Versioned(Optional.of(why), false);
-        }
-    }
-
-    /** A version of an existing tree semantic: a new one, or the author's pending one rewritten. */
-    private static Versioned version(PublicId semantic, DecisionTree tree, ViewCalculator view, EditCoordinate edit) {
-        long nid = PrimitiveData.nid(semantic);
-        if (!(EntityHandle.get(nid).orNull() instanceof SemanticRecord record)
-                || record.patternNid() != IkePattern.DECISION_TREE_PATTERN.nid()) {
-            return Versioned.refused("The tree was not written: its identity names something other than a decision tree.");
-        }
-        Latest<SemanticEntityVersion> latest = view.latest(nid);
-        if (latest.isAbsent()) {
-            return Versioned.refused("The tree was not written: no version of it is visible in this view.");
-        }
-        SemanticEntityVersion head = latest.get();
-        Optional<Transaction> pending = Optional.empty();
-        if (head.uncommitted()) {
-            if (head.stamp().authorNid() != edit.getAuthorNidForChanges()) {
-                return Versioned.refused("The tree was not written: a version by " + StampNames.name(view, head.stamp().authorNid())
-                        + " is pending; it is committed or cancelled before anyone else writes the tree.");
-            }
-            pending = Transaction.forVersion(head);
-        }
-        Transaction transaction = pending.orElseGet(() -> Transaction.make("Decision tree " + semantic.idString()));
-        try {
-            StampEntity<?> stamp = transaction.getStamp(State.ACTIVE, edit.getAuthorNidForChanges(),
-                    head.moduleNid(), edit.getDefaultPathNid());
-            SemanticRecord updated = record.with(new SemanticVersionRecord(record, stamp.nid(),
-                    Lists.immutable.of(tree.source()))).build();
-            transaction.addComponent(updated);
-            EntityService.get().putEntity(updated);
-            return new Versioned(Optional.empty(), pending.isPresent());
-        } catch (RuntimeException e) {
-            if (pending.isEmpty()) {
-                transaction.cancel();
-            }
-            throw e;
         }
     }
 
@@ -269,8 +216,13 @@ public final class DecisionTreeWrites {
         return problems;
     }
 
-    /** The block's own id, {@code id=…} in its info string, when it names one. */
-    static Optional<String> blockId(String info) {
+    /**
+     * The block's own id, {@code id=…} in its info string, when it names one.
+     *
+     * @param info the block's info string, {@code decision-tree id=rda-site-inspection}
+     * @return the id
+     */
+    public static Optional<String> blockId(String info) {
         if (info == null) {
             return Optional.empty();
         }
@@ -280,22 +232,6 @@ public final class DecisionTreeWrites {
             }
         }
         return Optional.empty();
-    }
-
-    /**
-     * Whether a component has a version this view sees, uncommitted ones included: a record whose
-     * versions were all cancelled, by a write that failed after it began, is written again.
-     */
-    private static boolean exists(PublicId publicId, ViewCalculator view) {
-        if (!PrimitiveData.get().hasPublicId(publicId)) {
-            return false;
-        }
-        try {
-            return view.latest(PrimitiveData.nid(publicId)).isPresent();
-        } catch (IllegalStateException noVersions) {
-            // a record left with no version at all, its one version cancelled
-            return false;
-        }
     }
 
     private static void cancel(StampedWriter writer) {

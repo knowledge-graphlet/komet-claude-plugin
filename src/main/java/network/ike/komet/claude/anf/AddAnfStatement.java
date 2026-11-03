@@ -22,7 +22,6 @@ import dev.ikm.komet.terms.KometConcept;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.coordinate.edit.EditCoordinate;
-import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
@@ -42,6 +41,7 @@ import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.EntityProxy;
 import dev.ikm.tinkar.terms.State;
 import network.ike.foundation.ike.bindings.IkePattern;
+import network.ike.komet.claude.stamp.VertexReader;
 import org.eclipse.collections.api.factory.Lists;
 
 import java.util.Optional;
@@ -52,9 +52,11 @@ import java.util.Optional;
  * (ike-lab-documents topic {@code dev-ditree-editor-skin-family}; IKE-Network/ike-issues#1312).
  *
  * <p>The input takes the {@code ANF statement tree input pattern}: the subject is the block's
- * element semantic, and the one further field is the statement's tree. The result takes the
+ * element semantic, of the {@code Document block pattern} or of a stored document's own vertex
+ * pattern, and the one further field is the statement's tree. The result takes the
  * {@code Version change result pattern}: the STAMP of the statement's first version, written in
- * the block's module under the edit coordinate's author and path and left uncommitted, and a
+ * the block's module, since a statement about a stored document's block is data of the document
+ * as the block is, under the edit coordinate's author and path and left uncommitted, and a
  * message naming the new statement's public id. A block may hold more than one statement.
  *
  * <p>Refused, with nothing written: a subject that is not a document block, an input whose field
@@ -94,15 +96,16 @@ public final class AddAnfStatement implements KometAction {
         }
         long block = input.subject().nid();
         if (!(EntityHandle.get(block).orNull() instanceof SemanticEntity<?> semantic)
-                || semantic.patternNid() != IkePattern.DOCUMENT_BLOCK_PATTERN.nid()) {
+                || semantic.patternNid() != IkePattern.DOCUMENT_BLOCK_PATTERN.nid()
+                && !VertexReader.isDocumentPattern(semantic.patternNid())) {
             return KometActionResult.refused(input, "The subject is not a block of a document.");
         }
         Optional<String> broken = AnfStatementWrites.notWellFormed(tree.get());
         if (broken.isPresent()) {
             return KometActionResult.refused(input, broken.get());
         }
-        Latest<SemanticEntityVersion> blockHead = view.latest(block);
-        if (blockHead.isAbsent()) {
+        Optional<SemanticEntityVersion> blockHead = AnfStatementWrites.head(semantic, view);
+        if (blockHead.isEmpty()) {
             return KometActionResult.refused(input, "No version of the block is visible in this view.");
         }
 

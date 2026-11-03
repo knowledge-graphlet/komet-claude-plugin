@@ -53,7 +53,6 @@ import network.ike.komet.claude.complexconcept.ComplexConceptText.Uniform;
 import network.ike.komet.claude.complexconcept.ComplexConceptWrites;
 import network.ike.komet.claude.complexconcept.editor.ComplexConceptControl;
 import network.ike.komet.claude.complexconcept.model.ComplexConceptBuilder;
-import network.ike.komet.claude.complexconcept.model.ComplexConceptRefusal;
 import network.ike.komet.claude.koncept.ComponentText;
 
 import java.util.ArrayList;
@@ -278,21 +277,10 @@ final class ComplexConceptBlockRenderer implements BlockRenderer {
                 propose.setFont(Font.font(base * 0.9));
                 propose.setTooltip(new Tooltip("Writes the concept and its specification to the knowledge base, uncommitted"));
                 propose.setOnAction(e -> {
-                    List<String> missing = ComplexConceptText.completeness(spec);
-                    if (!missing.isEmpty()) {
-                        result.setStyle("-fx-text-fill: #a33;");
-                        result.setText("Not yet: the specification still needs " + String.join("; ", missing) + ".");
-                        return;
-                    }
-                    try {
-                        ComplexConceptWrites.Proposed proposed = ComplexConceptWrites.propose(spec, Coordinates.Edit.Default());
-                        result.setStyle("-fx-text-fill: #2a6;");
-                        result.setText(proposed.message());
-                        propose.setDisable(true);
-                    } catch (ComplexConceptRefusal | IllegalStateException refused) {
-                        result.setStyle("-fx-text-fill: #a33;");
-                        result.setText(refused.getMessage());
-                    }
+                    ComplexConceptWrites.Written written = ComplexConceptWrites.write(spec, viewCalc, Coordinates.Edit.Default());
+                    result.setStyle(written.wrote() ? "-fx-text-fill: #2a6;" : "-fx-text-fill: #a33;");
+                    result.setText(written.message());
+                    propose.setDisable(written.wrote());
                 });
                 bar.getChildren().add(propose);
             }

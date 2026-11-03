@@ -152,7 +152,7 @@ public final class DocumentBlockKinds {
 
         /** The tree, as a version of its tree semantic. */
         @Override
-        public Optional<String> write(Source source, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
+        public Optional<String> write(Source source, long block, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
             return Optional.of(network.ike.komet.claude.decision.DecisionTreeWrites
                     .write(info(source.parameters()), source.content(), view, edit).message());
         }
@@ -170,6 +170,13 @@ public final class DocumentBlockKinds {
             renderer.setRewriter(rewriter);
             return renderer;
         }
+
+        /** The complex concept: its first version, as Propose writes it, then versions of its specification. */
+        @Override
+        public Optional<String> write(Source source, long block, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
+            return Optional.of(network.ike.komet.claude.complexconcept.ComplexConceptWrites
+                    .write(source.content(), view, edit).message());
+        }
     }
 
     /** {@code [anf]}: the statement, folded, which a tree's node may name. */
@@ -183,6 +190,19 @@ public final class DocumentBlockKinds {
             AnfBlockRenderer renderer = new AnfBlockRenderer(view, base, blocks);
             renderer.setRewriter(rewriter);
             return renderer;
+        }
+
+        /**
+         * The statement, as a statement of its block, through the ANF statement actions; a block
+         * that only marks an element of the prose, with no content, states none.
+         */
+        @Override
+        public Optional<String> write(Source source, long block, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
+            if (source.content().isBlank()) {
+                return Optional.empty();
+            }
+            return Optional.of(network.ike.komet.claude.anf.AnfBlockWrites.write(source.lines(),
+                    network.ike.komet.claude.decision.DecisionTreeWrites.blockId(info(source.parameters())).orElse(""), block, view, edit));
         }
     }
 

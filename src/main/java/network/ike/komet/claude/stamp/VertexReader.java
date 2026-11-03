@@ -83,8 +83,13 @@ public final class VertexReader {
                 && semantic.referencedComponentNid() == semantic.patternNid();
     }
 
-    /** Whether a pattern is a document's own vertex pattern: its meaning is Document vertex, and it is not the template. */
-    static boolean isDocumentPattern(long patternNid) {
+    /**
+     * Whether a pattern is a document's own vertex pattern: its meaning is Document vertex, and it is not the template.
+     *
+     * @param patternNid the pattern
+     * @return whether it is a document's own
+     */
+    public static boolean isDocumentPattern(long patternNid) {
         if (patternNid == IkePattern.DOCUMENT_VERTEX_PATTERN.nid()) {
             return false;
         }

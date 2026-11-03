@@ -169,6 +169,16 @@ public final class ComplexConceptText {
 
     /** What a block read as: the spec when its root is a complex concept, every finding, and the symbols made local. */
     public record Parsed(Optional<Spec> spec, List<String> findings, List<String> localSymbols) {
+
+        /**
+         * The findings that keep the block from being written: all but the note naming the local
+         * symbols, which is the last finding when there are any, since a write makes them concepts.
+         *
+         * @return the problems
+         */
+        public List<String> problems() {
+            return localSymbols.isEmpty() || findings.isEmpty() ? findings : findings.subList(0, findings.size() - 1);
+        }
     }
 
     // ── Parse ────────────────────────────────────────────────────────────────

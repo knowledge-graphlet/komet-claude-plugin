@@ -1317,8 +1317,14 @@ public final class GitDocumentMaterializer {
         return latest(entity, false);
     }
 
-    /** The latest version, committed only or with an uncommitted one (which is latest) when {@code pending}. */
-    static SemanticEntityVersion latest(SemanticEntity<SemanticEntityVersion> entity, boolean pending) {
+    /**
+     * The latest version, committed only or with an uncommitted one (which is latest) when {@code pending}.
+     *
+     * @param entity  an element of a stored document
+     * @param pending whether an uncommitted version counts
+     * @return the latest version, or null when it has none
+     */
+    public static SemanticEntityVersion latest(SemanticEntity<SemanticEntityVersion> entity, boolean pending) {
         if (entity.canceled()) {
             return null;
         }
