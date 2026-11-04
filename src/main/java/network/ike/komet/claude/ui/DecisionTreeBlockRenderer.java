@@ -142,7 +142,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         this(viewProperties == null ? null : viewProperties.calculator(), viewProperties, base, context);
     }
 
-    private DecisionTreeBlockRenderer(ViewCalculator viewCalc, ViewProperties viewProperties, double base, BlockContext context) {
+    DecisionTreeBlockRenderer(ViewCalculator viewCalc, ViewProperties viewProperties, double base, BlockContext context) {
         this.viewCalc = viewCalc;
         this.viewProperties = viewProperties;
         this.base = base;

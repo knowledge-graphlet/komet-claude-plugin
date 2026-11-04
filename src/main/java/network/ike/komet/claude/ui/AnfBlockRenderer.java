@@ -94,7 +94,7 @@ final class AnfBlockRenderer implements BlockRenderer {
         this(viewProperties == null ? null : viewProperties.calculator(), viewProperties, base, context);
     }
 
-    private AnfBlockRenderer(ViewCalculator viewCalc, ViewProperties viewProperties, double base, BlockContext context) {
+    AnfBlockRenderer(ViewCalculator viewCalc, ViewProperties viewProperties, double base, BlockContext context) {
         this.viewCalc = viewCalc;
         this.viewProperties = viewProperties;
         this.base = base;

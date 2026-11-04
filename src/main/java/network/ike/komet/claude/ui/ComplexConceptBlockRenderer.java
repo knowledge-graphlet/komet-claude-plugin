@@ -98,7 +98,7 @@ final class ComplexConceptBlockRenderer implements BlockRenderer {
         this(viewProperties == null ? null : viewProperties.calculator(), viewProperties, base, context);
     }
 
-    private ComplexConceptBlockRenderer(ViewCalculator viewCalc, ViewProperties viewProperties, double base,
+    ComplexConceptBlockRenderer(ViewCalculator viewCalc, ViewProperties viewProperties, double base,
                                         BlockContext context) {
         this.viewCalc = viewCalc;
         this.viewProperties = viewProperties;

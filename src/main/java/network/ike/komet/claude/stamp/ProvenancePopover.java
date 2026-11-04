@@ -151,7 +151,9 @@ final class ProvenancePopover {
             commit.setWrapText(true);
             text.getChildren().add(commit);
         });
-        HBox row = new HBox(8, badge, text);
+        HBox mark = new HBox(3, new dev.ikm.komet.framework.controls.StampSigil(16), badge);
+        mark.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        HBox row = new HBox(8, mark, text);
         row.setAlignment(Pos.TOP_LEFT);
         return row;
     }

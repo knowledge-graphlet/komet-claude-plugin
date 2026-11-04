@@ -242,6 +242,8 @@ public interface StructuredBlockKind {
      * block's text: an editor's content, or a write back of what the reader tried, as the save.
      *
      * @param view   the view of the surface showing the block
+     * @param viewProperties the surface's interactive view, by which the concepts a block shows
+     *               carry their status and definition popout; null where it has none
      * @param blocks what the blocks of the shown document know of each other: the trees an
      *               outcome may fold in, the statements a node names, the calculators and their
      *               values; one per document shown
@@ -250,9 +252,15 @@ public interface StructuredBlockKind {
      *               uncommitted edit of the document; null where the surface may not edit, and
      *               a control then offers no write back
      */
-    record Context(ViewCalculator view, BlockContext blocks, double base, java.util.function.Consumer<String> save) {
+    record Context(ViewCalculator view, dev.ikm.komet.framework.view.ViewProperties viewProperties, BlockContext blocks, double base,
+                   java.util.function.Consumer<String> save) {
         /** The default base size, when the surface gives none. */
         public static final double DEFAULT_BASE = 14;
+
+        /** A context with no interactive view: the concepts a block shows carry no status or popout. */
+        public Context(ViewCalculator view, BlockContext blocks, double base, java.util.function.Consumer<String> save) {
+            this(view, null, blocks, base, save);
+        }
 
         /** A context over a view alone: a block reads no other block and writes nothing. */
         public Context(ViewCalculator view) {

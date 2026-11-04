@@ -931,7 +931,7 @@ final class DocumentGraphView {
                     ImageView badge = new ImageView(host.identicon(node.stamp()));
                     badge.setPreserveRatio(true);
                     badge.setFitHeight(IDENTICON);
-                    box.getChildren().add(badge);
+                    box.getChildren().addAll(new dev.ikm.komet.framework.controls.StampSigil(IDENTICON), badge);
                     box.getChildren().add(caption(node.stamp().time() == Long.MAX_VALUE ? "uncommitted" : DAY.format(Instant.ofEpochMilli(node.stamp().time())), "#8a8782"));
                 }
                 box.getChildren().add(caption(node.kind() == Kind.RETIRED ? "retired" : node.version().word(), changeColor(node)));
@@ -940,6 +940,7 @@ final class DocumentGraphView {
             if (!node.commits().isEmpty() && node.kind() != Kind.DOCUMENT) {
                 HBox strip = new HBox(1);
                 strip.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+                strip.getChildren().add(new dev.ikm.komet.framework.controls.StampSigil(IDENTICON - 2));   // one leads the cluster
                 int shown = 0;
                 for (StampEntity<?> commit : node.commits()) {
                     if (shown++ == STRIP) {
@@ -960,7 +961,7 @@ final class DocumentGraphView {
                 ImageView badge = new ImageView(host.identicon(node.stamp()));
                 badge.setPreserveRatio(true);
                 badge.setFitHeight(IDENTICON);
-                box.getChildren().add(badge);
+                box.getChildren().addAll(new dev.ikm.komet.framework.controls.StampSigil(IDENTICON), badge);
                 box.getChildren().add(caption(node.stamp().time() == Long.MAX_VALUE ? "uncommitted" : DAY.format(Instant.ofEpochMilli(node.stamp().time())), "#8a8782"));
             }
             if (host.layer(Layer.ANNOTATION_MARKS) && node.line() != null && !node.line().inForce().isEmpty()) {

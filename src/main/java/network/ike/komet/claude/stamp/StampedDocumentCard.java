@@ -297,6 +297,10 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     private final Button restore = new Button("Restore as pending");
     private final Map<DocumentSurfaceView.Layer, CheckMenuItem> layerItems = new HashMap<>();
     private final Label footerIdentity = new Label();
+    /** All the footer's line leaves out, for its tooltip. */
+    private String statusDetail = "";
+    /** The full SHA a click on the footer's identity copies, empty when the document names none. */
+    private String footerSha = "";
     private HBox footer;
     private RepositoryPanel repositoryPanel;
     private boolean pendingEdit;
@@ -690,10 +694,18 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         statusLine.setId("stampedDocumentStatus");
         statusLine.setWrapText(true);
         statusLine.setMaxWidth(Double.MAX_VALUE);
+        statusLine.textProperty().addListener((obs, was, is) -> statusLine.setTooltip(null));   // the detail is the shown document's alone
         HBox.setHgrow(statusLine, javafx.scene.layout.Priority.ALWAYS);
         footerIdentity.setId("stampedDocumentFooterIdentity");
         footerIdentity.setStyle("-fx-text-fill: #5f6b7a;");
         footerIdentity.setMinWidth(javafx.scene.layout.Region.USE_PREF_SIZE);
+        footerIdentity.setOnMouseClicked(e -> {
+            if (!footerSha.isEmpty()) {
+                javafx.scene.input.ClipboardContent sha = new javafx.scene.input.ClipboardContent();
+                sha.putString(footerSha);
+                javafx.scene.input.Clipboard.getSystemClipboard().setContent(sha);
+            }
+        });
         settling.setId("stampedDocumentSettling");
         settling.setStyle("-fx-text-fill: #8a8782; -fx-font-style: italic;");
         settling.setTooltip(new Tooltip("Typst is laying the pages out; the lines re-flow to its breaks when it answers"));
@@ -781,8 +793,31 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
             return;
         }
         String commit = member.document().commit();
-        footerIdentity.setText((member.path().isEmpty() ? documents.getValue() : member.path()) + " @ "
-                + (commit.isEmpty() ? "?" : commit.substring(0, Math.min(7, commit.length()))));
+        String file = member.path().isEmpty() ? documents.getValue() : member.path();
+        // The file's name alone: its whole path is in the Repository title, and here it squeezed the line into a thin column.
+        String name = Path.of(file).getFileName().toString();
+        String shortSha = commit.substring(0, Math.min(7, commit.length()));
+        footerSha = commit;
+        Optional<StampEntity<?>> stamp = GitDocumentMaterializer.commitStamp(member.document().anchor(), commit);
+        if (stamp.isEmpty()) {
+            // No STAMP names the commit, so no identicon would match the margin's: the SHA says it.
+            footerIdentity.setText(commit.isEmpty() ? name : name + " @ " + shortSha);
+            footerIdentity.setGraphic(null);
+            footerIdentity.setCursor(null);
+            footerIdentity.setTooltip(new Tooltip(commit.isEmpty() ? file : file + "\n" + commit + "\nClick to copy the SHA"));
+            return;
+        }
+        javafx.scene.image.ImageView badge = new javafx.scene.image.ImageView(surface.badge(stamp.get()));
+        badge.setPreserveRatio(true);
+        badge.setFitHeight(16);
+        HBox mark = new HBox(2, new dev.ikm.komet.framework.controls.StampSigil(16), badge);
+        mark.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        footerIdentity.setGraphic(mark);
+        footerIdentity.setText(name);
+        footerIdentity.setCursor(javafx.scene.Cursor.HAND);
+        footerIdentity.setTooltip(new Tooltip(file + "\n" + shortSha + " · " + StampNames.name(view(), stamp.get().authorNid()) + " · "
+                + DateTimeUtil.format(stamp.get().time()) + summaries.summary(stamp.get().nid()).map(s -> "\n" + s).orElse("")
+                + "\nClick to copy the full SHA"));
     }
 
     // ── loading ───────────────────────────────────────────────────────────────
@@ -1017,6 +1052,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         long edited = assembly.lines().stream().filter(DocumentSurfaceView::uncommitted).count();
         int children = assembly.children().size();
         List<DocumentAssembly.Include> unresolved = assembly.unresolved();
+        int blocks = shown.root() == null ? -1 : assembly.members().stream().mapToInt(m -> m.document().blocks().size()).sum();
         String tail = shown.root() == null ? "no structure; re-materialize to add it"
                 : assembly.members().stream().mapToInt(m -> m.document().blocks().size()).sum() + " blocks, " + references + " references, "
                 + affirmed + " affirmed lines";
@@ -1024,15 +1060,21 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
             statusLine.setText("The document has no version as of " + DateTimeUtil.format(shownAsOf) + "; move the view's time later to read it.");
             return;
         }
+        String lost = unresolved.isEmpty() ? "" : unresolved.size() + " include(s) left as lines: "
+                + unresolved.stream().map(DocumentAssembly.Include::target).limit(3).collect(Collectors.joining(", ")) + (unresolved.size() > 3 ? ", …" : "");
         statusLine.setText((shownAsOf == Long.MAX_VALUE ? "" : "As of " + DateTimeUtil.format(shownAsOf)
                 + ", read only: the document as it stood then; move the view's time to the latest to edit it. ")
-                + status(shown, tail
+                + DocumentFooter.line(assembly.lines().size(), blocks, references, affirmed, children, edited, lost));
+        statusDetail = status(shown, tail
                 + (children == 0 ? "" : "; " + children + " included document(s) shown in place")
-                + (unresolved.isEmpty() ? "" : "; " + unresolved.size() + " include(s) left as lines: "
-                + unresolved.stream().map(DocumentAssembly.Include::target).limit(3).collect(Collectors.joining(", ")) + (unresolved.size() > 3 ? ", …" : ""))
+                + (lost.isEmpty() ? "" : "; " + lost)
                 + (edited == 0 ? "" : "; " + edited + " line(s) edited in Komet, uncommitted: Commit… to record them in git")
                 + (repoRoot == null || shownPath == null || !Files.isRegularFile(repoRoot.resolve(shownPath))
-                ? "; no working tree holds the file: Open file… to annotate" : "")));
+                ? "; no working tree holds the file: Open file… to annotate" : ""));
+        Tooltip detail = new Tooltip(statusDetail);
+        detail.setWrapText(true);
+        detail.setMaxWidth(420);
+        statusLine.setTooltip(detail);
     }
 
     private String status(StoredDocument document, String tail) {
@@ -1115,6 +1157,11 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         }
         area.setVisible(view == null);
         area.setManaged(view == null);
+    }
+
+    @Override
+    public dev.ikm.komet.framework.view.ViewProperties viewProperties() {
+        return getCardViewProperties();
     }
 
     /** What the Graph view asks of the card: the surface's selection and layer, the card's acts. */
@@ -1336,8 +1383,11 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
             anchor.ifPresent(pageStack::restore);
             surface.renderSelection();
             showPageIndicator();
-            statusLine.setText("Pages settled on Typst's lines in " + layout.millis() + " ms"
-                    + (layout.notes().isEmpty() ? "" : " (" + String.join("; ", layout.notes()) + ")"));
+            // The footer's line stays the document's: how the pages settled is detail.
+            if (statusLine.getTooltip() != null) {
+                statusLine.getTooltip().setText(statusDetail + "\n\nPages settled on Typst's lines in " + layout.millis() + " ms"
+                        + (layout.notes().isEmpty() ? "" : " (" + String.join("; ", layout.notes()) + ")"));
+            }
         }));
     }
 

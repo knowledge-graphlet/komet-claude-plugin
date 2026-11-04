@@ -114,6 +114,11 @@ final class DocumentSurfaceView {
     interface Host {
         ViewCalculator view();
 
+        /** @return the card's interactive view, or {@code null} when it has none */
+        default dev.ikm.komet.framework.view.ViewProperties viewProperties() {
+            return null;
+        }
+
         CommitSummaries summaries();
 
         void status(String text);
@@ -1583,6 +1588,7 @@ final class DocumentSurfaceView {
         stamps.sort(Comparator.comparingLong(StampEntity::time));
         FlowPane icons = new FlowPane(2, 2);
         icons.getStyleClass().add("stamped-document-page-marginalia");
+        icons.getChildren().add(new dev.ikm.komet.framework.controls.StampSigil(12));   // one leads the cluster
         int shown = 0;
         for (StampEntity<?> stamp : stamps) {
             if (shown++ == 4) {
@@ -1618,6 +1624,9 @@ final class DocumentSurfaceView {
         area.date.setText(stamps.isEmpty() ? "" : DAY.format(Instant.ofEpochMilli(stamps.getFirst().time())));
         FlowPane icons = new FlowPane(3, 3);
         icons.setPrefWrapLength(120);
+        if (!stamps.isEmpty()) {
+            icons.getChildren().add(new dev.ikm.komet.framework.controls.StampSigil(18));   // one leads the cluster
+        }
         int shown = 0;
         for (StampEntity<?> stamp : stamps) {
             if (shown++ == 8) {
@@ -2150,7 +2159,7 @@ final class DocumentSurfaceView {
         Node view;
         try {
             // a write back is an uncommitted edit of the block's lines, as the structured editor's Save is
-            view = kind.get().view(source, new StructuredBlockKind.Context(host.view(), blocks, st.base(),
+            view = kind.get().view(source, new StructuredBlockKind.Context(host.view(), host.viewProperties(), blocks, st.base(),
                     area.editable ? text -> host.saveEdit(block, text) : null));
         } catch (RuntimeException failure) {
             host.status("The " + kind.get().name() + " block could not be read; it is shown as its text: " + failure.getMessage());

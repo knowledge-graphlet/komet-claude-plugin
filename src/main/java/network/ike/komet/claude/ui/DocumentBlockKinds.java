@@ -105,7 +105,7 @@ public final class DocumentBlockKinds {
         }
 
         /** The renderer, over the document's context, writing back through the rewriter when there is one. */
-        abstract BlockRenderer renderer(ViewCalculator view, double base, BlockContext blocks, BlockRewriter rewriter);
+        abstract BlockRenderer renderer(Context context, BlockRewriter rewriter);
 
         @Override
         public final String style() {
@@ -124,7 +124,7 @@ public final class DocumentBlockKinds {
             BlockRewriter rewriter = context.save() == null ? null
                     : (info, literal, newInfo, newLiteral) -> context.save().accept(newInfo.equals(info)
                             ? source.withContent(newLiteral) : source.withParameters(attributeLine(newInfo), newLiteral));
-            List<BlockPiece> pieces = renderer(context.view(), context.base(), context.blocks(), rewriter)
+            List<BlockPiece> pieces = renderer(context, rewriter)
                     .render(info(source.parameters()), content.endsWith("\n") ? content : content + "\n", null);
             if (pieces.isEmpty()) {
                 throw new IllegalArgumentException("not a " + name + " block the surface can draw");
@@ -150,8 +150,8 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        BlockRenderer renderer(ViewCalculator view, double base, BlockContext blocks, BlockRewriter rewriter) {
-            DecisionTreeBlockRenderer renderer = new DecisionTreeBlockRenderer(view, base, blocks);
+        BlockRenderer renderer(Context context, BlockRewriter rewriter) {
+            DecisionTreeBlockRenderer renderer = new DecisionTreeBlockRenderer(context.view(), context.viewProperties(), context.base(), context.blocks());
             renderer.setRewriter(rewriter);
             return renderer;
         }
@@ -177,8 +177,8 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        BlockRenderer renderer(ViewCalculator view, double base, BlockContext blocks, BlockRewriter rewriter) {
-            ComplexConceptBlockRenderer renderer = new ComplexConceptBlockRenderer(view, base, blocks);
+        BlockRenderer renderer(Context context, BlockRewriter rewriter) {
+            ComplexConceptBlockRenderer renderer = new ComplexConceptBlockRenderer(context.view(), context.viewProperties(), context.base(), context.blocks());
             renderer.setRewriter(rewriter);
             return renderer;
         }
@@ -203,8 +203,8 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        BlockRenderer renderer(ViewCalculator view, double base, BlockContext blocks, BlockRewriter rewriter) {
-            AnfBlockRenderer renderer = new AnfBlockRenderer(view, base, blocks);
+        BlockRenderer renderer(Context context, BlockRewriter rewriter) {
+            AnfBlockRenderer renderer = new AnfBlockRenderer(context.view(), context.viewProperties(), context.base(), context.blocks());
             renderer.setRewriter(rewriter);
             return renderer;
         }
@@ -235,8 +235,8 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        BlockRenderer renderer(ViewCalculator view, double base, BlockContext blocks, BlockRewriter rewriter) {
-            CalculatorBlockRenderer renderer = new CalculatorBlockRenderer(view, base, blocks);
+        BlockRenderer renderer(Context context, BlockRewriter rewriter) {
+            CalculatorBlockRenderer renderer = new CalculatorBlockRenderer(context.view(), context.viewProperties(), context.base(), context.blocks());
             renderer.setRewriter(rewriter);
             return renderer;
         }
@@ -254,8 +254,8 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        BlockRenderer renderer(ViewCalculator view, double base, BlockContext blocks, BlockRewriter rewriter) {
-            CalculatorBlockRenderer renderer = new CalculatorBlockRenderer(view, base, blocks);
+        BlockRenderer renderer(Context context, BlockRewriter rewriter) {
+            CalculatorBlockRenderer renderer = new CalculatorBlockRenderer(context.view(), context.viewProperties(), context.base(), context.blocks());
             renderer.setRewriter(rewriter);
             return renderer;
         }

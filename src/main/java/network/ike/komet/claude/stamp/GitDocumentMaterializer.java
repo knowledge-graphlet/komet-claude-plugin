@@ -1337,6 +1337,29 @@ public final class GitDocumentMaterializer {
         return byElement;
     }
 
+    /**
+     * The STAMP a commit wrote a document under: the version of its git source that names the
+     * commit, so its identicon is the one the document's lines show for it.
+     *
+     * @param anchor the document's anchor
+     * @param sha    the commit's SHA
+     * @return the STAMP, or empty when no version of the document's source names the commit
+     */
+    public static Optional<StampEntity<?>> commitStamp(PublicId anchor, String sha) {
+        if (sha.isEmpty()) {
+            return Optional.empty();
+        }
+        for (SemanticEntity<SemanticEntityVersion> source : EntityService.get()
+                .semanticsForComponentOfPattern(PrimitiveData.nid(anchor), IkePattern.GIT_SOURCE_PATTERN.nid()).toList()) {
+            for (SemanticEntityVersion version : source.versions()) {
+                if (!version.canceled() && sha.equals(String.valueOf(version.fieldValues().get(1)))) {
+                    return Optional.of(version.stamp());
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
     private static SemanticEntityVersion latest(SemanticEntity<SemanticEntityVersion> entity) {
         return latest(entity, false);
     }

@@ -100,7 +100,7 @@ final class CalculatorBlockRenderer implements BlockRenderer {
         this(viewProperties == null ? null : viewProperties.calculator(), viewProperties, base, context);
     }
 
-    private CalculatorBlockRenderer(ViewCalculator viewCalc, ViewProperties viewProperties, double base, BlockContext context) {
+    CalculatorBlockRenderer(ViewCalculator viewCalc, ViewProperties viewProperties, double base, BlockContext context) {
         this.viewCalc = viewCalc;
         this.viewProperties = viewProperties;
         this.base = base;
