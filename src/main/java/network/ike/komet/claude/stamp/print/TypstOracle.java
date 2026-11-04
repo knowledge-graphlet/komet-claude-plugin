@@ -38,7 +38,9 @@ import java.util.regex.Pattern;
  * alignment maps loosely) falls back to the suffix whose width matches best, table cells are
  * placed as whole rows, and the labels themselves perturb
  * Typst's justification by a fraction of a point — never its line breaks, which the fidelity
- * measurement checks by comparing block positions with and without them.
+ * measurement checks by comparing block positions with and without them. A listing is read
+ * differently, from the labels alone ({@link #rowsOf}): its text is not the size the page's
+ * width function measures, and Typst never hyphenates it.
  */
 public final class TypstOracle implements LayoutOracle {
 
@@ -63,8 +65,15 @@ public final class TypstOracle implements LayoutOracle {
 
     /** How close, in points, the best suffix's width must come to the tail's for a hyphenation point to be taken. */
     static final double HYPHEN_TOLERANCE = 1.5;
+    /**
+     * How much wider, as a share of a word, JavaFX may measure it than Typst set it: it sets no kerning, and a
+     * short word can lose a tenth to one pair ("r." in Noto Serif).
+     */
+    static final double KERNING_SHARE = 0.15;
     /** The inset of a table cell, as the Typst writer sets it. */
     public static final double TABLE_INSET = 5;
+    /** The inset of a listing's block, as the Typst writer sets it. */
+    public static final double RAW_INSET = 8;
 
     /**
      * One labelled element: a block's index, a word's text, {@code Boolean.FALSE} for a word's
@@ -262,6 +271,10 @@ public final class TypstOracle implements LayoutOracle {
                     lines.add(new Line(unit.index(), w.endPage(), x, w.endY(), 0, unit.text().length(), false));
                     continue;
                 }
+                if (unit.kind() == Kind.VERBATIM) {
+                    rowsOf(unit, own, geometry, width, lines);
+                    continue;
+                }
                 guessedHyphens += linesOf(unit, own, geometry, width, lines);
             }
         }
@@ -442,8 +455,11 @@ public final class TypstOracle implements LayoutOracle {
                 at[k] = new double[] {w.page(), w.y() + cap};          // a first word: its start label is at the paragraph's top
             } else {
                 String text = unit.text().substring(placed.get(k).from(), placed.get(k).to());
+                // A justified line runs to the right edge, and a word that began the next one left its start label
+                // there: with no room at all it stays off, however its width is reckoned.
+                double wide = measure(width, unit, text, placed.get(k).from()) * (1 - KERNING_SHARE);
                 boolean inline = !breakAfter(unit, placed, k - 1) && w.page() == (int) at[k - 1][0] && Math.abs(w.y() - at[k - 1][1]) < 0.5
-                        && w.x() + measure(width, unit, text, placed.get(k).from()) <= right + 0.5;
+                        && w.x() + wide <= right + 0.5;
                 if (inline) {
                     at[k] = at[k - 1];
                 } else if (at[k - 1][1] + pitch <= geometry.contentBottom() + 0.5) {
@@ -569,6 +585,159 @@ public final class TypstOracle implements LayoutOracle {
         return guessed;
     }
 
+    /** A row of a listing: its page and its baseline in tenths of a point. */
+    private record Row(int page, long y) { }
+
+    /**
+     * The rows of a listing, one for each row Typst set, read from its labels alone: its raw
+     * text is set at 0.8 of the size the writer asks for, so the width function, which measures
+     * at the unit's size, says nothing here, and neither does a vote on left edges, which the
+     * most frequent indent would win. What the labels give instead, unlike a paragraph's: every
+     * word's end label stands right after its glyphs on its row, a source line's last word's
+     * too; only the listing's closing label is elsewhere, at the block's left edge on the last
+     * row. So the left edge is that label, a character's width is the widest any word implies
+     * from its source column (a word on a wrapped row implies less), and a word ending closer to
+     * the left edge than its own length was broken: what lies past the edge is its tail. Typst
+     * never hyphenates raw text, so a broken word carries no added hyphen; it breaks only where
+     * its text lets it, and a tail's length in characters names the cut whatever the character.
+     * The rows before a tail run up from it by the pitch.
+     */
+    private static void rowsOf(Unit unit, List<Placed> placed, Geometry geometry, Measure width, List<Line> out) {
+        String text = unit.text();
+        int last = placed.size() - 1;
+        Word closing = placed.getLast().word();
+        double left = closing.endless() ? placed.stream().mapToDouble(p -> p.word().x()).min().orElseThrow() : closing.endX();
+        double character = 0;
+        double pitch = Double.MAX_VALUE;
+        for (int k = 0; k < last; k++) {
+            Placed p = placed.get(k);
+            Word w = p.word();
+            Word next = placed.get(k + 1).word();
+            if (w.endless() || next.endless()) {
+                continue;
+            }
+            character = Math.max(character, (w.endX() - left) / (p.to() - lineStart(text, p.from())));
+            if (w.endPage() == next.endPage() && next.endY() - w.endY() > 0.5) {
+                pitch = Math.min(pitch, next.endY() - w.endY());
+            }
+        }
+        character = character > 0 ? character : width.width(" ", unit, false, false);
+        pitch = pitch < Double.MAX_VALUE ? pitch : unit.fontSize() * UnitSpacing.VERBATIM_PITCH;
+        double cap = unit.fontSize() * CAP_HEIGHT;
+        int columns = Math.max(1, (int) ((geometry.contentLeft() + geometry.contentWidth() - RAW_INSET - left) / character + 0.01));
+
+        Map<Row, int[]> ranges = new LinkedHashMap<>();
+        Map<Row, double[]> baselines = new HashMap<>();
+        double[] row = null;                                      // {page, baseline} the word before ended on
+        for (int k = 0; k <= last; k++) {
+            Placed p = placed.get(k);
+            Word w = p.word();
+            int length = p.to() - p.from();
+            int start = lineStart(text, p.from());
+            boolean begins = k == 0 || placed.get(k - 1).to() <= start;
+            Word before = k == 0 ? null : placed.get(k - 1).word();
+            int column = begins || before.endless() ? p.from() - start
+                    : (int) Math.round((before.endX() - left) / character) + p.from() - placed.get(k - 1).to();
+            double x = begins ? left + (p.from() - start) * character : left;
+
+            // The closing label says nothing of a tail, and a word that crosses a page, broken or whole, keeps no end label.
+            boolean told = k < last && !w.endless();
+            int tail = told ? (int) Math.round((w.endX() - left) / character) : 0;
+            String word = text.substring(p.from(), p.to());
+            boolean broken = told ? tail < length
+                    : ownCuts(word).length > 0 && column + length > columns && (k > 0 || w.endless() || w.endY() > w.y() + cap + pitch / 2);
+            double[] end;
+            if (!w.endless()) {
+                end = new double[] {w.endPage(), w.endY()};
+            } else if (column + length <= columns) {
+                end = new double[] {w.page(), w.y()};
+            } else if (k < last && placed.get(k + 1).from() > p.to() && lineStart(text, placed.get(k + 1).from()) == start) {
+                end = new double[] {placed.get(k + 1).word().endPage(), placed.get(k + 1).word().endY()};
+            } else {
+                end = new double[] {w.page() + 1, geometry.contentTop() + cap};
+            }
+            if (!broken) {
+                addToRow(ranges, baselines, (int) end[0], end[1], x, p.from(), p.to());
+                row = end;
+                continue;
+            }
+            int[] cuts = rowBreaks(word, column, columns, tail, begins);
+            for (int c = 0; c <= cuts.length; c++) {
+                int from = c == 0 ? 0 : cuts[c - 1];
+                int to = c == cuts.length ? length : cuts[c];
+                if (from == to) {
+                    continue;                                     // the word's head did not fit after the word before
+                }
+                boolean follows = c == 0 && !begins && row != null;
+                int page = follows ? (int) row[0] : (int) end[0];
+                double y = follows ? row[1] : end[1] - (cuts.length - c) * pitch;
+                if (y < geometry.contentTop() && row != null) {   // over the foot of a page: down from the row before
+                    page = (int) row[0];
+                    y = row[1] + (begins ? c + 1 : c) * pitch;
+                }
+                addToRow(ranges, baselines, page, y, c == 0 ? x : left, p.from() + from, p.from() + to);
+            }
+            row = end;
+        }
+        for (Map.Entry<Row, int[]> e : ranges.entrySet()) {
+            int[] r = e.getValue();
+            double[] b = baselines.get(e.getKey());
+            out.add(new Line(unit.index(), (int) b[0], b[2], b[1], r[0], r[1], false));
+        }
+    }
+
+    /** The offset a source line starts at. */
+    private static int lineStart(String text, int offset) {
+        return text.lastIndexOf('\n', offset - 1) + 1;
+    }
+
+    /** Adds a span to a listing's row; the row's left edge is the first span's. */
+    private static void addToRow(Map<Row, int[]> ranges, Map<Row, double[]> baselines, int page, double y, double x, int from, int to) {
+        Row row = new Row(page, Math.round(y * 10));
+        extend(ranges, baselines, row, page, y, ranges.containsKey(row) ? Double.MAX_VALUE : x, from, to, false);
+    }
+
+    /**
+     * Where a word of a listing broke, as Typst breaks raw text: each row takes the word up to
+     * its last break opportunity that fits, and a row that has none takes what fits. The tail,
+     * when its length is known, decides the last cut.
+     *
+     * @param word    the word
+     * @param column  the column the word starts at
+     * @param columns the characters a row holds
+     * @param tail    the characters Typst carried to the word's last row, or 0 when unknown
+     * @param begins  whether the word begins its source line, so has nowhere further down to start
+     * @return the ascending offsets each later row begins at; a first offset of 0 when the word's
+     *         head did not fit on the row it would have started on
+     */
+    static int[] rowBreaks(String word, int column, int columns, int tail, boolean begins) {
+        int[] own = ownCuts(word);
+        int end = word.length() - tail;
+        List<Integer> cuts = new ArrayList<>();
+        int at = 0;
+        int room = columns - column;
+        boolean fresh = begins;
+        while (end - at > room) {
+            int cut = at;
+            for (int c : own) {
+                if (c > at && c <= at + room) {
+                    cut = c;
+                }
+            }
+            if (cut == at && fresh) {
+                cut = at + room;
+            }
+            cuts.add(cut);
+            at = cut;
+            room = columns;
+            fresh = true;
+        }
+        if (tail > 0 && end > at) {
+            cuts.add(end);
+        }
+        return cuts.stream().mapToInt(Integer::intValue).toArray();
+    }
+
     /** A cut of a hyphenated word: the offset, how far the suffix's width lies from the tail's, and whether it is a hyphenation point. */
     record Cut(int at, double distance, boolean point) { }
 
@@ -620,7 +789,7 @@ public final class TypstOracle implements LayoutOracle {
 
     /**
      * A word's own line-break opportunities, ascending: after a hyphen or dash or a slash
-     * followed by a letter or digit (UAX #14, which Typst applies inside inline raw as well);
+     * followed by a letter, and after a vertical bar (UAX #14, which Typst applies inside raw as well);
      * in a link, after any character that is not a letter, digit or opening bracket, as Typst
      * breaks links.
      */
@@ -631,7 +800,7 @@ public final class TypstOracle implements LayoutOracle {
             char before = text.charAt(c - 1);
             char at = text.charAt(c);
             boolean dash = before == '-' || before == '\u2010' || before == '\u2011' || before == '\u2013' || before == '\u2014' || before == '/';
-            if (dash && Character.isLetter(at)) {
+            if (dash && Character.isLetter(at) || before == '|') {
                 cuts.add(c);                                      // UAX #14: no break between a hyphen or slash and a digit
             } else if (link && !Character.isLetterOrDigit(before) && before != '(' && before != '[' && Character.isLetterOrDigit(at)) {
                 cuts.add(c);
@@ -669,7 +838,7 @@ public final class TypstOracle implements LayoutOracle {
         return width.width(text, unit, mono, bold);
     }
 
-    /** Whether a hard break — a verbatim line's end, or AsciiDoc's trailing {@code +} — follows a word in the unit's text. */
+    /** Whether a hard break — a source line's end, or AsciiDoc's trailing {@code +} — follows a word in the unit's text. */
     private static boolean breakAfter(Unit unit, List<Placed> placed, int k) {
         if (k + 1 >= placed.size()) {
             return false;

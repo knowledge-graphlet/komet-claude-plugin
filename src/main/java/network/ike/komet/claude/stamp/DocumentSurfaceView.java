@@ -441,6 +441,14 @@ final class DocumentSurfaceView {
             area.setContentPadding(new Insets(2, 4, 2, 4));
             area.getStyleClass().add("doc-prose-block");
             wire(this);
+            // A selection held off a window fails every layout of the control, so an area keeps one only while attached.
+            area.sceneProperty().addListener((obs, was, is) -> {
+                if (is == null) {
+                    applySelection(this);
+                } else {
+                    javafx.application.Platform.runLater(() -> applySelection(this));
+                }
+            });
             decorate();
         }
 
@@ -1925,7 +1933,7 @@ final class DocumentSurfaceView {
                     }
                 }
             }
-            if (first == null) {
+            if (first == null || !inWindow(area.area)) {
                 area.area.clearSelection();
             } else if (selection.caret() >= selection.anchor()) {
                 area.area.select(first.startPos(), last.endPos());
@@ -1935,6 +1943,14 @@ final class DocumentSurfaceView {
         } finally {
             applying = false;
         }
+    }
+
+    /**
+     * Whether a RichTextArea can draw a selection: its shapes are mapped through the screen, and within one
+     * paragraph the control does not survive the null it gets off a window.
+     */
+    private static boolean inWindow(RichTextArea area) {
+        return area.getScene() != null && area.getScene().getWindow() != null;
     }
 
     /** Scrolls the first selected block into view. */

@@ -22,16 +22,24 @@ import network.ike.komet.claude.stamp.print.LayoutOracle.Line;
 import network.ike.komet.claude.stamp.print.LayoutOracle.Unit;
 import network.ike.komet.claude.stamp.print.TypstOracle.Item;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
-/** The Typst oracle's reading of typst's answer: parsing, word alignment, lines and hyphenation points, without typst. */
+/** The Typst oracle's reading of typst's answer: parsing, word alignment, lines and hyphenation points, mostly without typst. */
 class TypstOracleTest {
 
     private static final Geometry LETTER = new Geometry(612, 792, 72, 72, 468, 648);
@@ -173,21 +181,38 @@ class TypstOracleTest {
     }
 
     @Test
+    void aLastWordTypstKernedStaysOnItsLine() {
+        Unit prose = new Unit(0, 0, Kind.PARAGRAPH, "one two three", 12, false, 0, 13, 0, false);
+        List<Item> items = new ArrayList<>();
+        items.add(new Item(0, 0, 72, 93));
+        word(items, "one", 0, 72, 101.5, 90);
+        word(items, "two", 0, 480, 101.5, 510);
+        items.add(new Item("three", 0, 514, 101.5));                 // measured 30 wide it passes 540; Typst, kerning, fit it
+        items.add(new Item(Boolean.FALSE, 0, 72, 123.7));
+
+        Layout layout = TypstOracle.align(items, List.of(prose), LETTER, WIDTH);
+
+        assertEquals(List.of(new Line(0, 0, 72, 101.5, 0, 13, false)), layout.ofUnit(0),
+                "a line of its own would stand on the next block: this word collided with the heading after it");
+    }
+
+    @Test
     void wordsAtHardBreaksKeepTheirLines() {
-        // A verbatim unit of three lines: each line's last word gets its end label at the next line's start, and
-        // each line's first word its start label at the line before's end.
+        // A verbatim unit of three lines, labelled as typst labels a listing: every end label right after its word's
+        // glyphs, a source line's last word's too; a start label before a line's first word at the line before's end,
+        // and the closing label at the block's left edge on the last row.
         Unit raw = new Unit(0, 0, Kind.VERBATIM, "alpha beta\ngamma\ndelta epsilon", 10, false, 0, 0, 0, false);
         List<Item> items = new ArrayList<>();
-        items.add(new Item(0, 0, 80, 100));
-        word(items, "alpha", 0, 80, 110, 110);
-        items.add(new Item("beta", 0, 113, 110));
-        items.add(new Item(Boolean.FALSE, 0, 80, 124));
-        items.add(new Item("gamma", 0, 137, 110));                   // the line before's end
-        items.add(new Item(Boolean.FALSE, 0, 80, 138));              // the line after's start
+        items.add(new Item(0, 0, 72, 100));
+        items.add(new Item("alpha", 0, 80, 104));                    // the paragraph's top
+        items.add(new Item(Boolean.FALSE, 0, 110, 110));
+        word(items, "beta", 0, 113, 110, 137);
+        items.add(new Item("gamma", 0, 137, 110));
+        items.add(new Item(Boolean.FALSE, 0, 110, 124));
         items.add(new Item("delta", 0, 110, 124));
         items.add(new Item(Boolean.FALSE, 0, 110, 138));
         items.add(new Item("epsilon", 0, 113, 138));
-        items.add(new Item(Boolean.FALSE, 0, 80, 152));
+        items.add(new Item(Boolean.FALSE, 0, 80, 138));
 
         Layout layout = TypstOracle.align(items, List.of(raw), LETTER, WIDTH);
 
@@ -196,7 +221,7 @@ class TypstOracleTest {
         assertEquals("alpha beta", lines.get(0).text(raw));
         assertEquals(110, lines.get(0).baseline());
         assertEquals("gamma", lines.get(1).text(raw));
-        assertEquals(110 + 10 * LayoutOracle.PITCH, lines.get(1).baseline(), 0.001, "a lone word on a line: a pitch below");
+        assertEquals(124, lines.get(1).baseline(), "a lone word on a line: its own end label's row");
         assertEquals("delta epsilon", lines.get(2).text(raw));
         assertEquals(138, lines.get(2).baseline());
         assertTrue(lines.stream().noneMatch(Line::hyphenated));
@@ -221,6 +246,122 @@ class TypstOracleTest {
         assertEquals(94, lines.get(1).x(), "the second hangs under the text");
         assertEquals("• first item", lines.get(0).text(item));
         assertEquals("that wraps", lines.get(1).text(item));
+    }
+
+    /** The listing the Stamped Document card lost characters from, as the card's unit carries it: delimiters included. */
+    private static final String WRAPPED_LISTING = """
+            ----
+            concept: k:SiteInspectionDecision[Site inspection decision for a first-of-a-kind submission with a conduct concern from an inexperienced applicant] @id=bimo-site-decision
+              expansion: focused k:InspectionDecision[Clinical site inspection decision] @id=bimo-inspection-decision
+                prerequisite: k:FirstOfAKind[First-of-a-kind device] @id=bimo-first-of-a-kind
+                  value = [1,1] k:Presence[presence] @id=bimo-presence
+                prerequisite: k:ConductConcern[Concern about the conduct of the study] @id=bimo-conduct-concern
+                  value = [1,1] k:Presence[presence] @id=bimo-presence
+                prerequisite: k:PriorSubmissions[Marketing submissions the applicant has made before] @id=bimo-prior-submissions
+                  value = [0,2] k:Count[count] @id=bimo-count
+            ----""";
+
+    /** The non-blank characters of a text: a row's break drops the spaces it falls on, and nothing else. */
+    private static String ink(String text) {
+        return text.replaceAll("\\s", "");
+    }
+
+    /** The unit's lines in source order, each asserted to stay within one source line and to add no hyphen. */
+    private static List<Line> inSourceOrder(Layout layout, Unit unit) {
+        List<Line> lines = new ArrayList<>(layout.ofUnit(unit.index()));
+        lines.sort(Comparator.comparingInt(Line::from));
+        for (Line line : lines) {
+            assertFalse(line.text(unit).contains("\n"), "a row stays within a source line: " + line.text(unit));
+            assertFalse(line.hyphenated(), "typst does not hyphenate raw text: " + line.text(unit));
+        }
+        return lines;
+    }
+
+    @Test
+    void aWrappedListingKeepsEveryCharacterOnItsOwnRow() throws IOException {
+        List<Item> items;
+        try (InputStream labels = TypstOracleTest.class.getResourceAsStream("/print/wrapped-listing.labels.json")) {
+            items = TypstOracle.parse(new String(labels.readAllBytes(), StandardCharsets.UTF_8));
+        }
+        Unit listing = new Unit(0, 5, Kind.VERBATIM, WRAPPED_LISTING, 10.2, false, 0, 0, 0, false);
+        // JavaFX's width, at the unit's size: a quarter wider than Typst sets raw text, whose 0.85em compounds with its own 0.8em.
+        LayoutOracle.Measure javaFx = (text, unit, mono, bold) -> text.length() * 6.12;
+
+        Layout layout = TypstOracle.align(items, List.of(listing), LETTER, javaFx);
+
+        List<Line> lines = inSourceOrder(layout, listing);
+        assertEquals(List.of(
+                "concept: k:SiteInspectionDecision[Site inspection decision for a first-of-a-kind submission",
+                "with a conduct concern from an inexperienced applicant] @id=bimo-site-decision",
+                "expansion: focused k:InspectionDecision[Clinical site inspection decision] @id=bimo-",
+                "inspection-decision",
+                "prerequisite: k:FirstOfAKind[First-of-a-kind device] @id=bimo-first-of-a-kind",
+                "value = [1,1] k:Presence[presence] @id=bimo-presence",
+                "prerequisite: k:ConductConcern[Concern about the conduct of the study] @id=bimo-conduct-",
+                "concern",
+                "value = [1,1] k:Presence[presence] @id=bimo-presence",
+                "prerequisite: k:PriorSubmissions[Marketing submissions the applicant has made before]",
+                "@id=bimo-prior-submissions",
+                "value = [0,2] k:Count[count] @id=bimo-count"), lines.stream().map(l -> l.text(listing)).toList());
+        assertEquals(List.of(480.79, 491.92, 503.05, 514.18, 525.31, 536.44, 547.57, 558.7, 569.83, 580.96, 592.09, 603.22),
+                lines.stream().map(Line::baseline).toList(), "each row on Typst's own baseline");
+        double[] x = {80, 80, 89.79, 80, 99.58, 109.38, 99.58, 80, 109.38, 99.58, 80, 109.38};
+        for (int k = 0; k < x.length; k++) {
+            assertEquals(x[k], lines.get(k).x(), 0.02, "a source line at its indent, a wrapped row at the block's edge: " + lines.get(k));
+        }
+    }
+
+    @Test
+    void typstsOwnWrappingOfAListingLosesNoCharacter(@TempDir Path folder) throws IOException {
+        assumeTrue(TypstCompiler.locate().isPresent(), "typst is not installed");
+        String tail = "the quick brown fox jumps over the lazy dog and keeps going past the measure of the page until it wraps";
+        StringBuilder text = new StringBuilder("""
+                top: one
+                    indented: two
+                col0
+                single
+                    x
+                  y
+                """);
+        text.append("  expansion: ").append(tail).append(" @id=a-hyphenated-identifier-that-must-break-at-its-own-hyphens-near-the-right-margin-of-the-page\n");
+        text.append("    prerequisite: ").append(tail).append('\n');
+        text.append("      value = [1,1]\n");
+        text.append("aaa https://example.com/").append("some/long/path/".repeat(20)).append(" tail\n");
+        text.append("    ").append("foo|bar|baz|qux|".repeat(14)).append('\n');
+        text.append("  ").append("unbreakable".repeat(14)).append(" end\n\n");
+        // Down to a page's foot on few words (word labels reach typst's grouping depth at some hundreds), then over it.
+        for (int i = 0; i < 26; i++) {
+            text.append(i % 2 == 0 ? "    " : "  ").append("short ").append(i).append('\n');
+        }
+        for (int i = 0; i < 6; i++) {
+            text.append(i % 2 == 0 ? "    " : "  ").append("line ").append(i).append(' ').append(tail).append(" @id=closing-identifier-").append(i).append('\n');
+        }
+        text.append("      last: https://example.com/").append("the/final/word/".repeat(10));
+        DocumentModel model = new DocumentModel("T", List.of(new DocumentModel.Verbatim("", text.toString())));
+        List<Unit> units = ModelUnits.of(model, 12);
+        Unit listing = units.stream().filter(u -> u.kind() == Kind.VERBATIM).findFirst().orElseThrow();
+        Path source = folder.resolve("layout.typ");
+        Files.writeString(source, TypstWriter.write(model, TypstWriter.PageSetup.DEFAULT, TypstWriter.Labels.WORDS), StandardCharsets.UTF_8);
+
+        Layout layout = new TypstOracle(folder, source, null, (t, unit, mono, bold) -> t.length() * 6.12).layout(units, LETTER);
+
+        assertTrue(layout.pages() > 1, "the listing crosses a page: " + layout.notes());
+        List<Line> lines = inSourceOrder(layout, listing);
+        double character = (lines.get(1).x() - lines.get(0).x()) / 4;   // "indented" stands four columns in from "top"
+        double measure = LETTER.contentLeft() + LETTER.contentWidth() - TypstOracle.RAW_INSET;
+        StringBuilder drawn = new StringBuilder();
+        for (Line line : lines) {
+            String row = line.text(listing);
+            assertTrue(line.x() >= LETTER.contentLeft() && line.x() < LETTER.contentLeft() + 200, "a row starts at the block's edge or its indent: " + line);
+            assertTrue(row.startsWith("unbreakable") || line.x() + row.length() * character <= measure + 1, "a row fits the measure: " + row);
+            drawn.append(row);
+        }
+        assertEquals(ink(listing.text()), ink(drawn.toString()), "every character once, in order");
+        for (int k = 1; k < lines.size(); k++) {
+            Line above = lines.get(k - 1);
+            Line below = lines.get(k);
+            assertTrue(below.page() > above.page() || below.baseline() > above.baseline() + 5, "each row below the last: " + above + " then " + below);
+        }
     }
 
     @Test
