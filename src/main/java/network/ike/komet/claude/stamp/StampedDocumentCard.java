@@ -153,6 +153,8 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     /** The working tree a document was last opened from, committed or exported into. */
     private static final String PREF_WORKING_TREE = "network.ike.komet.claude.stamp.workingTree";
     private static final String PREF_VIEW = "network.ike.komet.claude.stamp.view";
+    /** Whether the Repository panel stands open on this card. */
+    private static final String PREF_REPOSITORY_OPEN = "network.ike.komet.claude.stamp.repositoryOpen";
     private static final String PREF_GRAPH_MODE = "network.ike.komet.claude.stamp.graphMode";
     /** Whether the Graph view's DocBook mode shows stored sentences as nodes (IKE-Network/ike-issues#1313). */
     private static final String PREF_GRAPH_SENTENCES = "network.ike.komet.claude.stamp.graphSentences";
@@ -355,6 +357,12 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     /** @return the shown document's file relative to its repository root, when a working tree is known */
     public Optional<Path> currentFile() {
         return repoRoot == null || shownPath == null ? Optional.empty() : Optional.of(Path.of(shownPath));
+    }
+
+    /** @return the shown document's recorded path, which it has with no working tree too */
+    @Override
+    public Optional<String> documentPath() {
+        return Optional.ofNullable(shownPath);
     }
 
     /** @return whether this card shows exactly that file of that repository */
@@ -703,6 +711,11 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         this.footer = footer;
         documentArea.surface().setFooter(footer);
         repositoryPanel = new RepositoryPanel(this);
+        repositoryPanel.setExpanded(preferences().getBoolean(PREF_REPOSITORY_OPEN, false));
+        repositoryPanel.expandedProperty().addListener((obs, was, is) -> {
+            preferences().putBoolean(PREF_REPOSITORY_OPEN, is);
+            syncPreferences();
+        });
         host.setTop(repositoryPanel);
         center.getChildren().setAll(documentArea.fxObject());
         host.setCenter(center);
@@ -1065,6 +1078,9 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
      * @param view the view to show
      */
     private void showCenter(DocumentSurfaceView.View view) {
+        boolean graphShown = view == DocumentSurfaceView.View.GRAPH && shown != null;
+        modes.setVisible(graphShown);
+        modes.setManaged(graphShown);
         if (view == DocumentSurfaceView.View.PAGE_LAYOUT && shown != null) {
             buildPages();
             return;
@@ -1074,9 +1090,6 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         showSettling(false);
         pageIndicator.setVisible(false);
         pageIndicator.setManaged(false);
-        boolean graphShown = view == DocumentSurfaceView.View.GRAPH && shown != null;
-        modes.setVisible(graphShown);
-        modes.setManaged(graphShown);
         if (graphShown) {
             graph.show(assembly);
             showOverArea(graph.node());

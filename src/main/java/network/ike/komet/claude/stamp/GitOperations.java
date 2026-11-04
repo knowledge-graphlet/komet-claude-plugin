@@ -82,7 +82,40 @@ public final class GitOperations {
      * @param status   the open file's status in the working tree: {@code clean}, {@code modified}, {@code untracked}, {@code staged}, or empty without a file
      */
     public record RepositoryState(Path root, List<Remote> remotes, String branch, String headSha, String headText,
-                                  Optional<String> upstream, int ahead, int behind, String status) { }
+                                  Optional<String> upstream, int ahead, int behind, String status) {
+
+        /**
+         * What a closed Repository panel says: the folder, the branch, the file, and whatever is
+         * not yet where it belongs.
+         *
+         * @param file    the document's file, or {@code null} when there is none
+         * @param pending whether the document carries an edit pending in Komet
+         * @return the parts that apply, joined
+         */
+        public String summary(Path file, boolean pending) {
+            List<String> parts = new java.util.ArrayList<>();
+            parts.add(root.getFileName() == null ? root.toString() : root.getFileName().toString());
+            if (!branch.isEmpty()) {
+                parts.add(branch);
+            }
+            if (file != null) {
+                parts.add(file.toString());
+            }
+            if (status.equals("modified") || status.equals("staged") || status.equals("untracked")) {
+                parts.add(status);
+            }
+            if (pending) {
+                parts.add("edit pending");
+            }
+            if (ahead > 0) {
+                parts.add(ahead + " ahead");
+            }
+            if (behind > 0) {
+                parts.add(behind + " behind");
+            }
+            return String.join(" \u00b7 ", parts);
+        }
+    }
 
     /**
      * One commit as the History view lists it.

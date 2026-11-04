@@ -40,6 +40,17 @@ class GitOperationsTest {
     Path root;
 
     @Test
+    void aClosedPanelSaysTheFolderBranchFileAndWhatIsOutstanding() {
+        GitOperations.RepositoryState clean = new GitOperations.RepositoryState(Path.of("/work/ike-lab-documents"), List.of(), "main", "abc1234",
+                "subject", java.util.Optional.of("origin/main"), 0, 0, "clean");
+        assertEquals("ike-lab-documents \u00b7 main \u00b7 topics/a.adoc", clean.summary(Path.of("topics/a.adoc"), false));
+
+        GitOperations.RepositoryState ahead = new GitOperations.RepositoryState(Path.of("/work/repo"), List.of(), "", "", "",
+                java.util.Optional.empty(), 2, 1, "modified");
+        assertEquals("repo \u00b7 modified \u00b7 edit pending \u00b7 2 ahead \u00b7 1 behind", ahead.summary(null, true));
+    }
+
+    @Test
     void stateReadsRemotesBranchHeadAndCounts() throws Exception {
         Path bare = bare("origin.git");
         Path work = clone(bare, "work");

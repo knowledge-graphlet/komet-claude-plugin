@@ -41,7 +41,7 @@ import java.util.concurrent.CompletableFuture;
 /**
  * The Repository panel of the Stamped Document card (ike-lab-documents topic
  * {@code dev-stamped-document-surface}, phase 4; IKE-Network/ike-issues#1307): always visible,
- * collapsible, showing the working tree the shown document's file lives in — its root, each
+ * closed until opened, when its title says where the document stands, and showing the working tree the shown document's file lives in — its root, each
  * remote's name and URL (a link that opens the browser), the branch, HEAD with its short SHA and
  * subject, the commits ahead of and behind the upstream, and the open file's status: clean,
  * modified in the working tree, or carrying an edit pending in Komet — with the operations
@@ -58,6 +58,9 @@ final class RepositoryPanel extends TitledPane {
         Path repoRoot();
 
         Optional<Path> currentFile();
+
+        /** The shown document's recorded path, which it has with no working tree too. */
+        Optional<String> documentPath();
 
         /** Whether the shown document carries an edit pending in Komet. */
         boolean pendingEdit();
@@ -87,14 +90,17 @@ final class RepositoryPanel extends TitledPane {
     private final Button fetch = new Button("Fetch");
     private final Button commit = new Button("Commit…");
     private GitOperations.RepositoryState state;
+    /** The title's words while the panel is closed. */
+    private String summary = "not specified";
 
     RepositoryPanel(Host host) {
         this.host = host;
         setId("stampedDocumentRepositoryPanel");
-        setText("Repository");
         setCollapsible(true);
-        setExpanded(true);
+        setExpanded(false);
         setAnimated(false);
+        setTextOverrun(javafx.scene.control.OverrunStyle.CENTER_ELLIPSIS);   // the folder and the file's name both stay
+        expandedProperty().addListener((obs, was, is) -> showTitle());
         GridPane grid = new GridPane();
         grid.setHgap(10);
         grid.setVgap(3);
@@ -140,6 +146,11 @@ final class RepositoryPanel extends TitledPane {
         showNone();
     }
 
+    private void showTitle() {
+        setText(isExpanded() ? "Repository" : "Repository \u2014 " + summary);
+        setTooltip(isExpanded() ? null : new Tooltip(summary));
+    }
+
     private static Label key(String text) {
         Label label = new Label(text);
         label.setFont(Font.font("System", javafx.scene.text.FontWeight.BOLD, 11));
@@ -171,6 +182,9 @@ final class RepositoryPanel extends TitledPane {
         for (Button b : new Button[] {fetch, pull, push, commit}) {
             b.setDisable(true);
         }
+        summary = "not specified" + host.documentPath().map(path -> " \u00b7 " + path).orElse("")
+                + (host.pendingEdit() ? " \u00b7 edit pending" : "");
+        showTitle();
     }
 
     /** Re-reads the repository off the FX thread and shows it. */
@@ -201,6 +215,8 @@ final class RepositoryPanel extends TitledPane {
             if (failure != null) {
                 showNone();
                 root.setText(repo + " — git could not be run: " + (failure.getCause() == null ? failure : failure.getCause()).getMessage());
+                summary = repo.getFileName() + " \u00b7 git could not be run";
+                showTitle();
                 LOG.warn("Reading the repository {} failed", repo, failure);
                 return;
             }
@@ -244,6 +260,8 @@ final class RepositoryPanel extends TitledPane {
         pull.setDisable(read.upstream().isEmpty());
         push.setDisable(read.upstream().isEmpty() && read.remotes().isEmpty());
         commit.setDisable(!pending);
+        summary = read.summary(host.currentFile().orElse(null), pending);
+        showTitle();
     }
 
     /**
