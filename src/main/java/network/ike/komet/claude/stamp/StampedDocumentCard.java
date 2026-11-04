@@ -848,6 +848,8 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
                 found.forEach((name, id) -> {
                     if (PublicId.equals(id, anchor)) {
                         documents.setValue(name);
+                        preferences().put(PREF_DOCUMENT, name);   // so the card reopens it, as it does a chosen one
+                        syncPreferences();
                     }
                 });
             } finally {
@@ -2357,6 +2359,8 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         ViewCalculator view = view();
         statusLine.setText("Saving the edit …");
         CompletableFuture.supplyAsync(() -> {
+                    Optional<String> previous = GitDocumentMaterializer.load(anchor, true)
+                            .map(document -> String.join("\n", StructuredBlocks.source(document, block).lines()));
                     var result = KometActions.expect(KometConcept.EDIT_DOCUMENT_BLOCK)
                             .perform(EditDocumentBlock.input(block.nid(), text), view, edit);
                     if (!result.completed()) {
@@ -2364,7 +2368,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
                     }
                     StructuredBlockKind.Source source = StructuredBlockKind.Source.of(text);
                     return new Saved(result, StructuredBlocks.style(source.parameters()).flatMap(StructuredBlocks::kindFor)
-                            .flatMap(kind -> kind.write(source, block.nid(), view, edit)));
+                            .flatMap(kind -> kind.write(source, block.nid(), previous, view, edit)));
                 })
                 .whenComplete((saved, failure) -> Platform.runLater(() -> {
                     if (failure != null) {

@@ -94,6 +94,11 @@ class DocumentEditingIT {
         assertTrue(PB_STARTER_DATA.exists(), "Starter data must be present at " + PB_STARTER_DATA.getAbsolutePath());
         PrimitiveData.selectControllerByName("Load Memory-Only 64-bit Store");
         PrimitiveData.start();
+        try {
+            javafx.application.Platform.startup(() -> { });
+        } catch (IllegalStateException alreadyStarted) {
+            // the toolkit outlives a test class
+        }
         new LoadEntitiesFromProtobufFile(PB_STARTER_DATA).compute();
         edit = Coordinates.Edit.Default();
     }

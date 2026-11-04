@@ -627,7 +627,7 @@ public final class ConceptProposalTools {
     }
 
     /** Runs the work on the JavaFX application thread and waits for it. */
-    static <T> T onFxThread(Supplier<T> work) {
+    public static <T> T onFxThread(Supplier<T> work) {
         if (Platform.isFxApplicationThread()) {
             return work.get();
         }

@@ -421,6 +421,8 @@ public final class DocumentGraphTools {
                                 + " is pending in the card. A change is never made on top of a change nobody has settled: ask them to "
                                 + "commit it in git (Commit…) or discard it (Discard edit), then propose again.";
                     }
+                    Optional<String> previous = Optional.of(node.lines().stream().map(GitDocumentMaterializer.StoredLine::text)
+                            .collect(java.util.stream.Collectors.joining("\n")));
                     KometActionResult result = KometActions.expect(KometConcept.EDIT_DOCUMENT_BLOCK)
                             .perform(EditDocumentBlock.input(node.block().nid(), text.endsWith("\n") ? text : text + "\n"), v, edit);
                     if (!result.completed()) {
@@ -433,7 +435,7 @@ public final class DocumentGraphTools {
                             + ". It is pending under " + StampNames.name(v, edit.getAuthorNidForChanges())
                             + (opened.card() != null ? "; the card shows it with the edited badge" : "; open the document in a Stamped Document card to see it")
                             + ". Nothing is in git until the person commits it (Commit…); Discard edit withdraws it."
-                            + stated(opened.anchor(), node.block().nid(), text, v, edit);
+                            + stated(opened.anchor(), node.block().nid(), previous, text, v, edit);
                 });
     }
 
@@ -502,7 +504,7 @@ public final class DocumentGraphTools {
                             + (opened.card() != null ? "; the card shows the new block with the edited mark" : "; open the document in a Stamped Document card to see it")
                             + ". Nothing is in git until the person commits it (Commit…); Discard edit withdraws it. The blocks after it "
                             + "have moved, so read their paths again before you edit by them."
-                            + newBlock(opened, graph).map(block -> stated(opened.anchor(), block, text, v, edit)).orElse("");
+                            + newBlock(opened, graph).map(block -> stated(opened.anchor(), block, Optional.empty(), text, v, edit)).orElse("");
                 });
     }
 
@@ -517,13 +519,13 @@ public final class DocumentGraphTools {
      * written as an uncommitted version, and the findings on the document's structured blocks,
      * read together, in the words the transcript's correction turn uses. Empty for a plain block.
      */
-    private static String stated(PublicId anchor, long block, String text, ViewCalculator view, EditCoordinateRecord edit) {
+    private static String stated(PublicId anchor, long block, Optional<String> previous, String text, ViewCalculator view, EditCoordinateRecord edit) {
         StructuredBlockKind.Source source = StructuredBlockKind.Source.of(text.strip());
         Optional<StructuredBlockKind> kind = StructuredBlocks.style(source.parameters()).flatMap(StructuredBlocks::kindFor);
         if (kind.isEmpty()) {
             return "";
         }
-        String wrote = kind.get().write(source, block, view, edit).map(w -> " " + w).orElse("");
+        String wrote = kind.get().write(source, block, previous, view, edit).map(w -> " " + w).orElse("");
         return wrote + "\n\n" + DocumentFindings.of(load(anchor), view).orElse("Komet read the document's structured blocks clean.");
     }
 

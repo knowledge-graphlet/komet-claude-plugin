@@ -23,7 +23,7 @@ import network.ike.komet.claude.calculator.CalculationText;
 import network.ike.komet.claude.calculator.CalculatorText;
 import network.ike.komet.claude.complexconcept.ComplexConceptText;
 import network.ike.komet.claude.decision.DecisionTreeText;
-import network.ike.komet.claude.stamp.DocumentPairing;
+import network.ike.komet.claude.stamp.StructuredBlocks;
 import network.ike.komet.claude.stamp.StructuredBlockKind;
 
 import java.util.ArrayList;
@@ -138,6 +138,11 @@ public final class DocumentBlockKinds {
         }
     }
 
+    /** What a block's previous text says between its fences. */
+    private static Optional<String> content(Optional<String> previous) {
+        return previous.map(text -> network.ike.komet.claude.stamp.StructuredBlockKind.Source.of(text).content());
+    }
+
     /** {@code [decision-tree]}: the tree drawn and rolled back, its ledger, sentences and tornado. */
     public static final class DecisionTree extends RenderedKind {
         public DecisionTree() {
@@ -153,9 +158,9 @@ public final class DocumentBlockKinds {
 
         /** The tree, as a version of its tree semantic. */
         @Override
-        public Optional<String> write(Source source, long block, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
+        public Optional<String> write(Source source, long block, Optional<String> previous, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
             return Optional.of(network.ike.komet.claude.decision.DecisionTreeWrites
-                    .write(info(source.parameters()), source.content(), view, edit, DocumentPairing.pairedBlock(block)).message());
+                    .write(info(source.parameters()), source.content(), view, edit, StructuredBlocks.context(block, content(previous))).message());
         }
     }
 
@@ -174,9 +179,9 @@ public final class DocumentBlockKinds {
 
         /** The complex concept: its first version, as Propose writes it, then versions of its specification. */
         @Override
-        public Optional<String> write(Source source, long block, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
+        public Optional<String> write(Source source, long block, Optional<String> previous, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
             return Optional.of(network.ike.komet.claude.complexconcept.ComplexConceptWrites
-                    .write(source.content(), view, edit, DocumentPairing.pairedBlock(block)).message());
+                    .write(source.content(), view, edit, StructuredBlocks.context(block, content(previous))).message());
         }
     }
 
@@ -198,7 +203,7 @@ public final class DocumentBlockKinds {
          * that only marks an element of the prose, with no content, states none.
          */
         @Override
-        public Optional<String> write(Source source, long block, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
+        public Optional<String> write(Source source, long block, Optional<String> previous, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
             if (source.content().isBlank()) {
                 return Optional.empty();
             }

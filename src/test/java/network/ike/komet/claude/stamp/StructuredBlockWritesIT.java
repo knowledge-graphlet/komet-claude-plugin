@@ -29,7 +29,6 @@ import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.entity.transaction.Transaction;
 import network.ike.foundation.ike.bindings.IkeConcept;
 import network.ike.foundation.ike.bindings.IkePattern;
-import network.ike.komet.claude.complexconcept.ComplexConceptText;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredBlock;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredDocument;
 import org.junit.jupiter.api.AfterAll;
@@ -43,6 +42,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -97,6 +97,11 @@ class StructuredBlockWritesIT {
         assertTrue(PB_STARTER_DATA.exists(), "Starter data must be present at " + PB_STARTER_DATA.getAbsolutePath());
         PrimitiveData.selectControllerByName("Load Memory-Only 64-bit Store");
         PrimitiveData.start();
+        try {
+            javafx.application.Platform.startup(() -> { });
+        } catch (IllegalStateException alreadyStarted) {
+            // the toolkit outlives a test class
+        }
         new LoadEntitiesFromProtobufFile(PB_STARTER_DATA).compute();
         edit = Coordinates.Edit.Default();
         view = Calculators.View.Default();
@@ -119,7 +124,7 @@ class StructuredBlockWritesIT {
         assertTrue(StructuredBlocks.source(GitDocumentMaterializer.load(anchor, true).orElseThrow(), block(anchor, Block.Kind.OPEN, "[anf"))
                 .content().contains("candidate[site visit]"), "the edit is the block's text");
 
-        String first = kind.write(StructuredBlockKind.Source.of(text), block.nid(), view, edit).orElseThrow();
+        String first = kind.write(StructuredBlockKind.Source.of(text), block.nid(), previous, view, edit).orElseThrow();
         assertTrue(first.startsWith("The statement sbw-problem-found: Added ANF statement"), first);
         List<Long> statements = statements(block.nid());
         assertEquals(1, statements.size());
@@ -129,7 +134,7 @@ class StructuredBlockWritesIT {
 
         // a second save before a commit rewrites the pending version
         text = save(anchor, block, "site visit", "site inspection visit");
-        String again = kind.write(StructuredBlockKind.Source.of(text), block.nid(), view, edit).orElseThrow();
+        String again = kind.write(StructuredBlockKind.Source.of(text), block.nid(), previous, view, edit).orElseThrow();
         assertTrue(again.contains("replaced in an uncommitted version"), again);
         assertEquals(List.of(statement), statements(block.nid()), "the same statement, never a second one");
         assertEquals(1, record(statement).versions().size(), "the pending version is replaced, not added to");
@@ -137,14 +142,14 @@ class StructuredBlockWritesIT {
 
         // after the commit, the next save is a new version of the same statement
         text = save(anchor, block, "site inspection visit", "on-site inspection");
-        String after = kind.write(StructuredBlockKind.Source.of(text), block.nid(), view, edit).orElseThrow();
+        String after = kind.write(StructuredBlockKind.Source.of(text), block.nid(), previous, view, edit).orElseThrow();
         assertTrue(after.contains("replaced in an uncommitted version"), after);
         assertEquals(List.of(statement), statements(block.nid()));
         assertEquals(2, record(statement).versions().size(), "a new version after the commit");
 
         // a statement naming a concept the store lacks writes nothing
         String unknown = kind.write(StructuredBlockKind.Source.of(text.replace(UNIT, "00000000-0000-5000-8000-000000000001")),
-                block.nid(), view, edit).orElseThrow();
+                block.nid(), previous, view, edit).orElseThrow();
         assertTrue(unknown.startsWith("The statement sbw-problem-found was not written"), unknown);
         assertEquals(2, record(statement).versions().size(), "nothing written");
         DocumentEditor.cancel(anchor);
@@ -158,32 +163,35 @@ class StructuredBlockWritesIT {
         StructuredBlockKind kind = StructuredBlocks.kindOf(block).orElseThrow();
 
         String text = save(anchor, block, "First-of-a-kind device]", "First of its kind device]");
-        String first = kind.write(StructuredBlockKind.Source.of(text), block.nid(), view, edit).orElseThrow();
+        String first = kind.write(StructuredBlockKind.Source.of(text), block.nid(), previous, view, edit).orElseThrow();
         assertTrue(first.startsWith("Proposed the complex concept Site decision for a first-of-a-kind device"), first);
         assertTrue(first.contains("with 3 concepts the knowledge base lacked"), first);
-        long concept = PrimitiveData.nid(dev.ikm.tinkar.common.id.PublicIds.of(ComplexConceptText.localPublicId("sbw-site-decision")));
+        long concept = PrimitiveData.nid(dev.ikm.tinkar.common.id.PublicIds.of(network.ike.komet.claude.block.LocalConcepts.uuid("Site decision for a first-of-a-kind device")));
         List<Long> specifications = specifications(concept);
         assertEquals(1, specifications.size());
         long specification = specifications.getFirst();
 
-        String again = kind.write(StructuredBlockKind.Source.of(text), block.nid(), view, edit).orElseThrow();
-        assertTrue(again.startsWith("Rewrote the specification of Site decision"), again);
+        String again = kind.write(StructuredBlockKind.Source.of(text), block.nid(), previous, view, edit).orElseThrow();
+        assertTrue(again.contains("is already in the knowledge base"), "the same field values are the same component: " + again);
         assertEquals(List.of(specification), specifications(concept), "one specification, never a second");
         assertEquals(1, record(specification).versions().size());
         Transaction.forVersion(record(specification).versions().get(0)).orElseThrow().commit();
 
         text = save(anchor, block, "value = [1,1]", "value = [0,1]");
-        String after = kind.write(StructuredBlockKind.Source.of(text), block.nid(), view, edit).orElseThrow();
+        String after = kind.write(StructuredBlockKind.Source.of(text), block.nid(), previous, view, edit).orElseThrow();
         assertTrue(after.startsWith("Wrote a new version of the specification of Site decision"), after);
         assertEquals(List.of(specification), specifications(concept));
         assertEquals(2, record(specification).versions().size(), "a new version after the commit");
 
         // a block that is not yet a complete specification writes nothing
         String incomplete = kind.write(StructuredBlockKind.Source.of("[complex-concept]\n----\n"
-                        + "concept: k:Bare[Bare concept] @id=sbw-bare\n----"), block.nid(), view, edit).orElseThrow();
+                        + "concept: k:Bare[Bare concept] @id=sbw-bare\n----"), block.nid(), previous, view, edit).orElseThrow();
         assertTrue(incomplete.startsWith("The complex concept is not written yet"), incomplete);
         DocumentEditor.cancel(anchor);
     }
+
+    /** The block's text before the last save, as the card and the tools hand it to a write. */
+    private Optional<String> previous = Optional.empty();
 
     /** Saves the block with one phrase changed, as the card's Save does, and returns the saved text. */
     private String save(PublicId anchor, StoredBlock stale, String from, String to) {
@@ -192,6 +200,7 @@ class StructuredBlockWritesIT {
         StructuredBlockKind.Source source = StructuredBlocks.source(document, block);
         assertTrue(source.content().contains(from), source.content());
         String text = source.withContent(source.content().replace(from, to));
+        previous = Optional.of(String.join("\n", source.lines()));
         DocumentEditor.editBlock(anchor, block.nid(), text, edit);
         return text;
     }

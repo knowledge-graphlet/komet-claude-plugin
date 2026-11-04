@@ -10,6 +10,11 @@ State a complex concept as a fenced `complex-concept` block and let Komet draw i
 When this conversation has a paired document, the block goes into the document, not your reply: insert it with `propose_block_insert` (kind `listing`, the text starting with the style line `[complex-concept]`), or change it with `propose_block_edit`, and answer in sentences saying what you added or changed, and why. Never restate the block in the reply. The tool's result ends with what Komet found in the document's structured blocks; correct those in this turn. With no paired document, state the block in your reply as below; if the person wants the decision kept, offer `create_document`.
 
 
+## A label is the fully qualified name
+
+The label in `k:Key[label]` is the concept's fully qualified name: it must stand alone, out of this tree and this document. Write `Clear magnetic resonance angiography result`, not `clear`. The same name anywhere is the same concept, here and in every other document, so two nodes that mean the same thing share one name, and two that mean different things must not. A concept the knowledge base already holds under that exact name is that concept. Komet fits long names to the drawing, so never shorten one for the page. If a tool says a name already has a different tree or specification, ask the person whether they are the same; if not, write a more specific name.
+
+
 ## The block
 
 One line per vertex, two spaces of indentation per level; the concept tokens are the decision-tree block's, `k:Key[label] @id=<identity>`.

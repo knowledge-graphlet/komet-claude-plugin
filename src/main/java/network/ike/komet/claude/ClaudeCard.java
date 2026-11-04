@@ -662,7 +662,9 @@ public final class ClaudeCard extends AbstractHostCard {
                         + "your reply says in sentences what you added or changed, and why. A tool's result ends with what Komet found in "
                         + "the document's structured blocks; correct those within this turn. Komet draws a block as soon as it lands, "
                         + "committed or not. The person's uncommitted edits and yours are one pending edit, which they commit or discard. "
-                        + "An insertion moves the paths of the blocks after it, so read a path again before you edit by it.");
+                        + "An insertion moves the paths of the blocks after it, so read a path again before you edit by it. A label is its "
+                        + "concept's fully qualified name: write it to stand alone, and if a tool says a name already has different content, "
+                        + "ask the person whether they are the same.");
         if (!changed.isEmpty()) {
             section.append("\n\nSince you last read it, read these again before you rely on them:\n");
             changed.forEach(line -> section.append("- ").append(line).append('\n'));

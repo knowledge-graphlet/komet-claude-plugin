@@ -16,6 +16,11 @@
 package network.ike.komet.claude.stamp;
 
 import design.knowledge.stamp.adoc.dialect.Block;
+import dev.ikm.tinkar.common.id.PublicId;
+import dev.ikm.tinkar.common.service.PrimitiveData;
+import dev.ikm.tinkar.entity.EntityHandle;
+import dev.ikm.tinkar.entity.SemanticEntity;
+import network.ike.komet.claude.block.LocalConcepts;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredBlock;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredDocument;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredLine;
@@ -149,6 +154,38 @@ public final class StructuredBlocks {
         List<String> lines = lines(document, block).stream().map(StoredLine::text).toList();
         String parameters = StructuredBlockKind.Source.of(String.join("\n", lines)).parameters();
         return new StructuredBlockKind.Source(parameters.isEmpty() ? block.parameters() : parameters, lines);
+    }
+
+    /**
+     * How a block stands to its document, for what it writes: whether the document is paired, and
+     * what its blocks call their concepts, since a symbol ties a tree's label to the complex concept
+     * that defines it.
+     *
+     * @param block    the nid of the block's element semantic
+     * @param previous the block's text before this edit, empty for a new block
+     * @return the context
+     */
+    public static LocalConcepts.Context context(long block, Optional<String> previous) {
+        if (!(EntityHandle.get(block).orNull() instanceof SemanticEntity<?> element)) {
+            return new LocalConcepts.Context(false, LocalConcepts.Names.NONE, previous);
+        }
+        PublicId anchor = PrimitiveData.publicId(element.referencedComponentNid());
+        return new LocalConcepts.Context(DocumentPairing.paired(anchor), GitDocumentMaterializer.load(anchor, true)
+                .map(StructuredBlocks::names).orElse(LocalConcepts.Names.NONE), previous);
+    }
+
+    /**
+     * @param document a document
+     * @return what its structured blocks call their concepts
+     */
+    public static LocalConcepts.Names names(StoredDocument document) {
+        List<String> blocks = new ArrayList<>();
+        for (StoredBlock block : document.blocks().values()) {
+            if (kindOf(block).isPresent()) {
+                blocks.add(source(document, block).content());
+            }
+        }
+        return LocalConcepts.Names.of(blocks);
     }
 
     /**

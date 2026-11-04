@@ -16,7 +16,6 @@
 package network.ike.komet.claude.complexconcept;
 
 import dev.ikm.tinkar.common.id.PublicIds;
-import dev.ikm.tinkar.common.util.uuid.UuidT5Generator;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityProxy;
@@ -81,9 +80,6 @@ public final class ComplexConceptText {
 
     /** The fenced-block language tag. */
     public static final String TAG = "complex-concept";
-
-    /** The namespace of the public id a local concept is proposed under. */
-    static final UUID LOCAL_NAMESPACE = UUID.fromString("3b1c8f2e-6d5a-4c1b-9e7f-2a0d4c6e8b10");
 
     private ComplexConceptText() {
     }
@@ -350,7 +346,7 @@ public final class ComplexConceptText {
 
     /**
      * The facade a block's concept builds with: the store's concept when it holds one, else a
-     * proxy under a public id derived from the symbol, the id the concept is proposed under.
+     * proxy under a public id derived from its name, the id the concept is proposed under.
      */
     public static ConceptFacade facade(Ref ref) {
         if (!ref.local()) {
@@ -359,21 +355,9 @@ public final class ComplexConceptText {
         return EntityProxy.Concept.make(ref.label(), PublicIds.of(localPublicId(ref)));
     }
 
-    /** The public id a local concept is proposed under: one per symbol, wherever it is written. */
+    /** The public id a local concept derives: from its name, its fully qualified name, wherever it is written. */
     public static UUID localPublicId(Ref ref) {
-        return localPublicId(ref.token().identifier().orElse(ref.label()));
-    }
-
-    /**
-     * The public id a block-local symbol's concept is written under, by any block that writes it:
-     * a complex concept's Propose and a decision tree's version derive the same identity for the
-     * same symbol, so the decision point both name is one concept.
-     *
-     * @param identifier the symbol, as written after {@code @id=}
-     * @return the public id
-     */
-    public static UUID localPublicId(String identifier) {
-        return UuidT5Generator.get(LOCAL_NAMESPACE, "complex-concept block: " + identifier);
+        return network.ike.komet.claude.block.LocalConcepts.uuid(ref.label());
     }
 
     /**

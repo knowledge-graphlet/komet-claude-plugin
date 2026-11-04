@@ -83,11 +83,12 @@ public interface StructuredBlockKind {
      *
      * @param source the block's source as saved
      * @param block  the nid of the block's element semantic, which an ANF statement references
+     * @param previous the block's text before this edit, empty for a new block
      * @param view   the view its identifiers are read under
      * @param edit   whose change it is, in which module and on which path
      * @return a sentence for the person, empty when the kind writes nothing
      */
-    default Optional<String> write(Source source, long block, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
+    default Optional<String> write(Source source, long block, Optional<String> previous, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
         return Optional.empty();
     }
 

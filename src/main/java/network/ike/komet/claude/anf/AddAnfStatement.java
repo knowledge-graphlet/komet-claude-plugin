@@ -41,6 +41,7 @@ import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.EntityProxy;
 import dev.ikm.tinkar.terms.State;
 import network.ike.foundation.ike.bindings.IkePattern;
+import network.ike.komet.claude.block.LocalConcepts;
 import network.ike.komet.claude.stamp.VertexReader;
 import org.eclipse.collections.api.factory.Lists;
 
@@ -109,7 +110,10 @@ public final class AddAnfStatement implements KometAction {
             return KometActionResult.refused(input, "No version of the block is visible in this view.");
         }
 
-        PublicId statement = PublicIds.newRandom();
+        // derived, as a starter-set component is: a block's statements in the order they were added
+        long held = EntityService.get().semanticsForComponentOfPattern(block, IkePattern.ANF_STATEMENT_PATTERN.nid()).toList().stream()
+                .filter(existing -> AnfStatementWrites.head(existing, view).isPresent()).count();
+        PublicId statement = LocalConcepts.derived(semantic.publicId(), "anf-statement|" + held);
         Transaction transaction = Transaction.make(concept().description() + " " + statement.idString());
         try {
             StampEntity<?> stamp = transaction.getStamp(State.ACTIVE, edit.getAuthorNidForChanges(),

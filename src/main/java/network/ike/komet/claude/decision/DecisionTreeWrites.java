@@ -17,24 +17,20 @@ package network.ike.komet.claude.decision;
 
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.LongIds;
-import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
-import dev.ikm.tinkar.common.util.uuid.UuidT5Generator;
 import dev.ikm.tinkar.coordinate.edit.EditCoordinate;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
-import dev.ikm.tinkar.entity.transaction.StampedWriter;
+import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.entity.graph.EntityVertex;
 import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityFacade;
-import dev.ikm.tinkar.terms.KernelConcept;
-import dev.ikm.tinkar.terms.KernelPattern;
-import dev.ikm.tinkar.terms.State;
 import network.ike.foundation.ike.bindings.IkePattern;
+import network.ike.komet.claude.authoring.BlockConcepts;
 import network.ike.komet.claude.block.BlockIdentities;
 import network.ike.komet.claude.block.Identities;
+import network.ike.komet.claude.block.LocalConcepts;
 import network.ike.komet.claude.block.Tokens;
-import network.ike.komet.claude.complexconcept.ComplexConceptText;
 import network.ike.komet.claude.stamp.SemanticVersions;
 import network.ike.komet.claude.stamp.SemanticVersions.Versioned;
 import org.eclipse.collections.api.factory.Lists;
@@ -50,7 +46,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
-import java.util.UUID;
 
 /**
  * Writes the decision tree a block states as a version of its tree semantic, uncommitted
@@ -62,17 +57,14 @@ import java.util.UUID;
  * the same semantic, never a second tree. The write path keeps each vertex's identity from
  * version to version by {@link DecisionTreeIdentityTable}.
  *
- * <p>A symbol the store lacks becomes a concept first, under the identity its symbol derives
- * ({@link ComplexConceptText#localPublicId(String)}), the identity a complex concept's Propose
- * gives the same symbol, so the decision point a tree and a complex concept both name is one
- * concept. The semantic's identity derives from the block's {@code id=}, or its root's
- * {@code @id} when the block names none. Nothing is committed: the versions are kept or cancelled
- * with the person's other changes.
+ * <p>A name the store lacks becomes a concept first, under the identity its name derives
+ * ({@link LocalConcepts}), the identity a complex concept's Propose gives the same name, so the
+ * decision point a tree and a complex concept both name is one concept. The semantic's identity
+ * derives from its root concept: one decision has one tree, and a tree that differs from one this
+ * block did not state is held for the person rather than written over it. Nothing is committed:
+ * the versions are kept or cancelled with the person's other changes.
  */
 public final class DecisionTreeWrites {
-
-    /** The namespace a tree semantic's public id is derived in. */
-    static final UUID TREE_NAMESPACE = UUID.fromString("388278f8-5f52-40b0-b456-2e3e3211fde9");
 
     private DecisionTreeWrites() {
     }
@@ -84,9 +76,9 @@ public final class DecisionTreeWrites {
         }
     }
 
-    /** The public id of the tree semantic a block with this id writes. */
-    public static PublicId treeId(String id) {
-        return PublicIds.of(UuidT5Generator.get(TREE_NAMESPACE, "decision-tree block: " + id));
+    /** The public id of the tree semantic about a root concept: one tree per decision, as its name is one concept. */
+    public static PublicId treeId(PublicId root) {
+        return LocalConcepts.derived(root, "decision-tree");
     }
 
     /**
@@ -99,20 +91,21 @@ public final class DecisionTreeWrites {
      * @return what was written, or why nothing was
      */
     public static Written write(String info, String body, ViewCalculator view, EditCoordinate edit) {
-        return write(info, body, view, edit, false);
+        return write(info, body, view, edit, LocalConcepts.Context.ALONE);
     }
 
     /**
      * Writes the tree a block states.
      *
-     * @param info   the block's info string
-     * @param body   the block's text
-     * @param view   the view the block's identifiers are read under
-     * @param edit   whose change it is, in which module and on which path
-     * @param shared whether the block is on a paired document, whose two authors share one pending edit
-     * @return what was written, or why nothing was
+     * @param info    the block's info string
+     * @param body    the block's text
+     * @param view    the view the block's identifiers are read under
+     * @param edit    whose change it is, in which module and on which path
+     * @param context how the block stands to its document
+     * @return what was written, or why nothing was; a tree whose decision already has a different
+     *         tree that this block did not state is held for the person
      */
-    public static Written write(String info, String body, ViewCalculator view, EditCoordinate edit, boolean shared) {
+    public static Written write(String info, String body, ViewCalculator view, EditCoordinate edit, LocalConcepts.Context context) {
         DecisionTerms terms = DecisionTerms.fromBindings();
         BlockIdentities read = new BlockIdentities(new ViewIdentities(view));
         DecisionTreeText.Parsed first = DecisionTreeText.parse(body, terms, read);
@@ -124,61 +117,84 @@ public final class DecisionTreeWrites {
             return Written.refused("The tree was not written: " + problems.getFirst()
                     + (problems.size() > 1 ? ", and " + (problems.size() - 1) + " more." : "."));
         }
-        Optional<String> id = blockId(info).or(() -> LinkedTrees.rootIdentifier(first.tree().get(), read));
-        if (id.isEmpty()) {
-            return Written.refused("The tree was not written: its block names no id= and its root no @id.");
-        }
         ConceptFacade author = ConceptFacade.make(edit.getAuthorNidForChanges());
         ConceptFacade path = ConceptFacade.make(edit.getDefaultPathNid());
-        // every symbol the store lacks becomes a concept, under the identity the symbol derives, once
+        // every name the store lacks becomes a concept, under the identity its name derives, once
+        Map<String, PublicId> concepts = new LinkedHashMap<>();
         Map<PublicId, String> missing = new LinkedHashMap<>();
+        Map<PublicId, List<String>> others = new LinkedHashMap<>();
         for (String identifier : read.localIdentifiers()) {
-            PublicId concept = PublicIds.of(ComplexConceptText.localPublicId(identifier));
+            String fqn = context.names().fqn(identifier, read.label(read.nid(identifier).orElseThrow()));
+            PublicId concept = LocalConcepts.identity(fqn, view);
+            concepts.put(identifier, concept);
             if (!SemanticVersions.exists(concept, view)) {
-                missing.put(concept, read.label(read.nid(identifier).orElseThrow()));
+                missing.put(concept, fqn);
+                others.computeIfAbsent(concept, k -> new ArrayList<>()).addAll(context.names().others(identifier, fqn));
             }
         }
-        StampedWriter writer = missing.isEmpty() ? null : StampedWriter.open("Decision tree block: " + id.get(),
-                State.ACTIVE, author, ConceptFacade.make(edit.getDefaultModuleNid()), path);
+        BlockConcepts writer = new BlockConcepts("Decision tree block: " + first.tree().get().root().map(DecisionElement::concept).orElse(OptionalLong.empty()), view, author,
+                ConceptFacade.make(edit.getDefaultModuleNid()), path);
         try {
-            if (writer != null) {
-                missing.forEach((concept, label) -> {
-                    writer.concept(concept);
-                    name(writer, concept, label);
-                });
-            }
-            Identities written = new WrittenIdentities(new ViewIdentities(view), Set.copyOf(read.localIdentifiers()));
-            DecisionTree tree = DecisionTreeText.parse(body, terms, written).tree().orElseThrow();
-            stored(tree.source(), terms);
+            missing.forEach((concept, fqn) -> writer.concept(concept, fqn, others.get(concept)));
+            DecisionTree tree = storedTree(body, concepts, view, terms).orElseThrow();
             OptionalLong root = tree.root().map(DecisionElement::concept).orElse(OptionalLong.empty());
             if (root.isEmpty()) {
-                cancel(writer);
+                writer.rollback();
                 return Written.refused("The tree was not written: its root names no concept.");
             }
-            PublicId semantic = treeId(id.get());
-            String concepts = missing.isEmpty() ? "" : ", with " + missing.size()
+            String name = new ViewIdentities(view).label(root.getAsLong());
+            PublicId semantic = treeId(PrimitiveData.publicId(root.getAsLong()));
+            String wrote = missing.isEmpty() ? "" : ", with " + missing.size()
                     + (missing.size() == 1 ? " concept" : " concepts") + " the knowledge base lacked";
             if (!SemanticVersions.exists(semantic, view)) {
-                StampedWriter firstVersion = writer != null ? writer : StampedWriter.open("Decision tree block: " + id.get(),
-                        State.ACTIVE, author, ConceptFacade.make(edit.getDefaultModuleNid()), path);
-                firstVersion.semantic(semantic, IkePattern.DECISION_TREE_PATTERN.publicId(), PrimitiveData.publicId(root.getAsLong()),
-                        tree.source());
-                return new Written(Optional.of(semantic), "Wrote the tree " + id.get() + " as its first version"
-                        + concepts + "; uncommitted, commit to keep it.");
+                writer.semantic(semantic, IkePattern.DECISION_TREE_PATTERN, EntityFacade.make(root.getAsLong()), tree.source());
+                return new Written(Optional.of(semantic), "Wrote the tree of " + name + " as its first version"
+                        + wrote + "; uncommitted, commit to keep it.");
             }
-            Versioned versioned = SemanticVersions.version(PrimitiveData.nid(semantic), IkePattern.DECISION_TREE_PATTERN.nid(),
-                    Lists.immutable.of(tree.source()), view, edit, "tree", shared);
+            long nid = PrimitiveData.nid(semantic);
+            Object head = view.latest(nid).isPresent() ? ((SemanticEntityVersion) view.latest(nid).get()).fieldValues().get(0) : null;
+            if (tree.source().equals(head)) {
+                return new Written(Optional.of(semantic), "The tree of " + name + " is already in the knowledge base as this block states it; nothing was written.");
+            }
+            boolean revises = context.previous().flatMap(previous -> {
+                try {
+                    return storedTree(previous, concepts, view, terms);
+                } catch (RuntimeException differentSymbols) {
+                    return Optional.empty();
+                }
+            }).map(before -> before.source().equals(head)).orElse(false);
+            boolean pending = view.latest(nid).isPresent() && ((SemanticEntityVersion) view.latest(nid).get()).uncommitted();
+            if (!revises && !pending) {
+                writer.rollback();
+                return Written.refused(held(name));
+            }
+            Versioned versioned = SemanticVersions.version(nid, IkePattern.DECISION_TREE_PATTERN.nid(),
+                    Lists.immutable.of(tree.source()), view, edit, "tree", context.shared());
             if (versioned.refusal().isPresent()) {
-                cancel(writer);
+                writer.rollback();
                 return Written.refused(versioned.refusal().get());
             }
             return new Written(Optional.of(semantic), (versioned.replacedPending()
-                    ? "Rewrote the tree " + id.get() + " in its uncommitted version"
-                    : "Wrote a new version of the tree " + id.get()) + concepts + "; uncommitted, commit to keep it.");
+                    ? "Rewrote the tree of " + name + " in its uncommitted version"
+                    : "Wrote a new version of the tree of " + name) + wrote + "; uncommitted, commit to keep it.");
         } catch (RuntimeException e) {
-            cancel(writer);
+            writer.rollback();
             return Written.refused("The tree was not written: " + e.getMessage());
         }
+    }
+
+    /** The question a held tree asks: the same name with different field values. */
+    static String held(String name) {
+        return "The tree was not written: \u201c" + name + "\u201d already has a different tree in the knowledge base, and this block "
+                + "did not state it. Ask the person whether they are the same decision. If they are, keep one tree; if not, give this "
+                + "decision a more specific name, since its label is its fully qualified name.";
+    }
+
+    /** A block's tree over the concepts its symbols name, in its stored form. */
+    private static Optional<DecisionTree> storedTree(String body, Map<String, PublicId> concepts, ViewCalculator view, DecisionTerms terms) {
+        Optional<DecisionTree> tree = DecisionTreeText.parse(body, terms, new WrittenIdentities(new ViewIdentities(view), concepts)).tree();
+        tree.ifPresent(parsed -> stored(parsed.source(), terms));
+        return tree;
     }
 
     /**
@@ -248,35 +264,18 @@ public final class DecisionTreeWrites {
         return Optional.empty();
     }
 
-    private static void cancel(StampedWriter writer) {
-        if (writer != null) {
-            writer.cancel();
-        }
-    }
-
-    /** The fully qualified name and a preferred regular name, both in US English. */
-    private static void name(StampedWriter writer, PublicId concept, String name) {
-        writer.fullyQualifiedName(concept, name);
-        PublicId regularName = PublicIds.newRandom();
-        writer.semantic(regularName, KernelPattern.DESCRIPTION_PATTERN.publicId(), concept,
-                KernelConcept.ENGLISH_LANGUAGE, name, KernelConcept.DESCRIPTION_NOT_CASE_SENSITIVE,
-                KernelConcept.REGULAR_NAME_DESCRIPTION_TYPE);
-        writer.semantic(PublicIds.newRandom(), KernelPattern.US_DIALECT_PATTERN.publicId(), regularName,
-                KernelConcept.PREFERRED);
-    }
-
     /**
      * The identities a block is read under once its symbols are concepts: what the store holds,
      * and each of the block's symbols as the concept written under the identity it derives.
      */
-    private record WrittenIdentities(Identities store, Set<String> symbols) implements Identities {
+    private record WrittenIdentities(Identities store, Map<String, PublicId> concepts) implements Identities {
         @Override
         public OptionalLong nid(String identifier) {
             OptionalLong stored = store.nid(identifier);
-            if (stored.isPresent() || !symbols.contains(identifier)) {
+            if (stored.isPresent() || !concepts.containsKey(identifier)) {
                 return stored;
             }
-            return OptionalLong.of(PrimitiveData.nid(PublicIds.of(ComplexConceptText.localPublicId(identifier))));
+            return OptionalLong.of(PrimitiveData.nid(concepts.get(identifier)));
         }
 
         @Override

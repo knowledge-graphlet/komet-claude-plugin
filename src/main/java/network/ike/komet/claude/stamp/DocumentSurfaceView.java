@@ -575,6 +575,12 @@ final class DocumentSurfaceView {
         }
     }
 
+    /**
+     * A ledger identicon's size: under the height of a 12 px Menlo line, so one line's identicon
+     * stands clear of the next one's rather than running into it as a solid stripe.
+     */
+    private static final double LEDGER_IDENTICON = 12;
+
     /** The ledger's left column: the line's number in its file, introducing identicon, annotation mark. */
     private final class LedgerDecorator implements SideDecorator {
         private final Area chunk;
@@ -607,10 +613,10 @@ final class DocumentSurfaceView {
             row.getChildren().add(number);
             StoredLine line = held ? chunk.lines.get(paragraph) : null;
             if (line != null && line.introduced() != null && line.introduced().time() != Long.MAX_VALUE) {
-                row.getChildren().add(identicon(line.introduced(), 14, null));
+                row.getChildren().add(identicon(line.introduced(), LEDGER_IDENTICON, null));
             } else {
                 Label gap = new Label();
-                gap.setMinWidth(14);
+                gap.setMinWidth(LEDGER_IDENTICON);
                 row.getChildren().add(gap);
             }
             Label mark = new Label(line == null || !layers.contains(Layer.ANNOTATION_MARKS) ? " " : mark(line));

@@ -28,6 +28,7 @@ import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredDocument;
 import network.ike.komet.claude.stamp.StructuredBlockKind;
 import network.ike.komet.claude.stamp.StructuredBlocks;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -68,7 +69,14 @@ public final class DocumentFindings {
      * @return the findings, empty when every block reads clean or there are none
      */
     public static Optional<String> of(StoredDocument document, ViewCalculator view) {
-        return ofReply(fenced(document), view).map(DocumentFindings::forTool);
+        ViewIdentities store = new ViewIdentities(view);
+        List<String> bare = StructuredBlocks.names(document).bare(symbol -> store.nid(symbol).isPresent());
+        String names = bare.isEmpty() ? "" : "These names are too bare to stand alone: " + String.join(", ", bare)
+                + ". A label is its concept's fully qualified name, and the same name anywhere is the same concept, so write each "
+                + "out as a phrase that says what it is.";
+        String findings = ofReply(fenced(document), view).map(DocumentFindings::forTool).orElse("");
+        String joined = Stream.of(findings, names).filter(text -> !text.isEmpty()).collect(Collectors.joining("\n\n"));
+        return joined.isEmpty() ? Optional.empty() : Optional.of(joined);
     }
 
     /** A correction turn's words as a tool's result: the block is in the document, and is corrected there. */

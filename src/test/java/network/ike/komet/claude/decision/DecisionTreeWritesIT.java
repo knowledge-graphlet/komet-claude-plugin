@@ -29,7 +29,7 @@ import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.entity.transaction.Transaction;
 import network.ike.foundation.ike.bindings.IkePattern;
-import network.ike.komet.claude.complexconcept.ComplexConceptText;
+import network.ike.komet.claude.block.LocalConcepts;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -76,6 +76,11 @@ class DecisionTreeWritesIT {
         assertTrue(PB_STARTER_DATA.exists(), "Starter data must be present at " + PB_STARTER_DATA.getAbsolutePath());
         PrimitiveData.selectControllerByName("Load Memory-Only 64-bit Store");
         PrimitiveData.start();
+        try {
+            javafx.application.Platform.startup(() -> { });
+        } catch (IllegalStateException alreadyStarted) {
+            // the toolkit outlives a test class
+        }
         new LoadEntitiesFromProtobufFile(PB_STARTER_DATA).compute();
         edit = Coordinates.Edit.Default();
         view = Calculators.View.Default();
@@ -99,15 +104,15 @@ class DecisionTreeWritesIT {
     }
 
     /** The identity of the vertex whose concept a symbol names, in one version of the tree. */
-    private static UUID vertexOf(SemanticVersionRecord version, String symbol) {
+    private static UUID vertexOf(SemanticVersionRecord version, String name) {
         DecisionTree tree = new DecisionTree((DiTreeEntity) version.fieldValues().get(0), DecisionTerms.fromBindings());
-        long concept = PrimitiveData.nid(PublicIds.of(ComplexConceptText.localPublicId(symbol)));
+        long concept = PrimitiveData.nid(PublicIds.of(LocalConcepts.uuid(name)));
         for (DecisionElement node : tree.nodes()) {
             if (node.concept().orElse(0) == concept) {
                 return tree.vertex(node.vertexIndex()).vertexId().asUuid();
             }
         }
-        throw new AssertionError("no vertex names " + symbol);
+        throw new AssertionError("no vertex names " + name);
     }
 
     @Test
@@ -115,13 +120,13 @@ class DecisionTreeWritesIT {
         DecisionTreeWrites.Written first = DecisionTreeWrites.write("decision-tree id=dtw-tree", CHOICE, view, edit);
         assertTrue(first.tree().isPresent(), first.message());
         PublicId semantic = first.tree().get();
-        assertEquals(DecisionTreeWrites.treeId("dtw-tree"), semantic, "the semantic's identity derives from the block's id");
+        assertEquals(DecisionTreeWrites.treeId(PublicIds.of(LocalConcepts.uuid("Treat now?"))), semantic, "the semantic's identity derives from its root concept");
         SemanticRecord written = record(semantic);
         assertEquals(IkePattern.DECISION_TREE_PATTERN.nid(), written.patternNid());
-        assertEquals(PrimitiveData.nid(PublicIds.of(ComplexConceptText.localPublicId("dtw-treat"))), written.referencedComponentNid(),
+        assertEquals(PrimitiveData.nid(PublicIds.of(LocalConcepts.uuid("Treat now?"))), written.referencedComponentNid(),
                 "the tree is about its root's concept");
-        assertTrue(EntityHandle.get(PrimitiveData.nid(PublicIds.of(ComplexConceptText.localPublicId("dtw-rupture")))).orNull() != null,
-                "each symbol became a concept");
+        assertTrue(EntityHandle.get(PrimitiveData.nid(PublicIds.of(LocalConcepts.uuid("rupture")))).orNull() != null,
+                "each name became a concept");
         assertEquals(1, written.versions().size());
         assertTrue(first.message().contains("uncommitted"), first.message());
 
@@ -130,22 +135,23 @@ class DecisionTreeWritesIT {
                 CHOICE.replace("p = [0.1,0.1]", "p = [0.15,0.15]"), view, edit);
         assertEquals(Optional.of(semantic), again.tree(), again.message());
         assertEquals(1, record(semantic).versions().size(), "the pending version is replaced, not added to");
-        assertTrue(again.message().startsWith("Rewrote the tree dtw-tree in its uncommitted version"), again.message());
+        assertTrue(again.message().startsWith("Rewrote the tree of Treat now? in its uncommitted version"), again.message());
         SemanticVersionRecord pending = record(semantic).versions().get(0);
         Transaction.forVersion(pending).orElseThrow().commit();
 
         // after the commit, the next edit is a new version of the same tree
         DecisionTreeWrites.Written second = DecisionTreeWrites.write("decision-tree id=dtw-tree",
-                CHOICE.replace("p = [0.1,0.1]", "p = [0.2,0.2]"), view, edit);
+                CHOICE.replace("p = [0.1,0.1]", "p = [0.2,0.2]"), view, edit,
+                new LocalConcepts.Context(false, LocalConcepts.Names.NONE, Optional.of(CHOICE.replace("p = [0.1,0.1]", "p = [0.15,0.15]"))));
         assertEquals(Optional.of(semantic), second.tree(), second.message());
-        assertTrue(second.message().startsWith("Wrote a new version of the tree dtw-tree"), second.message());
+        assertTrue(second.message().startsWith("Wrote a new version of the tree of Treat now?"), second.message());
         SemanticRecord rewritten = record(semantic);
         assertEquals(2, rewritten.versions().size(), "a new version of the same tree, never a second tree");
         SemanticVersionRecord was = rewritten.versions().get(0);
         SemanticVersionRecord now = rewritten.versions().get(1);
         assertNotEquals(was.fieldValues().get(0), now.fieldValues().get(0));
-        assertEquals(vertexOf(was, "dtw-rupture"), vertexOf(now, "dtw-rupture"), "the event keeps its identity");
-        assertEquals(vertexOf(was, "dtw-wait"), vertexOf(now, "dtw-wait"));
+        assertEquals(vertexOf(was, "rupture"), vertexOf(now, "rupture"), "the event keeps its identity");
+        assertEquals(vertexOf(was, "wait"), vertexOf(now, "wait"));
     }
 
     @Test
@@ -168,8 +174,65 @@ class DecisionTreeWritesIT {
     }
 
     @Test
+    void aNewConceptIsWrittenAsAProposedConceptIsWithAStatedDefinitionAndPublishesWithItsTree() {
+        DecisionTreeWrites.Written written = DecisionTreeWrites.write("decision-tree id=dtw-defined",
+                CHOICE.replace("[Treat now?]", "[Treat, defined?]").replace("[rupture]", "[rupture, defined]"), view, edit);
+        assertTrue(written.tree().isPresent(), written.message());
+        long concept = PrimitiveData.nid(PublicIds.of(LocalConcepts.uuid("rupture, defined")));
+
+        var definitions = dev.ikm.tinkar.entity.EntityService.get().semanticsForComponentOfPattern(concept,
+                dev.ikm.tinkar.terms.KernelPattern.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN.nid()).toList();
+        assertEquals(1, definitions.size(), "a new concept has one stated definition");
+        var names = dev.ikm.tinkar.entity.EntityService.get().semanticsForComponentOfPattern(concept,
+                dev.ikm.tinkar.terms.KernelPattern.DESCRIPTION_PATTERN.nid()).toList();
+        assertEquals(2, names.size(), "a fully qualified name and a regular name");
+        assertEquals(dev.ikm.komet.framework.controls.KonceptStatus.PRIMITIVE,
+                dev.ikm.komet.framework.controls.KonceptBadge.computeStatus(concept, view,
+                        dev.ikm.tinkar.coordinate.logic.PremiseType.STATED),
+                "stated but not yet reasoned, it is primitive, not a root");
+
+        var definition = definitions.getFirst().versions().getLast();
+        var tree = record(written.tree().get()).versions().getLast();
+        assertEquals(Transaction.forVersion(definition).orElseThrow(), Transaction.forVersion(tree).orElseThrow(),
+                "the concept and the tree that names it publish together");
+    }
+
+    @Test
+    void aBlockThatWritesAgainAddsNoSecondDefinition() {
+        String block = CHOICE.replace("[Treat now?]", "[Treat, once?]").replace("[rupture]", "[rupture, once]");
+        assertTrue(DecisionTreeWrites.write("decision-tree id=dtw-once", block, view, edit).tree().isPresent());
+        DecisionTreeWrites.write("decision-tree id=dtw-once", block, view, edit);
+
+        long concept = PrimitiveData.nid(PublicIds.of(LocalConcepts.uuid("rupture, once")));
+        assertEquals(1, dev.ikm.tinkar.entity.EntityService.get().semanticsForComponentOfPattern(concept,
+                dev.ikm.tinkar.terms.KernelPattern.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN.nid()).count());
+    }
+
+    @Test
+    void onlyAConceptWithNoStatedDefinitionReadsAsUndefined() {
+        PublicId bare = PublicIds.of(LocalConcepts.uuid("Named but never defined"));
+        dev.ikm.tinkar.entity.transaction.StampedWriter writer = dev.ikm.tinkar.entity.transaction.StampedWriter.open(
+                "A concept with no definition", dev.ikm.tinkar.terms.State.ACTIVE,
+                dev.ikm.tinkar.terms.ConceptFacade.make(edit.getAuthorNidForChanges()),
+                dev.ikm.tinkar.terms.ConceptFacade.make(edit.getDefaultModuleNid()),
+                dev.ikm.tinkar.terms.ConceptFacade.make(edit.getDefaultPathNid()));
+        long nid = writer.concept(bare);
+        writer.fullyQualifiedName(bare, "Named but never defined");
+
+        assertEquals(dev.ikm.komet.framework.controls.KonceptStatus.UNDEFINED,
+                dev.ikm.komet.framework.controls.KonceptBadge.computeStatus(nid, view,
+                        dev.ikm.tinkar.coordinate.logic.PremiseType.STATED));
+        assertEquals(dev.ikm.komet.framework.controls.KonceptStatus.NONE,
+                dev.ikm.komet.framework.controls.KonceptBadge.computeStatus(
+                        dev.ikm.tinkar.terms.KernelPattern.DESCRIPTION_PATTERN.nid(), view,
+                        dev.ikm.tinkar.coordinate.logic.PremiseType.STATED),
+                "a pattern is not an undefined concept");
+        writer.cancel();
+    }
+
+    @Test
     void aConceptWhoseOnlyVersionWasCancelledIsWrittenAgain() {
-        PublicId cancelled = PublicIds.of(ComplexConceptText.localPublicId("dtw-cancelled"));
+        PublicId cancelled = PublicIds.of(LocalConcepts.uuid("Written once and cancelled"));
         dev.ikm.tinkar.entity.transaction.StampedWriter writer = dev.ikm.tinkar.entity.transaction.StampedWriter.open(
                 "A write that failed", dev.ikm.tinkar.terms.State.ACTIVE,
                 dev.ikm.tinkar.terms.ConceptFacade.make(edit.getAuthorNidForChanges()),
@@ -180,7 +243,7 @@ class DecisionTreeWritesIT {
         assertTrue(!seen(cancelled), "the cancelled concept has no version to see");
 
         DecisionTreeWrites.Written written = DecisionTreeWrites.write("decision-tree id=dtw-again",
-                CHOICE.replace("@id=dtw-safe", "@id=dtw-cancelled"), view, edit);
+                CHOICE.replace("[Treat now?]", "[Treat again?]").replace("k:Safe[safe]", "k:Safe[Written once and cancelled]"), view, edit);
         assertTrue(written.tree().isPresent(), written.message());
         assertTrue(seen(cancelled), "the concept is written again");
     }
@@ -188,11 +251,11 @@ class DecisionTreeWritesIT {
     @Test
     void aBlockWithAFindingWritesNothing() {
         DecisionTreeWrites.Written refused = DecisionTreeWrites.write("decision-tree id=dtw-broken",
-                CHOICE.replace("    p = [0.1,0.1]\n", ""), view, edit);
+                CHOICE.replace("[Treat now?]", "[Treat, though broken?]").replace("    p = [0.1,0.1]\n", ""), view, edit);
         assertTrue(refused.tree().isEmpty(), refused.message());
         assertTrue(refused.message().startsWith("The tree was not written"), refused.message());
-        assertTrue(!PrimitiveData.get().hasPublicId(DecisionTreeWrites.treeId("dtw-broken"))
-                || EntityHandle.get(PrimitiveData.nid(DecisionTreeWrites.treeId("dtw-broken"))).orNull() == null);
+        assertTrue(!PrimitiveData.get().hasPublicId(LocalConcepts.derived(PublicIds.of(LocalConcepts.uuid("Treat, though broken?")), "decision-tree")),
+                "nothing written for a block with a finding");
     }
 
     @Test

@@ -21,6 +21,7 @@ import dev.ikm.komet.framework.observable.ObservableField;
 import dev.ikm.komet.framework.observable.ObservableSemantic;
 import dev.ikm.komet.framework.observable.ObservableSemanticVersion;
 import dev.ikm.komet.terms.KometConcept;
+import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.Entity;
@@ -30,10 +31,12 @@ import dev.ikm.tinkar.entity.PatternEntityVersion;
 import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
+import dev.ikm.tinkar.entity.transaction.StampedWriter;
 import dev.ikm.tinkar.entity.transaction.Transaction;
 import dev.ikm.tinkar.terms.*;
 import network.ike.komet.claude.koncept.ComponentText;
 
+import network.ike.komet.claude.block.LocalConcepts;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -361,7 +364,9 @@ public final class ConceptProposalWriter {
 
         /** A synonym, in the proposal's transaction. */
         private WrittenSynonym writeSynonym(Synonym synonym) {
-            Described written = description(composer, calc, concept, synonym.term(), synonym.caseSensitive(),
+            Described written = description(composer, calc,
+                    LocalConcepts.derived(concept.publicId(), "regular-name|en|" + LocalConcepts.normal(synonym.term())),
+                    concept, synonym.term(), synonym.caseSensitive(),
                     KernelConcept.REGULAR_NAME_DESCRIPTION_TYPE, synonym.preferred());
             return new WrittenSynonym(synonym, written);
         }
@@ -423,16 +428,52 @@ public final class ConceptProposalWriter {
     public static Draft write(ViewCalculator calc, EntityFacade author, EntityFacade module, EntityFacade path,
                               String fsn, DiTreeEntity definition, List<Synonym> synonyms, String editorialNote,
                               String textualDefinition) {
-        // Left pending for the person: a window editing the proposal continues its transaction (ike-issues#1326).
-        ObservableComposer composer = ObservableComposer.create(calc, State.ACTIVE, author, module, path,
-                "Assistant proposal: " + fsn).joinPendingWork();
+        return write(composer(calc, author, module, path, "Assistant proposal: " + fsn), calc, PublicIds.newRandom(),
+                fsn, definition, synonyms, editorialNote, textualDefinition);
+    }
 
-        EntityComposer<?, ?> conceptComposer = composer.composeConcept(PublicIds.newRandom());
+    /**
+     * The composer a proposal is written with. Its work is left pending for the person: a window
+     * editing the proposal continues its transaction (ike-issues#1326).
+     *
+     * @param calc   the view the composer reads on
+     * @param author the author of its versions
+     * @param module the module they are written in
+     * @param path   the path they are written on
+     * @param name   the transaction's name
+     * @return the composer
+     */
+    public static ObservableComposer composer(ViewCalculator calc, EntityFacade author, EntityFacade module,
+                                              EntityFacade path, String name) {
+        return ObservableComposer.create(calc, State.ACTIVE, author, module, path, name).joinPendingWork();
+    }
+
+    /**
+     * Writes a concept uncommitted in a composer's transaction, under the given identity. This is
+     * how a new concept comes to be, whoever proposes it: the assistant's proposal, and a block's
+     * symbols ({@link BlockConcepts}), whose identities derive from the symbols and which publish
+     * in one transaction with what the block states.
+     *
+     * @param composer          the composer, from {@link #composer}
+     * @param calc              the view the patterns' field definitions are read on
+     * @param id                the concept's public id
+     * @param fsn               the fully specified name
+     * @param definition        the stated definition
+     * @param synonyms          the synonyms; when none is preferred, the name without its semantic
+     *                          tag is added as the preferred synonym, since a concept needs one
+     * @param editorialNote     the note to attach, or null for none
+     * @param textualDefinition the prose textual definition, or null for none
+     * @return the written proposal
+     */
+    public static Draft write(ObservableComposer composer, ViewCalculator calc, PublicId id, String fsn,
+                              DiTreeEntity definition, List<Synonym> synonyms, String editorialNote,
+                              String textualDefinition) {
+        EntityComposer<?, ?> conceptComposer = composer.composeConcept(id);
         conceptComposer.save();
         Draft draft = new Draft(calc, conceptComposer.getEntity(), composer);
         EntityFacade concept = draft.concept;
 
-        draft.name = description(composer, calc, concept, fsn, false,
+        draft.name = description(composer, calc, PublicIds.of(StampedWriter.fullyQualifiedNameUuid(id)), concept, fsn, false,
                 KernelConcept.FULLY_QUALIFIED_NAME_DESCRIPTION_TYPE, true);
         draft.written += 2;
         boolean anyPreferred = synonyms.stream().anyMatch(Synonym::preferred);
@@ -446,7 +487,8 @@ public final class ConceptProposalWriter {
             draft.written += 2;
         }
 
-        draft.definition = semantic(composer, concept, KernelPattern.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN,
+        draft.definition = semantic(composer, LocalConcepts.derived(id, "stated-definition"), concept,
+                KernelPattern.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN,
                 fields -> fields.getFirst().setObjectValue(definition)).nid();
         draft.written++;
 
@@ -485,6 +527,12 @@ public final class ConceptProposalWriter {
     /** A description and its US-English acceptability. */
     static Described description(ObservableComposer composer, ViewCalculator calc, EntityFacade concept,
                                          String text, boolean caseSensitive, ConceptFacade type, boolean preferred) {
+        return description(composer, calc, PublicIds.newRandom(), concept, text, caseSensitive, type, preferred);
+    }
+
+    /** A description under the given identity, and its US-English acceptability under one derived from it. */
+    private static Described description(ObservableComposer composer, ViewCalculator calc, PublicId id, EntityFacade concept,
+                                         String text, boolean caseSensitive, ConceptFacade type, boolean preferred) {
         PatternEntityVersion pattern = latest(calc, KernelPattern.DESCRIPTION_PATTERN);
         Map<ConceptFacade, Object> byMeaning = Map.of(
                 KernelConcept.LANGUAGE_CONCEPT_NID_FOR_DESCRIPTION, KernelConcept.ENGLISH_LANGUAGE,
@@ -492,14 +540,15 @@ public final class ConceptProposalWriter {
                 KernelConcept.DESCRIPTION_CASE_SIGNIFICANCE, caseSensitive
                         ? KernelConcept.DESCRIPTION_CASE_SENSITIVE : KernelConcept.DESCRIPTION_NOT_CASE_SENSITIVE,
                 KernelConcept.DESCRIPTION_TYPE, type);
-        ObservableSemantic description = semantic(composer, concept, KernelPattern.DESCRIPTION_PATTERN,
+        ObservableSemantic description = semantic(composer, id, concept, KernelPattern.DESCRIPTION_PATTERN,
                 fields -> byMeaning.forEach((meaning, value) ->
                         fields.get(index(pattern, meaning)).setObjectValue(value)));
 
         PatternEntityVersion dialect = latest(calc, KernelPattern.US_DIALECT_PATTERN);
         // The dialect pattern's one field is named for the dialect itself; it holds the acceptability.
         int acceptability = index(dialect, KometConcept.US_ENGLISH_DIALECT);
-        ObservableSemantic dialectSemantic = semantic(composer, description, KernelPattern.US_DIALECT_PATTERN,
+        ObservableSemantic dialectSemantic = semantic(composer, LocalConcepts.derived(id, "us-dialect"), description,
+                KernelPattern.US_DIALECT_PATTERN,
                 fields -> fields.get(acceptability).setObjectValue(preferred ? KernelConcept.PREFERRED : KometConcept.ACCEPTABLE));
         return new Described(description.nid(), dialectSemantic.nid());
     }
@@ -508,8 +557,15 @@ public final class ConceptProposalWriter {
     static ObservableSemantic semantic(ObservableComposer composer, EntityFacade referenced,
                                                PatternFacade pattern,
                                                Consumer<List<ObservableField.Editable<?>>> seed) {
+        return semantic(composer, PublicIds.newRandom(), referenced, pattern, seed);
+    }
+
+    /** Saves a new semantic under the given identity, its fields set by {@code seed}. */
+    static ObservableSemantic semantic(ObservableComposer composer, PublicId id, EntityFacade referenced,
+                                               PatternFacade pattern,
+                                               Consumer<List<ObservableField.Editable<?>>> seed) {
         EntityComposer<ObservableSemanticVersion.Editable, ObservableSemantic> semantic =
-                composer.composeSemantic(PublicIds.newRandom(), referenced, pattern);
+                composer.composeSemantic(id, referenced, pattern);
         seed.accept(semantic.getEditableVersion().getEditableFields());
         semantic.save();
         return semantic.getEntity();
@@ -533,7 +589,7 @@ public final class ConceptProposalWriter {
     }
 
     /** The semantic's version saved in the composer's transaction, or its last version when there is none. */
-    private static SemanticEntityVersion versionIn(ObservableComposer composer, SemanticEntity<?> semantic) {
+    static SemanticEntityVersion versionIn(ObservableComposer composer, SemanticEntity<?> semantic) {
         Transaction own = composer.getOrCreateTransaction();
         for (EntityVersion version : semantic.versions()) {
             if (version.uncommitted() && Transaction.forVersion(version).filter(own::equals).isPresent()) {

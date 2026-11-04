@@ -73,18 +73,18 @@ class PairedDocumentIT {
     private static final String TREE = """
             [decision-tree,id=%s]
             ----
-            decision: k:Treat[Treat now?] @id=pdi-treat
-              alternative: k:DoTreat[treat] @id=pdi-do-treat
+            decision: k:Treat[Treat the aneurysm now?] @id=pdi-treat
+              alternative: k:DoTreat[Treat the aneurysm] @id=pdi-do-treat
                 money = [10000,10000] k:Usd[US dollar] @id=pdi-usd
-                outcome: k:Safe[safe] @id=pdi-safe
-              alternative: k:Wait[wait] @id=pdi-wait
-                chance: k:Ruptures[Rupture?] @id=pdi-ruptures
-                  event: k:Rupture[rupture] @id=pdi-rupture
+                outcome: k:Safe[Aneurysm treated safely] @id=pdi-safe
+              alternative: k:Wait[Watch the aneurysm] @id=pdi-wait
+                chance: k:Ruptures[Aneurysm rupture chance] @id=pdi-ruptures
+                  event: k:Rupture[Aneurysm ruptures] @id=pdi-rupture
                     p = [%s,%s]
-                    outcome: k:Ruptured[ruptured] @id=pdi-ruptured
+                    outcome: k:Ruptured[Ruptured aneurysm] @id=pdi-ruptured
                       money = [200000,200000] k:Usd[US dollar] @id=pdi-usd
-                  residual: k:Intact[intact] @id=pdi-intact
-                    outcome: k:Fine[fine] @id=pdi-fine
+                  residual: k:Intact[Aneurysm stays intact] @id=pdi-intact
+                    outcome: k:Fine[Intact aneurysm at follow-up] @id=pdi-fine
             ----
             """;
 
@@ -101,6 +101,11 @@ class PairedDocumentIT {
         assertTrue(PB_STARTER_DATA.exists(), "Starter data must be present at " + PB_STARTER_DATA.getAbsolutePath());
         PrimitiveData.selectControllerByName("Load Memory-Only 64-bit Store");
         PrimitiveData.start();
+        try {
+            javafx.application.Platform.startup(() -> { });
+        } catch (IllegalStateException alreadyStarted) {
+            // the toolkit outlives a test class
+        }
         new LoadEntitiesFromProtobufFile(PB_STARTER_DATA).compute();
         view = Calculators.View.Default();
         DocumentGraphTools.Pairing pairing = new DocumentGraphTools.Pairing() {
@@ -166,7 +171,7 @@ class PairedDocumentIT {
         assertTrue(result.contains("as its first version"), "what it states is written: " + result);
         assertTrue(result.contains("structured blocks clean"), "no findings on a sound tree: " + result);
         assertTrue(text(anchor).contains("[decision-tree,id=pdi-tree]"), text(anchor));
-        assertTrue(PrimitiveData.get().hasPublicId(DecisionTreeWrites.treeId("pdi-tree")), "the tree semantic exists");
+        assertTrue(PrimitiveData.get().hasPublicId(DecisionTreeWrites.treeId(dev.ikm.tinkar.common.id.PublicIds.of(network.ike.komet.claude.block.LocalConcepts.uuid("Treat the aneurysm now?")))), "the tree semantic exists");
 
         // a statement goes in as an open block, and its statement is written on the block
         String statement = "[anf,type=request,id=pdi-second]\n--\ntopic::   candidate[a second look] disp=PENDING\n--\n";

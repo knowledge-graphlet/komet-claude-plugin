@@ -10,6 +10,11 @@ State a decision tree as a fenced `decision-tree` block and let Komet draw it: t
 When this conversation has a paired document, the block goes into the document, not your reply: insert it with `propose_block_insert` (kind `listing`, the text starting with the style line `[decision-tree, cohort=100]`), or change it with `propose_block_edit`, and answer in sentences saying what you added or changed, and why. Never restate the block in the reply. The tool's result ends with what Komet found in the document's structured blocks; correct those in this turn. With no paired document, state the block in your reply as below; if the person wants the decision kept, offer `create_document`.
 
 
+## A label is the fully qualified name
+
+The label in `k:Key[label]` is the concept's fully qualified name: it must stand alone, out of this tree and this document. Write `Clear magnetic resonance angiography result`, not `clear`. The same name anywhere is the same concept, here and in every other document, so two nodes that mean the same thing share one name, and two that mean different things must not. A concept the knowledge base already holds under that exact name is that concept. Komet fits long names to the drawing, so never shorten one for the page. If a tool says a name already has a different tree or specification, ask the person whether they are the same; if not, write a more specific name.
+
+
 ## The block
 
 One line per vertex or value, two spaces of indentation per level; indentation carries the edges.
@@ -20,17 +25,17 @@ decision: k:ScanNow[Scan now?] @id=rda-scan-now
   parameter = [0.9,0.9] k:Sensitivity[MRA sensitivity] @id=rda-mra-sensitivity basis=estimated
   parameter = k:FalseNegative[MRA false-negative rate] @id=rda-mra-false-negative from k:Complement[] of k:Sensitivity[] @id=rda-mra-sensitivity
   parameter = [150000,150000] k:RuptureCost[Cost of a rupture] @id=rda-rupture-cost in k:Usd[US dollar] @id=rda-usd basis=estimated source=johnston2008
-  alternative: k:Scan[scan] @id=rda-scan
+  alternative: k:Scan[Magnetic resonance angiography screening] @id=rda-scan
     money = [700,700] k:Usd[US dollar] @id=rda-usd basis=estimated
     chance: k:MraResult[MRA result] @id=rda-mra-result
-      event: k:Positive[positive] @id=rda-mra-positive
+      event: k:Positive[Positive magnetic resonance angiography result] @id=rda-mra-positive
         p = from k:BayesMarginal[Bayes marginal] of k:Reopening[] @id=rda-reopening-hazard k:Sensitivity[] @id=rda-mra-sensitivity k:FalsePositive[] @id=rda-mra-false-positive
-        outcome: k:Treated[treated] @id=rda-treated
+        outcome: k:Treated[Treated intracranial aneurysm] @id=rda-treated
           money = [35000,35000] k:Usd[US dollar] @id=rda-usd basis=estimated
-      residual: k:Negative[negative] @id=rda-mra-negative
-        outcome: k:Clear[clear] @id=rda-clear
-  alternative: k:NoScan[no scan] @id=rda-no-scan
-    outcome: k:Untreated[rupture risk] @id=rda-untreated
+      residual: k:Negative[Negative magnetic resonance angiography result] @id=rda-mra-negative
+        outcome: k:Clear[No intracranial aneurysm found] @id=rda-clear
+  alternative: k:NoScan[No magnetic resonance angiography screening] @id=rda-no-scan
+    outcome: k:Untreated[Untreated intracranial aneurysm rupture risk] @id=rda-untreated
       money = from k:Product[] of k:RuptureRisk20[] @id=rda-rupture-risk-20 k:RuptureCost[] @id=rda-rupture-cost in k:Usd[US dollar] @id=rda-usd
 ```
 
@@ -75,7 +80,7 @@ result:: [1,1] k:Presence[presence] @id=705057003
 method:: k:MraHead[Magnetic resonance angiography of head without contrast] @id=437731000119100
 ```
 
-and in the tree `alternative: k:Scan[scan] @id=437731000119100 statement=anf:req-scan`, `event: k:Positive[positive] @id=rda-mra-positive statement=anf:perf-mra-positive`.
+and in the tree `alternative: k:Scan[Magnetic resonance angiography screening] @id=437731000119100 statement=anf:req-scan`, `event: k:Positive[Positive magnetic resonance angiography result] @id=rda-mra-positive statement=anf:perf-mra-positive`.
 
 - **A decision holds the situation it is made in**: when the decision's concept is a complex concept, its prerequisites are that situation and nothing more is written; otherwise the decision holds performance statements of the patient's state. **An alternative holds a request** (`type=request`): what is asked for, its `timing::`, its `purpose::`, a `requested_result::` when one is wanted. **Every event holds the situation it reveals** as a performance (`type=performance`): what is found or is so, its `result::` on the presence scale `[1,1]` present, `[0,0]` absent, or a measure, and its `method::` when a test reveals it; a residual event is a situation too ("no reopening" is the reopening, `[0,0]`). **An outcome holds the situation the course ends in**, an endpoint such as a rupture, a death or a recovery. A chance holds none; its events do. **The null course holds none**: "no scan" is not a statement of anything, never a negated topic.
 - The statements are templates: no `subject_of_record::`, `author::` or `statement_time::`; the tree is the note.
