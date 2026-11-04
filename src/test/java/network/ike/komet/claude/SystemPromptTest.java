@@ -18,6 +18,7 @@ package network.ike.komet.claude;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.util.List;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 
@@ -78,6 +79,16 @@ class SystemPromptTest {
         java.util.List<String> unnamed = names.stream().filter(name -> !core.contains("`" + name + "`")).toList();
         assertEquals(java.util.List.of(), unnamed,
                 "the contract says what each tool is for, so a tool it never names is one the assistant misreads");
+    }
+
+    @Test
+    void aPairedConversationSaysItsDocumentAndWhatChanged() {
+        String prompt = ClaudeCard.pairedPrompt("contract", "decisions/site.adoc", List.of("§3 changed by KEC"));
+        assertTrue(prompt.startsWith("contract\n\n## The paired document"), prompt);
+        assertTrue(prompt.contains("`decisions/site.adoc`") && prompt.contains("`propose_block_insert`"), prompt);
+        assertTrue(prompt.contains("- §3 changed by KEC"), prompt);
+        assertTrue(!ClaudeCard.pairedPrompt("contract", "a.adoc", List.of()).contains("read these again"),
+                "nothing to read again when nothing changed");
     }
 
     @Test

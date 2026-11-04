@@ -22,14 +22,16 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 /**
  * Records a document edited in Komet in git, as the person's own commit through their own
  * {@code git}, so their identity and signing apply. Signing is always stated, {@code -S} or
- * {@code --no-gpg-sign}, never left to a configured default; nothing here commits on anyone's
- * behalf, and only the person's confirmation in the card calls {@link #write}. The commit holds the
- * one file and nothing else: other staged changes refuse it.
+ * {@code --no-gpg-sign}, never left to a configured default; only the person's confirmation in the
+ * card calls {@link #write}. The one commit made without it is {@link #first}, a new document's
+ * skeleton, since a document is stored from its history: it is local, and nothing is pushed. The
+ * commit holds the one file and nothing else: other staged changes refuse it.
  *
  * <p>{@link #draftMessage} is the first draft of the message, from what the edit changed, for
  * the person to rewrite.
@@ -99,12 +101,9 @@ public final class DocumentCommit {
         if (message == null || message.isBlank()) {
             return new Result(false, "", "A commit needs a message.");
         }
-        Run staged = git(repoRoot, List.of("diff", "--cached", "--name-only"));
-        for (String line : staged.output().lines().toList()) {
-            if (!line.isBlank() && !line.strip().equals(path)) {
-                return new Result(false, "", "The index has other staged changes (" + line.strip()
-                        + "). Commit or unstage them first, so this commit records only the document.");
-            }
+        Optional<Result> staged = otherStaged(repoRoot, path);
+        if (staged.isPresent()) {
+            return staged.get();
         }
         List<String> args = new ArrayList<>(List.of("commit", "--quiet"));
         args.add(sign ? "-S" : "--no-gpg-sign");
@@ -119,6 +118,44 @@ public final class DocumentCommit {
         try (GitRepo repo = GitRepo.open(repoRoot)) {
             return new Result(true, repo.headRevision(), run.output());
         }
+    }
+
+    /**
+     * Commits a new file, the first commit of a document Komet made: unsigned, since no one is
+     * there to sign it, under the working tree's own git identity.
+     *
+     * @param repoRoot the working tree root
+     * @param path     the new file's repository-relative path
+     * @param message  the commit message, subject first
+     * @return what git did
+     * @throws IOException if git cannot be run
+     */
+    public static Result first(Path repoRoot, String path, String message) throws IOException {
+        Optional<Result> staged = otherStaged(repoRoot, path);
+        if (staged.isPresent()) {
+            return staged.get();
+        }
+        Run added = git(repoRoot, List.of("add", "--", path));
+        if (!added.ok()) {
+            return new Result(false, "", added.output().isEmpty() ? "git add exited " + added.exit() : added.output());
+        }
+        Result committed = write(repoRoot, path, message, false);
+        if (!committed.ok()) {
+            git(repoRoot, List.of("reset", "--quiet", "--", path));
+        }
+        return committed;
+    }
+
+    /** A refusal when the index holds anything but the file, so a commit records only the document. */
+    private static Optional<Result> otherStaged(Path repoRoot, String path) throws IOException {
+        Run staged = git(repoRoot, List.of("diff", "--cached", "--name-only"));
+        for (String line : staged.output().lines().toList()) {
+            if (!line.isBlank() && !line.strip().equals(path)) {
+                return Optional.of(new Result(false, "", "The index has other staged changes (" + line.strip()
+                        + "). Commit or unstage them first, so this commit records only the document."));
+            }
+        }
+        return Optional.empty();
     }
 
     private record Run(int exit, String output) {

@@ -25,7 +25,6 @@ import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.SemanticRecord;
 import dev.ikm.tinkar.entity.SemanticVersionRecord;
-import dev.ikm.tinkar.entity.StampEntity;
 import dev.ikm.tinkar.entity.transaction.Transaction;
 import dev.ikm.tinkar.terms.State;
 import org.eclipse.collections.api.list.ImmutableList;
@@ -38,7 +37,8 @@ import java.util.Optional;
  * concept's specification. One author's edits before a commit are one change, so a version
  * pending by the same author is rewritten in place; after a commit, the next edit is a new
  * version. A version pending by someone else refuses the write, since a change is never made on
- * top of a change nobody has settled.
+ * top of a change nobody has settled, unless the block is on a paired document, whose two authors
+ * share one pending edit.
  */
 public final class SemanticVersions {
 
@@ -64,11 +64,13 @@ public final class SemanticVersions {
      * @param view    the view the semantic's latest version is read under
      * @param edit    whose change it is, and on which path
      * @param what    the semantic's name in a refusal, as in "The tree was not written"
+     * @param shared  whether the block stating it is on a paired document, whose two authors share
+     *                one pending edit: a version pending by the other author is rewritten in place
      * @return what was written, or why nothing was
      * @throws RuntimeException if the store refuses the write; a transaction made for it is cancelled
      */
     public static Versioned version(long nid, long pattern, ImmutableList<Object> fields, ViewCalculator view,
-                                    EditCoordinate edit, String what) {
+                                    EditCoordinate edit, String what, boolean shared) {
         String notWritten = "The " + what + " was not written: ";
         if (!(EntityHandle.get(nid).orNull() instanceof SemanticRecord record) || record.patternNid() != pattern) {
             return Versioned.refused(notWritten + "its identity names something of another pattern.");
@@ -80,7 +82,7 @@ public final class SemanticVersions {
         SemanticEntityVersion head = latest.get();
         Optional<Transaction> pending = Optional.empty();
         if (head.uncommitted()) {
-            if (head.stamp().authorNid() != edit.getAuthorNidForChanges()) {
+            if (head.stamp().authorNid() != edit.getAuthorNidForChanges() && !shared) {
                 return Versioned.refused(notWritten + "a version by " + StampNames.name(view, head.stamp().authorNid())
                         + " is pending; it is committed or cancelled before anyone else writes the " + what + ".");
             }
@@ -88,9 +90,9 @@ public final class SemanticVersions {
         }
         Transaction transaction = pending.orElseGet(() -> Transaction.make("Version of " + what + " " + record.publicId().idString()));
         try {
-            StampEntity<?> stamp = transaction.getStamp(State.ACTIVE, edit.getAuthorNidForChanges(),
-                    head.moduleNid(), edit.getDefaultPathNid());
-            SemanticRecord updated = record.with(new SemanticVersionRecord(record, stamp.nid(), fields)).build();
+            long stamp = head.uncommitted() ? head.stampNid() : transaction.getStamp(State.ACTIVE, edit.getAuthorNidForChanges(),
+                    head.moduleNid(), edit.getDefaultPathNid()).nid();
+            SemanticRecord updated = record.with(new SemanticVersionRecord(record, stamp, fields)).build();
             transaction.addComponent(updated);
             EntityService.get().putEntity(updated);
             return new Versioned(Optional.empty(), pending.isPresent());

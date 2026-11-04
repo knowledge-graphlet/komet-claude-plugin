@@ -29,7 +29,11 @@ import dev.ikm.tinkar.entity.StampEntity;
 import network.ike.foundation.ike.bindings.IkeConcept;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredDocument;
+import network.ike.komet.claude.ui.DocumentFindings;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -40,6 +44,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -72,8 +77,46 @@ public final class DocumentGraphTools {
      * @return the four tools
      */
     public static List<AnthropicTool> tools(StampTools.CardLocator card, Supplier<ViewCalculator> view) {
-        return List.of(readDocument(card, view), readBlock(card, view), findInDocument(card, view), proposeBlockEdit(card, view),
-                proposeSentenceEdit(card, view), proposeBlockInsert(card, view), proposeBlockDelete(card, view));
+        return tools(card, view, Pairing.NONE);
+    }
+
+    /**
+     * @param card    locates the Stamped Document card the tools default to
+     * @param view    the view names are read in; may answer {@code null} (the default view is used)
+     * @param pairing the conversation's document, which the tools default to before the card's
+     * @return the tools
+     */
+    public static List<AnthropicTool> tools(StampTools.CardLocator card, Supplier<ViewCalculator> view, Pairing pairing) {
+        return List.of(readDocument(card, view, pairing), readBlock(card, view, pairing), findInDocument(card, view, pairing),
+                proposeBlockEdit(card, view, pairing), proposeSentenceEdit(card, view, pairing), proposeBlockInsert(card, view, pairing),
+                proposeBlockDelete(card, view, pairing), createDocument(card, pairing));
+    }
+
+    /** The document a conversation is paired with, which it holds by its anchor's public id, never by a nid. */
+    public interface Pairing {
+
+        /** No conversation: the tools default to the card's document. */
+        Pairing NONE = new Pairing() {
+            @Override
+            public Optional<PublicId> document() {
+                return Optional.empty();
+            }
+
+            @Override
+            public void pair(PublicId anchor) {
+                throw new IllegalStateException("no conversation to pair a document with");
+            }
+        };
+
+        /** @return the anchor of the document the current request's conversation is paired with */
+        Optional<PublicId> document();
+
+        /**
+         * Pairs the current request's conversation with a document and opens it beside the assistant.
+         *
+         * @param anchor the document's anchor
+         */
+        void pair(PublicId anchor);
     }
 
     // ── the document addressed ────────────────────────────────────────────────
@@ -83,6 +126,18 @@ public final class DocumentGraphTools {
      * pending edit, and the card when the card shows it.
      */
     record Opened(PublicId anchor, String name, StoredDocument document, StampedDocumentCard card) { }
+
+    /** The document a call names: its own, else the conversation's paired document, else the card's. */
+    private static Opened open(StampedDocumentCard card, Map<String, Object> input, Pairing pairing) {
+        String name = str(input, "document");
+        Optional<PublicId> held = pairing.document();
+        if ((name != null && !name.isBlank()) || held.isEmpty()) {
+            return open(card, name);
+        }
+        PublicId anchor = held.get();
+        StampedDocumentCard showing = StampedDocumentCard.showing(anchor);
+        return new Opened(anchor, GitDocumentMaterializer.recordedPath(anchor).orElse(""), load(anchor), showing);
+    }
 
     /** Finds the document a call names: the card's when the name is blank, else by chooser name or recorded path. */
     static Opened open(StampedDocumentCard card, String name) {
@@ -118,7 +173,7 @@ public final class DocumentGraphTools {
             throw new IllegalArgumentException("the store holds no document named '" + wanted + "'; it holds " + examples());
         }
         PublicId found = anchor;
-        StampedDocumentCard showing = card != null && card.shown().map(s -> s.anchor().equals(found)).orElse(false) ? card : null;
+        StampedDocumentCard showing = card != null && card.shown().map(s -> s.anchor().equals(found)).orElse(false) ? card : StampedDocumentCard.showing(found);
         String shownName = byName.entrySet().stream().filter(e -> e.getValue().equals(found)).map(Map.Entry::getKey).findFirst().orElse(wanted);
         return new Opened(anchor, shownName, load(anchor), showing);
     }
@@ -220,7 +275,7 @@ public final class DocumentGraphTools {
 
     // ── read_document ─────────────────────────────────────────────────────────
 
-    static AnthropicTool readDocument(StampTools.CardLocator card, Supplier<ViewCalculator> view) {
+    static AnthropicTool readDocument(StampTools.CardLocator card, Supplier<ViewCalculator> view, Pairing pairing) {
         return new Tool("read_document",
                 "Read a STAMPed document from the knowledge base's document graph — no git, no working tree needed: its "
                         + "title and commit, then its block tree in document order, each block named by its path (§3.2) with its "
@@ -232,14 +287,14 @@ public final class DocumentGraphTools {
                         + "block index the result names) to continue. Call this before saying what a document says, who wrote a part "
                         + "of it, or proposing an edit.",
                 obj("type", "object", "properties", obj(
-                        "document", strProp("The document's name as the card's chooser shows it, or its recorded path. Omit for the card's document."),
+                        "document", strProp("The document's name as the card's chooser shows it, or its recorded path. Omit for the paired document, or the card's."),
                         "offset", intProp("First block to show, 0-based, as a previous page named it. Default 0."),
                         "max_blocks", intProp("At most this many blocks on the page. Default " + PAGE_BLOCKS + "."),
                         "outline_only", boolProp("List the blocks without their lines, for a quick map of a long document.")),
                         "required", List.of()),
                 input -> {
                     StampedDocumentCard c = card.get();
-                    Opened opened = open(c, str(input, "document"));
+                    Opened opened = open(c, input, pairing);
                     ViewCalculator v = viewOf(view, c);
                     DocumentOutline graph = new DocumentOutline(opened.document());
                     int offset = Math.max(0, integer(input, "offset", 0));
@@ -259,7 +314,7 @@ public final class DocumentGraphTools {
 
     // ── read_block ────────────────────────────────────────────────────────────
 
-    static AnthropicTool readBlock(StampTools.CardLocator card, Supplier<ViewCalculator> view) {
+    static AnthropicTool readBlock(StampTools.CardLocator card, Supplier<ViewCalculator> view, Pairing pairing) {
         return new Tool("read_block",
                 "Read one block of a STAMPed document from the document graph, with every line's full provenance: the STAMP "
                         + "that introduced it and its commit summary, the latest version when it differs (an uncommitted edit), each "
@@ -268,11 +323,11 @@ public final class DocumentGraphTools {
                         + "propose_block_edit replaces it.",
                 obj("type", "object", "properties", obj(
                         "block", strProp("The block's path (§3.2 or 3.2) or a line it holds (L45)."),
-                        "document", strProp("The document's name or recorded path. Omit for the card's document.")),
+                        "document", strProp("The document's name or recorded path. Omit for the paired document, or the card's.")),
                         "required", List.of("block")),
                 input -> {
                     StampedDocumentCard c = card.get();
-                    Opened opened = open(c, str(input, "document"));
+                    Opened opened = open(c, input, pairing);
                     ViewCalculator v = viewOf(view, c);
                     DocumentOutline graph = new DocumentOutline(opened.document());
                     DocumentOutline.Node node = graph.find(str(input, "block"))
@@ -292,14 +347,14 @@ public final class DocumentGraphTools {
 
     // ── find_in_document ──────────────────────────────────────────────────────
 
-    static AnthropicTool findInDocument(StampTools.CardLocator card, Supplier<ViewCalculator> view) {
+    static AnthropicTool findInDocument(StampTools.CardLocator card, Supplier<ViewCalculator> view, Pairing pairing) {
         return new Tool("find_in_document",
                 "Search the lines and block titles of a STAMPed document in the document graph for a text, case-insensitively; "
                         + "each match names the block (§3.2), its kind and the line (L45) with its introducing STAMP and text. Use it "
                         + "to find where a document says something before reading the block around it.",
                 obj("type", "object", "properties", obj(
                         "query", strProp("The text sought."),
-                        "document", strProp("The document's name or recorded path. Omit for the card's document."),
+                        "document", strProp("The document's name or recorded path. Omit for the paired document, or the card's."),
                         "max_results", intProp("At most this many matches. Default 40.")),
                         "required", List.of("query")),
                 input -> {
@@ -308,7 +363,7 @@ public final class DocumentGraphTools {
                         throw new IllegalArgumentException("query is empty");
                     }
                     StampedDocumentCard c = card.get();
-                    Opened opened = open(c, str(input, "document"));
+                    Opened opened = open(c, input, pairing);
                     ViewCalculator v = viewOf(view, c);
                     DocumentOutline graph = new DocumentOutline(opened.document());
                     int max = Math.clamp(integer(input, "max_results", 40), 1, 400);
@@ -323,7 +378,7 @@ public final class DocumentGraphTools {
 
     // ── propose_block_edit ────────────────────────────────────────────────────
 
-    static AnthropicTool proposeBlockEdit(StampTools.CardLocator card, Supplier<ViewCalculator> view) {
+    static AnthropicTool proposeBlockEdit(StampTools.CardLocator card, Supplier<ViewCalculator> view, Pairing pairing) {
         return new Tool("propose_block_edit",
                 "Propose new text for one block of a STAMPed document: the block's lines are replaced with the text, written "
                         + "as an uncommitted edit under the Komet assistant's name — the same edit the card's Edit block makes for a "
@@ -336,7 +391,7 @@ public final class DocumentGraphTools {
                 obj("type", "object", "properties", obj(
                         "block", strProp("The block's path (§3.2) or a line it holds (L45), as read_document or read_block shows it."),
                         "text", strProp("The block's new AsciiDoc source, one line per line."),
-                        "document", strProp("The document's name or recorded path. Omit for the card's document.")),
+                        "document", strProp("The document's name or recorded path. Omit for the paired document, or the card's.")),
                         "required", List.of("block", "text")),
                 input -> {
                     String text = str(input, "text");
@@ -344,7 +399,7 @@ public final class DocumentGraphTools {
                         throw new IllegalArgumentException("text is empty; a block keeps at least one line");
                     }
                     StampedDocumentCard c = card.get();
-                    Opened opened = open(c, str(input, "document"));
+                    Opened opened = open(c, input, pairing);
                     ViewCalculator v = viewOf(view, c);
                     DocumentOutline graph = new DocumentOutline(opened.document());
                     DocumentOutline.Node node = graph.find(str(input, "block"))
@@ -353,9 +408,15 @@ public final class DocumentGraphTools {
                         throw new IllegalArgumentException("§" + node.path() + " is a " + node.block().kind()
                                 + (node.blocks() > 0 ? " holding " + node.blocks() + " block(s); propose an edit to one of them" : " with no lines of its own"));
                     }
+                    // an insertion moves the paths after it, and a stale path would put one block's text over another
+                    Optional<String> style = StructuredBlocks.kindOf(node.block()).map(StructuredBlockKind::style);
+                    if (style.isPresent() && !style.equals(StructuredBlocks.style(StructuredBlockKind.Source.of(text.strip()).parameters()))) {
+                        throw new IllegalArgumentException("§" + node.path() + " is a " + style.get() + " block and the text is not; "
+                                + "paths move when a block is inserted, so read the document again and name the block you mean");
+                    }
                     EditCoordinateRecord edit = assistantCoordinate(c);
-                    OptionalLong pending = DocumentEditor.pendingAuthor(opened.anchor());
-                    if (pending.isPresent() && pending.getAsLong() != edit.getAuthorNidForChanges()) {
+                    OptionalLong pending = DocumentEditor.blockingAuthor(opened.anchor(), edit);
+                    if (pending.isPresent()) {
                         return "Not proposed: an edit of " + opened.name() + " by " + StampNames.name(v, pending.getAsLong())
                                 + " is pending in the card. A change is never made on top of a change nobody has settled: ask them to "
                                 + "commit it in git (Commit…) or discard it (Discard edit), then propose again.";
@@ -365,35 +426,40 @@ public final class DocumentGraphTools {
                     if (!result.completed()) {
                         return "Not proposed: " + result.message();
                     }
-                    if (c != null && opened.card() != null) {
-                        reopen(c, opened.anchor());
+                    if (opened.card() != null) {
+                        reopen(opened.card(), opened.anchor());
                     }
                     return "Proposed for §" + node.path() + " of " + opened.name() + ": " + result.message()
                             + ". It is pending under " + StampNames.name(v, edit.getAuthorNidForChanges())
                             + (opened.card() != null ? "; the card shows it with the edited badge" : "; open the document in a Stamped Document card to see it")
-                            + ". Nothing is in git until the person commits it (Commit…); Discard edit withdraws it.";
+                            + ". Nothing is in git until the person commits it (Commit…); Discard edit withdraws it."
+                            + stated(opened.anchor(), node.block().nid(), text, v, edit);
                 });
     }
 
     // ── propose_block_insert ──────────────────────────────────────────────────
 
-    static AnthropicTool proposeBlockInsert(StampTools.CardLocator card, Supplier<ViewCalculator> view) {
+    static AnthropicTool proposeBlockInsert(StampTools.CardLocator card, Supplier<ViewCalculator> view, Pairing pairing) {
         return new Tool("propose_block_insert",
-                "Propose a new paragraph or listing block of a STAMPed document, inserted right after a chosen block: the "
+                "Propose a new paragraph, listing or structured block of a STAMPed document, inserted right after a chosen block: the "
                         + "new lines and the block land as an uncommitted insertion under the Komet assistant's name — the same "
                         + "insertion the card's Add paragraph after… makes for a person — so the card shows the new block pending "
                         + "with the edited mark and the person commits it in git (Commit…) or discards it (Discard edit). Nothing "
                         + "reaches git until they commit; say so. The block to insert after must hold lines and no blocks (a "
-                        + "paragraph, a list item, a listing): read the document first with read_document to pick it; the new block "
-                        + "becomes its next sibling, after a blank line. The text is the block's AsciiDoc source, one line per line; "
-                        + "a listing includes its ---- delimiters. A text that would form two blocks is refused. Refused when "
-                        + "another author's edit of the document is pending: theirs is settled first.",
+                        + "paragraph, a list item, a listing, a structured block): read the document first with read_document to "
+                        + "pick it; the new block becomes its next sibling, after a blank line. The text is the block's AsciiDoc "
+                        + "source, one line per line; a listing includes its ---- delimiters. A structured block starts with its "
+                        + "style line: [decision-tree, cohort=100] then ---- for a listing, [anf,type=request,id=req-scan] then -- "
+                        + "for an open block; what it states is written as an uncommitted version, and the result ends with what "
+                        + "Komet found in the document's structured blocks, which you correct now. A text that would form two "
+                        + "blocks is refused. Refused when another author's edit of an unpaired document is pending: theirs is "
+                        + "settled first.",
                 obj("type", "object", "properties", obj(
                         "after", strProp("The block to insert after: its path (§3.2) or a line it holds (L45), as read_document shows it."),
-                        "kind", obj("type", "string", "enum", List.of("paragraph", "listing"),
-                                "description", "paragraph: prose lines; listing: a ---- delimited source block, delimiters included in the text."),
+                        "kind", obj("type", "string", "enum", List.of("paragraph", "listing", "open"),
+                                "description", "paragraph: prose lines; listing: a ---- delimited block, delimiters included in the text; open: a -- delimited structured block, an anf statement."),
                         "text", strProp("The new block's AsciiDoc source, one line per line."),
-                        "document", strProp("The document's name or recorded path. Omit for the card's document.")),
+                        "document", strProp("The document's name or recorded path. Omit for the paired document, or the card's.")),
                         "required", List.of("after", "kind", "text")),
                 input -> {
                     String text = str(input, "text");
@@ -403,10 +469,11 @@ public final class DocumentGraphTools {
                     Block.Kind kind = switch (str(input, "kind") == null ? "" : str(input, "kind").strip().toLowerCase(Locale.ROOT)) {
                         case "paragraph" -> Block.Kind.PARAGRAPH;
                         case "listing" -> Block.Kind.LISTING;
-                        default -> throw new IllegalArgumentException("kind must be paragraph or listing, not " + str(input, "kind"));
+                        case "open" -> Block.Kind.OPEN;
+                        default -> throw new IllegalArgumentException("kind must be paragraph, listing or open, not " + str(input, "kind"));
                     };
                     StampedDocumentCard c = card.get();
-                    Opened opened = open(c, str(input, "document"));
+                    Opened opened = open(c, input, pairing);
                     ViewCalculator v = viewOf(view, c);
                     DocumentOutline graph = new DocumentOutline(opened.document());
                     DocumentOutline.Node node = graph.find(str(input, "after"))
@@ -416,8 +483,8 @@ public final class DocumentGraphTools {
                                 + (node.blocks() > 0 ? " holding " + node.blocks() + " block(s); insert after one of them" : " with no lines of its own"));
                     }
                     EditCoordinateRecord edit = assistantCoordinate(c);
-                    OptionalLong pending = DocumentEditor.pendingAuthor(opened.anchor());
-                    if (pending.isPresent() && pending.getAsLong() != edit.getAuthorNidForChanges()) {
+                    OptionalLong pending = DocumentEditor.blockingAuthor(opened.anchor(), edit);
+                    if (pending.isPresent()) {
                         return "Not proposed: an edit of " + opened.name() + " by " + StampNames.name(v, pending.getAsLong())
                                 + " is pending in the card. A change is never made on top of a change nobody has settled: ask them to "
                                 + "commit it in git (Commit…) or discard it (Discard edit), then propose again.";
@@ -427,19 +494,95 @@ public final class DocumentGraphTools {
                     if (!result.completed()) {
                         return "Not proposed: " + result.message();
                     }
-                    if (c != null && opened.card() != null) {
-                        reopen(c, opened.anchor());
+                    if (opened.card() != null) {
+                        reopen(opened.card(), opened.anchor());
                     }
                     return "Proposed after §" + node.path() + " of " + opened.name() + ": " + result.message()
                             + ". It is pending under " + StampNames.name(v, edit.getAuthorNidForChanges())
                             + (opened.card() != null ? "; the card shows the new block with the edited mark" : "; open the document in a Stamped Document card to see it")
-                            + ". Nothing is in git until the person commits it (Commit…); Discard edit withdraws it.";
+                            + ". Nothing is in git until the person commits it (Commit…); Discard edit withdraws it. The blocks after it "
+                            + "have moved, so read their paths again before you edit by them."
+                            + newBlock(opened, graph).map(block -> stated(opened.anchor(), block, text, v, edit)).orElse("");
+                });
+    }
+
+    /** The block an insertion added, the one the document holds now that the graph read before it did not. */
+    private static Optional<Long> newBlock(Opened opened, DocumentOutline before) {
+        Set<Long> known = before.nodes().stream().map(n -> n.block().nid()).collect(java.util.stream.Collectors.toSet());
+        return new DocumentOutline(load(opened.anchor())).nodes().stream().map(n -> n.block().nid()).filter(nid -> !known.contains(nid)).findFirst();
+    }
+
+    /**
+     * What a structured block's text comes to once it stands in the document: what it states
+     * written as an uncommitted version, and the findings on the document's structured blocks,
+     * read together, in the words the transcript's correction turn uses. Empty for a plain block.
+     */
+    private static String stated(PublicId anchor, long block, String text, ViewCalculator view, EditCoordinateRecord edit) {
+        StructuredBlockKind.Source source = StructuredBlockKind.Source.of(text.strip());
+        Optional<StructuredBlockKind> kind = StructuredBlocks.style(source.parameters()).flatMap(StructuredBlocks::kindFor);
+        if (kind.isEmpty()) {
+            return "";
+        }
+        String wrote = kind.get().write(source, block, view, edit).map(w -> " " + w).orElse("");
+        return wrote + "\n\n" + DocumentFindings.of(load(anchor), view).orElse("Komet read the document's structured blocks clean.");
+    }
+
+    // ── create_document ───────────────────────────────────────────────────────
+
+    static AnthropicTool createDocument(StampTools.CardLocator card, Pairing pairing) {
+        return new Tool("create_document",
+                "Make a new AsciiDoc document in the working tree the person opened in a Stamped Document card, store it, open "
+                        + "it beside you and pair it with this conversation, so the document tools act on it from then on. The file "
+                        + "holds the title and a first paragraph, and is committed locally as the document's first commit, because a "
+                        + "document is stored from its git history: say so, and that nothing is pushed. Everything you add after is an "
+                        + "uncommitted edit as usual, inserted after that first paragraph. Use it when the person asks for a decision "
+                        + "written up and no document is paired; refused when no working tree is open or the file exists.",
+                obj("type", "object", "properties", obj(
+                        "path", strProp("The new file's path in the working tree, ending in .adoc: decisions/site-inspection.adoc."),
+                        "title", strProp("The document's title."),
+                        "summary", strProp("Its first paragraph: what the document is for.")),
+                        "required", List.of("path", "title", "summary")),
+                input -> {
+                    String path = str(input, "path");
+                    String title = str(input, "title");
+                    String summary = str(input, "summary");
+                    if (path == null || title == null || summary == null || path.isBlank() || title.isBlank() || summary.isBlank()) {
+                        throw new IllegalArgumentException("path, title and summary are all needed");
+                    }
+                    StampedDocumentCard c = card.get();
+                    Path root = (c != null && c.repoRoot() != null ? Optional.of(c.repoRoot()) : DocumentNarratives.onlyWorkingTree())
+                            .orElseThrow(() -> new IllegalArgumentException("no one working tree is open: ask the person to use Open file… "
+                                    + "or Clone… in a Stamped Document card, so you have the one to make the document in"));
+                    Path file = root.resolve(path.strip()).normalize();
+                    if (!file.startsWith(root) || !file.toString().endsWith(".adoc")) {
+                        throw new IllegalArgumentException("path must be an .adoc file inside the working tree " + root);
+                    }
+                    if (Files.exists(file)) {
+                        throw new IllegalArgumentException(root.relativize(file) + " already exists");
+                    }
+                    String relative = root.relativize(file).toString().replace('\\', '/');
+                    try {
+                        Files.createDirectories(file.getParent());
+                        Files.writeString(file, "= " + title.strip() + "\n\n" + summary.strip() + "\n");
+                        DocumentCommit.Result committed = DocumentCommit.first(root, relative, "Add " + title.strip() + "\n");
+                        if (!committed.ok()) {
+                            Files.deleteIfExists(file);
+                            return "Not created: " + committed.output();
+                        }
+                        PublicId anchor = GitDocumentMaterializer.materialize(root, file).anchor();
+                        pairing.pair(anchor);
+                        return "Created " + relative + " in " + root + " as a local first commit, " + committed.sha().substring(0, 7)
+                                + ", nothing pushed; it is stored, open beside you and paired with this conversation. Insert your "
+                                + "blocks after its first paragraph with propose_block_insert.";
+                    } catch (IOException e) {
+                        throw new IllegalArgumentException("could not make " + relative + ": " + e.getMessage());
+                    }
                 });
     }
 
     // ── propose_block_delete ──────────────────────────────────────────────────
 
-    static AnthropicTool proposeBlockDelete(StampTools.CardLocator card, Supplier<ViewCalculator> view) {
+    static AnthropicTool proposeBlockDelete(StampTools.CardLocator card, Supplier<ViewCalculator> view, Pairing pairing) {
         return new Tool("propose_block_delete",
                 "Propose removing one block of a STAMPed document: its lines leave the document as an uncommitted deletion under "
                         + "the Komet assistant's name — the same deletion the card's Delete block… makes for a person — so the card "
@@ -450,11 +593,11 @@ public final class DocumentGraphTools {
                         + "edit of the document is pending: theirs is settled first.",
                 obj("type", "object", "properties", obj(
                         "block", strProp("The block's path (§3.2) or a line it holds (L45), as read_document or read_block shows it."),
-                        "document", strProp("The document's name or recorded path. Omit for the card's document.")),
+                        "document", strProp("The document's name or recorded path. Omit for the paired document, or the card's.")),
                         "required", List.of("block")),
                 input -> {
                     StampedDocumentCard c = card.get();
-                    Opened opened = open(c, str(input, "document"));
+                    Opened opened = open(c, input, pairing);
                     ViewCalculator v = viewOf(view, c);
                     DocumentOutline graph = new DocumentOutline(opened.document());
                     DocumentOutline.Node node = graph.find(str(input, "block"))
@@ -464,8 +607,8 @@ public final class DocumentGraphTools {
                                 + (node.blocks() > 0 ? " holding " + node.blocks() + " block(s); delete those first" : " with no lines of its own"));
                     }
                     EditCoordinateRecord edit = assistantCoordinate(c);
-                    OptionalLong pending = DocumentEditor.pendingAuthor(opened.anchor());
-                    if (pending.isPresent() && pending.getAsLong() != edit.getAuthorNidForChanges()) {
+                    OptionalLong pending = DocumentEditor.blockingAuthor(opened.anchor(), edit);
+                    if (pending.isPresent()) {
                         return "Not proposed: an edit of " + opened.name() + " by " + StampNames.name(v, pending.getAsLong())
                                 + " is pending in the card. A change is never made on top of a change nobody has settled: ask them to "
                                 + "commit it in git (Commit…) or discard it (Discard edit), then propose again.";
@@ -475,8 +618,8 @@ public final class DocumentGraphTools {
                     if (!result.completed()) {
                         return "Not proposed: " + result.message();
                     }
-                    if (c != null && opened.card() != null) {
-                        reopen(c, opened.anchor());
+                    if (opened.card() != null) {
+                        reopen(opened.card(), opened.anchor());
                     }
                     return "Proposed for §" + node.path() + " of " + opened.name() + ": " + result.message()
                             + ". It is pending under " + StampNames.name(v, edit.getAuthorNidForChanges())
@@ -487,7 +630,7 @@ public final class DocumentGraphTools {
 
     // ── propose_sentence_edit ─────────────────────────────────────────────────
 
-    static AnthropicTool proposeSentenceEdit(StampTools.CardLocator card, Supplier<ViewCalculator> view) {
+    static AnthropicTool proposeSentenceEdit(StampTools.CardLocator card, Supplier<ViewCalculator> view, Pairing pairing) {
         return new Tool("propose_sentence_edit",
                 "Propose new text for one sentence of a STAMPed document stored as semantic vertices (IKE-Network/ike-issues#1313): "
                         + "only the lines the sentence changes are rewritten — the sentence goes on a line of its own, a part of it "
@@ -499,7 +642,7 @@ public final class DocumentGraphTools {
                 obj("type", "object", "properties", obj(
                         "sentence", strProp("The sentence's current text, exactly, whitespace collapsed to single spaces."),
                         "text", strProp("The sentence's new text."),
-                        "document", strProp("The document's name or recorded path. Omit for the card's document.")),
+                        "document", strProp("The document's name or recorded path. Omit for the paired document, or the card's.")),
                         "required", List.of("sentence", "text")),
                 input -> {
                     String current = str(input, "sentence");
@@ -508,7 +651,7 @@ public final class DocumentGraphTools {
                         throw new IllegalArgumentException("sentence and text are both required");
                     }
                     StampedDocumentCard c = card.get();
-                    Opened opened = open(c, str(input, "document"));
+                    Opened opened = open(c, input, pairing);
                     ViewCalculator v = viewOf(view, c);
                     String wanted = design.knowledge.stamp.adoc.dialect.Segmenter.normalize(current);
                     List<GitDocumentMaterializer.StoredSentence> matches = opened.document().sentences().values().stream()
@@ -522,8 +665,8 @@ public final class DocumentGraphTools {
                         throw new IllegalArgumentException(matches.size() + " sentences of " + opened.name() + " read so; propose a block edit");
                     }
                     EditCoordinateRecord edit = assistantCoordinate(c);
-                    OptionalLong pending = DocumentEditor.pendingAuthor(opened.anchor());
-                    if (pending.isPresent() && pending.getAsLong() != edit.getAuthorNidForChanges()) {
+                    OptionalLong pending = DocumentEditor.blockingAuthor(opened.anchor(), edit);
+                    if (pending.isPresent()) {
                         return "Not proposed: an edit of " + opened.name() + " by " + StampNames.name(v, pending.getAsLong())
                                 + " is pending in the card; it is committed in git or discarded first.";
                     }
@@ -532,8 +675,8 @@ public final class DocumentGraphTools {
                     if (!result.completed()) {
                         return "Not proposed: " + result.message();
                     }
-                    if (c != null && opened.card() != null) {
-                        reopen(c, opened.anchor());
+                    if (opened.card() != null) {
+                        reopen(opened.card(), opened.anchor());
                     }
                     return "Proposed for " + opened.name() + ": " + result.message() + ". It is pending under "
                             + StampNames.name(v, edit.getAuthorNidForChanges()) + "; nothing is in git until the person commits it.";

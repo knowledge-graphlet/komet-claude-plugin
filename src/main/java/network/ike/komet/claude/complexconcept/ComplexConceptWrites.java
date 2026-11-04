@@ -88,6 +88,19 @@ public final class ComplexConceptWrites {
      * @return what was written, or why nothing was
      */
     public static Written write(String body, ViewCalculator view, EditCoordinate edit) {
+        return write(body, view, edit, false);
+    }
+
+    /**
+     * Writes the complex concept a block's text states, after the block was saved.
+     *
+     * @param body   the block's text
+     * @param view   the view the block's identifiers are read under
+     * @param edit   whose change it is, and on which path
+     * @param shared whether the block is on a paired document, whose two authors share one pending edit
+     * @return what was written, or why nothing was
+     */
+    public static Written write(String body, ViewCalculator view, EditCoordinate edit, boolean shared) {
         Parsed parsed = ComplexConceptText.parse(body, new BlockIdentities(new ViewIdentities(view)));
         if (parsed.spec().isEmpty()) {
             return Written.refused("The block states no complex concept, so none was written.");
@@ -97,7 +110,7 @@ public final class ComplexConceptWrites {
             return Written.refused("The complex concept was not written: " + findings.getFirst()
                     + (findings.size() > 1 ? ", and " + (findings.size() - 1) + " more." : "."));
         }
-        return write(parsed.spec().get(), view, edit);
+        return write(parsed.spec().get(), view, edit, shared);
     }
 
     /**
@@ -110,6 +123,10 @@ public final class ComplexConceptWrites {
      * @return what was written, or why nothing was
      */
     public static Written write(Spec spec, ViewCalculator view, EditCoordinate edit) {
+        return write(spec, view, edit, false);
+    }
+
+    private static Written write(Spec spec, ViewCalculator view, EditCoordinate edit, boolean shared) {
         List<String> missing = ComplexConceptText.completeness(spec);
         if (!missing.isEmpty()) {
             return Written.refused("The complex concept is not written yet: the specification still needs "
@@ -157,7 +174,7 @@ public final class ComplexConceptWrites {
                         + complexConcept.idString() + ", with its specification" + concepts + "; uncommitted, commit to keep it.");
             }
             SemanticVersions.Versioned versioned = SemanticVersions.version(existing.getAsLong(),
-                    IkePattern.COMPLEX_CONCEPT_PATTERN.nid(), Lists.immutable.of(specification), view, edit, "specification");
+                    IkePattern.COMPLEX_CONCEPT_PATTERN.nid(), Lists.immutable.of(specification), view, edit, "specification", shared);
             if (versioned.refusal().isPresent()) {
                 cancel(writer);
                 return Written.refused(versioned.refusal().get());

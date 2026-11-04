@@ -66,7 +66,7 @@ public final class DocumentOutline {
      */
     public record Node(String path, int depth, StoredBlock block, List<StoredLine> lines, int blocks) {
 
-        /** @return whether the block's text can be replaced with propose_block_edit: it holds lines and no blocks */
+        /** @return whether the block's text can be replaced with propose_block_edit: it holds lines and no blocks, a structured block being one */
         public boolean editable() {
             return blocks == 0 && !lines.isEmpty();
         }
@@ -94,7 +94,10 @@ public final class DocumentOutline {
     private void walk(StoredBlock block, String path, int depth) {
         List<StoredLine> lines = new ArrayList<>();
         List<StoredBlock> children = new ArrayList<>();
-        for (long member : block.members()) {
+        if (StructuredBlocks.kindOf(block).isPresent()) {
+            lines.addAll(StructuredBlocks.lines(document, block));   // one block, an open block's child blocks included
+        }
+        for (long member : lines.isEmpty() ? block.members() : List.<Long>of()) {
             Optional<StoredLine> line = document.line(member);
             if (line.isPresent()) {
                 lines.add(line.get());

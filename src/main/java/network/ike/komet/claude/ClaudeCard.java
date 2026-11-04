@@ -373,6 +373,10 @@ public final class ClaudeCard extends AbstractHostCard {
         /** The conversation's journal-anchor id (#807); set on the worker after the first
          *  persisted exchange, read on FX for save — hence volatile. Null until then. */
         volatile PublicId journalAnchor;
+        /** The anchor of the document paired with this conversation, kept with it by its UUID; null when none. */
+        volatile PublicId pairedDocument;
+        /** The paired document's blocks as the assistant last read them, by block nid; null until a request reads it. */
+        Map<Long, String> documentSeen;
 
         Conversation(String id, String name) {
             this.id = id;
@@ -388,7 +392,7 @@ public final class ClaudeCard extends AbstractHostCard {
     /** Serialized form of a {@link Conversation} (json4j); {@code journalAnchor} is the journal's
      *  anchor UUID, or null for a conversation that predates (or never reached) the journal. */
     private record ConversationDto(String id, String name, List<Map<String, Object>> turns,
-                                   String journalAnchor, Map<String, String> titles) {
+                                   String journalAnchor, Map<String, String> titles, String paired) {
     }
 
     private ClaudeCard(KometPreferences preferences) {
@@ -450,7 +454,7 @@ public final class ClaudeCard extends AbstractHostCard {
         refreshSystemPrompt();
         // Tools read the live card view each call via the method reference, so they always reflect the
         // journal's current coordinate (after bind).
-        this.tools = assistantTools(this::viewCalculator, this::safeViewCalculator, this::safeViewProperties,
+        this.tools = assistantTools(this.documentPairing, this::viewCalculator, this::safeViewCalculator, this::safeViewProperties,
                 this::getJournalTopic, this::skills);
         this.journalStore = new JournalStore(this::safeViewCalculator);
         fxObject().getStyleClass().add("claude-card");
@@ -475,6 +479,15 @@ public final class ClaudeCard extends AbstractHostCard {
             java.util.function.Supplier<ViewCalculator> safeView, java.util.function.Supplier<ViewProperties> viewProperties,
             java.util.function.Supplier<java.util.UUID> journalTopic,
             java.util.function.Supplier<java.util.List<network.ike.komet.claude.instructions.AssistantSkills.Skill>> skills) {
+        return assistantTools(network.ike.komet.claude.stamp.DocumentGraphTools.Pairing.NONE, view, safeView, viewProperties, journalTopic, skills);
+    }
+
+    /** The tools, with the document tools acting on the document a conversation is paired with. */
+    private static java.util.List<AnthropicTool> assistantTools(network.ike.komet.claude.stamp.DocumentGraphTools.Pairing pairing,
+            java.util.function.Supplier<ViewCalculator> view,
+            java.util.function.Supplier<ViewCalculator> safeView, java.util.function.Supplier<ViewProperties> viewProperties,
+            java.util.function.Supplier<java.util.UUID> journalTopic,
+            java.util.function.Supplier<java.util.List<network.ike.komet.claude.instructions.AssistantSkills.Skill>> skills) {
         java.util.List<AnthropicTool> all = new java.util.ArrayList<>(new GraphTools(view).tools());
         // Provenance tools (ike-issues#468): who introduced or affirmed a committed file's lines, and a
         // concurrence prepared for the person to sign in the Stamped Document card — never signed here.
@@ -483,7 +496,7 @@ public final class ClaudeCard extends AbstractHostCard {
         // The document graph (KEC 2026-10-20): read a STAMPed document's blocks, lines and provenance from the store,
         // with no working tree, and propose a block's new text as the assistant's own uncommitted edit.
         all.addAll(network.ike.komet.claude.stamp.DocumentGraphTools.tools(
-                network.ike.komet.claude.stamp.StampedDocumentCard::mostRecent, safeView));
+                network.ike.komet.claude.stamp.StampedDocumentCard::mostRecent, safeView, pairing));
         // Authoring hand-off (ike-issues#1292): a proposed concept written uncommitted and opened in a KL
         // window of this journal for the person to publish — never committed here.
         all.addAll(new network.ike.komet.claude.authoring.ConceptProposalTools(
@@ -503,6 +516,172 @@ public final class ClaudeCard extends AbstractHostCard {
         // Skills (KEC 2026-10-23): the prompt lists each skill's name and use; this loads one's instructions.
         all.add(network.ike.komet.claude.instructions.AssistantSkills.loadSkillTool(skills));
         return java.util.List.copyOf(all);
+    }
+
+    /** The conversation a worker thread is answering, which the document tools act for. */
+    private final ThreadLocal<Conversation> answering = new ThreadLocal<>();
+
+    /** The conversation the document tools act for: the one answering, else the one on screen. */
+    private Conversation requestConversation() {
+        Conversation conv = answering.get();
+        return conv != null ? conv : active;
+    }
+
+    /** The pairing the document tools read and create_document makes, for the conversation answering. */
+    private final network.ike.komet.claude.stamp.DocumentGraphTools.Pairing documentPairing =
+            new network.ike.komet.claude.stamp.DocumentGraphTools.Pairing() {
+                @Override
+                public Optional<PublicId> document() {
+                    Conversation conv = requestConversation();
+                    return conv == null ? Optional.empty() : Optional.ofNullable(conv.pairedDocument);
+                }
+
+                @Override
+                public void pair(PublicId anchor) {
+                    Conversation conv = requestConversation();
+                    if (conv == null) {
+                        throw new IllegalStateException("no conversation to pair a document with");
+                    }
+                    pairDocument(conv, anchor);
+                    Platform.runLater(() -> openBeside(anchor));
+                }
+            };
+
+    /** Pairs a conversation with a document, by its anchor, and notes what the document says now. */
+    private void pairDocument(Conversation conv, PublicId anchor) {
+        conv.pairedDocument = anchor;
+        network.ike.komet.claude.stamp.DocumentPairing.pair(conv.id, anchor);
+        network.ike.komet.claude.stamp.GitDocumentMaterializer.load(anchor, true)
+                .ifPresent(document -> conv.documentSeen = network.ike.komet.claude.stamp.DocumentChanges.snapshot(document));
+        saveConversation(conv);
+    }
+
+    /** Shows a document on the live card that holds it, or on a new card beside this one. */
+    private void openBeside(PublicId anchor) {
+        var showing = network.ike.komet.claude.stamp.StampedDocumentCard.showing(anchor);
+        if (showing != null) {
+            showing.fxObject().toFront();
+            return;
+        }
+        UUID journalTopic = getJournalTopic();
+        if (journalTopic == null) {
+            LOG.warn("No journal topic; cannot open the document beside the assistant");
+            return;
+        }
+        EvtBusFactory.getDefaultEvtBus().publish(journalTopic, new MakeCardWindowEvent(this, MakeCardWindowEvent.CREATE_NEW,
+                network.ike.komet.claude.stamp.StampedDocumentCard.Factory.class.getName(), fxObject(), -1, -1,
+                card -> Platform.runLater(() -> ((network.ike.komet.claude.stamp.StampedDocumentCard) card).openReading(anchor))));
+    }
+
+    /** The menu of the conversation's paired document: open one beside the assistant, or stop pairing it. */
+    private MenuButton documentMenu() {
+        MenuButton menu = new MenuButton("Document");
+        menu.setId("assistantDocumentMenu");
+        menu.getStyleClass().add("claude-card-toolbar-button");
+        menu.setTooltip(new Tooltip("Pair a document with this conversation: it opens beside the assistant, which writes into it"));
+        javafx.scene.control.MenuItem beside = new javafx.scene.control.MenuItem("Open beside…");
+        beside.setId("assistantOpenBeside");
+        beside.setOnAction(e -> chooseDocumentBeside());
+        javafx.scene.control.MenuItem stop = new javafx.scene.control.MenuItem("Stop pairing");
+        stop.setId("assistantStopPairing");
+        stop.setOnAction(e -> {
+            if (active != null) {
+                active.pairedDocument = null;
+                active.documentSeen = null;
+                network.ike.komet.claude.stamp.DocumentPairing.pair(active.id, null);
+                saveConversation(active);
+            }
+        });
+        menu.getItems().addAll(beside, stop);
+        menu.setOnShowing(e -> stop.setDisable(active == null || active.pairedDocument == null));
+        return menu;
+    }
+
+    /** Asks which stored document to pair with the conversation on screen. */
+    private void chooseDocumentBeside() {
+        if (active == null) {
+            return;
+        }
+        Conversation conv = active;
+        statusLabel.setText("Listing the store's documents …");
+        java.util.concurrent.CompletableFuture.supplyAsync(network.ike.komet.claude.stamp.GitDocumentMaterializer::storedDocuments, worker)
+                .whenComplete((found, failure) -> Platform.runLater(() -> {
+                    if (failure != null || found.isEmpty()) {
+                        statusLabel.setText(failure != null ? "Could not list the documents: " + failure.getMessage()
+                                : "The knowledge base holds no documents yet; open one in a Stamped Document card first.");
+                        return;
+                    }
+                    statusLabel.setText("");
+                    javafx.scene.control.ChoiceDialog<String> dialog = new javafx.scene.control.ChoiceDialog<>(found.keySet().iterator().next(), found.keySet());
+                    dialog.setTitle("Open beside");
+                    dialog.setHeaderText("The document to pair with this conversation");
+                    dialog.getDialogPane().setId("assistantOpenBesideDialog");
+                    dialog.showAndWait().ifPresent(name -> {
+                        PublicId anchor = found.get(name);
+                        worker.submit(() -> {
+                            try {
+                                pairDocument(conv, anchor);
+                                Platform.runLater(() -> openBeside(anchor));
+                            } catch (RuntimeException e) {
+                                LOG.warn("Could not pair {}", name, e);
+                                Platform.runLater(() -> statusLabel.setText("Could not pair " + name + ": " + e.getMessage()));
+                            }
+                        });
+                    });
+                }));
+    }
+
+    /**
+     * What the system prompt says for one request of a paired conversation: which document it
+     * is, how to write into it, and which of its blocks changed since the assistant last read it.
+     * Worker thread; a document no longer in the store leaves the conversation's prompt as it is.
+     */
+    private String requestSystem(Conversation conv) {
+        PublicId anchor = conv.pairedDocument;
+        if (anchor == null || !dev.ikm.tinkar.common.service.PrimitiveData.get().hasPublicId(anchor)) {
+            return systemPrompt;
+        }
+        try {
+            network.ike.komet.claude.stamp.DocumentPairing.pair(conv.id, anchor);
+            var document = network.ike.komet.claude.stamp.GitDocumentMaterializer.load(anchor, true);
+            List<String> changed = document.isPresent() && conv.documentSeen != null
+                    ? network.ike.komet.claude.stamp.DocumentChanges.since(conv.documentSeen, document.get()) : List.of();
+            String path = network.ike.komet.claude.stamp.GitDocumentMaterializer.recordedPath(anchor).orElse(anchor.toString());
+            return pairedPrompt(systemPrompt, path, changed);
+        } catch (RuntimeException e) {
+            LOG.warn("Could not read the paired document {}", anchor, e);
+            return systemPrompt;
+        }
+    }
+
+    /** The system prompt with the section a paired conversation adds. */
+    static String pairedPrompt(String system, String path, List<String> changed) {
+        StringBuilder section = new StringBuilder(system).append("\n\n## The paired document\n\nThis conversation is paired with `")
+                .append(path).append("`, open beside you; the document tools act on it when you name no document. Write what the person "
+                        + "asks for into it: blocks go in with `propose_block_insert` and `propose_block_edit`, never in your reply, and "
+                        + "your reply says in sentences what you added or changed, and why. A tool's result ends with what Komet found in "
+                        + "the document's structured blocks; correct those within this turn. Komet draws a block as soon as it lands, "
+                        + "committed or not. The person's uncommitted edits and yours are one pending edit, which they commit or discard. "
+                        + "An insertion moves the paths of the blocks after it, so read a path again before you edit by it.");
+        if (!changed.isEmpty()) {
+            section.append("\n\nSince you last read it, read these again before you rely on them:\n");
+            changed.forEach(line -> section.append("- ").append(line).append('\n'));
+        }
+        return section.toString();
+    }
+
+    /** Notes what the paired document says now, the assistant's own edits of this turn included. */
+    private void rememberDocument(Conversation conv) {
+        PublicId anchor = conv.pairedDocument;
+        if (anchor == null) {
+            return;
+        }
+        try {
+            network.ike.komet.claude.stamp.GitDocumentMaterializer.load(anchor, true)
+                    .ifPresent(document -> conv.documentSeen = network.ike.komet.claude.stamp.DocumentChanges.snapshot(document));
+        } catch (RuntimeException e) {
+            LOG.warn("Could not read the paired document {}", anchor, e);
+        }
     }
 
     /** Resolves the view calculator the tools query: this card's coordinate of record, once bound. */
@@ -577,7 +756,7 @@ public final class ClaudeCard extends AbstractHostCard {
         // Save, exchange expand/collapse — live in the transcript panel's own header strip
         // (ike-issues#1040), beside the conversation they act on.
         toggleRail.getStyleClass().add("claude-card-toolbar-button");
-        toolBar.getChildren().addAll(coordinateButton, toggleRail, settingsButton());
+        toolBar.getChildren().addAll(coordinateButton, toggleRail, documentMenu(), settingsButton());
     }
 
     /**
@@ -2046,6 +2225,8 @@ public final class ClaudeCard extends AbstractHostCard {
             // the assistant with the findings, as a compiler's errors go back to a programmer, and
             // the next reply follows the draft in the transcript. Each turn is committed as it lands,
             // so a correction that fails leaves the draft standing.
+            answering.set(conv);
+            String system = requestSystem(conv);
             List<Map<String, Object>> context = new ArrayList<>(history);
             String message = text;
             String lastReply = null;
@@ -2056,7 +2237,7 @@ public final class ClaudeCard extends AbstractHostCard {
             while (true) {
                 String reply;
                 try {
-                    reply = client.ask(systemPrompt, tools, context, message, listener);
+                    reply = client.ask(system, tools, context, message, listener);
                 } catch (Throwable t) {
                     // Catch Throwable: a non-runtime failure (e.g. class-init / ServiceConfigurationError)
                     // must still settle the status strip, not wedge the conversation busy.
@@ -2128,6 +2309,8 @@ public final class ClaudeCard extends AbstractHostCard {
             }
             String finalReply = lastReply;
             String finalError = errorMessage;
+            answering.remove();
+            rememberDocument(conv);
             int corrections = rounds;
             long elapsedMillis = (System.nanoTime() - conv.startNanos) / 1_000_000L;
             Platform.runLater(() -> {
@@ -2220,13 +2403,7 @@ public final class ClaudeCard extends AbstractHostCard {
             return Optional.empty();
         }
         try {
-            Identities ids = new BlockIdentities(new ViewIdentities(vp.calculator()));
-            Optional<String> trees = DecisionTreeFeedback.message(reply, DecisionTerms.fromBindings(), ids);
-            Optional<String> concepts = network.ike.komet.claude.complexconcept.ComplexConceptFeedback.message(reply, ids);
-            Optional<String> statements = network.ike.komet.claude.anf.AnfFeedback.message(reply);
-            String joined = java.util.stream.Stream.of(trees, concepts, statements)
-                    .flatMap(Optional::stream).collect(java.util.stream.Collectors.joining("\n\n"));
-            return joined.isEmpty() ? Optional.empty() : Optional.of(joined);
+            return network.ike.komet.claude.ui.DocumentFindings.ofReply(reply, vp.calculator());
         } catch (RuntimeException e) {
             LOG.warn("Could not read the reply's blocks for feedback", e);
             return Optional.empty();
@@ -2523,6 +2700,7 @@ public final class ClaudeCard extends AbstractHostCard {
         if (toTrash.task != null) {
             toTrash.task.cancel(true);
         }
+        network.ike.komet.claude.stamp.DocumentPairing.pair(toTrash.id, null);
         boolean trashed = trashConversation(toTrash);
         conversations.remove(toTrash);
         if (conversations.isEmpty()) {
@@ -2666,6 +2844,9 @@ public final class ClaudeCard extends AbstractHostCard {
             dto.put("id", conv.id);
             dto.put("name", conv.name);
             dto.put("turns", conv.apiMessages);
+            if (conv.pairedDocument != null) {
+                dto.put("paired", conv.pairedDocument.asUuidArray()[0].toString());
+            }
             if (!conv.turnTitles.isEmpty()) {
                 Map<String, String> titles = new LinkedHashMap<>();
                 conv.turnTitles.forEach((k, v) -> titles.put(String.valueOf(k), v));
@@ -3093,6 +3274,9 @@ public final class ClaudeCard extends AbstractHostCard {
             ConversationDto dto = Json.parse(Files.readString(file, StandardCharsets.UTF_8), ConversationDto.class);
             Conversation conv = new Conversation(dto.id(), dto.name());
             conv.named = true;
+            if (dto.paired() != null && !dto.paired().isBlank()) {
+                conv.pairedDocument = dev.ikm.tinkar.common.id.PublicIds.of(UUID.fromString(dto.paired()));
+            }
             if (dto.titles() != null) {
                 dto.titles().forEach((k, v) -> {
                     try {

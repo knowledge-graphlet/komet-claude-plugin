@@ -143,9 +143,10 @@ class DocumentOutlineTest {
         List<AnthropicTool> tools = DocumentGraphTools.tools(() -> null, () -> null);
 
         assertEquals(List.of("read_document", "read_block", "find_in_document", "propose_block_edit", "propose_sentence_edit",
-                "propose_block_insert", "propose_block_delete"), tools.stream().map(AnthropicTool::name).toList());
+                "propose_block_insert", "propose_block_delete", "create_document"), tools.stream().map(AnthropicTool::name).toList());
         assertEquals(List.of("after", "kind", "text"), tools.get(5).inputSchema().get("required"));
         assertEquals(List.of("block"), tools.get(6).inputSchema().get("required"));
+        assertEquals(List.of("path", "title", "summary"), tools.get(7).inputSchema().get("required"));
         assertEquals(List.of(), tools.get(0).inputSchema().get("required"));
         assertEquals(List.of("block"), tools.get(1).inputSchema().get("required"));
         assertEquals(List.of("query"), tools.get(2).inputSchema().get("required"));

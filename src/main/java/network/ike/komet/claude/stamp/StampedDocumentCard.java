@@ -177,6 +177,20 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         return found;
     }
 
+    /**
+     * @param anchor a document's anchor
+     * @return the live card showing the document, or {@code null}
+     */
+    public static StampedDocumentCard showing(PublicId anchor) {
+        for (WeakReference<StampedDocumentCard> ref : OPEN) {
+            StampedDocumentCard card = ref.get();
+            if (card != null && card.shown != null && PublicId.equals(card.shown.anchor(), anchor)) {
+                return card;
+            }
+        }
+        return null;
+    }
+
     /** Re-reads the shown document in every live card, after something changed the store; call on the FX thread. */
     public static void reloadAll() {
         for (WeakReference<StampedDocumentCard> ref : OPEN) {
@@ -795,8 +809,22 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
      */
     public void open(PublicId anchor) {
         reading = anchor;
+        if (surface == null) {
+            return;                                                // not realized yet: its first refresh opens it
+        }
         open(anchor, null, null);
         listShown(anchor);
+    }
+
+    /**
+     * Shows a document in the Reading view, where a structured block draws: how a new card beside
+     * the assistant opens, whatever view a card last remembered.
+     *
+     * @param anchor the document anchor's id
+     */
+    public void openReading(PublicId anchor) {
+        views.select(DocumentSurfaceView.View.READING);
+        open(anchor);
     }
 
     /**

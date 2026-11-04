@@ -213,8 +213,9 @@ public final class DocumentEditor {
 
     private static Edit addBlock(PublicId anchor, long after, Block.Kind kind, String text, long authorNid, long pathNid) {
         DocumentVocabulary.requirePresent();
-        if (kind != Block.Kind.PARAGRAPH && kind != Block.Kind.LISTING) {
-            throw new IllegalArgumentException("A new block is a paragraph or a listing, not a " + kind.name().toLowerCase());
+        StructuredBlockKind.Source source = StructuredBlockKind.Source.of(text == null ? "" : text);
+        if (kind != Block.Kind.PARAGRAPH && kind != Block.Kind.LISTING && !structuredOpen(kind, source.parameters())) {
+            throw new IllegalArgumentException("A new block is a paragraph, a listing or a structured open block, not a plain " + kind.name().toLowerCase());
         }
         List<String> newLines = text == null ? List.of() : text.lines().toList();
         if (newLines.isEmpty() || newLines.stream().allMatch(String::isBlank)) {
@@ -236,7 +237,7 @@ public final class DocumentEditor {
         Document before = IkeDialectParser.parse(file);
         Document parsed = IkeDialectParser.parse(edited);
         List<GitDocumentMaterializer.StoredBlock> stored = new DocumentOutline(document).nodes().stream().map(DocumentOutline.Node::block).toList();
-        List<Block> oldBlocks = before.blocks();
+        List<Block> oldBlocks = structural(before);
         if (oldBlocks.size() != stored.size() || !sameKinds(oldBlocks, stored)) {
             throw new IllegalArgumentException("The stored structure disagrees with the document's text; rebuild it from git");
         }
@@ -246,7 +247,7 @@ public final class DocumentEditor {
                 index = i;
             }
         }
-        List<Block> newBlocks = parsed.blocks();
+        List<Block> newBlocks = structural(parsed);
         if (newBlocks.size() != oldBlocks.size() + 1) {
             throw new IllegalArgumentException("The text does not form exactly one " + kind.name().toLowerCase() + " block");
         }
@@ -381,7 +382,7 @@ public final class DocumentEditor {
         // The block's lines and one blank beside them: the one before, else the one after, so no double blank is left.
         int blankAt = leaf.start() > 0 && file.get(leaf.start() - 1).isBlank() ? leaf.start() - 1
                 : leaf.end() + 1 < file.size() && file.get(leaf.end() + 1).isBlank() ? leaf.end() + 1 : -1;
-        Set<Long> removed = new java.util.HashSet<>(leaf.block().members());
+        Set<Long> removed = new java.util.HashSet<>(leaf.lines());
         if (blankAt >= 0) {
             removed.add(lines.get(blankAt).nid());
         }
@@ -392,7 +393,7 @@ public final class DocumentEditor {
             }
         }
         List<GitDocumentMaterializer.StoredBlock> stored = new DocumentOutline(document).nodes().stream().map(DocumentOutline.Node::block).toList();
-        List<Block> oldBlocks = IkeDialectParser.parse(file).blocks();
+        List<Block> oldBlocks = structural(IkeDialectParser.parse(file));
         if (oldBlocks.size() != stored.size() || !sameKinds(oldBlocks, stored)) {
             throw new IllegalArgumentException("The stored structure disagrees with the document's text; rebuild it from git");
         }
@@ -402,7 +403,7 @@ public final class DocumentEditor {
                 expected.add(oldBlocks.get(i).kind());
             }
         }
-        if (!IkeDialectParser.parse(edited).blocks().stream().map(Block::kind).toList().equals(expected)) {
+        if (!structural(IkeDialectParser.parse(edited)).stream().map(Block::kind).toList().equals(expected)) {
             throw new IllegalArgumentException("Removing the block would change the structure of what remains");
         }
         GitDocumentMaterializer.StoredBlock parent = parentOf(document, block)
@@ -434,7 +435,7 @@ public final class DocumentEditor {
                     writeBlockMembers(transaction, stamp, document, holder.nid(), tree);
                 }
             }
-            return new Edit(block, 0, 0, leaf.block().members().size());
+            return new Edit(block, 0, 0, leaf.lines().size());
         }
         List<Long> manifest = new ArrayList<>(lines.stream().map(GitDocumentMaterializer.StoredLine::nid).toList());
         manifest.removeAll(removed);
@@ -445,11 +446,11 @@ public final class DocumentEditor {
         parentMembers.remove(Long.valueOf(block));
         parentFields.set(4, LongIds.list.of(parentMembers.stream().mapToLong(Long::longValue).toArray()));
         writeVersion(transaction, parent.nid(), stamp, Lists.immutable.ofAll(parentFields));
-        return new Edit(block, 0, 0, leaf.block().members().size());
+        return new Edit(block, 0, 0, leaf.lines().size());
     }
 
-    /** A block whose members are all lines, with where they sit in the document: {@code start} to {@code end}, 0-based. */
-    private record Leaf(GitDocumentMaterializer.StoredBlock block, int start, int end) { }
+    /** A block holding only lines, or a structured block, with where they sit in the document: {@code start} to {@code end}, 0-based. */
+    private record Leaf(GitDocumentMaterializer.StoredBlock block, List<Long> lines, int start, int end) { }
 
     /** @throws IllegalArgumentException when the block is not the document's, holds blocks, or its lines are not contiguous */
     private static Leaf leaf(GitDocumentMaterializer.StoredDocument document, long block) {
@@ -458,16 +459,46 @@ public final class DocumentEditor {
             throw new IllegalArgumentException("Block " + block + " is not a block of " + document.anchor().idString());
         }
         List<Long> manifest = document.lines().stream().map(GitDocumentMaterializer.StoredLine::nid).toList();
-        if (stored.members().isEmpty() || !Set.copyOf(manifest).containsAll(stored.members())) {
+        List<Long> lines = textLines(document, stored, manifest);
+        if (lines == null || lines.isEmpty()) {
             throw new IllegalArgumentException("A " + stored.kind().name().toLowerCase() + " block holding other blocks is not edited as text");
         }
-        int start = manifest.indexOf(stored.members().getFirst());
-        for (int i = 0; i < stored.members().size(); i++) {
-            if (start + i >= manifest.size() || manifest.get(start + i).longValue() != stored.members().get(i)) {
+        int start = manifest.indexOf(lines.getFirst());
+        for (int i = 0; i < lines.size(); i++) {
+            if (start + i >= manifest.size() || manifest.get(start + i).longValue() != lines.get(i)) {
                 throw new IllegalArgumentException("The block's lines are not contiguous in the document");
             }
         }
-        return new Leaf(stored, start, start + stored.members().size() - 1);
+        return new Leaf(stored, lines, start, start + lines.size() - 1);
+    }
+
+    /** The lines a block is edited as: its own, or a structured block's, child blocks included; null when it holds other blocks. */
+    private static List<Long> textLines(GitDocumentMaterializer.StoredDocument document, GitDocumentMaterializer.StoredBlock block, List<Long> manifest) {
+        Set<Long> lineNids = Set.copyOf(manifest);
+        if (lineNids.containsAll(block.members())) {
+            return block.members();
+        }
+        return VertexReader.isVertexDocument(document.anchor()) && StructuredBlocks.kindOf(block).isPresent()
+                ? linesOf(document, block, lineNids).orElse(null) : null;
+    }
+
+    /**
+     * The parsed blocks as the stored outline counts them: a structured open block is one block,
+     * whose text AsciiDoc reads into child blocks and an edit holds as lines, so the two agree
+     * whichever it stands as.
+     */
+    private static List<Block> structural(Document parsed) {
+        Set<Block> inside = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        for (Block block : parsed.blocks()) {
+            if (structuredOpen(block.kind(), block.parameters())) {
+                block.flatten().stream().filter(b -> b != block).forEach(inside::add);
+            }
+        }
+        return parsed.blocks().stream().filter(b -> !inside.contains(b)).toList();
+    }
+
+    private static boolean structuredOpen(Block.Kind kind, String parameters) {
+        return kind == Block.Kind.OPEN && StructuredBlocks.style(parameters).flatMap(StructuredBlocks::kindFor).isPresent();
     }
 
     private static boolean sameKinds(List<Block> parsed, List<GitDocumentMaterializer.StoredBlock> stored) {
@@ -554,10 +585,8 @@ public final class DocumentEditor {
             throw new IllegalArgumentException("Block " + block + " is not a block of " + anchor.idString());
         }
         List<Long> manifest = new ArrayList<>(document.lines().stream().map(GitDocumentMaterializer.StoredLine::nid).toList());
-        Set<Long> lineNids = Set.copyOf(manifest);
         boolean vertices = VertexReader.isVertexDocument(anchor);
-        List<Long> oldNids = lineNids.containsAll(stored.members()) ? stored.members()
-                : vertices && StructuredBlocks.kindOf(stored).isPresent() ? linesOf(document, stored, lineNids).orElse(null) : null;
+        List<Long> oldNids = textLines(document, stored, manifest);
         if (oldNids == null || oldNids.isEmpty()) {
             throw new IllegalArgumentException("A " + stored.kind() + " block holding other blocks is not edited as text");
         }
@@ -831,6 +860,21 @@ public final class DocumentEditor {
             }
         }
         return found;
+    }
+
+    /**
+     * Whose pending edit keeps this person from editing the document: another author's, since a
+     * change is never made on top of a change nobody has settled, unless the document is paired
+     * with an assistant conversation, whose two authors share one pending edit.
+     *
+     * @param anchor the document anchor's id
+     * @param edit   the edit coordinate of the one who would edit
+     * @return the author in the way, empty when the edit may go ahead
+     */
+    public static OptionalLong blockingAuthor(PublicId anchor, EditCoordinate edit) {
+        OptionalLong author = pendingAuthor(anchor);
+        return author.isPresent() && author.getAsLong() != edit.getAuthorNidForChanges() && !DocumentPairing.paired(anchor)
+                ? author : OptionalLong.empty();
     }
 
     /**
@@ -1423,7 +1467,14 @@ public final class DocumentEditor {
 
     private static void writeVersion(Transaction transaction, long nid, StampEntity<?> stamp, ImmutableList<Object> values) {
         SemanticRecord record = (SemanticRecord) EntityHandle.get(nid).orNull();
-        SemanticRecord updated = record.with(new SemanticVersionRecord(record, stamp.nid(), values)).build();
+        // a component has one pending version: on a paired document's shared edit, a second author rewrites it in place
+        long written = stamp.nid();
+        for (SemanticVersionRecord version : record.versions()) {
+            if (version.uncommitted() && !version.canceled() && version.state() == stamp.state()) {
+                written = version.stampNid();
+            }
+        }
+        SemanticRecord updated = record.with(new SemanticVersionRecord(record, written, values)).build();
         transaction.addComponent(updated);
         EntityService.get().putEntity(updated);
     }

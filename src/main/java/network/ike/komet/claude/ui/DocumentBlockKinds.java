@@ -23,6 +23,7 @@ import network.ike.komet.claude.calculator.CalculationText;
 import network.ike.komet.claude.calculator.CalculatorText;
 import network.ike.komet.claude.complexconcept.ComplexConceptText;
 import network.ike.komet.claude.decision.DecisionTreeText;
+import network.ike.komet.claude.stamp.DocumentPairing;
 import network.ike.komet.claude.stamp.StructuredBlockKind;
 
 import java.util.ArrayList;
@@ -154,7 +155,7 @@ public final class DocumentBlockKinds {
         @Override
         public Optional<String> write(Source source, long block, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
             return Optional.of(network.ike.komet.claude.decision.DecisionTreeWrites
-                    .write(info(source.parameters()), source.content(), view, edit).message());
+                    .write(info(source.parameters()), source.content(), view, edit, DocumentPairing.pairedBlock(block)).message());
         }
     }
 
@@ -175,7 +176,7 @@ public final class DocumentBlockKinds {
         @Override
         public Optional<String> write(Source source, long block, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
             return Optional.of(network.ike.komet.claude.complexconcept.ComplexConceptWrites
-                    .write(source.content(), view, edit).message());
+                    .write(source.content(), view, edit, DocumentPairing.pairedBlock(block)).message());
         }
     }
 

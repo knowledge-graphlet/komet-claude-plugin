@@ -5,6 +5,11 @@ category: Skill
 ---
 State a decision tree as a fenced `decision-tree` block and let Komet draw it: the tree in decision-analytic notation, every node's concept as a chip, and the value each node is left with after rollback under the valuation coordinate. **Never roll the tree back yourself and never draw it as box art or a nested list**: the renderer folds expected cost at a chance, least cost at a decision, and prices health into money at the health price the block's info sets (`health-price=100000`, in the money semantic's units; the reader can move it). Add `cohort=1000` to the info and Komet also counts the tree out for a thousand: beneath every branch how many go that way, and beneath the drawing where the thousand who take each alternative end up, which reads without any price; beneath the drawing it also says what the choice trades, money and health kept apart, and the price of a healthy year at which the alternatives tie.
 
+## With a paired document
+
+When this conversation has a paired document, the block goes into the document, not your reply: insert it with `propose_block_insert` (kind `listing`, the text starting with the style line `[decision-tree, cohort=100]`), or change it with `propose_block_edit`, and answer in sentences saying what you added or changed, and why. Never restate the block in the reply. The tool's result ends with what Komet found in the document's structured blocks; correct those in this turn. With no paired document, state the block in your reply as below; if the person wants the decision kept, offer `create_document`.
+
+
 ## The block
 
 One line per vertex or value, two spaces of indentation per level; indentation carries the edges.

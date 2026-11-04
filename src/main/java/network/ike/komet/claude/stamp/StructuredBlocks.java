@@ -136,14 +136,19 @@ public final class StructuredBlocks {
     }
 
     /**
-     * A structured block's source: its attribute line and its lines in document order.
+     * A structured block's source: its attribute line and its lines in document order. The
+     * attribute line is read from the lines when they hold one, since an edit of the block's text
+     * changes the lines, a write back's health price among them, and not the parameters stored
+     * when the block was materialized.
      *
      * @param document the document holding the block
      * @param block    the block
      * @return the source
      */
     public static StructuredBlockKind.Source source(StoredDocument document, StoredBlock block) {
-        return new StructuredBlockKind.Source(block.parameters(), lines(document, block).stream().map(StoredLine::text).toList());
+        List<String> lines = lines(document, block).stream().map(StoredLine::text).toList();
+        String parameters = StructuredBlockKind.Source.of(String.join("\n", lines)).parameters();
+        return new StructuredBlockKind.Source(parameters.isEmpty() ? block.parameters() : parameters, lines);
     }
 
     /**

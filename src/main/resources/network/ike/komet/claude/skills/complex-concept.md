@@ -5,6 +5,11 @@ category: Skill
 ---
 State a complex concept as a fenced `complex-concept` block and let Komet draw it: the concept, what it is a kind of, and its expansion, with what the specification still lacks listed beneath. Never draw it as a table or a list, and never write a composed expression into a statement: the point of a complex concept is that instance data names one concept (`arch-anf-precoordination`).
 
+## With a paired document
+
+When this conversation has a paired document, the block goes into the document, not your reply: insert it with `propose_block_insert` (kind `listing`, the text starting with the style line `[complex-concept]`), or change it with `propose_block_edit`, and answer in sentences saying what you added or changed, and why. Never restate the block in the reply. The tool's result ends with what Komet found in the document's structured blocks; correct those in this turn. With no paired document, state the block in your reply as below; if the person wants the decision kept, offer `create_document`.
+
+
 ## The block
 
 One line per vertex, two spaces of indentation per level; the concept tokens are the decision-tree block's, `k:Key[label] @id=<identity>`.

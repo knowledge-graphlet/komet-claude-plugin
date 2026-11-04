@@ -88,6 +88,14 @@ public final class DocumentNarratives {
     }
 
     /**
+     * @return the working tree the document card has opened this session, when it has opened exactly
+     *         one: a new document commits to it, so it is never a guess among several
+     */
+    public static Optional<Path> onlyWorkingTree() {
+        return WORKING_TREES.size() == 1 ? WORKING_TREES.stream().findFirst() : Optional.empty();
+    }
+
+    /**
      * The working tree holding a stored document: one the document card has opened whose file of
      * the recorded path is the document, by the identity the store minted for it.
      *

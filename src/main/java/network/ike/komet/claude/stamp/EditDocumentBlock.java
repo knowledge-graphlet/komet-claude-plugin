@@ -97,8 +97,8 @@ public final class EditDocumentBlock implements KometAction {
             return KometActionResult.refused(input, "The subject is not a block of a document.");
         }
         PublicId anchor = PrimitiveData.publicId(semantic.referencedComponentNid());
-        OptionalLong pendingAuthor = DocumentEditor.pendingAuthor(anchor);
-        if (pendingAuthor.isPresent() && pendingAuthor.getAsLong() != edit.getAuthorNidForChanges()) {
+        OptionalLong pendingAuthor = DocumentEditor.blockingAuthor(anchor, edit);
+        if (pendingAuthor.isPresent()) {
             return KometActionResult.refused(input, "An edit of this document by "
                     + StampNames.name(view, pendingAuthor.getAsLong())
                     + " is pending; it is committed in git or discarded before anyone else edits the document.");

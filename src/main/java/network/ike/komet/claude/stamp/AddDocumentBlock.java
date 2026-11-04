@@ -88,8 +88,8 @@ public final class AddDocumentBlock implements KometAction {
             return KometActionResult.refused(input, "Adding a block takes two fields: the new block's kind and its text.");
         }
         Optional<Block.Kind> kind = AsciiDocModelTerms.kindOf(kindConcept.publicId());
-        if (kind.isEmpty() || (kind.get() != Block.Kind.PARAGRAPH && kind.get() != Block.Kind.LISTING)) {
-            return KometActionResult.refused(input, "A new block is a paragraph or a listing.");
+        if (kind.isEmpty() || (kind.get() != Block.Kind.PARAGRAPH && kind.get() != Block.Kind.LISTING && kind.get() != Block.Kind.OPEN)) {
+            return KometActionResult.refused(input, "A new block is a paragraph, a listing or a structured open block.");
         }
         try {
             DocumentVocabulary.requirePresent();
@@ -103,8 +103,8 @@ public final class AddDocumentBlock implements KometAction {
             return KometActionResult.refused(input, "The subject is not a block of a document.");
         }
         PublicId anchor = PrimitiveData.publicId(semantic.referencedComponentNid());
-        OptionalLong pendingAuthor = DocumentEditor.pendingAuthor(anchor);
-        if (pendingAuthor.isPresent() && pendingAuthor.getAsLong() != edit.getAuthorNidForChanges()) {
+        OptionalLong pendingAuthor = DocumentEditor.blockingAuthor(anchor, edit);
+        if (pendingAuthor.isPresent()) {
             return KometActionResult.refused(input, "An edit of this document by "
                     + StampNames.name(view, pendingAuthor.getAsLong())
                     + " is pending; it is committed in git or discarded before anyone else edits the document.");

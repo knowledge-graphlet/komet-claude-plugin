@@ -99,6 +99,20 @@ public final class DecisionTreeWrites {
      * @return what was written, or why nothing was
      */
     public static Written write(String info, String body, ViewCalculator view, EditCoordinate edit) {
+        return write(info, body, view, edit, false);
+    }
+
+    /**
+     * Writes the tree a block states.
+     *
+     * @param info   the block's info string
+     * @param body   the block's text
+     * @param view   the view the block's identifiers are read under
+     * @param edit   whose change it is, in which module and on which path
+     * @param shared whether the block is on a paired document, whose two authors share one pending edit
+     * @return what was written, or why nothing was
+     */
+    public static Written write(String info, String body, ViewCalculator view, EditCoordinate edit, boolean shared) {
         DecisionTerms terms = DecisionTerms.fromBindings();
         BlockIdentities read = new BlockIdentities(new ViewIdentities(view));
         DecisionTreeText.Parsed first = DecisionTreeText.parse(body, terms, read);
@@ -153,7 +167,7 @@ public final class DecisionTreeWrites {
                         + concepts + "; uncommitted, commit to keep it.");
             }
             Versioned versioned = SemanticVersions.version(PrimitiveData.nid(semantic), IkePattern.DECISION_TREE_PATTERN.nid(),
-                    Lists.immutable.of(tree.source()), view, edit, "tree");
+                    Lists.immutable.of(tree.source()), view, edit, "tree", shared);
             if (versioned.refusal().isPresent()) {
                 cancel(writer);
                 return Written.refused(versioned.refusal().get());

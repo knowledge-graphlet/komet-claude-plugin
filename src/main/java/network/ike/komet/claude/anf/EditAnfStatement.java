@@ -36,6 +36,7 @@ import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.EntityProxy;
 import dev.ikm.tinkar.terms.State;
 import network.ike.foundation.ike.bindings.IkePattern;
+import network.ike.komet.claude.stamp.DocumentPairing;
 import network.ike.komet.claude.stamp.StampNames;
 import org.eclipse.collections.api.factory.Lists;
 
@@ -57,7 +58,8 @@ import java.util.Optional;
  * <p>Refused, with nothing written: a subject that is not an ANF statement, an input whose field
  * is not a tree, a tree that is not a well-formed statement, with every rule it breaks named, and a
  * statement whose pending edit is someone else's, since a change is never made on top of a change
- * nobody has settled. An unchanged tree completes with nothing written.
+ * nobody has settled, unless its block is on a paired document, whose two authors share one pending
+ * edit. An unchanged tree completes with nothing written.
  */
 public final class EditAnfStatement implements KometAction {
 
@@ -106,7 +108,7 @@ public final class EditAnfStatement implements KometAction {
         Optional<Transaction> pending = Optional.empty();
         if (head.uncommitted()) {
             long pendingAuthor = head.stamp().authorNid();
-            if (pendingAuthor != edit.getAuthorNidForChanges()) {
+            if (pendingAuthor != edit.getAuthorNidForChanges() && !DocumentPairing.pairedBlock(record.referencedComponentNid())) {
                 return KometActionResult.refused(input, "An edit of this statement by "
                         + StampNames.name(view, pendingAuthor)
                         + " is pending; it is committed or cancelled before anyone else edits the statement.");
@@ -121,7 +123,8 @@ public final class EditAnfStatement implements KometAction {
         Transaction transaction = pending.orElseGet(() ->
                 Transaction.make(concept().description() + " " + record.publicId().idString()));
         try {
-            StampEntity<?> stamp = transaction.getStamp(State.ACTIVE, edit.getAuthorNidForChanges(),
+            // a version pending on a paired document's shared edit is rewritten in place, whoever wrote it
+            StampEntity<?> stamp = head.uncommitted() ? head.stamp() : transaction.getStamp(State.ACTIVE, edit.getAuthorNidForChanges(),
                     head.moduleNid(), edit.getDefaultPathNid());
             SemanticRecord updated = record.with(new SemanticVersionRecord(record, stamp.nid(),
                     Lists.immutable.of(tree.get()))).build();
