@@ -79,6 +79,11 @@ public final class DecisionTreeLayout {
         /** The height of one terminal's row: room for a label above the run and one below. */
         double rowHeight();
 
+        /** How far beneath the top of its row a run lies: a surface with tall labels above stands it below them. */
+        default double runOffset() {
+            return rowHeight() / 2;
+        }
+
         /** The side of a square, the diameter of a circle. */
         double glyph();
 
@@ -234,7 +239,7 @@ public final class DecisionTreeLayout {
         }
 
         private double rowCentre(int row) {
-            return sizing.margin() + row * sizing.rowHeight() + sizing.rowHeight() / 2;
+            return sizing.margin() + row * sizing.rowHeight() + sizing.runOffset();
         }
 
         DecisionTreeLayout build() {

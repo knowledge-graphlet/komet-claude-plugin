@@ -51,7 +51,7 @@ import java.util.OptionalDouble;
  * base chose, what the next best alternative would cost less what the chosen one costs, so zero
  * is break-even and every flip of the root's choice sits on the zero line; when the root did not
  * decide at the base, the axis is the expected cost at the root. Round ticks with light gridlines
- * cross the bars, a dashed line marks the base case, and a title says what the axis measures. A
+ * cross the bars, a dashed line marks the base case, and a title across the chart says what the axis measures. A
  * bar spans the axis from the measure's lower end to its upper end, each end's value printed in
  * its own unit; it is solid when the block stated that range and hollow when the sweep assumed it.
  * Where the root's chosen alternative flips inside the range, the bar changes colour beyond the
@@ -529,9 +529,7 @@ final class TornadoChart extends Region {
 
     /** The height of the title above the axis at a width, and of the legend beneath the bars. */
     private double titleHeight(double width) {
-        double names = nameWidth();
-        double left = names + 10 + CAPTION_ROOM;
-        return axisTitle.prefHeight(Math.max(40, width - left - 4));
+        return axisTitle.prefHeight(Math.max(40, width - 4));
     }
 
     private double legendHeight(double width) {
@@ -609,7 +607,7 @@ final class TornadoChart extends Region {
         // the rooms beside the bars grow until every caption and threshold fits inside the chart
         double leftRoom = CAPTION_ROOM;
         double rightRoom = CAPTION_ROOM;
-        for (int pass = 0; pass < 3; pass++) {
+        for (int pass = 0; pass < 5; pass++) {
             barLeft = names + 10 + leftRoom;
             barWidth = Math.max(40, width - barLeft - rightRoom - 4);
             double overLeft = 0;
@@ -626,9 +624,10 @@ final class TornadoChart extends Region {
             leftRoom += Math.max(0, overLeft);
             rightRoom += Math.max(0, overRight);
         }
-        double titleWidth = Math.max(40, width - barLeft - 4);
+        // a sentence, so it takes the chart's whole width: over the bars alone it stands in a thin column
+        double titleWidth = Math.max(40, width - 4);
         double titleH = axisTitle.prefHeight(titleWidth);
-        axisTitle.resizeRelocate(barLeft, 0, titleWidth, titleH);
+        axisTitle.resizeRelocate(0, 0, titleWidth, titleH);
         double axisY = titleH;
         double baseX = x(net ? sweep.baseNet() : sweep.baseRoot());
         // round ticks, skipping any label an earlier one would cover

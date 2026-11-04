@@ -102,7 +102,7 @@ class DecisionTreeDiagramTest {
     }
 
     /** A host that labels concepts plainly and records what the diagram asks of it. */
-    static final class Recording implements DecisionTreeDiagram.Host {
+    static class Recording implements DecisionTreeDiagram.Host {
         final List<String> edits = new ArrayList<>();
         final List<Integer> toggles = new ArrayList<>();
         final List<String> hovered = new ArrayList<>();
@@ -157,6 +157,27 @@ class DecisionTreeDiagramTest {
             }
             assertTrue(diagram.drawnWidthProperty().get() > 400, "wide enough for five columns of labels");
             assertTrue(diagram.drawnHeightProperty().get() > 7 * 30);
+        });
+    }
+
+    @Test
+    @DisplayName("A name that wraps tall stands above its run, inside the drawing, in the top row as in any other")
+    void aTallNameStaysInTheDrawing() throws Exception {
+        onFx(() -> {
+            DecisionTreeDiagram diagram = drawn(new Recording() {
+                @Override
+                public Optional<Node> concept(OptionalLong nid) {
+                    Label name = new Label("a concept named at such length that it wraps " + nid);
+                    name.setWrapText(true);
+                    name.setPrefWidth(40);
+                    return Optional.of(name);
+                }
+            }, new HashSet<>());
+            for (var run : diagram.geometry().runs()) {
+                Node above = diagram.labelOf(run.vertexIndex(), true).orElseThrow();
+                assertTrue(above.getLayoutY() >= 0, "above the drawing's top by " + -above.getLayoutY());
+                assertTrue(above.getLayoutY() + above.prefHeight(above.prefWidth(-1)) <= run.y(), "stands above its run");
+            }
         });
     }
 

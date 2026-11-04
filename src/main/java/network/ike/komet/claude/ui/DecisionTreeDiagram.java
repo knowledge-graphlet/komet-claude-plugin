@@ -140,8 +140,6 @@ final class DecisionTreeDiagram extends Region {
     private final Map<Integer, Node> branchBelow = new HashMap<>();
     /** The most lines any run or outcome stacks beneath itself, which every row makes room for. */
     private int belowLines = 1;
-    /** The tallest label above any run, a wrapped name among them, which every row makes room for. */
-    private double aboveHeight;
     private final Map<Integer, Polyline> runs = new HashMap<>();
     private final Map<Integer, Node> bars = new HashMap<>();
     private final Map<Integer, Node> glyphs = new HashMap<>();
@@ -349,7 +347,6 @@ final class DecisionTreeDiagram extends Region {
         }
         branchAbove.put(index, above);
         getChildren().add(above);
-        aboveHeight = Math.max(aboveHeight, heightOf(above));
 
         // stacked beneath the run: how many go that way, then the priced costs, then the counted ones;
         // height is cheap on a scrolling surface and width is what the tree runs out of
@@ -763,11 +760,22 @@ final class DecisionTreeDiagram extends Region {
 
     // ── Laying the parts out on the geometry ─────────────────────────────────
 
+    /** The tallest label above any run: a name wraps at the cap it is fitted to, and every row makes room for it. */
+    private double aboveHeight() {
+        return branchAbove.values().stream().mapToDouble(DecisionTreeDiagram::heightOf).max().orElse(0);
+    }
+
     private DecisionTreeLayout.Sizing sizing() {
+        double above = Math.max(lineHeight, aboveHeight());
         return new DecisionTreeLayout.Sizing() {
             @Override
             public double rowHeight() {
-                return Math.max(lineHeight, aboveHeight) + lineHeight * Math.max(1, belowLines) + 10;
+                return above + lineHeight * Math.max(1, belowLines) + 10;
+            }
+
+            @Override
+            public double runOffset() {
+                return above + 4;
             }
 
             @Override

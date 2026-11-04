@@ -1248,6 +1248,11 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
             }
 
             @Override
+            public List<PageStackView.Placed> backdrops(int page) {
+                return surface.backdropsOn(page, pageGeometry.contentLeft(), pageGeometry.contentWidth());
+            }
+
+            @Override
             public List<PageStackView.Placed> lines(int page) {
                 return surface.linesOn(page, pageGeometry.contentLeft(), pageGeometry.contentWidth(), 0);
             }

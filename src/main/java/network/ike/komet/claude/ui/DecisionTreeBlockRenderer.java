@@ -429,7 +429,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                     lastSweep = landed.get();
                     tornado = new TornadoChart(landed.get(), base, this);
                     tornado.setId("tornado-chart");
-                    section.getChildren().add(tornado);
+                    section.getChildren().add(new FittedFigure(tornado, base, base * TORNADO_LEAST_EMS));
                     markFlips(landed.get());
                 });
             });
@@ -525,7 +525,6 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                 Label title = new Label(DecisionTreeFigures.ledgerTitle(cohort, drawn.decision().isPresent()));
                 title.setFont(Font.font(null, FontWeight.BOLD, base * 0.85));
                 title.setPadding(new Insets(4, 0, 0, 0));
-                top.getChildren().add(title);
                 GridPane grid = new GridPane();
                 grid.setId("decision-tree-ledger");
                 grid.setHgap(14);
@@ -540,10 +539,16 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                         Label cell = new Label(row.get(c));
                         cell.setFont(Font.font(null, chosenRow ? FontWeight.BOLD : FontWeight.NORMAL, base * 0.85));
                         cell.setStyle(header ? "-fx-text-fill: #666; -fx-font-style: italic;" : chosenRow ? "-fx-text-fill: #1f3b73;" : "");
+                        // a name wraps between its words, a little over the widest since the style draws it wider;
+                        // a number or a single word is read whole, or not at all
+                        boolean words = (header || c == 0) && row.get(c).strip().contains(" ");
+                        cell.setWrapText(words);
+                        cell.setMinWidth(words ? 1.25 * KonceptChips.widestWord(row.get(c), cell.getFont()) : Region.USE_PREF_SIZE);
                         grid.add(cell, c, r);
                     }
                 }
-                top.getChildren().add(grid);
+                // a table of whole names, not the column's: it takes the margins, and wraps a cell before it ellipsises one
+                top.getChildren().add(new FittedFigure(new VBox(2, title, grid), base, 0));
             }
             // the readouts: what the choice trades, money and health apart, and where a cohort ends up
             for (String readout : DecisionTreeFigures.readoutLines(drawn, rollback, shown, symbol(), healthUnit, cohort,
@@ -590,9 +595,11 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         }
 
         /** The title row: what the tree decides, its value, and the health price the reader may move. */
-        private HBox header(DecisionTree drawn, Rollback rollback, double at) {
-            HBox header = new HBox(8);
+        private FlowPane header(DecisionTree drawn, Rollback rollback, double at) {
+            // wraps as the parameters do: on one row its parts ellipsise down to nothing in a narrow column
+            FlowPane header = new FlowPane(8, 4);
             header.setAlignment(Pos.CENTER_LEFT);
+            header.prefWrapLengthProperty().bind(column.widthProperty().subtract(4));
             Label title = new Label("Decision tree");
             title.setFont(Font.font(null, FontWeight.BOLD, base));
             header.getChildren().add(title);
@@ -821,8 +828,8 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                 return Optional.empty();
             }
             if (ids.isLocal(nid.getAsLong())) {
-                return Optional.of(specified(cappedLocal(localConcept(ids.label(nid.getAsLong())), base * cap(), wrap),
-                        nid.getAsLong()));
+                Label local = localConcept(ids.label(nid.getAsLong()));
+                return Optional.of(specified(cappedLocal(local, cap(local, local.getText(), wrap), wrap), nid.getAsLong()));
             }
             Optional<PublicId> pid = ComponentText.publicId(nid.getAsLong());
             if (pid.isEmpty()) {
@@ -836,7 +843,13 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                 badge.setStatusSlotReserved(true);
             }
             // a column is as wide as its widest name: a long one wraps on a run, ellipsises on a node, and opens whole on a click
-            return Optional.of(specified(KonceptChips.capped(chip, base * cap(), wrap), nid.getAsLong()));
+            return Optional.of(specified(KonceptChips.capped(chip, cap(chip, shown.label(nid.getAsLong()), wrap), wrap), nid.getAsLong()));
+        }
+
+        /** The widest a chip may be: the fitted cap, or wider where that would stand a wrapped name in a thin column. */
+        private double cap(Node chip, String name, boolean wrap) {
+            double cap = base * cap();
+            return wrap ? KonceptChips.balancedCap(cap, KonceptChips.naturalWidth(chip), name, base * CHIP_CHROME_EMS) : cap;
         }
 
         /** How wide a name may be, in ems: the fitted cap in the drawing, the full one elsewhere. */
@@ -1231,7 +1244,11 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
     /** The widest a concept's chip may be in the drawing, in ems of the base size; a longer name ellipsises. */
     private static final double CHIP_EMS = 16;
     /** The narrowest a name is drawn to fit a tree to its region; narrower still, the tree is scaled. */
-    private static final double MIN_CHIP_EMS = 5;
+    private static final double MIN_CHIP_EMS = 8;
+    /** The narrowest the chart is laid out, in ems: narrower, its bars have no room between names and values, and it scales. */
+    private static final double TORNADO_LEAST_EMS = 38;
+    /** What a chip takes beside its name, in ems: its identicon, status mark and padding. */
+    private static final double CHIP_CHROME_EMS = 3;
 
     /** A local concept's chip no wider than a cap: a long name wraps on a run and ellipsises on a node, as a badge does. */
     private static Label cappedLocal(Label chip, double cap, boolean wrap) {

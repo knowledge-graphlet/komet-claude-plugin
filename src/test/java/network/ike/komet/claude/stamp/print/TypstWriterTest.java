@@ -93,6 +93,21 @@ class TypstWriterTest {
     }
 
     @Test
+    void aStructuredOpenBlockIsOneBlockOfSource() {
+        var blocks = StoredDocumentModel.of(StoredFixture.parse(HEADER + """
+                [complex-concept]
+                --
+                concept: k:A[a]
+                  focus: k:B[b]
+                  requisite: k:C[c]
+                --
+                """)).blocks();
+        assertEquals(1, blocks.size(), blocks.toString());
+        var source = assertInstanceOf(DocumentModel.Verbatim.class, blocks.getFirst());
+        assertEquals("concept: k:A[a]\n  focus: k:B[b]\n  requisite: k:C[c]", source.text());
+    }
+
+    @Test
     void headingsByLevel() {
         String typst = body("""
                 == Section One

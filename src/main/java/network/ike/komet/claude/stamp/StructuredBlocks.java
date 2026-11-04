@@ -189,6 +189,27 @@ public final class StructuredBlocks {
     }
 
     /**
+     * The lines between a block's fences, which is what it says: the block's source without its
+     * attribute line, its title or the fences themselves.
+     *
+     * @param document the block's document
+     * @param block    the block
+     * @return the lines
+     */
+    public static List<StoredLine> content(StoredDocument document, StoredBlock block) {
+        List<StoredLine> all = lines(document, block);
+        int first = -1;
+        int last = -1;
+        for (int i = 0; i < all.size(); i++) {
+            if (StructuredBlockKind.Source.isFence(all.get(i).text())) {
+                first = first < 0 ? i : first;
+                last = i;
+            }
+        }
+        return first < 0 ? all : all.subList(first + 1, last > first ? last : all.size());
+    }
+
+    /**
      * Every line of a block in document order, its children's included, the members being in
      * document order: an open block's content is read as AsciiDoc, so its lines sit in child
      * blocks, while a listing holds its own.

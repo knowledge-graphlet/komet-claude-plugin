@@ -568,9 +568,28 @@ public final class ClaudeCard extends AbstractHostCard {
             LOG.warn("No journal topic; cannot open the document beside the assistant");
             return;
         }
+        narrowForPair();
         EvtBusFactory.getDefaultEvtBus().publish(journalTopic, new MakeCardWindowEvent(this, MakeCardWindowEvent.CREATE_NEW,
-                network.ike.komet.claude.stamp.StampedDocumentCard.Factory.class.getName(), fxObject(), -1, -1,
+                network.ike.komet.claude.stamp.StampedDocumentCard.Factory.class.getName(), fxObject(),
+                network.ike.komet.claude.doc.ReadingMeasure.documentWindow(MarkdownRichText.DEFAULT_BASE), fxObject().getHeight(),
                 card -> Platform.runLater(() -> ((network.ike.komet.claude.stamp.StampedDocumentCard) card).openReading(anchor))));
+    }
+
+    /**
+     * With a document beside it the card holds only the conversation: a single column at its
+     * measure, the conversations a click on ☰ away. Set now, not at the next layout, so the document
+     * opens at the edge the card is about to have. A card already narrower keeps its width.
+     */
+    private void narrowForPair() {
+        if (railVisible) {
+            preferences().put(PREF_RAIL_VISIBLE, Boolean.FALSE.toString());
+            showRail(false);
+        }
+        double width = network.ike.komet.claude.doc.ReadingMeasure.assistantWindow(baseFontSize);
+        if (fxObject().getWidth() > width) {
+            fxObject().setPrefWidth(width);
+            fxObject().resize(width, fxObject().getHeight());
+        }
     }
 
     /** The menu of the conversation's paired document: open one beside the assistant, or stop pairing it. */
@@ -1662,7 +1681,7 @@ public final class ClaudeCard extends AbstractHostCard {
         });
         setCardContent(content);
 
-        setRailVisible(railVisible);
+        showRail(railVisible);
         // SplitPane ignores a divider position set before layout; re-apply once shown.
         Platform.runLater(() -> {
             if (railVisible) {
@@ -2062,6 +2081,12 @@ public final class ClaudeCard extends AbstractHostCard {
     }
 
     private void setRailVisible(boolean visible) {
+        showRail(visible);
+        preferences().put(PREF_RAIL_VISIBLE, Boolean.toString(visible));
+        userPreferences().put(PREF_RAIL_VISIBLE, Boolean.toString(visible));
+    }
+
+    private void showRail(boolean visible) {
         railVisible = visible;
         if (split == null) {
             return;   // applied by buildBody once the body exists
@@ -2082,11 +2107,11 @@ public final class ClaudeCard extends AbstractHostCard {
             }
             split.getItems().remove(conversationRail);
         }
-        userPreferences().put(PREF_RAIL_VISIBLE, Boolean.toString(visible));
     }
 
+    /** This card's own choice, a card narrowed beside a document among them, else the person's. */
     private boolean readRailVisiblePref() {
-        return !"false".equals(userPreferences().get(PREF_RAIL_VISIBLE, "true"));
+        return !"false".equals(preferences().get(PREF_RAIL_VISIBLE, userPreferences().get(PREF_RAIL_VISIBLE, "true")));
     }
 
     private double readRailDividerPref() {

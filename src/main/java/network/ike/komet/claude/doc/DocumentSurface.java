@@ -77,6 +77,10 @@ public final class DocumentSurface extends BorderPane {
     /** The grid's track count: margins and body are expressed as tracks of it. */
     public static final int TRACKS = 12;
 
+    /** A block's row, when the margin regions are on. */
+    private static final String ROW_STYLE = "doc-block-row";
+    /** The gap between a row's columns, px. */
+    private static final double ROW_GAP = 8;
     /** Vertical gap between stacked blocks, px. */
     private static final double BLOCK_SPACING = 6;
     /** Extra gap above a turn header, px (separates turns more strongly than blocks). */
@@ -269,14 +273,36 @@ public final class DocumentSurface extends BorderPane {
         return stacked;
     }
 
+    /**
+     * What a figure in a block's body may take from the margins either side, the {@code full-bleed}
+     * of the family's grid. Answered from the body's width, not the row's, so a figure asked for
+     * its height at a new width need not wait for the row to take that width.
+     *
+     * @param node      a node in the block's body
+     * @param bodyWidth the width the body is given
+     * @return the room to the left and right, none when the node is not in a row with margins
+     */
+    public static Insets bleedBeside(Node node, double bodyWidth) {
+        for (Node at = node; at != null; at = at.getParent()) {
+            if (at instanceof GridPane row && row.getStyleClass().contains(ROW_STYLE)) {
+                double left = row.getColumnConstraints().get(0).getPercentWidth();
+                double body = row.getColumnConstraints().get(1).getPercentWidth();
+                double right = row.getColumnConstraints().get(2).getPercentWidth();
+                return new Insets(0, right > 0 ? bodyWidth * right / body + ROW_GAP : 0,
+                        0, left > 0 ? bodyWidth * left / body + ROW_GAP : 0);
+            }
+        }
+        return Insets.EMPTY;
+    }
+
     private Node stackRow(DocumentBlock block) {
         if (leftTracks == 0 && rightTracks == 0) {
             block.setRow(null);
             return block.node();
         }
         GridPane row = new GridPane();
-        row.getStyleClass().add("doc-block-row");
-        row.setHgap(8);
+        row.getStyleClass().add(ROW_STYLE);
+        row.setHgap(ROW_GAP);
         ColumnConstraints left = new ColumnConstraints();
         left.setPercentWidth(100.0 * leftTracks / TRACKS);
         ColumnConstraints body = new ColumnConstraints();

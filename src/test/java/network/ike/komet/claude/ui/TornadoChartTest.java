@@ -15,6 +15,8 @@
  */
 package network.ike.komet.claude.ui;
 
+import javafx.scene.Node;
+import javafx.scene.control.Label;
 import javafx.application.Platform;
 import javafx.scene.Scene;
 import javafx.scene.input.MouseButton;
@@ -134,6 +136,27 @@ class TornadoChartTest {
         root.applyCss();
         root.layout();
         return chart;
+    }
+
+    @Test
+    @DisplayName("A narrow chart keeps every label inside it and its title across it, not in a thin column over the bars")
+    void narrowChartStaysBalanced() throws Exception {
+        onFx(() -> {
+            TornadoChart chart = drawn(new Recording());
+            chart.resize(34 * 14, chart.prefHeight(34 * 14));
+            chart.layout();
+            Label title = chart.getChildrenUnmodifiable().stream()
+                    .filter(n -> n instanceof Label l && l.isWrapText() && !l.getText().startsWith("\u2192"))
+                    .map(Label.class::cast).findFirst().orElseThrow();
+            assertEquals(0, title.getLayoutX(), 1e-9, "the title starts at the chart's edge");
+            assertTrue(title.getHeight() < 4 * 14 * 1.5, "two or three lines, not a column: " + title.getHeight());
+            for (Node child : chart.getChildrenUnmodifiable()) {
+                if (child instanceof Label label && label.isVisible() && label.getText() != null && label.getText().startsWith("flips")) {
+                    assertTrue(label.getLayoutX() + label.getWidth() <= chart.getWidth() + 1,
+                            label.getText() + " runs past the chart");
+                }
+            }
+        });
     }
 
     @Test

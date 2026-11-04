@@ -80,6 +80,16 @@ final class PageStackView extends ScrollPane {
         /** @return the line areas on a page, in order */
         List<Placed> lines(int page);
 
+        /**
+         * What stands behind a page's lines, such as a listing's tint.
+         *
+         * @param page the page
+         * @return the nodes, in the order they stack
+         */
+        default List<Placed> backdrops(int page) {
+            return List.of();
+        }
+
         /** @return the marginalia on a page */
         List<Mark> marginalia(int page);
 
@@ -275,6 +285,11 @@ final class PageStackView extends ScrollPane {
         sheet.getChildren().clear();
         furnish(sheet, page);
         MarginPreset m = settings.margins();
+        for (Placed placed : content.backdrops(page)) {
+            placed.node().setManaged(false);
+            ((Region) placed.node()).resizeRelocate(placed.x(), placed.baseline() - placed.ascent(), placed.width(), placed.height());
+            sheet.getChildren().add(placed.node());
+        }
         for (Placed placed : content.lines(page)) {
             Node node = placed.node();
             node.setManaged(false);

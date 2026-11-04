@@ -212,6 +212,50 @@ final class KonceptChips {
     }
 
     /**
+     * The cap for a name that wraps, widened where the cap alone would stand it in a thin, tall
+     * column: never so narrow that a word breaks, nor that the name runs past three lines. Width
+     * is what a tree runs short of, but a name split letter by letter saves it at the price of
+     * reading, and the height it takes comes out of every row.
+     *
+     * @param capPx     the cap the host asks for
+     * @param naturalPx the chip's width on one line
+     * @param name      the name it shows
+     * @param chromePx  what the chip takes beside its name: its identicon, status and padding
+     * @return the cap to wrap at
+     */
+    static double balancedCap(double capPx, double naturalPx, String name, double chromePx) {
+        if (name == null || name.isBlank()) {
+            return capPx;
+        }
+        double text = Math.max(0, naturalPx - chromePx);
+        double perCharacter = text / name.length();
+        int longestWord = java.util.Arrays.stream(name.split("\\s+")).mapToInt(String::length).max().orElse(0);
+        // lines break short of their width, so a little over an even share
+        double line = Math.max(longestWord * perCharacter, 1.15 * text / MOST_LINES);
+        return Math.max(capPx, chromePx + line);
+    }
+
+    /**
+     * The width of the widest word of a text, the least a label that wraps it can be.
+     *
+     * @param text the text
+     * @param font the font it is drawn in
+     * @return the width, in pixels
+     */
+    static double widestWord(String text, javafx.scene.text.Font font) {
+        double widest = 0;
+        for (String word : text.split("\\s+")) {
+            javafx.scene.text.Text probe = new javafx.scene.text.Text(word);
+            probe.setFont(font);
+            widest = Math.max(widest, probe.getLayoutBounds().getWidth());
+        }
+        return Math.ceil(widest);
+    }
+
+    /** The most lines a wrapped name runs to. */
+    private static final int MOST_LINES = 3;
+
+    /**
      * How wide a chip will draw, measured before it is shown: a label has no skin until it is in a
      * scene, so its own preferred width is only its padding, and a chip is measured by its text
      * in the label's font instead. Once shown, the node's own preferred width.

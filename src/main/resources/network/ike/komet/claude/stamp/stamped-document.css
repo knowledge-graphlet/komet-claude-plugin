@@ -170,3 +170,10 @@
 .stamped-document-graph .stamped-document-graph-cell.edge {
     -fx-padding: 1 6 1 2;
 }
+
+/* A page line lies on the sheet, or on its listing's tint: the control's own content layer is white. */
+.stamped-page-line,
+.stamped-page-line .content,
+.stamped-page-line .vflow {
+    -fx-background-color: transparent;
+}

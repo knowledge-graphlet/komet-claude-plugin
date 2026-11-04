@@ -19,6 +19,7 @@ import design.knowledge.stamp.adoc.dialect.Block;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredBlock;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredDocument;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredLine;
+import network.ike.komet.claude.stamp.StructuredBlocks;
 import network.ike.komet.claude.stamp.print.DocumentModel.Admonition;
 import network.ike.komet.claude.stamp.print.DocumentModel.Container;
 import network.ike.komet.claude.stamp.print.DocumentModel.Heading;
@@ -178,6 +179,12 @@ public final class StoredDocumentModel {
     }
 
     private void block(StoredBlock block, List<DocumentModel.Block> out) {
+        if (block.kind() == Block.Kind.OPEN && StructuredBlocks.kindOf(block).isPresent()) {
+            // one block of source, as a listing is: the parser's paragraphs of it are not paragraphs
+            out.add(new Verbatim(block.title(), String.join("\n",
+                    StructuredBlocks.content(document, block).stream().map(StoredLine::text).toList())));
+            return;
+        }
         List<StoredLine> own = ownLines(block);
         List<StoredBlock> children = childBlocks(block);
         switch (block.kind()) {

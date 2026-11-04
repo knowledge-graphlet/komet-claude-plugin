@@ -16,6 +16,7 @@
 package network.ike.komet.claude.ui;
 
 import javafx.application.Platform;
+import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
 import javafx.scene.Cursor;
 import javafx.scene.control.Label;
@@ -23,6 +24,7 @@ import javafx.scene.control.Tooltip;
 import javafx.scene.layout.Region;
 import javafx.scene.text.Font;
 import javafx.scene.transform.Scale;
+import network.ike.komet.claude.doc.DocumentSurface;
 
 import java.util.function.DoubleConsumer;
 
@@ -30,8 +32,9 @@ import java.util.function.DoubleConsumer;
  * A figure that fits its region: drawn at its natural size when that fits, scaled down
  * uniformly when it is wider, and never scrolled sideways, since a surface has one scroll axis
  * (ike-lab-documents {@code dev-interaction-surface-family}, "Scroll discipline";
- * {@code dev-decision-document}). A scaled figure shows a mark at its top right that opens it
- * whole, the full-surface escape.
+ * {@code dev-decision-document}). In a block of a document with margins a wider figure first
+ * stands out into them, the grid's {@code full-bleed}, and only then scales. A scaled figure shows
+ * a mark at its top right that opens it whole, the full-surface escape.
  *
  * <p>The figure is told each width it is given, once laid out, so it may first draw itself more
  * compactly before it is scaled.
@@ -41,6 +44,9 @@ final class FittedFigure extends Region {
     private final Scale scale = new Scale(1, 1, 0, 0);
     private final Label expand;
     private final DoubleConsumer widthGiven;
+    /** The narrowest the figure reflows to before it scales; a figure that does not reflow has its natural width. */
+    private final double least;
+    private final boolean escapable;
     private double toldWidth = -1;
 
     /**
@@ -50,8 +56,26 @@ final class FittedFigure extends Region {
      * @param escape     opens the figure whole
      */
     FittedFigure(Region figure, double base, DoubleConsumer widthGiven, Runnable escape) {
+        this(figure, base, widthGiven, escape, Double.MAX_VALUE);
+    }
+
+    /**
+     * A figure that lays itself out at any width down to a least one, as a chart or a table does,
+     * and is scaled only below that.
+     *
+     * @param figure the figure
+     * @param base   the surface's base font size
+     * @param least  the narrowest it is laid out, in points
+     */
+    FittedFigure(Region figure, double base, double least) {
+        this(figure, base, width -> { }, null, least);
+    }
+
+    private FittedFigure(Region figure, double base, DoubleConsumer widthGiven, Runnable escape, double least) {
         this.figure = figure;
         this.widthGiven = widthGiven;
+        this.least = least;
+        this.escapable = escape != null;
         figure.getTransforms().add(scale);
         expand = new Label("⤢");
         expand.setId("decision-tree-expand");
@@ -60,7 +84,9 @@ final class FittedFigure extends Region {
         expand.setCursor(Cursor.HAND);
         expand.setTooltip(new Tooltip("Open the whole figure, at full size"));
         expand.setOnMouseClicked(e -> {
-            escape.run();
+            if (escape != null) {
+                escape.run();
+            }
             e.consume();
         });
         expand.setVisible(false);
@@ -82,8 +108,21 @@ final class FittedFigure extends Region {
         return Math.max(1, figure.prefWidth(-1));
     }
 
+    /** The width the figure is laid out at for a region's: what there is, within its least and natural widths. */
+    private double laidOut(double width) {
+        double natural = natural();
+        double floor = Math.min(Math.max(least, figure.minWidth(-1)), natural);
+        return width > 0 ? Math.max(Math.min(natural, available(width)), floor) : natural;
+    }
+
+    /** The figure's width at a region's: the region's, and what it may take from the margins beside it. */
+    private double available(double width) {
+        Insets bleed = DocumentSurface.bleedBeside(this, width);
+        return width + bleed.getLeft() + bleed.getRight();
+    }
+
     private double scaleAt(double width) {
-        return width > 0 ? Math.min(1, width / natural()) : 1;
+        return width > 0 ? Math.min(1, available(width) / laidOut(width)) : 1;
     }
 
     @Override
@@ -98,7 +137,7 @@ final class FittedFigure extends Region {
 
     @Override
     protected double computePrefHeight(double width) {
-        return figure.prefHeight(natural()) * scaleAt(width);
+        return figure.prefHeight(laidOut(width)) * scaleAt(width);
     }
 
     @Override
@@ -109,17 +148,22 @@ final class FittedFigure extends Region {
     @Override
     protected void layoutChildren() {
         double width = getWidth();
-        double natural = natural();
+        double natural = laidOut(width);
         double s = scaleAt(width);
-        figure.resizeRelocate(0, 0, natural, figure.prefHeight(natural));
+        Insets bleed = DocumentSurface.bleedBeside(this, width);
+        // a figure that fits stays with the column; a wider one stands into the margins evenly
+        double over = natural * s - width;
+        double x = over > 0 ? -Math.min(bleed.getLeft(), over / 2) : 0;
+        figure.resizeRelocate(x, 0, natural, figure.prefHeight(natural));
         scale.setX(s);
         scale.setY(s);
-        expand.setVisible(s < 0.999);
+        expand.setVisible(s < 0.999 && escapable);
         double w = expand.prefWidth(-1);
-        expand.resizeRelocate(Math.max(0, width - w), 0, w, expand.prefHeight(w));
-        if (width > 0 && Math.abs(width - toldWidth) > 0.5) {
-            toldWidth = width;
-            Platform.runLater(() -> widthGiven.accept(width));
+        expand.resizeRelocate(Math.max(0, width + bleed.getRight() - w), 0, w, expand.prefHeight(w));
+        double given = available(width);
+        if (width > 0 && Math.abs(given - toldWidth) > 0.5) {
+            toldWidth = given;
+            Platform.runLater(() -> widthGiven.accept(given));
         }
     }
 }

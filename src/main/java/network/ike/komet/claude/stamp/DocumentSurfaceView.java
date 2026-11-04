@@ -397,6 +397,8 @@ final class DocumentSurfaceView {
         long highlightedStamp;
         /** A ledger chunk's line numbers in its member's file, 1-based, parallel to {@link #lines}. */
         int[] numbers;
+        /** In the Page layout: whether this line is a listing's, which draws on the listing's one tint. */
+        boolean listing;
         /** In the Page layout: the top-level block of the print model this area belongs to, or -1. */
         int modelOrdinal = -1;
         /** In the Page layout: whether the area is prose that may split across pages. */
@@ -669,14 +671,20 @@ final class DocumentSurfaceView {
                 }
             }
         }
-        if (!print && block.kind() == Block.Kind.OPEN && StructuredBlocks.kindOf(block).isPresent()) {
-            // a structured open block, [anf] over --, reads as a listing does: its source, then its kind's control
-            List<StoredLine> all = StructuredBlocks.lines(document, block);
-            Area area = add(member, block, all, paragraphs(all, "", st.mono(), null), depth, true, section);
+        if (block.kind() == Block.Kind.OPEN && StructuredBlocks.kindOf(block).isPresent()) {
+            // a structured open block, [anf] over --, reads as a listing does: its source, then its kind's control;
+            // on the page its source alone, as one block
+            if (print && nesting == 0) {
+                modelOrdinal++;
+            }
+            List<StoredLine> all = print ? StructuredBlocks.content(document, block) : StructuredBlocks.lines(document, block);
+            Area area = add(member, block, all, paragraphs(all, "", st.mono(), null), depth, !print, section);
             if (area != null) {
                 area.area.setStyle("-fx-background-color: #F4F3F1; -fx-background-radius: 4;");
                 title(area, block);
-                attachStructured(area, document, block);
+                if (!print) {
+                    attachStructured(area, document, block);
+                }
             }
             return;
         }
@@ -848,6 +856,14 @@ final class DocumentSurfaceView {
         }
     }
 
+    /** What a block is on the page: a structured open block prints as a listing does. */
+    private static Block.Kind printKind(StoredBlock block) {
+        if (block == null) {
+            return Block.Kind.PARAGRAPH;
+        }
+        return block.kind() == Block.Kind.OPEN && StructuredBlocks.kindOf(block).isPresent() ? Block.Kind.LISTING : block.kind();
+    }
+
     /** The lines the print model keeps of a block: not its attribute, anchor, block-title or comment lines. */
     private static List<StoredLine> printable(List<StoredLine> lines) {
         return lines.stream().filter(l -> {
@@ -1009,7 +1025,7 @@ final class DocumentSurfaceView {
         area.holder.getChildren().add(area.area);
         if (print) {
             area.modelOrdinal = modelOrdinal;
-            Block.Kind kind = block == null ? Block.Kind.PARAGRAPH : block.kind();
+            Block.Kind kind = printKind(block);
             area.splittable = kind == Block.Kind.PARAGRAPH || kind == Block.Kind.LIST_ITEM || kind == Block.Kind.BIBLIOGRAPHY_ENTRY || kind == Block.Kind.ADMONITION;
             area.heading = area.heading || kind == Block.Kind.SECTION;
             area.holder.setPadding(printSpacing(kind, spec));
@@ -1163,7 +1179,7 @@ final class DocumentSurfaceView {
         network.ike.komet.claude.stamp.print.LayoutOracle.Kind previous = null;
         for (int i = 0; i < units.size(); i++) {
             Area area = units.get(i);
-            Block.Kind blockKind = area.block == null ? Block.Kind.PARAGRAPH : area.block.kind();
+            Block.Kind blockKind = printKind(area.block);
             network.ike.komet.claude.stamp.print.LayoutOracle.Kind kind = area.heading
                     ? (blockKind == Block.Kind.DOCUMENT ? network.ike.komet.claude.stamp.print.LayoutOracle.Kind.TITLE
                     : network.ike.komet.claude.stamp.print.LayoutOracle.Kind.HEADING)
@@ -1241,9 +1257,11 @@ final class DocumentSurfaceView {
                 area.x = line.x();
                 area.baseline = line.baseline();
                 area.whole = whole;
-                // No chrome of the control's own on a page line: the sheet is the paper; a listing keeps its tint.
-                String tint = unitArea.area.getStyle() != null && unitArea.area.getStyle().contains("#F4F3F1") ? "#F4F3F1" : "transparent";
-                area.area.setStyle("-fx-background-color: " + tint + "; -fx-background-insets: 0; -fx-background-radius: 0; -fx-border-width: 0; -fx-padding: 0;");
+                // No chrome of the control's own on a page line: the sheet is the paper. A listing's tint is one
+                // block behind its lines, as Typst draws it: a line is taller than its pitch, and painted line by
+                // line each covers the one above.
+                area.listing = unitArea.area.getStyle() != null && unitArea.area.getStyle().contains("#F4F3F1");
+                area.area.setStyle("-fx-background-color: transparent; -fx-background-insets: 0; -fx-background-radius: 0; -fx-border-width: 0; -fx-padding: 0;");
                 area.area.getStyleClass().add("stamped-page-line");
                 area.area.setId("stampedDocumentPageLine" + pages.size());
                 checkLine(area, line, unit, spec);
@@ -1323,6 +1341,32 @@ final class DocumentSurfaceView {
         return "page lines: " + linesChecked + " laid, " + linesTextMismatch + " drawing other text than Typst's line, " + linesLeftOfMeasure
                 + " starting left of the measure" + (lineFindings.isEmpty() ? "" : "\n  " + String.join("\n  ", lineFindings));
     }
+
+    /** @return the tint behind each listing on a page: Typst's block, its fill and its inset, the lines drawn over it */
+    List<PageStackView.Placed> backdropsOn(int page, double contentLeft, double contentWidth) {
+        Map<Integer, double[]> spans = new java.util.LinkedHashMap<>();
+        for (Area area : pages) {
+            if (area.page == page && area.listing) {
+                double[] m = metrics(area.spec.paragraphs().getFirst().style());
+                double top = area.baseline - m[0];
+                double bottom = top + m[1];
+                spans.merge(area.unit, new double[] {top, bottom},
+                        (a, b) -> new double[] {Math.min(a[0], b[0]), Math.max(a[1], b[1])});
+            }
+        }
+        List<PageStackView.Placed> out = new ArrayList<>();
+        for (double[] span : spans.values()) {
+            Region tint = new Region();
+            tint.setMouseTransparent(true);
+            tint.setStyle("-fx-background-color: rgb(247,247,247); -fx-background-radius: 3;");
+            double top = span[0] - LISTING_INSET;
+            out.add(new PageStackView.Placed(tint, contentLeft, top, 0, contentWidth, span[1] + LISTING_INSET - top, false));
+        }
+        return out;
+    }
+
+    /** The inset of a listing's block on a page, in points, what the Typst writer gives {@code raw}. */
+    private static final double LISTING_INSET = 8;
 
     /** @return the line areas on a page, placed for the page stack */
     List<PageStackView.Placed> linesOn(int page, double contentLeft, double contentWidth, double unitPitch) {

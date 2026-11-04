@@ -216,7 +216,7 @@ public interface StructuredBlockKind {
             return new int[] {open, close};
         }
 
-        private static boolean isFence(String line) {
+        static boolean isFence(String line) {
             String stripped = line.strip();
             return (stripped.length() >= 4 || stripped.length() == 2) && stripped.chars().allMatch(c -> c == '-');
         }
