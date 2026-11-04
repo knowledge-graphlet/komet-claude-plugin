@@ -25,8 +25,10 @@ import javafx.application.Platform;
 import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
+import javafx.scene.control.Button;
 import javafx.scene.control.Control;
 import javafx.scene.layout.VBox;
+import network.ike.komet.claude.block.LocalConcepts;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -37,12 +39,16 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -175,6 +181,51 @@ class BlockLayoutSettlesIT {
     void aComplexConceptComesToRest() throws Exception {
         settles("complex concept", () -> List.of(only(new ComplexConceptBlockRenderer(view, BASE, new BlockContext())
                 .render("complex-concept", COMPLEX_CONCEPT, null))));
+    }
+
+    @Test
+    void aComplexConceptBeingEditedComesToRest() throws Exception {
+        settles("complex concept in its editor", () -> {
+            Node block = only(new ComplexConceptBlockRenderer(view, BASE, new BlockContext())
+                    .render("complex-concept", COMPLEX_CONCEPT, null));
+            if (block.lookup("#complexConceptEdit") instanceof Button edit) {
+                edit.fire();
+            }
+            assertNotNull(block.lookup(".complex-concept-control"), "the editor is in place of the read-only form");
+            return List.of(block);
+        });
+    }
+
+    /**
+     * Drawing a block asks the store nothing it would have to remember: a concept named only in
+     * the block takes a nid when the reader chooses to edit. A close would keep such a nid with no
+     * record behind it, and every later session would have to answer for it.
+     */
+    @Test
+    void aComplexConceptMintsNothingUntilItIsEdited() throws Exception {
+        String block = """
+                concept: k:Panel[Unminted panel] @id=unminted-panel
+                  expansion: uniform and k:Scale[unminted scale] @id=unminted-scale
+                    member: k:Member[unminted member] @id=unminted-member
+                """;
+        UUID scale = LocalConcepts.uuid("unminted scale");
+        UUID member = LocalConcepts.uuid("unminted member");
+
+        Node drawn = onFx(() -> only(new ComplexConceptBlockRenderer(view, BASE, new BlockContext())
+                .render("complex-concept", block, null)));
+
+        assertFalse(PrimitiveData.get().hasUuid(scale), "drawing the block minted its scale");
+        assertFalse(PrimitiveData.get().hasUuid(member), "drawing the block minted its member");
+        assertNull(onFx(() -> drawn.lookup(".complex-concept-control")), "the tree holds nids, so it stays unbuilt");
+
+        onFx(() -> {
+            ((Button) drawn.lookup("#complexConceptEdit")).fire();
+            return null;
+        });
+
+        assertNotNull(onFx(() -> drawn.lookup(".complex-concept-control")));
+        assertNull(onFx(() -> drawn.lookup("#complexConceptEdit")), "the editor is open; there is nothing left to choose");
+        assertTrue(PrimitiveData.get().hasUuid(scale));
     }
 
     @Test

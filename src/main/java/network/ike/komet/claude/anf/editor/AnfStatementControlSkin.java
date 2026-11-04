@@ -531,12 +531,13 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
     /**
      * "Present" or "Absent" when the measure is on the Presence scale: absence is {@code [0, 0]} and
      * presence a lower bound of one or more. The scale is known by its name, since the
-     * starter set does not bind the Presence concept.
+     * starter set does not bind the Presence concept. The name is the control's own: a block's
+     * local concept has none in the store, only the one its control resolves.
      */
-    private static Optional<String> presence(Attribute.Measure measure) {
+    private Optional<String> presence(Attribute.Measure measure) {
         Optional<ConceptFacade> unit = measure.unit();
         if (unit.isEmpty()
-                || !ComponentText.name(Calculators.View.Default(), unit.get().nid()).strip().toLowerCase(java.util.Locale.ROOT).startsWith("presence")) {
+                || !control().getDescriptionResolver().apply(unit.get().nid()).strip().toLowerCase(java.util.Locale.ROOT).startsWith("presence")) {
             return Optional.empty();
         }
         Optional<BigDecimal> lower = measure.lowerBound();

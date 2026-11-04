@@ -27,6 +27,7 @@ import dev.ikm.tinkar.terms.EntityProxy;
 import javafx.application.Platform;
 import javafx.scene.Node;
 import javafx.scene.Scene;
+import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.layout.StackPane;
@@ -204,6 +205,16 @@ class AnfStatementControlTest {
         assertEquals(2, nested, "the topic and the purpose");
         assertTrue(onFx(() -> kindSegment("Performance").isSelected()));
         assertTrue(onFx(() -> control.getMissing().isEmpty()), "the statement is complete");
+    }
+
+    @Test
+    @DisplayName("A measure on the Presence scale reads Present by the control's name for it, not the store's")
+    void presenceIsKnownByTheNameTheControlResolves() throws Exception {
+        AnfExpressionBuilder builder = new AnfExpressionBuilder(IkeConcept.PERFORMANCE_CIRCUMSTANCE);
+        builder.measure(builder.circumstance(), AnfSemantic.RESULT, BigDecimal.ONE, null,
+                true, false, null, concept("Presence"));
+        render(builder.asDiTree());
+        assertEquals("Present", onFx(() -> ((Label) control.lookup(".anf-presence")).getText()));
     }
 
     @Test

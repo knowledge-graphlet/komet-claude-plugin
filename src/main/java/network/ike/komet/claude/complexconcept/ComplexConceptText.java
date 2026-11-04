@@ -16,6 +16,7 @@
 package network.ike.komet.claude.complexconcept;
 
 import dev.ikm.tinkar.common.id.PublicIds;
+import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityProxy;
@@ -353,6 +354,20 @@ public final class ComplexConceptText {
             return ConceptFacade.make(ref.nid());
         }
         return EntityProxy.Concept.make(ref.label(), PublicIds.of(localPublicId(ref)));
+    }
+
+    /**
+     * Whether building a spec's tree would mint a nid. The tree holds a nid for every concept but
+     * the one the block defines, and asking a proxy for the nid of a concept the store does not
+     * hold mints one, with no record to follow it. So a card that only draws a block leaves such
+     * a tree unbuilt until the reader chooses to edit.
+     *
+     * @param spec the spec
+     * @return whether the tree names a local concept the store holds no identity for
+     */
+    public static boolean buildingMints(Spec spec) {
+        return spec.refs().stream().skip(1).filter(Ref::local)
+                .anyMatch(ref -> !PrimitiveData.get().hasUuid(localPublicId(ref)));
     }
 
     /** The public id a local concept derives: from its name, its fully qualified name, wherever it is written. */

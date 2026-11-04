@@ -35,6 +35,7 @@ import javafx.scene.control.Label;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Pane;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Font;
@@ -139,6 +140,8 @@ final class ComplexConceptBlockRenderer implements BlockRenderer {
         private final Label result = new Label();
         private final VBox still = new VBox(2);
         private Button writeBack;
+        /** Builds the editor, when drawing the block left it unbuilt; null otherwise. */
+        private Button edit;
 
         Card(String info, String body) {
             this.info = info;
@@ -158,17 +161,12 @@ final class ComplexConceptBlockRenderer implements BlockRenderer {
             if (spec != null) {
                 context.defineComplexConcept(spec.concept().nid(), spec, () -> new Card(info, body).build());
                 column.getChildren().add(header(spec));
-                Node editor = editor();
-                if (editor != null) {
-                    column.getChildren().add(editor);
-                } else {
-                    spec.definitionParent().ifPresent(parent -> column.getChildren().add(row("a kind of", chip(parent))));
-                    spec.shape().ifPresent(shape -> {
-                        switch (shape) {
-                            case Focused focused -> column.getChildren().add(focused(focused));
-                            case Uniform uniform -> column.getChildren().add(uniform(uniform));
-                        }
-                    });
+                boolean mints = ComplexConceptText.buildingMints(spec);
+                Node editor = mints ? null : editor();
+                Node shown = editor != null ? editor : readOnly();
+                column.getChildren().add(shown);
+                if (mints) {
+                    edit = editButton(column, shown);
                 }
                 column.getChildren().add(still);
                 refreshStill();
@@ -247,6 +245,25 @@ final class ComplexConceptBlockRenderer implements BlockRenderer {
             return control;
         }
 
+        /**
+         * The button that puts the editor in place of what is {@code shown}. Editing is the
+         * reader's choice to work on the block, so here its new concepts may take their nids.
+         */
+        private Button editButton(VBox column, Node shown) {
+            Button button = new Button("Edit");
+            button.setId("complexConceptEdit");
+            button.setFont(Font.font(base * 0.9));
+            button.setTooltip(new Tooltip("Opens the editor, and enters the concepts new to the knowledge base in its identity map"));
+            button.setOnAction(e -> {
+                Node editor = editor();
+                if (editor != null) {
+                    column.getChildren().set(column.getChildren().indexOf(shown), editor);
+                    ((Pane) button.getParent()).getChildren().remove(button);
+                }
+            });
+            return button;
+        }
+
         private void refreshStill() {
             still.getChildren().clear();
             List<String> missing = ComplexConceptText.completeness(spec);
@@ -259,6 +276,9 @@ final class ComplexConceptBlockRenderer implements BlockRenderer {
         private Node bar() {
             HBox bar = new HBox(8);
             bar.setAlignment(Pos.CENTER_LEFT);
+            if (edit != null) {
+                bar.getChildren().add(edit);
+            }
             if (rewriter != null) {
                 writeBack = new Button("Write back to the block");
                 writeBack.setFont(Font.font(base * 0.9));
@@ -294,7 +314,20 @@ final class ComplexConceptBlockRenderer implements BlockRenderer {
             return parsed.spec().map(ComplexConceptText::write).orElse(text);
         }
 
-        // ── The read-only fallback ──────────────────────────────────────
+        // ── The read-only form ──────────────────────────────────────────
+
+        /** The block with no tree under it: built from the spec's labels, it asks the store for no nid. */
+        private Node readOnly() {
+            VBox section = new VBox(6);
+            spec.definitionParent().ifPresent(parent -> section.getChildren().add(row("a kind of", chip(parent))));
+            spec.shape().ifPresent(shape -> {
+                switch (shape) {
+                    case Focused focused -> section.getChildren().add(focused(focused));
+                    case Uniform uniform -> section.getChildren().add(uniform(uniform));
+                }
+            });
+            return section;
+        }
 
         private Node focused(Focused focused) {
             VBox section = new VBox(4);
