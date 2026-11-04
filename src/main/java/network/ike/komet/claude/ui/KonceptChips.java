@@ -152,6 +152,7 @@ final class KonceptChips {
                 // state and the definition popout from the view (#941/#942) — nothing
                 // caller-resolved to go stale against the coordinate.
                 badge = new KonceptBadge(nid, pid, viewProperties);
+                badge.setPopoutOnHover(true);                  // a capped name needs the room more than the glyph does
             } else {
                 badge = new KonceptBadge(nid, pid, name);
                 badge.setKind(KonceptKindResolver.resolve(nid, viewCalc));
