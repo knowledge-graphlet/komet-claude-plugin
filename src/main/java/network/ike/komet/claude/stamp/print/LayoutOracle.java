@@ -47,6 +47,22 @@ public interface LayoutOracle {
     double PITCH = 1.364;
 
     /**
+     * The horizontal scale that keeps a page line inside Typst's measure. A justified line fills
+     * the width it is laid in, its slack included, however short its text, so that width is what
+     * must fit: taking the text's alone let a tight line run past the edge by the slack.
+     *
+     * @param natural   the width of the line's text
+     * @param slack     what a line is laid wider than its text, so its last word never wraps away
+     * @param available the room to the measure's right edge
+     * @param justified whether the line is justified
+     * @return the scale, 1 for a line that fits
+     */
+    static double lineScale(double natural, double slack, double available, boolean justified) {
+        double laid = justified ? Math.max(available, natural + slack) : natural;
+        return laid > available ? available / laid : 1;
+    }
+
+    /**
      * One paragraph-like piece of the document, as both oracles see it: the text the page draws
      * for it (paragraphs separated by {@code \n}; a verbatim unit's lines are its paragraphs),
      * its font, and how it sits in the flow.

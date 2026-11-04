@@ -64,6 +64,14 @@ class GreedyFxOracleTest {
     }
 
     @Test
+    void aJustifiedLineStaysInsideTheMeasureWithItsSlack() {
+        assertEquals(1, LayoutOracle.lineScale(400, 9, 468, true), "room to spare");
+        assertEquals(468 / 469.0, LayoutOracle.lineScale(460, 9, 468, true), 1e-9, "the text fits but the laid width does not");
+        assertEquals(1, LayoutOracle.lineScale(460, 9, 468, false), "a ragged line's slack paints nothing");
+        assertEquals(468 / 480.0, LayoutOracle.lineScale(480, 9, 468, false), 1e-9, "wider than the measure");
+    }
+
+    @Test
     void aFigureThatDoesNotFitMovesToTheNextPageWhole() {
         LayoutOracle.Geometry geometry = new LayoutOracle.Geometry(612, 792, 72, 72, 468, 648);
         Unit first = new Unit(0, 0, Kind.FIGURE, LayoutOracle.FIGURE_WORD, 12, false, 0, 0, 0, false, 468, 500);

@@ -1483,7 +1483,8 @@ final class DocumentSurfaceView {
             double slack = style.getFontSize() == null ? 8 : style.getFontSize() * 0.6 + 2;
             double width = Math.max(40, Math.max(available, natural + slack) + 8);
             // A line wider than Typst's measure is scaled down to it, so both edges stay where Typst put them.
-            double scale = natural > available ? available / natural : 1;
+            double scale = network.ike.komet.claude.stamp.print.LayoutOracle.lineScale(natural, slack, available,
+                    Boolean.TRUE.equals(style.get(LineRunModel.JUSTIFY_FILL)));
             double height;
             boolean clip;
             if (area.whole) {
