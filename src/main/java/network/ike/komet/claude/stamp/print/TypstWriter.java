@@ -138,18 +138,31 @@ public final class TypstWriter {
      * @return Typst source
      */
     public static String write(DocumentModel document, PageSetup setup, Labels labels) {
-        StringBuilder out = new StringBuilder(4096);
-        out.append(preamble(document.title(), setup));
-        if (labels == Labels.WORDS) {
-            out.append(TypstOracle.WORD_RULE);
-        }
+        StringBuilder content = new StringBuilder(4096);
         CHUNK_WORDS.set(labels == Labels.WORDS);
         try {
-            body(document, labels, out);
+            body(document, labels, content);
         } finally {
             CHUNK_WORDS.set(false);
         }
-        return out.toString();
+        StringBuilder out = new StringBuilder(content.length() + 2048);
+        out.append(preamble(document.title(), setup));
+        // only where it is used, so a document with no drawn block is the source it always was
+        if (content.indexOf("#ike-figure(") >= 0) {
+            out.append(figureHelper(setup));
+        }
+        if (labels == Labels.WORDS) {
+            out.append(TypstOracle.WORD_RULE);
+        }
+        return out.append(content).toString();
+    }
+
+    /** A drawn block: scaled to the measure, whole on a page, as {@link LayoutOracle.Unit#figureScale} reckons it. */
+    private static String figureHelper(PageSetup setup) {
+        return "#let ike-figure(w, h, body) = context {\n"
+                + "  let s = calc.min(1, (page.width - " + points(setup.marginLeft() + setup.marginRight()) + ") / w, (page.height - "
+                + points(setup.marginTop() + setup.marginBottom()) + ") / h)\n"
+                + "  box(width: w * s, height: h * s, scale(x: s * 100%, y: s * 100%, origin: top + left, body))\n}\n";
     }
 
     private static void body(DocumentModel document, Labels labels, StringBuilder out) {
@@ -316,6 +329,20 @@ public final class TypstWriter {
                 out.append('\n');
             }
             case Table t -> table(t, out, indent);
+            case DocumentModel.Drawn d -> {
+                double w = d.figure().width();
+                double h = d.figure().height();
+                if (CHUNK_WORDS.get()) {
+                    // measured as a box of its size: its marks' words are not the document's, and its one word is its line
+                    out.append(indent).append("#metadata(\"").append(LayoutOracle.FIGURE_WORD).append("\") <").append(TypstOracle.WORD_LABEL)
+                            .append(">#metadata(false) <").append(TypstOracle.WORD_END_LABEL).append(">");
+                    out.append("#ike-figure(").append(points(w)).append(", ").append(points(h)).append(", [])\n\n");
+                } else {
+                    out.append(indent).append("#ike-figure(").append(points(w)).append(", ").append(points(h)).append(", [\n")
+                            .append(network.ike.komet.claude.decision.render.DecisionFigureTypst.write(d.figure()))
+                            .append(indent).append("])\n\n");
+                }
+            }
             case Image i -> out.append(indent).append("#ike-image(").append(string(i.target())).append(", ")
                     .append(i.title().isEmpty() ? "none" : "[" + escape(i.title()) + "]").append(")\n\n");
             case Container c -> {

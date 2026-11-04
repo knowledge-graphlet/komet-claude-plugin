@@ -27,6 +27,7 @@ import network.ike.komet.claude.stamp.print.DocumentModel.Heading;
 import network.ike.komet.claude.stamp.print.DocumentModel.ListBlock;
 import network.ike.komet.claude.stamp.print.DocumentModel.Table;
 import org.junit.jupiter.api.Test;
+import network.ike.komet.claude.decision.render.DecisionFigure;
 
 import java.util.List;
 import java.util.Map;
@@ -105,6 +106,26 @@ class TypstWriterTest {
         assertEquals(1, blocks.size(), blocks.toString());
         var source = assertInstanceOf(DocumentModel.Verbatim.class, blocks.getFirst());
         assertEquals("concept: k:A[a]\n  focus: k:B[b]\n  requisite: k:C[c]", source.text());
+    }
+
+    private static DocumentModel drawn() {
+        return new DocumentModel("T", List.of(new DocumentModel.Drawn(new DecisionFigure(600, 120, "decision-tree",
+                List.of(new DecisionFigure.Text(1, 2, "inside the figure", 10, false, false, "#000000", "name"))))));
+    }
+
+    @Test
+    void aDrawnBlockPrintsItsMarksFittedToThePage() {
+        String typst = TypstWriter.write(drawn(), TypstWriter.PageSetup.DEFAULT);
+        assertTrue(typst.contains("#ike-figure(600pt, 120pt, ["), typst);
+        assertTrue(typst.contains("inside the figure"), typst);
+    }
+
+    @Test
+    void aDrawnBlockIsMeasuredAsOneLabelledWord() {
+        String typst = TypstWriter.write(drawn(), TypstWriter.PageSetup.DEFAULT, TypstWriter.Labels.WORDS);
+        assertFalse(typst.contains("inside the figure"), "its words are not the document's");
+        assertTrue(typst.contains("#metadata(\"figure\") <" + TypstOracle.WORD_LABEL + ">"), typst);
+        assertTrue(typst.contains("#ike-figure(600pt, 120pt, [])"), typst);
     }
 
     @Test

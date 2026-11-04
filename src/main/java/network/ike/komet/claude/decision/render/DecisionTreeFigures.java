@@ -118,6 +118,35 @@ public final class DecisionTreeFigures {
         return builder.build();
     }
 
+    /**
+     * The block as a page draws it: the tree, its names wrapped so that the page's measure leaves
+     * it legible, with its ledger and sentences beneath, then the tornado when it has been swept.
+     *
+     * @param tree     the tree
+     * @param rollback its rollback
+     * @param ids      names what the tree names
+     * @param sweep    the sensitivity, when there is one
+     * @param symbol   the money sign
+     * @param cohort   the cohort counted out, when there is one
+     * @param stated   which nodes hold ANF statements
+     * @return the figures in order
+     */
+    public static List<DecisionFigure> page(DecisionTree tree, Rollback rollback, Identities ids,
+                                            Optional<DecisionTreeSensitivity> sweep, String symbol, OptionalDouble cohort,
+                                            IntPredicate stated) {
+        TreeBuilder builder = new TreeBuilder(tree, rollback, ids, v -> false, sweep, symbol, cohort);
+        builder.stated = stated;
+        builder.nameCap = BASE * PAGE_NAME_EMS;
+        List<DecisionFigure> figures = new ArrayList<>();
+        figures.add(builder.build());
+        sweep.filter(s -> !s.swings().isEmpty()).ifPresent(s -> figures.add(DecisionFigureTornado.build(
+                tornado(s, ids, symbol), TextFigure.WIDTH, root -> money(root, symbol))));
+        return figures;
+    }
+
+    /** How wide a name is drawn on a page, in ems: beyond it a name wraps, to three lines at most. */
+    private static final double PAGE_NAME_EMS = 8;
+
     /** The colour of the words that name the tree an outcome folds in: a link's blue. */
     static final String FOLD_IN = "#1f5fa8";
 
@@ -150,6 +179,10 @@ public final class DecisionTreeFigures {
         private final Set<Integer> chosenBranches = new HashSet<>();
         /** Which nodes hold ANF statements, marked beside their names. */
         private IntPredicate stated = v -> false;
+        /** How wide a name may be before it wraps; unbounded where a drawing has the room. */
+        private double nameCap = Double.MAX_VALUE;
+        /** The most lines any label above a run takes, which every row makes room for. */
+        private int aboveLines = 1;
 
         TreeBuilder(DecisionTree tree, Rollback rollback, Identities ids, IntPredicate collapsed,
                     Optional<DecisionTreeSensitivity> sweep, String symbol, OptionalDouble cohortSize) {
@@ -184,6 +217,7 @@ public final class DecisionTreeFigures {
                 return new DecisionFigure(2 * 6, 2 * 6, "decision-tree", List.of());
             }
             node(rootNode);
+            aboveLines = branchAbove.values().stream().mapToInt(TreeBuilder::lines).max().orElse(1);
             DecisionTreeLayout layout = DecisionTreeLayout.of(tree, sizing(), collapsed);
             List<Mark> marks = new ArrayList<>();
             for (Run run : layout.runs()) {
@@ -196,7 +230,7 @@ public final class DecisionTreeFigures {
                         run.x1(), run.y()}, stroke, "run" + (chosen ? " chosen" : "") + (gap ? " gap" : "")));
                 boolean isBarred = barred.contains(index);
                 double labelX = run.xBend() + 8 + (isBarred ? BAR_ROOM : 0);
-                row(marks, branchAbove.get(index), labelX, run.y() - lineHeight - 2);
+                row(marks, branchAbove.get(index), labelX, run.y() - lineHeight * lines(branchAbove.get(index)) - 2);
                 row(marks, branchBelow.get(index), labelX, run.y() + 3);
                 if (isBarred) {
                     double bx = run.xBend() + 9;
@@ -325,6 +359,35 @@ public final class DecisionTreeFigures {
             }
         }
 
+        /** The lines a label runs to. */
+        private static int lines(List<Span> spans) {
+            return spans == null ? 1 : 1 + (int) spans.stream().filter(span -> span == BREAK).count();
+        }
+
+        /**
+         * A name as spans, wrapped at the cap where it is wider, between words and to three lines
+         * at most: width is what a page runs short of, and a name in a thin column costs every row.
+         */
+        private List<Span> named(String label) {
+            double natural = DecisionFigureText.width(label, size, false);
+            if (natural <= nameCap) {
+                return List.of(new Span(label, size, false, false, DecisionFigureText.INK, "name"));
+            }
+            double widestWord = 0;
+            for (String word : label.split("\\s+")) {
+                widestWord = Math.max(widestWord, DecisionFigureText.width(word, size, false));
+            }
+            double cap = Math.max(nameCap, Math.max(widestWord, 1.15 * natural / 3));
+            List<Span> spans = new ArrayList<>();
+            for (String line : DecisionFigureText.wrap(label, size, cap)) {
+                if (!spans.isEmpty()) {
+                    spans.add(BREAK);
+                }
+                spans.add(new Span(line, size, false, false, DecisionFigureText.INK, "name"));
+            }
+            return spans;
+        }
+
         private void node(Node node) {
             int index = node.vertexIndex();
             boolean folded = collapsed.test(index);
@@ -335,25 +398,31 @@ public final class DecisionTreeFigures {
                     value.isPresent() ? DecisionFigureText.INK : DecisionFigureText.GAP, "value");
             List<Span> name = new ArrayList<>();
             if (!(node instanceof Branch)) {
-                concept(node).ifPresent(label -> name.add(new Span(label, size, false, false, DecisionFigureText.INK, "name")));
+                concept(node).ifPresent(label -> name.addAll(named(label)));
                 statementMark(index).ifPresent(name::add);
                 foldIn(node).ifPresent(name::add);
             }
+            boolean wrapped = lines(name) > 1;
             if (terminal) {
                 List<Span> top = new ArrayList<>();
                 top.add(valueSpan);
-                top.addAll(name);
+                if (!wrapped) {
+                    top.addAll(name);
+                }
                 nodeTop.put(index, top);
                 if (node instanceof Outcome outcome) {
-                    List<Span> bottom = new ArrayList<>();
+                    // a wrapped name stands beneath its value, and its costs beneath that
+                    List<Span> bottom = new ArrayList<>(wrapped ? name : List.of());
                     stacked(bottom, outcome.costs().castToList());
                     nodeBottom.put(index, bottom);
+                    belowLines = Math.max(belowLines, lines(bottom));
                 } else if (folded) {
                     nodeBottom.put(index, List.of(new Span(foldedWord(index), size, false, false, "#777777", "folded")));
                 }
             } else {
                 nodeTop.put(index, List.of(valueSpan));
                 nodeBottom.put(index, name);
+                belowLines = Math.max(belowLines, lines(name));
             }
             if (!terminal) {
                 OptionalInt chosen = rollback.chosen(index);
@@ -386,7 +455,7 @@ public final class DecisionTreeFigures {
                 chosenBranches.add(index);
             }
             List<Span> above = new ArrayList<>();
-            concept(branch).ifPresent(label -> above.add(new Span(label, size, false, false, DecisionFigureText.INK, "name")));
+            concept(branch).ifPresent(label -> above.addAll(named(label)));
             statementMark(index).ifPresent(above::add);
             if (branch instanceof Event event) {
                 Optional<Probability> probability = event.probability();
@@ -556,7 +625,12 @@ public final class DecisionTreeFigures {
             return new DecisionTreeLayout.Sizing() {
                 @Override
                 public double rowHeight() {
-                    return lineHeight * (1 + Math.max(1, belowLines)) + 10;
+                    return lineHeight * (aboveLines + Math.max(1, belowLines)) + 10;
+                }
+
+                @Override
+                public double runOffset() {
+                    return aboveLines == 1 ? rowHeight() / 2 : lineHeight * aboveLines + 4;
                 }
 
                 @Override

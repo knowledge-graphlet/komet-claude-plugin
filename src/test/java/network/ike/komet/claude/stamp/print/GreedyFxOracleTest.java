@@ -63,6 +63,19 @@ class GreedyFxOracleTest {
         return new Unit(0, 0, Kind.PARAGRAPH, text, 12, false, 0, 0, 0, false);
     }
 
+    @Test
+    void aFigureThatDoesNotFitMovesToTheNextPageWhole() {
+        LayoutOracle.Geometry geometry = new LayoutOracle.Geometry(612, 792, 72, 72, 468, 648);
+        Unit first = new Unit(0, 0, Kind.FIGURE, LayoutOracle.FIGURE_WORD, 12, false, 0, 0, 0, false, 468, 500);
+        Unit second = new Unit(1, 1, Kind.FIGURE, LayoutOracle.FIGURE_WORD, 12, false, 0, 0, 0, false, 936, 400);
+        var layout = oracle.layout(List.of(first, second), geometry);
+        assertEquals(2, layout.pages());
+        assertEquals(0, layout.ofUnit(0).getFirst().page());
+        assertEquals(72 + 500, layout.ofUnit(0).getFirst().baseline(), 1e-6, "a figure's baseline is its foot");
+        assertEquals(1, layout.ofUnit(1).getFirst().page());
+        assertEquals(72 + 200, layout.ofUnit(1).getFirst().baseline(), 1e-6, "scaled to the measure: half its height");
+    }
+
     private static List<List<Integer>> plain(List<int[]> lines) {
         return lines.stream().map(l -> List.of(l[0], l[1], l[2])).toList();
     }

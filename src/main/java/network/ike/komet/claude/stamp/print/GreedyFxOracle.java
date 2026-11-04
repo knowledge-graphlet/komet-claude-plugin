@@ -97,6 +97,19 @@ public final class GreedyFxOracle implements LayoutOracle {
             Unit unit = units.get(i);
             double pitch = UnitSpacing.pitch(unit);
             double cap = unit.fontSize() * CAP_HEIGHT;
+            if (unit.kind() == Kind.FIGURE) {
+                // Whole on a page, as Typst sets it; its line's baseline is its foot.
+                double height = unit.figureHeight() * unit.figureScale(geometry.contentWidth(), geometry.bandHeight());
+                double top = baseline < 0 ? geometry.contentTop() : baseline + UnitSpacing.gap(previous, unit);
+                if (baseline >= 0 && top + height > geometry.contentBottom() + 0.01) {
+                    page++;
+                    top = geometry.contentTop();
+                }
+                lines.add(new Line(i, page, geometry.contentLeft(), top + height, 0, unit.text().length(), false));
+                baseline = top + height;
+                previous = unit;
+                continue;
+            }
             if (unit.kind() == Kind.TABLE_ROW && (i == 0 || units.get(i - 1).block() != unit.block())) {
                 // A table is a figure, which Typst never splits: the whole of it moves to the next page when it does not fit.
                 double table = 0;

@@ -40,7 +40,7 @@ public record DocumentModel(String title, List<Block> blocks) {
     }
 
     /** One block of the document. */
-    public sealed interface Block permits Heading, Paragraph, Admonition, Verbatim, ListBlock, Table, Image, Container { }
+    public sealed interface Block permits Heading, Paragraph, Admonition, Verbatim, ListBlock, Table, Image, Drawn, Container { }
 
     /**
      * A heading. Level 0 is a document title; an assembly's child titles arrive at the level
@@ -73,6 +73,14 @@ public record DocumentModel(String title, List<Block> blocks) {
      * @param text  the content with its line breaks, delimiters excluded
      */
     public record Verbatim(String title, String text) implements Block { }
+
+    /**
+     * A block drawn rather than set: a figure of marks, whole on one page, scaled to the page's
+     * measure when it is wider. Typst and the Page layout draw the same marks.
+     *
+     * @param figure the figure
+     */
+    public record Drawn(network.ike.komet.claude.decision.render.DecisionFigure figure) implements Block { }
 
     /**
      * A list.

@@ -246,6 +246,13 @@ public final class TypstOracle implements LayoutOracle {
                     }
                     continue;
                 }
+                if (unit.kind() == Kind.FIGURE) {
+                    // Its labels stand before its box, at the box's head: its line's baseline is its foot.
+                    Word w = own.getFirst().word();
+                    double height = unit.figureHeight() * unit.figureScale(geometry.contentWidth(), geometry.bandHeight());
+                    lines.add(new Line(unit.index(), w.endPage(), geometry.contentLeft(), w.endY() + height, 0, unit.text().length(), false));
+                    continue;
+                }
                 if (unit.kind() == Kind.TABLE_ROW || unit.kind() == Kind.OTHER) {
                     // A row's first word begins a cell: its end label's baseline is the row's; its x is the cell's left
                     // edge when the word is the cell's last (typst leaves a paragraph's closing label there), else

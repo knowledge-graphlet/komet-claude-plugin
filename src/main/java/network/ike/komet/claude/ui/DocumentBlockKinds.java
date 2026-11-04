@@ -156,6 +156,12 @@ public final class DocumentBlockKinds {
             return renderer;
         }
 
+        @Override
+        public List<network.ike.komet.claude.decision.render.DecisionFigure> figures(Source source, Context context) {
+            String content = source.content();
+            return BlockPrint.tree(info(source.parameters()), content.endsWith("\n") ? content : content + "\n", context.view(), context.blocks());
+        }
+
         /** The tree, as a version of its tree semantic. */
         @Override
         public Optional<String> write(Source source, long block, Optional<String> previous, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
@@ -177,6 +183,11 @@ public final class DocumentBlockKinds {
             return renderer;
         }
 
+        @Override
+        public List<network.ike.komet.claude.decision.render.DecisionFigure> figures(Source source, Context context) {
+            return BlockPrint.complexConcept(source.content(), context.view(), context.blocks());
+        }
+
         /** The complex concept: its first version, as Propose writes it, then versions of its specification. */
         @Override
         public Optional<String> write(Source source, long block, Optional<String> previous, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
@@ -196,6 +207,11 @@ public final class DocumentBlockKinds {
             AnfBlockRenderer renderer = new AnfBlockRenderer(view, base, blocks);
             renderer.setRewriter(rewriter);
             return renderer;
+        }
+
+        @Override
+        public List<network.ike.komet.claude.decision.render.DecisionFigure> figures(Source source, Context context) {
+            return BlockPrint.fields(name(), List.of(source.content().split("\n", -1)));
         }
 
         /**
@@ -224,6 +240,11 @@ public final class DocumentBlockKinds {
             renderer.setRewriter(rewriter);
             return renderer;
         }
+
+        @Override
+        public List<network.ike.komet.claude.decision.render.DecisionFigure> figures(Source source, Context context) {
+            return BlockPrint.fields(name(), List.of(source.content().split("\n", -1)));
+        }
     }
 
     /** {@code [calculate]}: a calculation, whose value a tree may read. */
@@ -237,6 +258,11 @@ public final class DocumentBlockKinds {
             CalculatorBlockRenderer renderer = new CalculatorBlockRenderer(view, base, blocks);
             renderer.setRewriter(rewriter);
             return renderer;
+        }
+
+        @Override
+        public List<network.ike.komet.claude.decision.render.DecisionFigure> figures(Source source, Context context) {
+            return BlockPrint.fields(name(), List.of(source.content().split("\n", -1)));
         }
     }
 }

@@ -397,6 +397,12 @@ final class DocumentSurfaceView {
         long highlightedStamp;
         /** A ledger chunk's line numbers in its member's file, 1-based, parallel to {@link #lines}. */
         int[] numbers;
+        /** In the Page layout: what this area is drawn as, when it is drawn rather than set. */
+        network.ike.komet.claude.decision.render.DecisionFigure drawn;
+        /** In the Page layout: the node a drawn area's figure stands in. */
+        javafx.scene.layout.Region drawing;
+        /** In the Page layout: how tall a drawn area stands on its page, its baseline being its foot. */
+        double drawnHeight;
         /** In the Page layout: whether this line is a listing's, which draws on the listing's one tint. */
         boolean listing;
         /** In the Page layout: the top-level block of the print model this area belongs to, or -1. */
@@ -461,6 +467,7 @@ final class DocumentSurfaceView {
         assembly = shown;
         // the structured blocks of this document read each other here: trees folded in, statements named, values computed
         blocks = new BlockContext();
+        printed.clear();
         areas.clear();
         pages.clear();
         units.clear();
@@ -671,6 +678,21 @@ final class DocumentSurfaceView {
                 }
             }
         }
+        if (print) {
+            // a block with a print form is drawn, one area for each figure: the page has it from the model's Drawn blocks
+            List<network.ike.komet.claude.decision.render.DecisionFigure> drawn = printFigures(document, block);
+            if (!drawn.isEmpty()) {
+                List<StoredLine> all = StructuredBlocks.lines(document, block);
+                for (network.ike.komet.claude.decision.render.DecisionFigure figure : drawn) {
+                    if (nesting == 0) {
+                        modelOrdinal++;
+                    }
+                    Area area = addArea(member, block, all, paragraphs(all, "", st.mono(), null), depth, false, section);
+                    area.drawn = figure;
+                }
+                return;
+            }
+        }
         if (block.kind() == Block.Kind.OPEN && StructuredBlocks.kindOf(block).isPresent()) {
             // a structured open block, [anf] over --, reads as a listing does: its source, then its kind's control;
             // on the page its source alone, as one block
@@ -854,6 +876,40 @@ final class DocumentSurfaceView {
                 add(member, block, own, paragraphs(own, " ", st.prose(), t -> "🖼 " + t), depth, false, section);
             }
         }
+    }
+
+    /** The figures of each block's source: the model and the page must draw the same ones, and a sweep is not free. */
+    private final Map<String, List<network.ike.komet.claude.decision.render.DecisionFigure>> printed = new HashMap<>();
+
+    /**
+     * What a block is drawn as on a page, the model and the Page layout alike.
+     *
+     * @param document the block's document
+     * @param block    the block
+     * @return its figures in order, none when it prints as text
+     */
+    public List<network.ike.komet.claude.decision.render.DecisionFigure> printFigures(StoredDocument document, StoredBlock block) {
+        Optional<StructuredBlockKind> kind = StructuredBlocks.kindOf(block);
+        if (kind.isEmpty()) {
+            return List.of();
+        }
+        StructuredBlockKind.Source source = StructuredBlocks.source(document, block);
+        return printed.computeIfAbsent(source.parameters() + "\n" + source.content(), key -> {
+            try {
+                List<network.ike.komet.claude.decision.render.DecisionFigure> figures = network.ike.komet.claude.decision.render.DecisionFigureText
+                        .inSerif(() -> kind.get().figures(source, new StructuredBlockKind.Context(host.view(), blocks, st.base())));
+                if (figures.isEmpty() || block.title().isEmpty()) {
+                    return figures;
+                }
+                List<network.ike.komet.claude.decision.render.DecisionFigure> titled = new ArrayList<>(figures);
+                titled.set(0, network.ike.komet.claude.decision.render.DecisionFigureText
+                        .inSerif(() -> network.ike.komet.claude.decision.render.TextFigure.titled(block.title(), figures.getFirst())));
+                return titled;
+            } catch (RuntimeException failure) {
+                host.status("The " + kind.get().name() + " block could not be drawn for the page; it prints as its text: " + failure.getMessage());
+                return List.of();
+            }
+        });
     }
 
     /** What a block is on the page: a structured open block prints as a listing does. */
@@ -1180,6 +1236,15 @@ final class DocumentSurfaceView {
         for (int i = 0; i < units.size(); i++) {
             Area area = units.get(i);
             Block.Kind blockKind = printKind(area.block);
+            if (area.drawn != null) {
+                double[] spacing = network.ike.komet.claude.stamp.print.UnitSpacing.of(
+                        network.ike.komet.claude.stamp.print.LayoutOracle.Kind.FIGURE, previous, base, base);
+                out.add(new network.ike.komet.claude.stamp.print.LayoutOracle.Unit(i, area.modelOrdinal,
+                        network.ike.komet.claude.stamp.print.LayoutOracle.Kind.FIGURE, network.ike.komet.claude.stamp.print.LayoutOracle.FIGURE_WORD,
+                        base, false, 0, spacing[0], spacing[1], false, area.drawn.width(), area.drawn.height()));
+                previous = network.ike.komet.claude.stamp.print.LayoutOracle.Kind.FIGURE;
+                continue;
+            }
             network.ike.komet.claude.stamp.print.LayoutOracle.Kind kind = area.heading
                     ? (blockKind == Block.Kind.DOCUMENT ? network.ike.komet.claude.stamp.print.LayoutOracle.Kind.TITLE
                     : network.ike.komet.claude.stamp.print.LayoutOracle.Kind.HEADING)
@@ -1227,6 +1292,18 @@ final class DocumentSurfaceView {
             own.sort(Comparator.comparingInt(network.ike.komet.claude.stamp.print.LayoutOracle.Line::from));
             for (int k = 0; k < own.size(); k++) {
                 network.ike.komet.claude.stamp.print.LayoutOracle.Line line = own.get(k);
+                if (unitArea.drawn != null) {
+                    Area area = new Area(unitArea.member, unitArea.block, unitArea.spec.lines(), unitArea.spec, false, unitArea.section);
+                    area.modelOrdinal = unitArea.modelOrdinal;
+                    area.drawn = unitArea.drawn;
+                    area.unit = u;
+                    area.lineOfUnit = k;
+                    area.page = line.page();
+                    area.x = line.x();
+                    area.baseline = line.baseline();
+                    pages.add(area);
+                    continue;
+                }
                 LineRunModel.Spec spec;
                 boolean whole = line.whole(unit) && unit.kind() != network.ike.komet.claude.stamp.print.LayoutOracle.Kind.VERBATIM
                         && unitArea.spec.paragraphs().size() == 1 && (k + 1 == own.size()) && k == 0
@@ -1369,10 +1446,20 @@ final class DocumentSurfaceView {
     private static final double LISTING_INSET = 8;
 
     /** @return the line areas on a page, placed for the page stack */
-    List<PageStackView.Placed> linesOn(int page, double contentLeft, double contentWidth, double unitPitch) {
+    List<PageStackView.Placed> linesOn(int page, double contentLeft, double contentWidth, double bandHeight) {
         List<PageStackView.Placed> out = new ArrayList<>();
         for (Area area : pages) {
             if (area.page != page) {
+                continue;
+            }
+            if (area.drawn != null) {
+                double scale = network.ike.komet.claude.stamp.print.LayoutOracle.Unit.figureScale(area.drawn.width(), area.drawn.height(), contentWidth, bandHeight);
+                if (area.drawing == null) {
+                    area.drawing = network.ike.komet.claude.stamp.print.FigureNode.of(area.drawn, scale);
+                    areaByNode.put(area.drawing, area);
+                }
+                area.drawnHeight = area.drawn.height() * scale;
+                out.add(new PageStackView.Placed(area.drawing, contentLeft, area.baseline, area.drawnHeight, area.drawn.width() * scale, area.drawnHeight, false));
                 continue;
             }
             StyleAttributeMap style = area.spec.paragraphs().getFirst().style();
@@ -1419,7 +1506,9 @@ final class DocumentSurfaceView {
             }
             Node node = unitMarginalia(area.unit);
             if (node != null) {
-                out.add(new PageStackView.Mark(node, area.baseline, metrics(area.spec.paragraphs().getFirst().style())[0]));
+                // a figure's marks stand at its head, as a block's stand at its first line
+                double ascent = metrics(area.spec.paragraphs().getFirst().style())[0];
+                out.add(new PageStackView.Mark(node, area.drawn == null ? area.baseline : area.baseline - area.drawnHeight + ascent, ascent));
             }
         }
         return out;

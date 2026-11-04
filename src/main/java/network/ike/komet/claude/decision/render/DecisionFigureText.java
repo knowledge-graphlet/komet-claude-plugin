@@ -81,7 +81,29 @@ public final class DecisionFigureText {
         for (int i = 0; i < text.length(); i++) {
             ems += em(text.charAt(i));
         }
-        return ems * size * (bold ? 1.05 : 1);
+        return ems * size * (bold ? 1.05 : 1) * FACE.get();
+    }
+
+    /** How much wider the face being measured for runs than the Helvetica-like one {@link #width} estimates. */
+    private static final ThreadLocal<Double> FACE = ThreadLocal.withInitial(() -> 1.0);
+    /** Noto Serif, the page's face, over the estimate. */
+    private static final double SERIF = 1.12;
+
+    /**
+     * Builds something measured for the page's serif rather than the estimate's sans, so its
+     * labels and wrapped lines stand clear of each other and of its edge in that face.
+     *
+     * @param build what to build
+     * @param <T>   what it builds
+     * @return what it built
+     */
+    public static <T> T inSerif(java.util.function.Supplier<T> build) {
+        FACE.set(SERIF);
+        try {
+            return build.get();
+        } finally {
+            FACE.remove();
+        }
     }
 
     private static double em(char c) {

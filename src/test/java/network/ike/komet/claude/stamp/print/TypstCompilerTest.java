@@ -17,11 +17,14 @@ package network.ike.komet.claude.stamp.print;
 
 import network.ike.komet.claude.doc.print.settings.PrintSettings;
 import org.junit.jupiter.api.Test;
+import network.ike.komet.claude.decision.render.TextFigure;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -85,6 +88,18 @@ class TypstCompilerTest {
 
             image::images/missing.svg[A figure]
             """;
+
+    @Test
+    void aDrawnBlockCompiles(@TempDir Path folder) throws IOException {
+        assumeTrue(TypstCompiler.locate().isPresent(), "typst is not installed");
+        DocumentModel model = new DocumentModel("Drawn", List.of(new DocumentModel.Paragraph("Above it."),
+                new DocumentModel.Drawn(TextFigure.of("complex-concept", Optional.of("A \"quoted\" name"), List.of("A sentence."),
+                        List.of(List.of("given", "value"), List.of("a concept", "present")))),
+                new DocumentModel.Paragraph("Below it.")));
+        TypstPdf.Printed printed = TypstPdf.print(model, PrintSettings.DEFAULT, folder, "drawn");
+        assertTrue(printed.ok(), printed.report());
+        assertTrue(printed.result().output().isBlank(), "typst warned: " + printed.result().output());
+    }
 
     @Test
     void everyConstructCompilesToAPdf(@TempDir Path folder) throws IOException {

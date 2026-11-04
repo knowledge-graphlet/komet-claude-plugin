@@ -35,7 +35,10 @@ import java.util.Objects;
 public interface LayoutOracle {
 
     /** What kind of unit, for the spacing and keep rules a greedy oracle applies. */
-    enum Kind { TITLE, HEADING, PARAGRAPH, LIST_ITEM, VERBATIM, TABLE_ROW, OTHER }
+    enum Kind { TITLE, HEADING, PARAGRAPH, LIST_ITEM, VERBATIM, TABLE_ROW, FIGURE, OTHER }
+
+    /** The one word a {@link Kind#FIGURE} unit reads as: Typst labels it, and its line is the figure's. */
+    String FIGURE_WORD = "figure";
 
     /** The cap height of the Noto fonts as a fraction of the size: Typst's line box starts at the first line's cap height. */
     double CAP_HEIGHT = 0.714;
@@ -58,12 +61,30 @@ public interface LayoutOracle {
      * @param spaceAbove   the space the unit keeps above its first line's cap height, in points
      * @param spaceBelow   the space it keeps below its last baseline, in points
      * @param keepWithNext whether it stays on the page the next unit starts on
+     * @param figureWidth  a {@link Kind#FIGURE} unit's natural width, 0 for any other
+     * @param figureHeight a {@link Kind#FIGURE} unit's natural height, 0 for any other
      */
     record Unit(int index, int block, Kind kind, String text, double fontSize, boolean bold, double indent, double spaceAbove,
-                double spaceBelow, boolean keepWithNext) {
+                double spaceBelow, boolean keepWithNext, double figureWidth, double figureHeight) {
         public Unit {
             Objects.requireNonNull(kind, "kind is null");
             text = text == null ? "" : text;
+        }
+
+        /** A unit of text. */
+        public Unit(int index, int block, Kind kind, String text, double fontSize, boolean bold, double indent, double spaceAbove,
+                    double spaceBelow, boolean keepWithNext) {
+            this(index, block, kind, text, fontSize, bold, indent, spaceAbove, spaceBelow, keepWithNext, 0, 0);
+        }
+
+        /** @return how far a figure is scaled to fit the band: to its width, then its height, never enlarged */
+        public double figureScale(double contentWidth, double bandHeight) {
+            return figureScale(figureWidth, figureHeight, contentWidth, bandHeight);
+        }
+
+        /** @return how far a figure of a size is scaled to fit a band, as the Typst writer's {@code ike-figure} does */
+        public static double figureScale(double width, double height, double contentWidth, double bandHeight) {
+            return Math.min(1, Math.min(contentWidth / Math.max(1, width), bandHeight / Math.max(1, height)));
         }
 
         /** @return the paragraph of the text an offset falls in, and the offset within it, as {@code {paragraph, offset}} */

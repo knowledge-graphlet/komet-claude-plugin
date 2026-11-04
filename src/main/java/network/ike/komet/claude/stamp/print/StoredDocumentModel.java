@@ -16,6 +16,7 @@
 package network.ike.komet.claude.stamp.print;
 
 import design.knowledge.stamp.adoc.dialect.Block;
+import network.ike.komet.claude.decision.render.DecisionFigure;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredBlock;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredDocument;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredLine;
@@ -88,14 +89,32 @@ public final class StoredDocumentModel {
         }
     }
 
+    /** What a block is drawn as on a page; none prints it as its text. */
+    @FunctionalInterface
+    public interface Figures {
+        /** A document with no block drawn, its structured blocks printing as their source. */
+        Figures NONE = (document, block) -> List.of();
+
+        /**
+         * The figures of a block.
+         *
+         * @param document the block's document
+         * @param block    the block
+         * @return its figures in order, or none
+         */
+        List<DecisionFigure> of(StoredDocument document, StoredBlock block);
+    }
+
     private final StoredDocument document;
+    private final Figures figures;
     private final Map<Long, StoredLine> linesByNid = new HashMap<>();
     private final int levelOffset;
     /** The child flowed in place of an include line, by the line's nid, across every member. */
     private final Map<Long, Child> includes;
 
-    private StoredDocumentModel(StoredDocument document, int levelOffset, Map<Long, Child> includes) {
+    private StoredDocumentModel(StoredDocument document, int levelOffset, Map<Long, Child> includes, Figures figures) {
         this.document = document;
+        this.figures = figures;
         this.levelOffset = levelOffset;
         this.includes = includes;
         for (StoredLine line : document.lines()) {
@@ -122,8 +141,20 @@ public final class StoredDocumentModel {
      * @return the model, the children's headings offset by their includes
      */
     public static DocumentModel of(StoredDocument document, Map<Long, Child> includes) {
+        return of(document, includes, Figures.NONE);
+    }
+
+    /**
+     * Reads an assembly, drawing the blocks that have figures.
+     *
+     * @param document the host document
+     * @param includes the child flowed in place of each resolved include line, by the line's nid
+     * @param figures  what a block is drawn as
+     * @return the model
+     */
+    public static DocumentModel of(StoredDocument document, Map<Long, Child> includes, Figures figures) {
         List<DocumentModel.Block> blocks = new ArrayList<>();
-        String title = new StoredDocumentModel(document, 0, Map.copyOf(includes)).read(blocks, true);
+        String title = new StoredDocumentModel(document, 0, Map.copyOf(includes), figures).read(blocks, true);
         return new DocumentModel(title, blocks);
     }
 
@@ -179,6 +210,11 @@ public final class StoredDocumentModel {
     }
 
     private void block(StoredBlock block, List<DocumentModel.Block> out) {
+        List<DecisionFigure> drawn = figures.of(document, block);
+        if (!drawn.isEmpty()) {
+            drawn.forEach(figure -> out.add(new DocumentModel.Drawn(figure)));
+            return;
+        }
         if (block.kind() == Block.Kind.OPEN && StructuredBlocks.kindOf(block).isPresent()) {
             // one block of source, as a listing is: the parser's paragraphs of it are not paragraphs
             out.add(new Verbatim(block.title(), String.join("\n",
@@ -237,7 +273,7 @@ public final class StoredDocumentModel {
                 for (StoredLine line : own) {
                     Child child = includes.get(line.nid());
                     if (child != null) {
-                        new StoredDocumentModel(child.document(), Math.max(1, levelOffset + child.levelOffset()), includes).read(out, false);
+                        new StoredDocumentModel(child.document(), Math.max(1, levelOffset + child.levelOffset()), includes, figures).read(out, false);
                     }
                 }
             }

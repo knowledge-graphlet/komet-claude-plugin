@@ -184,6 +184,9 @@ public final class PrintBlocks {
                 }
                 add(spacer(base * 0.6), "", true, false);
             }
+            case DocumentModel.Drawn d -> {
+                add(FigureNode.of(d.figure(), 1), d.figure().role(), true, false);
+            }
             case Image i -> {
                 Node node = text("Image: " + i.target() + (i.title().isEmpty() ? "" : " — " + i.title()),
                         FontWeight.NORMAL, FontPosture.ITALIC, 0.85, new Insets(base * 0.3, 0, base * 0.3, depth * base * 1.5));
@@ -277,6 +280,7 @@ public final class PrintBlocks {
                 }
                 yield rows;
             }
+            case DocumentModel.Drawn d -> FigureNode.of(d.figure(), 1);
             case Image i -> text("Image: " + i.target(), FontWeight.NORMAL, FontPosture.ITALIC, 0.85, Insets.EMPTY);
             case Container c -> {
                 VBox box = new VBox(base * 0.3);

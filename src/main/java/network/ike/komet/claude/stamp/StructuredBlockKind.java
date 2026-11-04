@@ -17,6 +17,7 @@ package network.ike.komet.claude.stamp;
 
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import javafx.scene.Node;
+import network.ike.komet.claude.decision.render.DecisionFigure;
 import network.ike.komet.claude.ui.BlockContext;
 
 import java.util.List;
@@ -73,6 +74,18 @@ public interface StructuredBlockKind {
      * @return the editor
      */
     Optional<Editor> editor(Source source, Context context);
+
+    /**
+     * What the block is on a page: what it says, drawn as figures both Typst and the Page layout
+     * show, since a control's sliders and fields mean nothing on paper.
+     *
+     * @param source  the block's source
+     * @param context what the surface offers
+     * @return the figures in order; none prints the block as its source
+     */
+    default List<DecisionFigure> figures(Source source, Context context) {
+        return List.of();
+    }
 
     /**
      * Writes the knowledge a block of this kind states, after the block's text was saved: a

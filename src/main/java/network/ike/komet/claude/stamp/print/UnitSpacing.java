@@ -60,7 +60,7 @@ public final class UnitSpacing {
             case HEADING -> size * 0.9;
             case LIST_ITEM -> previous == Kind.LIST_ITEM ? base * 0.65 : base * 1.1;
             case TABLE_ROW -> previous == Kind.TABLE_ROW ? base * 0.65 + 2 * CELL_INSET + 0.5 : base * 1.1;
-            case OTHER -> base;
+            case OTHER, FIGURE -> base;
             default -> base * 1.1;
         };
         double below = switch (kind) {

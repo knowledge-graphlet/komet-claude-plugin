@@ -19,6 +19,7 @@ import network.ike.komet.claude.stamp.print.DocumentModel.Admonition;
 import network.ike.komet.claude.stamp.print.DocumentModel.Block;
 import network.ike.komet.claude.stamp.print.DocumentModel.Container;
 import network.ike.komet.claude.stamp.print.DocumentModel.Heading;
+import network.ike.komet.claude.stamp.print.DocumentModel.Drawn;
 import network.ike.komet.claude.stamp.print.DocumentModel.Image;
 import network.ike.komet.claude.stamp.print.DocumentModel.Item;
 import network.ike.komet.claude.stamp.print.DocumentModel.ListBlock;
@@ -140,6 +141,12 @@ public final class ModelUnits {
             }
             case Image i -> {
                 return add(out, block, Kind.OTHER, "Image: " + i.target() + (i.title().isEmpty() ? "" : " — " + i.title()), base * 0.85, false, 0, previous, base);
+            }
+            case Drawn d -> {
+                double[] spacing = UnitSpacing.of(Kind.FIGURE, previous, base, base);
+                out.add(new Unit(out.size(), block, Kind.FIGURE, LayoutOracle.FIGURE_WORD, base, false, 0, spacing[0], spacing[1], false,
+                        d.figure().width(), d.figure().height()));
+                return Kind.FIGURE;
             }
             case Container c -> {
                 Kind last = previous;

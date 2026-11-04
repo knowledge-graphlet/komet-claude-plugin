@@ -164,8 +164,9 @@ public final class DecisionFigureTornado {
         // the title: what the axis measures
         double y = 0;
         double axisLine = DecisionFigureText.lineHeight(axisSize);
-        for (String line : DecisionFigureText.wrap(tornado.title(), axisSize, barWidth + CAPTION_ROOM)) {
-            marks.add(new Text(barLeft, y, line, axisSize, false, true, DecisionFigureText.AXIS, "axis-title"));
+        // a sentence, so it takes the figure's whole width: over the bars alone it stands in a thin column
+        for (String line : DecisionFigureText.wrap(tornado.title(), axisSize, width - 4)) {
+            marks.add(new Text(0, y, line, axisSize, false, true, DecisionFigureText.AXIS, "axis-title"));
             y += axisLine;
         }
 
