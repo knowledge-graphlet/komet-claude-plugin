@@ -49,15 +49,39 @@ public final class TypstOracle implements LayoutOracle {
     /** The label on the metadata after every word, carrying {@code false}. */
     public static final String WORD_END_LABEL = "e";
 
+    /** How many words {@link #RUN_RULE} hands {@link #WORD_LABEL_RULE} at a time: under Typst's limit, in whole words. */
+    static final int RUN_WORDS = 256;
+
     /**
-     * The show rule that labels words: a label carrying the word's text before it and one after
-     * it. Only the end label's position is trusted — it follows the word's glyphs on the word's
-     * own line (or the line its hyphenated tail landed on); a start label before a line's first
-     * word is left at the end of the line before, and one at a paragraph's start reports the
+     * The rule that labels words: a label carrying the word's text before it and one after it.
+     * Only the end label's position is trusted — it follows the word's glyphs on the word's own
+     * line (or the line its hyphenated tail landed on); a start label before a line's first word
+     * is left at the end of the line before, and one at a paragraph's start reports the
      * paragraph's top rather than a baseline.
      */
-    public static final String WORD_RULE = "#show regex(\"\\\\S+\"): it => [#metadata(it.text)<" + WORD_LABEL
+    static final String WORD_LABEL_RULE = "#show regex(\"\\\\S+\"): it => [#metadata(it.text)<" + WORD_LABEL
             + ">#it#metadata(false)<" + WORD_END_LABEL + ">]\n";
+
+    /**
+     * The rule that keeps {@link #WORD_LABEL_RULE} under Typst's limit. Typst applies a regex rule
+     * to a run of text one match at a time and gives up at 512 matches ("maximum grouping depth
+     * exceeded"), which costs the whole document its answer. A run is every word up to the next
+     * change of style, however many source lines or hard breaks it crosses, so 512 is a
+     * listing's words as much as a long paragraph's. Labels do not end a run: {@code metadata}
+     * realizes to nothing. So this rule takes {@link #RUN_WORDS} words at a time and ends each
+     * batch with an empty span of changed style, which draws nothing, breaks no line, and sends
+     * the batch's words through the labelling rule on their own count. Declared after that rule
+     * so it wins where both match, it can spend its own 512 matches on batches, so a run holds
+     * 131,072 words. A batch spanning hard breaks arrives as one text, and Typst breaks its lines
+     * at the same places. No line moves, and no label that is read: of 132,524 in the fidelity
+     * corpus one did, the closing label of a description followed by a nested list, which goes
+     * to its word's true end.
+     */
+    static final String RUN_RULE = "#show regex(\"\\\\S+(?:\\\\s+\\\\S+){0," + (RUN_WORDS - 1)
+            + "}\"): it => [#it#text(size: 1em)[]]\n";
+
+    /** The show rules that label words, in order: see {@link #WORD_LABEL_RULE} and {@link #RUN_RULE}. */
+    public static final String WORD_RULE = WORD_LABEL_RULE + RUN_RULE;
 
     /** The expression that lists every label with its value, page and position, in document order. */
     public static final String QUERY = "query(selector(<" + WORD_LABEL + ">).or(<" + WORD_END_LABEL + ">).or(<" + TypstWriter.BLOCK_LABEL

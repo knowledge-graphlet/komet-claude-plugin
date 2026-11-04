@@ -331,7 +331,7 @@ class TypstOracleTest {
         text.append("aaa https://example.com/").append("some/long/path/".repeat(20)).append(" tail\n");
         text.append("    ").append("foo|bar|baz|qux|".repeat(14)).append('\n');
         text.append("  ").append("unbreakable".repeat(14)).append(" end\n\n");
-        // Down to a page's foot on few words (word labels reach typst's grouping depth at some hundreds), then over it.
+        // Down to a page's foot, then over it.
         for (int i = 0; i < 26; i++) {
             text.append(i % 2 == 0 ? "    " : "  ").append("short ").append(i).append('\n');
         }
@@ -365,6 +365,101 @@ class TypstOracleTest {
             Line below = lines.get(k);
             assertTrue(below.page() > above.page() || below.baseline() > above.baseline() + 5, "each row below the last: " + above + " then " + below);
         }
+    }
+
+    /** Prose of the given length with what a batch of words could disturb: quotes, hard breaks, words that hyphenate. */
+    private static String prose(int words) {
+        String[] cycle = {"The", "\"characteristically\"", "unmistakable", "well-known", "dog's", "uncopyrightable", "paragraph",
+            "(runs", "over)", "3.5%", "of", "the", "\u2018measure\u2019,", "and", "keeps", "going."};
+        StringBuilder text = new StringBuilder();
+        for (int i = 0; i < words; i++) {
+            text.append(i == 0 ? "" : i % 41 == 0 ? " +\n" : " ").append(cycle[i % cycle.length]);
+        }
+        return text.toString();
+    }
+
+    /** A listing of the given length with what a batch of words could disturb: indents, inner runs of spaces, blank lines. */
+    private static String listing(int words) {
+        StringBuilder text = new StringBuilder();
+        for (int i = 0; i < words; i++) {
+            if (i % 7 == 0) {
+                text.append(i == 0 ? "" : i % 21 == 0 ? "\n\n" : "\n").append(i % 2 == 0 ? "    " : "  ");
+            }
+            text.append("word").append(i).append(i % 3 == 0 ? "   " : " ");
+        }
+        return text.toString().stripTrailing();
+    }
+
+    private static List<Line> linesOf(Path folder, String typst, List<Unit> units) throws IOException {
+        Path source = folder.resolve("lines.typ");
+        Files.writeString(source, typst, StandardCharsets.UTF_8);
+        Layout layout = new TypstOracle(folder, source, null, (t, unit, mono, bold) -> t.length() * 6.12).layout(units, LETTER);
+        assertFalse(layout.lines().isEmpty(), layout.notes().toString());
+        return layout.lines();
+    }
+
+    @Test
+    void batchingTheWordsMovesNoLine(@TempDir Path folder) throws IOException {
+        assumeTrue(TypstCompiler.locate().isPresent(), "typst is not installed");
+        // Past one batch and under Typst's limit, so the lines can be read with the rule and without it. A
+        // description's closing label does move, to its word's true end when a nested list follows; nothing reads it.
+        DocumentModel.ListBlock nested = new DocumentModel.ListBlock(DocumentModel.ListBlock.Kind.ORDERED, "", List.of(new DocumentModel.Item("", "A step.", List.of())));
+        DocumentModel model = new DocumentModel("T", List.of(
+                new DocumentModel.Paragraph(prose(420)),
+                new DocumentModel.Verbatim("", listing(420)),
+                new DocumentModel.ListBlock(DocumentModel.ListBlock.Kind.UNORDERED, "", List.of(
+                        new DocumentModel.Item("", prose(300), List.of(new DocumentModel.Verbatim("", listing(300)))))),
+                new DocumentModel.ListBlock(DocumentModel.ListBlock.Kind.DESCRIPTION, "", List.of(new DocumentModel.Item("Term", prose(300), List.of(nested)))),
+                new DocumentModel.Table("", List.of(), 1, List.of(List.of("Head", "Other"), List.of(prose(300), "cell")))));
+        List<Unit> units = ModelUnits.of(model, 12);
+        String batched = TypstWriter.write(model, TypstWriter.PageSetup.DEFAULT, TypstWriter.Labels.WORDS);
+        assertTrue(batched.contains(TypstOracle.RUN_RULE));
+
+        assertEquals(linesOf(folder, batched.replace(TypstOracle.RUN_RULE, ""), units), linesOf(folder, batched, units));
+    }
+
+    @Test
+    void aListingOfThousandsOfWordsHasItsLayout(@TempDir Path folder) throws IOException {
+        assumeTrue(TypstCompiler.locate().isPresent(), "typst is not installed");
+        // Typst stops a single rule at 512 words in a run; this is over that on many lines, and on one.
+        String text = listing(6000) + "\n" + "word ".repeat(1500).strip() + "\nlast";
+        DocumentModel model = new DocumentModel("T", List.of(new DocumentModel.Verbatim("", text)));
+        List<Unit> units = ModelUnits.of(model, 12);
+        Unit unit = units.stream().filter(u -> u.kind() == Kind.VERBATIM).findFirst().orElseThrow();
+        Path source = folder.resolve("layout.typ");
+        Files.writeString(source, TypstWriter.write(model, TypstWriter.PageSetup.DEFAULT, TypstWriter.Labels.WORDS), StandardCharsets.UTF_8);
+
+        Layout layout = new TypstOracle(folder, source, null, (t, u, mono, bold) -> t.length() * 6.12).layout(units, LETTER);
+
+        assertTrue(layout.pages() > 10, "the listing runs over many pages: " + layout.pages() + " " + layout.notes());
+        List<Line> lines = inSourceOrder(layout, unit);
+        StringBuilder drawn = new StringBuilder();
+        for (int k = 0; k < lines.size(); k++) {
+            drawn.append(lines.get(k).text(unit));
+            if (k > 0) {
+                Line above = lines.get(k - 1);
+                Line below = lines.get(k);
+                assertTrue(below.page() > above.page() || below.baseline() > above.baseline() + 5, "each row below the last: " + above + " then " + below);
+            }
+        }
+        assertEquals(ink(unit.text()), ink(drawn.toString()), "every character once, in order");
+    }
+
+    @Test
+    void aParagraphOfThousandsOfWordsHasItsLayout(@TempDir Path folder) throws IOException {
+        assumeTrue(TypstCompiler.locate().isPresent(), "typst is not installed");
+        DocumentModel model = new DocumentModel("T", List.of(new DocumentModel.Paragraph("word ".repeat(4000).strip())));
+        List<Unit> units = ModelUnits.of(model, 12);
+        Unit unit = units.stream().filter(u -> u.kind() == Kind.PARAGRAPH).findFirst().orElseThrow();
+        Path source = folder.resolve("layout.typ");
+        Files.writeString(source, TypstWriter.write(model, TypstWriter.PageSetup.DEFAULT, TypstWriter.Labels.WORDS), StandardCharsets.UTF_8);
+
+        Layout layout = new TypstOracle(folder, source, null, (t, u, mono, bold) -> t.length() * 6.12).layout(units, LETTER);
+
+        assertTrue(layout.pages() > 5, "the paragraph runs over pages: " + layout.pages() + " " + layout.notes());
+        StringBuilder drawn = new StringBuilder();
+        layout.ofUnit(unit.index()).stream().sorted(Comparator.comparingInt(Line::from)).forEach(line -> drawn.append(line.text(unit)));
+        assertEquals(ink(unit.text()), ink(drawn.toString()), "every word once, in order");
     }
 
     @Test
