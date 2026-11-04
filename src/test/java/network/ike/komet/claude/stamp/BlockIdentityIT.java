@@ -180,6 +180,13 @@ class BlockIdentityIT {
                 new LocalConcepts.Context(false, LocalConcepts.Names.NONE, Optional.of(body)));
         assertTrue(revised.message().startsWith("Wrote a new version"), revised.message());
 
+        // a pending tree waits for the person just as a committed one does: another block does not rewrite it
+        String pendingBody = tree("Which of two pending trees?", "0.1");
+        PublicId pending = DecisionTreeWrites.write("decision-tree", pendingBody, view, edit).tree().orElseThrow();
+        String overPending = DecisionTreeWrites.write("decision-tree", tree("Which of two pending trees?", "0.3"), view, edit).message();
+        assertTrue(held(overPending), overPending);
+        assertEquals(1, ((SemanticRecord) EntityHandle.get(PrimitiveData.nid(pending)).orNull()).versions().size());
+
         // a specification waits the same way
         String spec = SPEC.formatted("Which of two specifications?", "1");
         ComplexConceptWrites.Written proposed = ComplexConceptWrites.write(spec, view, edit, LocalConcepts.Context.ALONE);
@@ -190,6 +197,11 @@ class BlockIdentityIT {
         assertTrue(ComplexConceptWrites.write(spec, view, edit, LocalConcepts.Context.ALONE).message().contains("already in the knowledge base"));
         String different = ComplexConceptWrites.write(SPEC.formatted("Which of two specifications?", "0"), view, edit, LocalConcepts.Context.ALONE).message();
         assertTrue(held(different), different);
+        String pendingSpec = SPEC.formatted("Which of two pending specifications?", "1");
+        assertTrue(ComplexConceptWrites.write(pendingSpec, view, edit, LocalConcepts.Context.ALONE).wrote());
+        String overPendingSpec = ComplexConceptWrites.write(SPEC.formatted("Which of two pending specifications?", "0"), view, edit,
+                LocalConcepts.Context.ALONE).message();
+        assertTrue(held(overPendingSpec), overPendingSpec);
     }
 
     @Test

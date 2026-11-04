@@ -156,7 +156,7 @@ public final class ComplexConceptWrites {
                 return new Written(Optional.of(complexConcept), "The complex concept " + name
                         + " is already in the knowledge base as this block states it; nothing was written.");
             }
-            if (!head.uncommitted() && !revises(context, head, facades, view)) {
+            if (!revises(context, head, facades, view)) {
                 return Written.refused("The complex concept was not written: \u201c" + name + "\u201d already has a different specification "
                         + "in the knowledge base, and this block did not state it. Ask the person whether they are the same concept. If they "
                         + "are, keep one specification; if not, give this concept a more specific name, since its label is its fully "

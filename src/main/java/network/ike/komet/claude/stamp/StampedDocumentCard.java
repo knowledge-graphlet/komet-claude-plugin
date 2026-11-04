@@ -833,7 +833,11 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
      * so the chooser never says "No documents" over a document on the card.
      */
     private void listShown(PublicId anchor) {
-        if (anchors.values().stream().anyMatch(known -> PublicId.equals(known, anchor))) {
+        Optional<String> known = anchors.entrySet().stream().filter(entry -> PublicId.equals(entry.getValue(), anchor))
+                .map(Map.Entry::getKey).findFirst();
+        if (known.isPresent()) {
+            preferences().put(PREF_DOCUMENT, known.get());     // so the card reopens it, as it does a chosen one
+            syncPreferences();
             return;
         }
         CompletableFuture.supplyAsync(GitDocumentMaterializer::storedDocuments).whenComplete((found, failure) -> Platform.runLater(() -> {

@@ -163,8 +163,7 @@ public final class DecisionTreeWrites {
                     return Optional.empty();
                 }
             }).map(before -> before.source().equals(head)).orElse(false);
-            boolean pending = view.latest(nid).isPresent() && ((SemanticEntityVersion) view.latest(nid).get()).uncommitted();
-            if (!revises && !pending) {
+            if (!revises) {
                 writer.rollback();
                 return Written.refused(held(name));
             }

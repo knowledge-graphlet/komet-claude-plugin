@@ -132,7 +132,8 @@ class DecisionTreeWritesIT {
 
         // a second edit before a commit replaces the pending version: one author's edits are one change
         DecisionTreeWrites.Written again = DecisionTreeWrites.write("decision-tree id=dtw-tree",
-                CHOICE.replace("p = [0.1,0.1]", "p = [0.15,0.15]"), view, edit);
+                CHOICE.replace("p = [0.1,0.1]", "p = [0.15,0.15]"), view, edit,
+                new LocalConcepts.Context(false, LocalConcepts.Names.NONE, Optional.of(CHOICE)));
         assertEquals(Optional.of(semantic), again.tree(), again.message());
         assertEquals(1, record(semantic).versions().size(), "the pending version is replaced, not added to");
         assertTrue(again.message().startsWith("Rewrote the tree of Treat now? in its uncommitted version"), again.message());
