@@ -21,7 +21,6 @@ import dev.ikm.komet.actions.KometActionResult;
 import dev.ikm.komet.terms.KometConcept;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
-import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.edit.EditCoordinate;
 import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
@@ -32,22 +31,26 @@ import dev.ikm.tinkar.entity.StampEntity;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.entity.graph.adaptor.axiom.LogicalAxiom;
 import dev.ikm.tinkar.entity.graph.adaptor.axiom.LogicalExpression;
-import dev.ikm.tinkar.entity.transaction.StampedWriter;
+import dev.ikm.tinkar.entity.graph.adaptor.axiom.LogicalExpressionBuilder;
 import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.EntityProxy;
-import dev.ikm.tinkar.terms.KernelConcept;
-import dev.ikm.tinkar.terms.KernelPattern;
-import dev.ikm.tinkar.terms.State;
 import network.ike.foundation.ike.bindings.IkeConcept;
 import network.ike.foundation.ike.bindings.IkePattern;
 import network.ike.komet.claude.anf.model.AnfExpression;
 import network.ike.komet.claude.anf.model.AnfExpressionBuilder;
 import network.ike.komet.claude.anf.model.AnfStatement;
+import network.ike.komet.claude.authoring.BlockConcepts;
+import network.ike.komet.claude.block.LocalConcepts;
+import network.ike.komet.claude.complexconcept.model.ComplexConcept;
 import network.ike.komet.claude.complexconcept.model.ComplexConceptBuilder;
+import network.ike.komet.claude.complexconcept.model.ComplexConceptExpression;
+import network.ike.komet.claude.stamp.SemanticVersions;
 import org.eclipse.collections.api.factory.Lists;
 
+import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 /**
  * The starter set's {@code Promote to complex concept} action: promotes an ANF statement's composed
@@ -56,23 +59,29 @@ import java.util.Optional;
  * IKE-Network/ike-issues#1312).
  *
  * <p>The input takes the {@code Complex concept promotion input pattern}: the subject is the
- * statement's semantic, and the one further field is the name of the complex concept. One
- * uncommitted change, in one transaction, writes:
+ * statement's semantic, and the one further field is the name of the complex concept, which is its
+ * fully qualified name and so its identity ({@link LocalConcepts}): a concept the store already
+ * holds under that name is that concept, and a promotion reuses it. One uncommitted change, in one
+ * transaction left pending for the person, writes through {@link BlockConcepts}:
  * <ol>
- *     <li>the complex concept, in the Complex concepts module, with the name as its fully qualified
- *     name and its regular name, both preferred in US English;</li>
- *     <li>its complex concept specification, referencing it: the topic's composition as the
- *     definition, and a focused expansion on the composition's parent concept, which the complex
+ *     <li>the complex concept, when the store lacks it, the way every new concept is written: in
+ *     the Complex concepts module, with the name as its fully qualified name and its regular name,
+ *     both preferred in US English, and a primitive stated definition whose is-a is the
+ *     composition's parent concept;</li>
+ *     <li>its complex concept specification, when it has none, referencing it: the topic's
+ *     composition as the definition, and a focused expansion on that parent, which the complex
  *     concept editor finishes with the prerequisites the composition implies;</li>
- *     <li>a new version of the statement, in its own module, whose topic is the new concept.</li>
+ *     <li>a new version of the statement, in its own module, whose topic is the concept.</li>
  * </ol>
  * The result takes the {@code Version change result pattern}: the STAMP of the statement's new
- * version, and a message naming the new concept's public id.
+ * version, and a message naming the concept's public id.
  *
  * <p>Refused, with nothing written: a subject that is not an ANF statement, a blank name, a
  * statement with no topic, a topic that is already a single concept, a composition that names no
- * parent concept to focus the expansion on, and a statement with an edit pending, since the
- * promotion is one change and does not stack on another.
+ * parent concept to focus the expansion on, a statement with an edit pending, since the promotion
+ * is one change and does not stack on another, and a name whose concept already specifies another
+ * composition, since the same name with a different definition is the person's question, usually
+ * answered with a better name.
  */
 public final class PromoteToComplexConcept implements KometAction {
 
@@ -135,43 +144,66 @@ public final class PromoteToComplexConcept implements KometAction {
                     + " the complex concept's expansion on.");
         }
 
+        PublicId complexConcept = LocalConcepts.identity(name, view);
+        boolean lacking = !SemanticVersions.exists(complexConcept, view);
+        OptionalLong specified = ComplexConceptWrites.specificationOf(complexConcept, view);
+        if (specified.isPresent() && !definitionOf(specified.getAsLong(), view).equals(composition)) {
+            return KometActionResult.refused(input, "\u201c" + name + "\u201d already has a different specification"
+                    + " in the knowledge base. Ask the person whether they are the same concept; if not, give this"
+                    + " one a more specific name, since its name is its fully qualified name.");
+        }
+
         ConceptFacade author = ConceptFacade.make(edit.getAuthorNidForChanges());
         ConceptFacade path = ConceptFacade.make(edit.getDefaultPathNid());
-        StampedWriter writer = StampedWriter.open(concept().description() + ": " + name, State.ACTIVE,
-                author, IkeConcept.COMPLEX_CONCEPTS_MODULE, path);
+        ConceptFacade promotedConcept = EntityProxy.Concept.make(name, complexConcept);
+        BlockConcepts writer = new BlockConcepts(concept().description() + ": " + name, view, author,
+                IkeConcept.COMPLEX_CONCEPTS_MODULE, path);
         try {
-            PublicId complexConcept = PublicIds.newRandom();
-            long conceptNid = writer.concept(complexConcept);
-            writer.fullyQualifiedName(complexConcept, name);
-            PublicId regularName = PublicIds.newRandom();
-            writer.semantic(regularName, KernelPattern.DESCRIPTION_PATTERN.publicId(), complexConcept,
-                    KernelConcept.ENGLISH_LANGUAGE, name, KernelConcept.DESCRIPTION_NOT_CASE_SENSITIVE,
-                    KernelConcept.REGULAR_NAME_DESCRIPTION_TYPE);
-            writer.semantic(PublicIds.newRandom(), KernelPattern.US_DIALECT_PATTERN.publicId(), regularName,
-                    KernelConcept.PREFERRED);
+            if (lacking) {
+                writer.concept(complexConcept, name, List.of(), primitiveBelow(parent.get()));
+            }
+            if (specified.isEmpty()) {
+                ComplexConceptBuilder specification = new ComplexConceptBuilder();
+                specification.definition(composition.get());
+                specification.focusedExpansion(parent.get());
+                writer.semantic(ComplexConceptWrites.specificationId(complexConcept), IkePattern.COMPLEX_CONCEPT_PATTERN,
+                        promotedConcept, specification.asDiTree());
+            }
 
-            ComplexConceptBuilder specification = new ComplexConceptBuilder();
-            specification.definition(composition.get());
-            specification.focusedExpansion(parent.get());
-            writer.semantic(PublicIds.newRandom(), IkePattern.COMPLEX_CONCEPT_PATTERN.publicId(), complexConcept,
-                    specification.asDiTree());
-
-            writer.restamp(State.ACTIVE, Long.MAX_VALUE, author, ConceptFacade.make(head.moduleNid()), path);
             AnfExpressionBuilder promoted = new AnfExpressionBuilder(tree);
             AnfStatement.Attribute.Expression ownTopic = promoted.root().context()
                     .flatMap(AnfStatement.Context::topic).orElseThrow();
-            promoted.splice(ownTopic, AnfExpressionBuilder.singleConceptExpression(ConceptFacade.make(conceptNid)));
-            writer.semantic(record.publicId(), IkePattern.ANF_STATEMENT_PATTERN.publicId(),
-                    PrimitiveData.publicId(record.referencedComponentNid()), promoted.asDiTree());
-            StampEntity<?> written = writer.stamp();
+            promoted.splice(ownTopic, AnfExpressionBuilder.singleConceptExpression(promotedConcept));
+            StampEntity<?> written = writer.semanticIn(ConceptFacade.make(head.moduleNid()), record.publicId(),
+                    IkePattern.ANF_STATEMENT_PATTERN, EntityProxy.make(record.referencedComponentNid()), promoted.asDiTree());
             return KometActionResult.completed(input, written, "Promoted the topic to the complex concept "
-                    + name + ", " + complexConcept.idString() + ", whose focused expansion on "
-                    + parent.get().description() + " is finished in the complex concept editor;"
-                    + " uncommitted, commit to keep it.");
+                    + name + ", " + complexConcept.idString() + (specified.isPresent()
+                    ? ", which already specifies this composition;"
+                    : ", whose focused expansion on " + parent.get().description()
+                    + " is finished in the complex concept editor;") + " uncommitted, commit to keep it.");
         } catch (RuntimeException e) {
-            writer.cancel();
+            writer.rollback();
             return KometActionResult.failed(input, "Could not promote the topic: " + e.getMessage());
         }
+    }
+
+    /** The composition a complex concept's specification semantic defines it by, when it has one. */
+    private static Optional<DiTreeEntity> definitionOf(long specification, ViewCalculator view) {
+        SemanticEntityVersion head = view.<SemanticEntityVersion>latest(specification).get();
+        return ComplexConceptExpression.from((DiTreeEntity) head.fieldValues().get(0)).root().definition()
+                .flatMap(ComplexConcept.Definition::expressionTree);
+    }
+
+    /**
+     * A concept's stated definition when all that is known is its parent: primitive, an is-a to it.
+     *
+     * @param parent the parent concept
+     * @return the definition
+     */
+    private static DiTreeEntity primitiveBelow(ConceptFacade parent) {
+        LogicalExpressionBuilder logical = new LogicalExpressionBuilder();
+        logical.NecessarySet(logical.And(logical.ConceptAxiom(parent)));
+        return (DiTreeEntity) logical.build().sourceGraph();
     }
 
     /**

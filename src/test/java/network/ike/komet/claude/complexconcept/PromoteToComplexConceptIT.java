@@ -31,15 +31,19 @@ import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.ConceptEntity;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
+import dev.ikm.tinkar.entity.EntityVersion;
 import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.entity.graph.adaptor.axiom.LogicalExpressionBuilder;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.entity.transaction.StampedWriter;
+import dev.ikm.tinkar.entity.transaction.Transaction;
 import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityProxy;
+import dev.ikm.tinkar.terms.KernelPattern;
 import dev.ikm.tinkar.terms.State;
+import javafx.application.Platform;
 import network.ike.foundation.ike.bindings.IkeConcept;
 import network.ike.foundation.ike.bindings.IkePattern;
 import network.ike.komet.claude.anf.model.AnfExpression;
@@ -47,8 +51,11 @@ import network.ike.komet.claude.anf.model.AnfExpressionBuilder;
 import network.ike.komet.claude.anf.model.AnfSemantic;
 import network.ike.komet.claude.anf.model.AnfStatement;
 import network.ike.komet.claude.complexconcept.model.ComplexConcept;
+import network.ike.komet.claude.block.LocalConcepts;
 import network.ike.komet.claude.complexconcept.model.ComplexConceptExpression;
+import network.ike.komet.claude.koncept.ConceptDefinition;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -57,7 +64,9 @@ import java.io.File;
 import java.util.List;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -66,6 +75,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * (IKE-Network/ike-issues#1312): a statement whose topic is a composition is promoted, writing the
  * complex concept, its specification and the statement's new version as one uncommitted change, and
  * every topic or statement the action does not take is refused with nothing written.
+ *
+ * <p>The action writes through the composer, which requires the JavaFX application thread, so the
+ * toolkit is started here; where it cannot start (a headless agent), the class is skipped.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class PromoteToComplexConceptIT {
@@ -78,6 +90,13 @@ class PromoteToComplexConceptIT {
 
     @BeforeAll
     void startStore() {
+        try {
+            Platform.startup(() -> { });
+        } catch (IllegalStateException alreadyStarted) {
+            // Started by another test class in this JVM.
+        } catch (RuntimeException | Error noToolkit) {
+            Assumptions.abort("no JavaFX toolkit here: " + noToolkit);
+        }
         assertTrue(PB_STARTER_DATA.exists(), "Starter data must be present at " + PB_STARTER_DATA.getAbsolutePath());
         PrimitiveData.selectControllerByName("Load Memory-Only 64-bit Store");
         PrimitiveData.start();
@@ -101,6 +120,15 @@ class PromoteToComplexConceptIT {
         logical.NecessarySet(logical.And(
                 logical.ConceptAxiom(concept("Systolic blood pressure observation")),
                 logical.SomeRole(concept("Body position"), logical.ConceptAxiom(concept("Sitting position")))));
+        return (DiTreeEntity) logical.build().sourceGraph();
+    }
+
+    /** The same observation, measured in another position. */
+    private static DiTreeEntity otherComposedTopic() {
+        LogicalExpressionBuilder logical = new LogicalExpressionBuilder();
+        logical.NecessarySet(logical.And(
+                logical.ConceptAxiom(concept("Systolic blood pressure observation")),
+                logical.SomeRole(concept("Body position"), logical.ConceptAxiom(concept("Standing position")))));
         return (DiTreeEntity) logical.build().sourceGraph();
     }
 
@@ -138,6 +166,17 @@ class PromoteToComplexConceptIT {
     private DiTreeEntity latestTree(long semantic) {
         Latest<SemanticEntityVersion> latest = view.latest(semantic);
         return (DiTreeEntity) latest.get().fieldValues().get(0);
+    }
+
+    private static List<SemanticEntity<SemanticEntityVersion>> semantics(long component, long pattern) {
+        return EntityService.get().semanticsForComponentOfPattern(component, pattern).toList();
+    }
+
+    /** The concept a promoted statement's topic now names. */
+    private ConceptFacade promotedTopic(long statement) {
+        return AnfExpression.from(latestTree(statement)).root().context().flatMap(AnfStatement.Context::topic)
+                .flatMap(AnfStatement.Attribute.Expression::singleConcept)
+                .orElseThrow(() -> new AssertionError("the topic is one concept"));
     }
 
     @Test
@@ -181,6 +220,61 @@ class PromoteToComplexConceptIT {
                 specification.expansion().orElseThrow());
         assertEquals(concept("Systolic blood pressure observation").nid(), focused.focus().orElseThrow().nid(),
                 "the expansion focuses on the composition's parent");
+
+        assertEquals(PublicIds.of(LocalConcepts.uuid("Sitting systolic blood pressure")),
+                PrimitiveData.publicId(complexConcept.nid()), "the name derives the concept's identity");
+        List<SemanticEntity<SemanticEntityVersion>> definitions =
+                semantics(complexConcept.nid(), KernelPattern.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN.nid());
+        assertEquals(1, definitions.size(), "the concept has a stated definition");
+        ConceptDefinition stated = ConceptDefinition.of(latestTree(definitions.getFirst().nid())).orElseThrow();
+        assertFalse(stated.defined(), "the definition is primitive");
+        assertArrayEquals(new long[]{concept("Systolic blood pressure observation").nid()}, stated.supertypes(),
+                "the is-a is the composition's parent, not the placeholder");
+
+        Latest<EntityVersion> statementVersion = view.latest(statement);
+        Latest<EntityVersion> definitionVersion = view.latest(definitions.getFirst().nid());
+        assertEquals(statementEntity.versions().stream().filter(version -> !version.uncommitted()).findFirst()
+                .orElseThrow().moduleNid(), statementVersion.get().moduleNid(), "the statement stays in its own module");
+        assertEquals(IkeConcept.COMPLEX_CONCEPTS_MODULE.nid(), definitionVersion.get().moduleNid());
+        Transaction shared = Transaction.forVersion((EntityVersion) conceptVersion.get()).orElseThrow();
+        assertEquals(shared, Transaction.forVersion(statementVersion.get()).orElseThrow(),
+                "one transaction holds the concept and the statement, so one commit publishes both");
+        assertEquals(shared, Transaction.forVersion(definitionVersion.get()).orElseThrow());
+
+        shared.commit();
+        assertTrue(EntityHandle.get(complexConcept.nid()).expectEntity().committed(), "the commit published the concept");
+        assertTrue(EntityHandle.get(statement).expectEntity().committed(), "and the statement");
+    }
+
+    @Test
+    void aSecondPromotionUnderTheNameReusesTheConcept() {
+        long first = committedStatement("first of two", composedTopic());
+        long second = committedStatement("second of two", composedTopic());
+        KometAction promote = KometActions.expect(KometConcept.PROMOTE_TO_COMPLEX_CONCEPT);
+
+        KometActionResult firstResult = promote.perform(PromoteToComplexConcept.input(first, "Seated systolic pressure"), view, edit);
+        KometActionResult secondResult = promote.perform(PromoteToComplexConcept.input(second, "seated  systolic PRESSURE"), view, edit);
+
+        assertTrue(firstResult.completed(), firstResult.message());
+        assertTrue(secondResult.completed(), secondResult.message());
+        long concept = promotedTopic(first).nid();
+        assertEquals(concept, promotedTopic(second).nid(), "the name means one concept, its case and spacing aside");
+        assertEquals(1, semantics(concept, IkePattern.COMPLEX_CONCEPT_PATTERN.nid()).size(), "one specification");
+        assertEquals(1, semantics(concept, KernelPattern.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN.nid()).size(), "one stated definition");
+    }
+
+    @Test
+    void theSameNameWithAnotherCompositionIsRefused() {
+        long promoted = committedStatement("named", composedTopic());
+        long other = committedStatement("named otherwise", otherComposedTopic());
+        KometAction promote = KometActions.expect(KometConcept.PROMOTE_TO_COMPLEX_CONCEPT);
+        assertTrue(promote.perform(PromoteToComplexConcept.input(promoted, "Blood pressure at rest"), view, edit).completed());
+
+        KometActionResult refused = promote.perform(PromoteToComplexConcept.input(other, "Blood pressure at rest"), view, edit);
+
+        assertEquals(KometConcept.ACTION_REFUSED.nid(), refused.outcome().nid(), refused.message());
+        assertTrue(refused.message().contains("different specification"), refused.message());
+        assertEquals(1, ((SemanticEntity<?>) EntityHandle.get(other).orNull()).versions().size(), "nothing was written");
     }
 
     @Test
