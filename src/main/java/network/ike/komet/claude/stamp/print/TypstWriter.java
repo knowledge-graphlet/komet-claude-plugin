@@ -25,6 +25,8 @@ import network.ike.komet.claude.stamp.print.DocumentModel.ListBlock;
 import network.ike.komet.claude.stamp.print.DocumentModel.Paragraph;
 import network.ike.komet.claude.stamp.print.DocumentModel.Table;
 import network.ike.komet.claude.stamp.print.DocumentModel.Verbatim;
+import network.ike.komet.claude.stamp.print.InlineText.Note;
+import network.ike.komet.claude.stamp.print.InlineText.Run;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -37,6 +39,9 @@ import java.util.Objects;
  * out — so it is the shape the Typst writer library in {@code ike-docs} takes when it moves
  * there ({@code dev-document-surface-pages}); the escaping and fence rules follow that
  * library's {@code TypstText}.
+ *
+ * <p>Prose reaches the page through {@link InlineText}: inline code as {@code raw} at the raw
+ * size, strong and emphasis, links, and footnotes at the foot of the page.
  *
  * <p>The running head shows the document title on the left and the current section on the
  * right — the last heading of level 1 or 2 before the page, so a flowed child's title names
@@ -151,13 +156,15 @@ public final class TypstWriter {
     public static String write(DocumentModel document, PageSetup setup, Labels labels) {
         StringBuilder content = new StringBuilder(4096);
         CHUNK_WORDS.set(labels == Labels.WORDS);
+        NOTES.set(new InlineText.Numbering());
         try {
             body(document, labels, content);
         } finally {
             CHUNK_WORDS.set(false);
+            NOTES.remove();
         }
         StringBuilder out = new StringBuilder(content.length() + 2048);
-        out.append(preamble(document.title(), setup));
+        out.append(preamble(InlineText.of(document.title()).text(), setup));
         // only where it is used, so a document with no drawn block is the source it always was
         if (content.indexOf("#ike-figure(") >= 0) {
             out.append(figureHelper(setup));
@@ -182,7 +189,7 @@ public final class TypstWriter {
             if (labels != Labels.NONE) {
                 out.append(marker(index++));
             }
-            out.append("#ike-title[").append(escape(document.title())).append("]\n\n");
+            out.append("#ike-title[").append(markup(document.title())).append("]\n\n");
         }
         for (Block block : document.blocks()) {
             if (labels != Labels.NONE) {
@@ -212,6 +219,7 @@ public final class TypstWriter {
         if (setup.runningHead() || headerFolio) {
             sb.append("  header: context {\n");
             sb.append("    set text(size: 0.8em, fill: luma(70))\n");
+            sb.append("    show footnote: none\n");   // a heading's note is the heading's, not the running head's
             sb.append("    let section = query(selector(heading).before(here())).filter(h => h.level <= ").append(RUNNING_HEAD_DEPTH).append(")\n");
             sb.append("    let current = if section.len() > 0 { section.last().body } else { [] }\n");
             if (setup.runningHead()) {
@@ -301,7 +309,7 @@ public final class TypstWriter {
     private static void block(Block block, StringBuilder out, String indent) {
         switch (block) {
             case Heading h -> out.append(indent).append("=".repeat(Math.clamp(h.level(), 1, 6))).append(' ')
-                    .append(escape(h.text())).append("\n\n");
+                    .append(markup(h.text())).append("\n\n");
             case Paragraph p -> out.append(indent).append(markup(p.text()).replace("\n", "\n" + indent)).append("\n\n");
             case Admonition a -> {
                 out.append(indent).append("#ike-admonition(").append(string(a.label())).append(")[\n");
@@ -311,7 +319,7 @@ public final class TypstWriter {
             }
             case Verbatim v -> {
                 if (!v.title().isEmpty()) {
-                    out.append(indent).append("#ike-block-title[").append(escape(v.title())).append("]\n");
+                    out.append(indent).append("#ike-block-title[").append(markup(v.title())).append("]\n");
                 }
                 String fence = fence(v.text());
                 out.append(indent).append(fence).append('\n');
@@ -322,12 +330,12 @@ public final class TypstWriter {
             }
             case ListBlock l -> {
                 if (!l.title().isEmpty()) {
-                    out.append(indent).append("#ike-block-title[").append(escape(l.title())).append("]\n");
+                    out.append(indent).append("#ike-block-title[").append(markup(l.title())).append("]\n");
                 }
                 for (Item item : l.items()) {
                     String marker = switch (l.kind()) {
                         case ORDERED -> "+ ";
-                        case DESCRIPTION -> "/ " + escape(item.term()) + ": ";
+                        case DESCRIPTION -> "/ " + markup(item.term()) + ": ";
                         case UNORDERED, BIBLIOGRAPHY -> "- ";
                     };
                     out.append(indent).append(marker).append(markup(item.text()).replace("\n", "\n" + indent + "  ")).append('\n');
@@ -356,19 +364,19 @@ public final class TypstWriter {
                 }
             }
             case Image i -> out.append(indent).append("#ike-image(").append(string(i.target())).append(", ")
-                    .append(i.title().isEmpty() ? "none" : "[" + escape(i.title()) + "]").append(")\n\n");
+                    .append(i.title().isEmpty() ? "none" : "[" + markup(i.title()) + "]").append(")\n\n");
             case Container c -> {
                 switch (c.kind()) {
                     case EXAMPLE, SIDEBAR -> {
                         out.append(indent).append(c.kind() == Container.Kind.EXAMPLE ? "#ike-example(" : "#ike-sidebar(")
-                                .append(c.title().isEmpty() ? "none" : "[" + escape(c.title()) + "]").append(")[\n");
+                                .append(c.title().isEmpty() ? "none" : "[" + markup(c.title()) + "]").append(")[\n");
                         blocks(c.blocks(), out, indent + "  ");
                         trimBlank(out);
                         out.append('\n').append(indent).append("]\n\n");
                     }
                     case QUOTE -> {
                         if (!c.title().isEmpty()) {
-                            out.append(indent).append("#ike-block-title[").append(escape(c.title())).append("]\n");
+                            out.append(indent).append("#ike-block-title[").append(markup(c.title())).append("]\n");
                         }
                         out.append(indent).append("#quote(block: true)[\n");
                         blocks(c.blocks(), out, indent + "  ");
@@ -377,7 +385,7 @@ public final class TypstWriter {
                     }
                     case OPEN -> {
                         if (!c.title().isEmpty()) {
-                            out.append(indent).append("#ike-block-title[").append(escape(c.title())).append("]\n");
+                            out.append(indent).append("#ike-block-title[").append(markup(c.title())).append("]\n");
                         }
                         blocks(c.blocks(), out, indent);
                     }
@@ -411,7 +419,7 @@ public final class TypstWriter {
         }
         out.append(indent).append("  ),\n");
         if (!t.title().isEmpty()) {
-            out.append(indent).append("  caption: [").append(escape(t.title())).append("],\n");
+            out.append(indent).append("  caption: [").append(markup(t.title())).append("],\n");
         }
         out.append(indent).append("  kind: table,\n");
         out.append(indent).append(")\n\n");
@@ -421,7 +429,7 @@ public final class TypstWriter {
         out.append(indent);
         for (int c = 0; c < columns; c++) {
             String cell = c < cells.size() ? cells.get(c) : "";
-            out.append('[').append(escape(cell)).append("], ");
+            out.append('[').append(markup(cell)).append("], ");
         }
         out.append('\n');
     }
@@ -435,11 +443,71 @@ public final class TypstWriter {
 
     // ── text ──────────────────────────────────────────────────────────────────
 
-    /** Prose as markup: escaped, with a hard line break where the text breaks a line. */
+    /** Prose as markup: its inline spans real Typst, the rest escaped, the document's notes numbered as read. */
     private static String markup(String text) {
+        return markup(InlineText.of(text, NOTES.get()));
+    }
+
+    /** Printed text as markup. */
+    static String markup(InlineText inline) {
+        String text = inline.text();
+        StringBuilder out = new StringBuilder(text.length() + 32);
+        int run = 0;
+        int note = 0;
+        int at = 0;
+        while (at < text.length()) {
+            Run nextRun = run < inline.runs().size() ? inline.runs().get(run) : null;
+            Note nextNote = note < inline.notes().size() ? inline.notes().get(note) : null;
+            int next = Math.min(nextRun == null ? text.length() : nextRun.from(), nextNote == null ? text.length() : nextNote.from());
+            if (next > at) {
+                out.append(plain(text.substring(at, next)));
+                at = next;
+            } else if (nextNote != null && nextNote.from() == at) {
+                out.append(footnote(nextNote));
+                at = nextNote.to();
+                note++;
+            } else if (nextRun != null) {
+                out.append(span(text.substring(nextRun.from(), nextRun.to()), nextRun));
+                at = nextRun.to();
+                run++;
+            }
+        }
+        return out.toString();
+    }
+
+    /** Plain text as markup: escaped, with a hard line break where the text breaks a line. */
+    private static String plain(String text) {
         String out = escape(text).replace("\n", " \\\n");
         return CHUNK_WORDS.get() ? chunk(out) : out;
     }
+
+    /**
+     * A styled run: {@code raw}, {@code strong}, {@code emph} and {@code link} as functions, since
+     * the marks of {@code *} and {@code _} do not open inside a word. Each ends in a semicolon,
+     * so that what follows cannot read as more of the expression ("{@code #raw("x").foo}").
+     */
+    private static String span(String text, Run run) {
+        String body = run.mono() ? "#raw(" + string(text.replace('\n', ' ')) + ");" : plain(text);
+        if (run.italic()) {
+            body = "#emph[" + body + "];";
+        }
+        if (run.bold()) {
+            body = "#strong[" + body + "];";
+        }
+        return run.href() == null ? body : "#link(" + string(run.href()) + ")[" + body + "];";
+    }
+
+    /** A footnote; a named one labelled, so a later mark can point at it. */
+    private static String footnote(Note note) {
+        if (note.repeat()) {
+            return "#footnote(<" + note.id() + ">);";
+        }
+        String body = "#footnote[" + markup(note.body()) + "]";
+        return note.id() == null ? body + ";" : body + "<" + note.id() + ">";
+    }
+
+    /** The document's footnote count while it is written: {@link #write} sets it. */
+    private static final ThreadLocal<InlineText.Numbering> NOTES = ThreadLocal.withInitial(InlineText.Numbering::new);
 
     /** Whether paragraphs are being written for the word-labelled measurement: see {@link #chunk}. */
     private static final ThreadLocal<Boolean> CHUNK_WORDS = ThreadLocal.withInitial(() -> false);

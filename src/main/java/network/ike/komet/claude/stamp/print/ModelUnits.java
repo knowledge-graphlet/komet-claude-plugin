@@ -53,13 +53,14 @@ public final class ModelUnits {
      */
     public static List<Unit> of(DocumentModel model, double base) {
         List<Unit> out = new ArrayList<>();
+        InlineText.Numbering notes = new InlineText.Numbering();
         int block = 0;
         Kind previous = null;
         if (!model.title().isEmpty()) {
-            previous = add(out, block++, Kind.TITLE, model.title(), base * 1.8, true, 0, previous, base);
+            previous = add(out, notes, block++, Kind.TITLE, model.title(), base * 1.8, true, 0, previous, base);
         }
         for (Block top : model.blocks()) {
-            previous = block(out, block++, top, base, previous, 0);
+            previous = block(out, notes, block++, top, base, previous, 0);
         }
         return out;
     }
@@ -73,7 +74,7 @@ public final class ModelUnits {
         };
     }
 
-    private static Kind block(List<Unit> out, int block, Block b, double base, Kind previous, int depth) {
+    private static Kind block(List<Unit> out, InlineText.Numbering notes, int block, Block b, double base, Kind previous, int depth) {
         switch (b) {
             case Heading h -> {
                 double scale = switch (Math.max(1, h.level())) {
@@ -82,19 +83,19 @@ public final class ModelUnits {
                     case 3 -> 1.1;
                     default -> 1.0;
                 };
-                return add(out, block, Kind.HEADING, h.text(), base * scale, true, 0, previous, base);
+                return add(out, notes, block, Kind.HEADING, h.text(), base * scale, true, 0, previous, base);
             }
             case Paragraph p -> {
-                return add(out, block, Kind.PARAGRAPH, p.text(), base, false, 0, previous, base);
+                return add(out, notes, block, Kind.PARAGRAPH, p.text(), base, false, 0, previous, base);
             }
             case Admonition a -> {
                 Kind last = previous;
                 boolean first = true;
                 for (Block inner : a.blocks()) {
                     if (first && inner instanceof Paragraph p) {
-                        last = add(out, block, Kind.PARAGRAPH, a.label() + " — " + p.text(), base, false, 0, last, base);
+                        last = add(out, notes, block, Kind.PARAGRAPH, a.label() + " — " + p.text(), base, false, 0, last, base);
                     } else {
-                        last = block(out, block, inner, base, last, depth);
+                        last = block(out, notes, block, inner, base, last, depth);
                     }
                     first = false;
                 }
@@ -103,14 +104,14 @@ public final class ModelUnits {
             case Verbatim v -> {
                 Kind last = previous;
                 if (!v.title().isEmpty()) {
-                    last = add(out, block, Kind.OTHER, v.title(), base * 0.95, true, 0, last, base);
+                    last = add(out, notes, block, Kind.OTHER, v.title(), base * 0.95, true, 0, last, base);
                 }
-                return add(out, block, Kind.VERBATIM, v.text(), base * TypstWriter.RAW_SCALE, false, 0, last, base);
+                return add(out, notes, block, Kind.VERBATIM, v.text(), base * TypstWriter.RAW_SCALE, false, 0, last, base);
             }
             case ListBlock l -> {
                 Kind last = previous;
                 if (!l.title().isEmpty()) {
-                    last = add(out, block, Kind.OTHER, l.title(), base * 0.95, true, 0, last, base);
+                    last = add(out, notes, block, Kind.OTHER, l.title(), base * 0.95, true, 0, last, base);
                 }
                 int n = 0;
                 for (Item item : l.items()) {
@@ -120,9 +121,9 @@ public final class ModelUnits {
                         case DESCRIPTION -> item.term() + ":";
                         case UNORDERED, BIBLIOGRAPHY -> bullet(depth);
                     };
-                    last = add(out, block, Kind.LIST_ITEM, marker + " " + item.text(), base, false, base * (1 + depth), last, base);
+                    last = add(out, notes, block, Kind.LIST_ITEM, marker + " " + item.text(), base, false, base * (1 + depth), last, base);
                     for (Block inner : item.blocks()) {
-                        last = block(out, block, inner, base, last, depth + 1);
+                        last = block(out, notes, block, inner, base, last, depth + 1);
                     }
                 }
                 return last;
@@ -130,17 +131,17 @@ public final class ModelUnits {
             case Table t -> {
                 Kind last = previous;
                 if (!t.title().isEmpty()) {
-                    last = add(out, block, Kind.OTHER, t.title(), base, true, 0, last, base, true);
+                    last = add(out, notes, block, Kind.OTHER, t.title(), base, true, 0, last, base, true);
                 }
                 int r = 0;
                 for (List<String> row : t.rows()) {
                     boolean header = r++ < t.headerRows();
-                    last = add(out, block, Kind.TABLE_ROW, String.join("  │  ", row), base, header, 0, last, base);
+                    last = add(out, notes, block, Kind.TABLE_ROW, String.join("  │  ", row), base, header, 0, last, base);
                 }
                 return last;
             }
             case Image i -> {
-                return add(out, block, Kind.OTHER, "Image: " + i.target() + (i.title().isEmpty() ? "" : " — " + i.title()), base * 0.85, false, 0, previous, base);
+                return add(out, notes, block, Kind.OTHER, "Image: " + i.target().replace("_", "\\_").replace("*", "\\*") + (i.title().isEmpty() ? "" : " — " + i.title()), base * 0.85, false, 0, previous, base);
             }
             case Drawn d -> {
                 double[] spacing = UnitSpacing.of(Kind.FIGURE, previous, base, base);
@@ -151,24 +152,33 @@ public final class ModelUnits {
             case Container c -> {
                 Kind last = previous;
                 if (!c.title().isEmpty()) {
-                    last = add(out, block, Kind.OTHER, c.title(), base * 0.9, true, 0, last, base);
+                    last = add(out, notes, block, Kind.OTHER, c.title(), base * 0.9, true, 0, last, base);
                 }
                 for (Block inner : c.blocks()) {
-                    last = block(out, block, inner, base, last, depth);
+                    last = block(out, notes, block, inner, base, last, depth);
                 }
                 return last;
             }
         }
     }
 
-    private static Kind add(List<Unit> out, int block, Kind kind, String text, double size, boolean bold, double indent, Kind previous, double base) {
-        return add(out, block, kind, text, size, bold, indent, previous, base, false);
+    private static Kind add(List<Unit> out, InlineText.Numbering notes, int block, Kind kind, String text, double size, boolean bold, double indent, Kind previous, double base) {
+        return add(out, notes, block, kind, text, size, bold, indent, previous, base, false);
     }
 
-    private static Kind add(List<Unit> out, int block, Kind kind, String text, double size, boolean bold, double indent, Kind previous, double base,
+    private static Kind add(List<Unit> out, InlineText.Numbering notes, int block, Kind kind, String text, double size, boolean bold, double indent, Kind previous, double base,
                             boolean caption) {
         double[] spacing = UnitSpacing.of(kind, previous, size, base, caption);
-        out.add(new Unit(out.size(), block, kind, text, size, bold, indent, spacing[0], spacing[1], kind == Kind.HEADING));
+        InlineText inline = kind == Kind.VERBATIM ? InlineText.literal(text) : InlineText.of(text, notes);
+        out.add(new Unit(out.size(), block, kind, inline.text(), size, bold, indent, spacing[0], spacing[1], kind == Kind.HEADING)
+                .withInline(inline.runs(), inline.marks(0), 0));
+        for (InlineText.Note note : inline.notes()) {
+            if (!note.repeat()) {
+                InlineText drawn = note.drawn();
+                out.add(new Unit(out.size(), block, Kind.FOOTNOTE, drawn.text(), base * LayoutOracle.FOOTNOTE_SCALE, false, 0, 0, 0, false)
+                        .withInline(drawn.runs(), List.of(), note.number()));
+            }
+        }
         return kind;
     }
 }

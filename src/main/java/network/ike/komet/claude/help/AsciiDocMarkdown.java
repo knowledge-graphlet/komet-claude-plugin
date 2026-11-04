@@ -40,7 +40,7 @@ import java.util.regex.Pattern;
  * address. Footnotes, anchors, concealed index terms and images are left out: help is read in a
  * narrow drawer.
  */
-final class AsciiDocMarkdown {
+public final class AsciiDocMarkdown {
 
     /** The scheme of a cross reference's destination in the projected Markdown. */
     static final String XREF = "xref:";
@@ -82,7 +82,7 @@ final class AsciiDocMarkdown {
      * @param target the cross reference's target, {@code kinds-of-data.adoc#instance} or {@code kinds-of-data}
      * @return the topic identifier, {@code kinds-of-data}
      */
-    static String topicOf(String target) {
+    public static String topicOf(String target) {
         String topic = target;
         int hash = topic.indexOf('#');
         if (hash >= 0) {

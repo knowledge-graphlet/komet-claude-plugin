@@ -21,9 +21,12 @@ import javafx.scene.text.FontWeight;
 import javafx.scene.text.Text;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The first pass: greedy line breaking over JavaFX's glyph widths, answered at once. Each
@@ -37,7 +40,10 @@ import java.util.Map;
  * and head of a split unit, as Typst's sticky headings and its orphan and widow costs do. What
  * Typst's optimized breaks still do differently — a line broken short so a later one breaks
  * well — the second pass corrects. Must be used on the JavaFX application thread, or on a
- * thread that may lay text out.
+ * thread that may lay text out. A line carrying a footnote's mark takes the note's room from the
+ * foot of its page, and a line whose note does not fit moves on, as in Typst; a note is kept
+ * whole here, where Typst may split one over a page. Words are measured in the fonts their
+ * inline spans are drawn in.
  */
 public final class GreedyFxOracle implements LayoutOracle {
 
@@ -93,16 +99,20 @@ public final class GreedyFxOracle implements LayoutOracle {
         int page = 0;
         double baseline = -1;                                     // the last baseline on the page; -1 at a page's top
         Unit previous = null;                                     // the unit before, on the same page
+        Foot foot = new Foot(units, geometry);
         for (int i = 0; i < units.size(); i++) {
             Unit unit = units.get(i);
+            if (unit.kind() == Kind.FOOTNOTE) {
+                continue;                                         // placed with the page its mark lands on
+            }
             double pitch = UnitSpacing.pitch(unit);
             double cap = unit.fontSize() * CAP_HEIGHT;
             if (unit.kind() == Kind.FIGURE) {
                 // Whole on a page, as Typst sets it; its line's baseline is its foot.
                 double height = unit.figureHeight() * unit.figureScale(geometry.contentWidth(), geometry.bandHeight());
                 double top = baseline < 0 ? geometry.contentTop() : baseline + UnitSpacing.gap(previous, unit);
-                if (baseline >= 0 && top + height > geometry.contentBottom() + 0.01) {
-                    page++;
+                if (baseline >= 0 && top + height > foot.bottom() + 0.01) {
+                    foot.close(page++, lines);
                     top = geometry.contentTop();
                 }
                 lines.add(new Line(i, page, geometry.contentLeft(), top + height, 0, unit.text().length(), false));
@@ -113,12 +123,13 @@ public final class GreedyFxOracle implements LayoutOracle {
             if (unit.kind() == Kind.TABLE_ROW && (i == 0 || units.get(i - 1).block() != unit.block())) {
                 // A table is a figure, which Typst never splits: the whole of it moves to the next page when it does not fit.
                 double table = 0;
-                for (int j = i; j < units.size() && units.get(j).kind() == Kind.TABLE_ROW && units.get(j).block() == unit.block(); j++) {
-                    table += rowHeight(units.get(j), geometry);
+                for (int j = i; j < units.size() && (units.get(j).kind() == Kind.TABLE_ROW || units.get(j).kind() == Kind.FOOTNOTE)
+                        && units.get(j).block() == unit.block(); j++) {
+                    table += units.get(j).kind() == Kind.TABLE_ROW ? rowHeight(units.get(j), geometry) : 0;
                 }
                 double first = baseline < 0 ? geometry.contentTop() + cap : baseline + UnitSpacing.gap(previous, unit) + cap;
-                if (baseline >= 0 && first + table - cap > geometry.contentBottom() + 0.01 && table <= geometry.bandHeight()) {
-                    page++;
+                if (baseline >= 0 && first + table - cap > foot.bottom() + 0.01 && table <= geometry.bandHeight()) {
+                    foot.close(page++, lines);
                     baseline = -1;
                     previous = null;
                 }
@@ -127,6 +138,7 @@ public final class GreedyFxOracle implements LayoutOracle {
                 double first = baseline < 0 ? geometry.contentTop() + cap : baseline + UnitSpacing.gap(previous, unit) + cap;
                 double height = rowHeight(unit, geometry);
                 lines.add(new Line(i, page, geometry.contentLeft() + TypstOracle.TABLE_INSET, first, 0, unit.text().length(), false));
+                foot.take(unit, new int[] {0, unit.text().length()});
                 baseline = first + height - cap - 2 * UnitSpacing.CELL_INSET;
                 previous = unit;
                 continue;
@@ -136,12 +148,13 @@ public final class GreedyFxOracle implements LayoutOracle {
             List<int[]> rows = breaks(unit, (geometry.contentWidth() - unit.indent()) * measure);
             double first = baseline < 0 ? geometry.contentTop() + cap + UnitSpacing.gap(null, unit) : baseline + UnitSpacing.gap(previous, unit) + cap;
             double height = (rows.size() - 1) * pitch;
-            double companion = unit.keepWithNext() && i + 1 < units.size()
-                    ? UnitSpacing.gap(unit, units.get(i + 1)) + units.get(i + 1).fontSize() * (CAP_HEIGHT + PITCH) : 0;
+            Unit following = nextInFlow(units, i);
+            double companion = unit.keepWithNext() && following != null
+                    ? UnitSpacing.gap(unit, following) + following.fontSize() * (CAP_HEIGHT + PITCH) : 0;
             boolean splittable = unit.kind() == Kind.PARAGRAPH || unit.kind() == Kind.LIST_ITEM;
             boolean whole = !splittable || rows.size() <= 2 || unit.keepWithNext();
-            if (baseline >= 0 && first + (whole ? height + companion : pitch) > geometry.contentBottom() + 0.01) {
-                page++;
+            if (baseline >= 0 && first + (whole ? height + companion : pitch) > foot.bottom() + 0.01) {
+                foot.close(page++, lines);
                 baseline = -1;
                 previous = null;
                 first = geometry.contentTop() + cap + UnitSpacing.gap(null, unit);
@@ -150,7 +163,7 @@ public final class GreedyFxOracle implements LayoutOracle {
             double y = first;
             while (row < rows.size()) {
                 int remaining = rows.size() - row;
-                int fit = (int) Math.floor((geometry.contentBottom() - y + 0.01) / pitch) + 1;
+                int fit = foot.fit(unit, rows, row, y, pitch);
                 if (fit >= remaining) {
                     fit = remaining;
                 } else if (!splittable) {
@@ -163,7 +176,7 @@ public final class GreedyFxOracle implements LayoutOracle {
                     fit = 1;
                 }
                 if (fit == 0) {
-                    page++;
+                    foot.close(page++, lines);
                     baseline = -1;
                     previous = null;
                     y = geometry.contentTop() + cap + UnitSpacing.gap(null, unit);
@@ -173,11 +186,12 @@ public final class GreedyFxOracle implements LayoutOracle {
                     int[] range = rows.get(row + k);
                     double x = geometry.contentLeft() + unit.indent() + (row + k > 0 ? hang : 0);
                     lines.add(new Line(i, page, x, y + k * pitch, range[0], range[1], range[2] == 1));
+                    foot.take(unit, range);
                 }
                 baseline = y + (fit - 1) * pitch;
                 row += fit;
                 if (row < rows.size()) {
-                    page++;
+                    foot.close(page++, lines);
                     baseline = -1;
                     previous = null;
                     y = geometry.contentTop() + cap + UnitSpacing.gap(null, unit);
@@ -185,7 +199,115 @@ public final class GreedyFxOracle implements LayoutOracle {
             }
             previous = unit;
         }
+        foot.close(page, lines);
+        lines.sort(Comparator.comparingInt(Line::page).thenComparingInt(Line::unit).thenComparingInt(Line::from));
         return new Layout(page + 1, lines, false, (System.nanoTime() - started) / 1_000_000, List.of());
+    }
+
+    /** The next unit in the flow after an index, a note being placed elsewhere; {@code null} at the end. */
+    private static Unit nextInFlow(List<Unit> units, int index) {
+        for (int i = index + 1; i < units.size(); i++) {
+            if (units.get(i).kind() != Kind.FOOTNOTE) {
+                return units.get(i);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The foot of the page being filled: the notes whose marks stand on it, stacked up from the
+     * content's bottom edge, the last note's last baseline on that edge, each note's first line
+     * indented by an em of its own size, a rule and the clearance above the lot.
+     */
+    private final class Foot {
+        private final Geometry geometry;
+        private final Map<Integer, Unit> byNumber = new HashMap<>();
+        private final Map<Integer, List<int[]>> rowsOf = new HashMap<>();
+        private final List<Unit> here = new ArrayList<>();
+        private final Set<Integer> placed = new HashSet<>();
+        private double height;
+
+        Foot(List<Unit> units, Geometry geometry) {
+            this.geometry = geometry;
+            for (Unit unit : units) {
+                if (unit.kind() == Kind.FOOTNOTE) {
+                    byNumber.put(unit.note(), unit);
+                }
+            }
+        }
+
+        /** @return where the page's text must end */
+        double bottom() {
+            return geometry.contentBottom() - height;
+        }
+
+        private List<int[]> rows(Unit note) {
+            return rowsOf.computeIfAbsent(note.note(), n -> breaks(note, geometry.contentWidth()));
+        }
+
+        /** What one more note adds to a foot of a height. */
+        private double added(Unit note, double foot) {
+            double em = note.fontSize() / FOOTNOTE_SCALE;
+            double own = note.fontSize() * CAP_HEIGHT + (rows(note).size() - 1) * note.fontSize() * PITCH;
+            return own + (foot == 0 ? (FOOTNOTE_CLEARANCE + FOOTNOTE_GAP) * em : FOOTNOTE_GAP * em);
+        }
+
+        /** @return the note a mark of a unit's row names, for each mark in it not yet placed */
+        private List<Unit> marked(Unit unit, int[] row) {
+            List<Unit> out = new ArrayList<>();
+            for (InlineText.Mark mark : unit.marks()) {
+                Unit note = byNumber.get(mark.note());
+                if (note != null && mark.at() >= row[0] && mark.at() < row[1] && !placed.contains(mark.note())) {
+                    out.add(note);
+                }
+            }
+            return out;
+        }
+
+        /** @return how many of a unit's rows from one on fit on the page with their notes, the first at a baseline */
+        int fit(Unit unit, List<int[]> rows, int from, double y, double pitch) {
+            double foot = height;
+            int fit = 0;
+            for (int k = from; k < rows.size(); k++) {
+                double grown = foot;
+                for (Unit note : marked(unit, rows.get(k))) {
+                    grown += added(note, grown);
+                }
+                if (y + fit * pitch > geometry.contentBottom() - grown + 0.01) {
+                    break;
+                }
+                foot = grown;
+                fit++;
+            }
+            return fit;
+        }
+
+        /** Takes a row onto the page, with the notes it marks. */
+        void take(Unit unit, int[] row) {
+            for (Unit note : marked(unit, row)) {
+                height += added(note, height);
+                here.add(note);
+                placed.add(note.note());
+            }
+        }
+
+        /** Sets the notes of a finished page, which leaves the next one's foot empty. */
+        void close(int page, List<Line> lines) {
+            double y = geometry.contentBottom();
+            for (int n = here.size() - 1; n >= 0; n--) {
+                Unit note = here.get(n);
+                List<int[]> rows = rows(note);
+                double pitch = note.fontSize() * PITCH;
+                for (int k = rows.size() - 1; k >= 0; k--) {
+                    int[] range = rows.get(k);
+                    lines.add(new Line(note.index(), page, geometry.contentLeft() + (k == 0 ? note.fontSize() : 0), y, range[0], range[1], range[2] == 1));
+                    y -= pitch;
+                }
+                y += pitch - note.fontSize() * CAP_HEIGHT - FOOTNOTE_GAP * note.fontSize() / FOOTNOTE_SCALE;
+            }
+            here.clear();
+            height = 0;
+        }
     }
 
     /**
@@ -221,7 +343,7 @@ public final class GreedyFxOracle implements LayoutOracle {
                 if (unit.kind() == Kind.VERBATIM || paragraph.isEmpty()) {
                     out.add(new int[] {start, i, 0});
                 } else {
-                    for (int[] range : wrap(paragraph, unit, width, justified)) {
+                    for (int[] range : wrap(paragraph, start, unit, width, justified)) {
                         out.add(new int[] {start + range[0], start + range[1], range[2]});
                     }
                 }
@@ -288,8 +410,10 @@ public final class GreedyFxOracle implements LayoutOracle {
      * hyphenation points of the piece that did not fit — the head with its hyphen, when
      * Typst hyphenates the text — by Typst's cost: the cube of the stretch ratio a hundredfold,
      * the hyphen's penalty, squared with one.
+     *
+     * @param base where the paragraph starts in the unit's text
      */
-    private List<int[]> wrap(String text, Unit unit, double avail, boolean justified) {
+    private List<int[]> wrap(String text, int base, Unit unit, double avail, boolean justified) {
         List<int[]> out = new ArrayList<>();
         Font font = font(unit);
         double sp = width(" ", font);
@@ -313,7 +437,7 @@ public final class GreedyFxOracle implements LayoutOracle {
             int spacesBefore = 0;
             for (int j = i; j < pieces.size(); j++) {
                 int[] piece = pieces.get(j);
-                double wj = w + (j > i && piece[2] == 1 ? sp : 0) + width(text.substring(piece[0], piece[1]), font);
+                double wj = w + (j > i && piece[2] == 1 ? sp : 0) + width(text, piece[0], piece[1], unit, base, font);
                 int sj = spaces + (j > i && piece[2] == 1 ? 1 : 0);
                 double shrink = justified ? sj * sp * SPACE_SHRINK : 0;
                 if (wj > avail + shrink + 1e-6) {
@@ -333,8 +457,8 @@ public final class GreedyFxOracle implements LayoutOracle {
                 int cut = -1;
                 if (justified && hyphenation) {
                     for (int point : Hyphenator.english().pointsIn(text, piece[0], wordEnd(text, piece[0]))) {
-                        if (point > piece[0] && point < piece[1] && !TypstOracle.inRaw(text, point)
-                                && width(text.substring(piece[0], point), font) + hyphen <= avail + 1e-6) {
+                        if (point > piece[0] && point < piece[1] && !unit.monoAt(base + point)
+                                && width(text, piece[0], point, unit, base, font) + hyphen <= avail + 1e-6) {
                             cut = point;
                         }
                     }
@@ -369,10 +493,10 @@ public final class GreedyFxOracle implements LayoutOracle {
             if (justified && hyphenation) {
                 int wordEnd = wordEnd(text, next[0]);
                 for (int point : Hyphenator.english().pointsIn(text, next[0], wordEnd)) {
-                    if (point <= next[0] || point >= next[1] || TypstOracle.inRaw(text, point)) {
+                    if (point <= next[0] || point >= next[1] || unit.monoAt(base + point)) {
                         continue;                                 // Typst never hyphenates inline raw
                     }
-                    double head = wLast + (next[2] == 1 ? sp : 0) + width(text.substring(next[0], point), font) + hyphen;
+                    double head = wLast + (next[2] == 1 ? sp : 0) + width(text, next[0], point, unit, base, font) + hyphen;
                     int s = spacesLast + (next[2] == 1 ? 1 : 0);
                     if (head > avail + s * sp * SPACE_SHRINK + 1e-6) {
                         break;
@@ -487,6 +611,30 @@ public final class GreedyFxOracle implements LayoutOracle {
         return w;
     }
 
+    /** The width of a range of a paragraph, each stretch of it in the font its style is drawn in. */
+    private double width(String text, int from, int to, Unit unit, int base, Font font) {
+        if (unit.runs().isEmpty()) {
+            return width(text.substring(from, to), font);
+        }
+        double total = 0;
+        int at = from;
+        while (at < to) {
+            InlineText.Run run = unit.runAt(base + at);
+            int end = to;
+            for (InlineText.Run r : unit.runs()) {
+                if (r.from() - base > at && r.from() - base < end) {
+                    end = r.from() - base;
+                }
+                if (r.to() - base > at && r.to() - base < end) {
+                    end = r.to() - base;
+                }
+            }
+            total += width(text.substring(at, end), run == null ? font : font(unit, run.mono(), run.bold(), run.italic()));
+            at = end;
+        }
+        return total;
+    }
+
     /**
      * A table row's height as Typst lays it: its cells share the content width, each wraps in
      * its share less the inset, and the row is as tall as its tallest cell plus the inset.
@@ -508,6 +656,12 @@ public final class GreedyFxOracle implements LayoutOracle {
                 FontPosture.REGULAR, unit.fontSize());
     }
 
+    /** @return the font of a unit's span: inline raw in the mono font at {@link TypstWriter#RAW_SCALE} of the size */
+    private Font font(Unit unit, boolean mono, boolean bold, boolean italic) {
+        return Font.font(mono ? monoFamily : family, bold || unit.bold() ? FontWeight.BOLD : FontWeight.NORMAL,
+                italic ? FontPosture.ITALIC : FontPosture.REGULAR, mono ? unit.fontSize() * TypstWriter.RAW_SCALE : unit.fontSize());
+    }
+
     /**
      * The width of a text in a unit's font, for the Typst oracle's hyphenation points.
      *
@@ -516,14 +670,11 @@ public final class GreedyFxOracle implements LayoutOracle {
      * @return the width in points
      */
     public double width(String text, Unit unit) {
-        return width(text, unit, false, false);
+        return width(text, font(unit));
     }
 
-    /** As {@link #width(String, Unit)}, in the mono font at {@link TypstWriter#RAW_SCALE} of the size for a raw span, bold for a strong one. */
-    public double width(String text, Unit unit, boolean mono, boolean bold) {
-        Text node = new Text(text);
-        node.setFont(mono ? Font.font(monoFamily, bold ? FontWeight.BOLD : FontWeight.NORMAL, FontPosture.REGULAR, unit.fontSize() * TypstWriter.RAW_SCALE)
-                : bold && !unit.bold() ? Font.font(family, FontWeight.BOLD, FontPosture.REGULAR, unit.fontSize()) : font(unit));
-        return node.getLayoutBounds().getWidth();
+    /** As {@link #width(String, Unit)}, in a span's font: {@link LayoutOracle.Measure}. */
+    public double width(String text, Unit unit, boolean mono, boolean bold, boolean italic) {
+        return width(text, mono || bold || italic ? font(unit, mono, bold, italic) : font(unit));
     }
 }

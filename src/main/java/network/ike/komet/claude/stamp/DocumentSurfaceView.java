@@ -201,6 +201,11 @@ final class DocumentSurfaceView {
             return b.build();
         }
 
+        /** A footnote's style: the body's, at Typst's size for a footnote entry. */
+        StyleAttributeMap footnote() {
+            return StyleAttributeMap.builder().merge(prose).setFontSize(base * network.ike.komet.claude.stamp.print.LayoutOracle.FOOTNOTE_SCALE).build();
+        }
+
         /** The print theme's styles: Noto Serif body at the theme size, Noto Sans Mono at the size Typst sets raw text, a 1.8 title. */
         static Styles page(network.ike.komet.claude.doc.print.settings.DocumentTheme theme) {
             double base = theme.baseFontSize();
@@ -229,6 +234,8 @@ final class DocumentSurfaceView {
 
     /** The styles of the build in progress: the screen's, or a print theme's while the Page layout is built. */
     private Styles st = Styles.SCREEN;
+    /** The document's footnote count while the Page layout is built. */
+    private network.ike.komet.claude.stamp.print.InlineText.Numbering printNotes = new network.ike.komet.claude.stamp.print.InlineText.Numbering();
     /** What the structured blocks of the shown document know of each other; a new one each time a document is shown. */
     private BlockContext blocks = new BlockContext();
     /** Where the build in progress adds its areas: the Reading view's, or the Page layout's. */
@@ -413,6 +420,10 @@ final class DocumentSurfaceView {
         boolean listing;
         /** In the Page layout: the top-level block of the print model this area belongs to, or -1. */
         int modelOrdinal = -1;
+        /** In the Page layout: where the text marks footnotes, by offset in its plain text. */
+        List<network.ike.komet.claude.stamp.print.InlineText.Mark> marks = List.of();
+        /** In the Page layout: the footnote this area is, or 0. */
+        int note;
         /** In the Page layout: whether the area is prose that may split across pages. */
         boolean splittable;
         /** In the Page layout: whether the area is a heading that keeps with what follows. */
@@ -1086,7 +1097,9 @@ final class DocumentSurfaceView {
     }
 
     /** Adds one Reading-view area: the block's body with its references beneath, and its marginalia for the margins. */
-    private Area addArea(DocumentAssembly.Member member, StoredBlock block, List<StoredLine> lines, LineRunModel.Spec spec, int depth, boolean editable, String section) {
+    private Area addArea(DocumentAssembly.Member member, StoredBlock block, List<StoredLine> lines, LineRunModel.Spec read, int depth, boolean editable, String section) {
+        LineRunModel.Inlined inlined = print && printsInline(block) ? read.inlined(printNotes) : null;
+        LineRunModel.Spec spec = inlined == null ? read : inlined.spec();
         Area area = new Area(member, block, lines, spec, editable && !past, section);
         target.add(area);
         if (block != null && editable && !print) {
@@ -1102,6 +1115,10 @@ final class DocumentSurfaceView {
             area.holder.setFillWidth(true);
             area.holder.setMinWidth(0);
             area.documentBlock = DocumentBlock.prose(area.holder, area.area, area.model, spec.lines().stream().map(StoredLine::text).collect(Collectors.joining("\n")));
+            if (inlined != null) {
+                area.marks = inlined.marks();
+                inlined.notes().forEach(note -> addNote(member, block, note, section));
+            }
             return area;
         }
         Node references = references(lines);
@@ -1133,6 +1150,28 @@ final class DocumentSurfaceView {
         area.documentBlock = DocumentBlock.prose(area.holder, area.area, area.model, spec.lines().stream().map(StoredLine::text).collect(Collectors.joining("\n")))
                 .withMarginalia(dateBox(area), area.marginalia);
         return area;
+    }
+
+    /** Whether a block's printed text is prose, its inline markup read; a listing's is its source. */
+    private static boolean printsInline(StoredBlock block) {
+        return switch (printKind(block)) {
+            case LISTING, LITERAL, DIAGRAM, OPAQUE, IMAGE -> false;
+            default -> true;
+        };
+    }
+
+    /** Adds a footnote of a block as a unit of its own, right after the area that marks it: an oracle puts it at its page's foot. */
+    private void addNote(DocumentAssembly.Member member, StoredBlock block, LineRunModel.FootNote foot, String section) {
+        network.ike.komet.claude.stamp.print.InlineText text = foot.note().drawn();
+        LineRunModel.Spec spec = new LineRunModel.Spec(List.of(new LineRunModel.Paragraph(
+                List.of(new LineRunModel.Line(foot.line(), text.text())), "", st.footnote(), text.runs())));
+        Area area = new Area(member, block, List.of(foot.line()), spec, false, section);
+        target.add(area);
+        area.holder.getChildren().add(area.area);
+        area.modelOrdinal = modelOrdinal;
+        area.splittable = true;
+        area.note = foot.note().number();
+        area.documentBlock = DocumentBlock.prose(area.holder, area.area, area.model, foot.line().text());
     }
 
     /** The left margin: the first introducing date, right-aligned against the body. */
@@ -1216,6 +1255,7 @@ final class DocumentSurfaceView {
         st = Styles.page(theme);
         target = units;
         print = true;
+        printNotes = new network.ike.komet.claude.stamp.print.InlineText.Numbering();
         modelOrdinal = -1;
         nesting = 0;
         try {
@@ -1259,6 +1299,12 @@ final class DocumentSurfaceView {
                 previous = network.ike.komet.claude.stamp.print.LayoutOracle.Kind.FIGURE;
                 continue;
             }
+            if (area.note > 0) {
+                // No spacing and no place in the flow: an oracle sets it at the foot of the page its mark lands on.
+                out.add(new network.ike.komet.claude.stamp.print.LayoutOracle.Unit(i, area.modelOrdinal, network.ike.komet.claude.stamp.print.LayoutOracle.Kind.FOOTNOTE, area.spec.plainText(),
+                        base * network.ike.komet.claude.stamp.print.LayoutOracle.FOOTNOTE_SCALE, false, 0, 0, 0, false).withInline(area.spec.runs(), List.of(), area.note));
+                continue;
+            }
             network.ike.komet.claude.stamp.print.LayoutOracle.Kind kind = area.heading
                     ? (blockKind == Block.Kind.DOCUMENT ? network.ike.komet.claude.stamp.print.LayoutOracle.Kind.TITLE
                     : network.ike.komet.claude.stamp.print.LayoutOracle.Kind.HEADING)
@@ -1278,7 +1324,7 @@ final class DocumentSurfaceView {
             double above = spacing[0];
             double below = spacing[1];
             out.add(new network.ike.komet.claude.stamp.print.LayoutOracle.Unit(i, area.modelOrdinal, kind, area.spec.plainText(), size, bold, indent,
-                    above, below, area.heading));
+                    above, below, area.heading).withInline(area.spec.runs(), area.marks, 0));
             previous = kind;
         }
         return out;
@@ -1340,6 +1386,7 @@ final class DocumentSurfaceView {
                 }
                 Area area = new Area(unitArea.member, unitArea.block, spec.lines(), spec, false, unitArea.section);
                 area.modelOrdinal = unitArea.modelOrdinal;
+                area.note = unitArea.note;
                 area.splittable = unitArea.splittable;
                 area.heading = unitArea.heading;
                 area.unit = u;
@@ -1380,8 +1427,8 @@ final class DocumentSurfaceView {
             at += line.text().isEmpty() && p.lines().size() == 1 ? 1 : line.text().length();
             String source = line.line().text().stripTrailing();
             boolean hard = source.endsWith(" +") || source.endsWith("\\");
-            if (hard && to >= at - 2 && to <= at) {
-                return true;                                      // the break's own marker may trail the typst line's end
+            if (hard && to >= at - 3 && to <= at) {
+                return true;                                      // the break's own marker, and the space after it, may trail the typst line's end
             }
             if (at >= to) {
                 return false;
@@ -1446,6 +1493,15 @@ final class DocumentSurfaceView {
             }
         }
         List<PageStackView.Placed> out = new ArrayList<>();
+        // The rule above the page's footnotes: under it Typst keeps a gap, then the first note's cap height.
+        pages.stream().filter(area -> area.page == page && area.note > 0).min(Comparator.comparingDouble(area -> area.baseline)).ifPresent(area -> {
+            double size = area.spec.paragraphs().getFirst().style().getFontSize();
+            Region rule = new Region();
+            rule.setMouseTransparent(true);
+            rule.setStyle("-fx-background-color: black;");
+            double top = area.baseline - size * network.ike.komet.claude.stamp.print.LayoutOracle.CAP_HEIGHT - size / network.ike.komet.claude.stamp.print.LayoutOracle.FOOTNOTE_SCALE * network.ike.komet.claude.stamp.print.LayoutOracle.FOOTNOTE_GAP;
+            out.add(new PageStackView.Placed(rule, contentLeft, top, 0, contentWidth * network.ike.komet.claude.stamp.print.LayoutOracle.FOOTNOTE_RULE, 0.5, false));
+        });
         for (double[] span : spans.values()) {
             Region tint = new Region();
             tint.setMouseTransparent(true);
@@ -1517,8 +1573,8 @@ final class DocumentSurfaceView {
     List<PageStackView.Mark> marginaliaOn(int page) {
         List<PageStackView.Mark> out = new ArrayList<>();
         for (Area area : pages) {
-            if (area.page != page || area.lineOfUnit != 0) {
-                continue;
+            if (area.page != page || area.lineOfUnit != 0 || area.note > 0) {
+                continue;                                         // a note's line is its marked block's
             }
             Node node = unitMarginalia(area.unit);
             if (node != null) {
@@ -1540,15 +1596,21 @@ final class DocumentSurfaceView {
         return "";
     }
 
-    /** The width of a page line's text in its font, single spaces between words, as JavaFX lays it. */
+    /** The width of a page line's text, each inline span in its own font, single spaces between words, as JavaFX lays it. */
     private double naturalWidth(Area line) {
-        StyleAttributeMap style = line.spec.paragraphs().getFirst().style();
-        double size = style.getFontSize() == null ? st.base() : style.getFontSize();
-        String family = style.getFontFamily() == null ? network.ike.komet.claude.stamp.print.DocumentFonts.SERIF : style.getFontFamily();
-        javafx.scene.text.Text probe = new javafx.scene.text.Text(LineRunModel.Spec.text(line.spec.paragraphs().getFirst()));
-        probe.setFont(Font.font(family, style.isBold() ? javafx.scene.text.FontWeight.BOLD : javafx.scene.text.FontWeight.NORMAL,
-                style.isItalic() ? javafx.scene.text.FontPosture.ITALIC : javafx.scene.text.FontPosture.REGULAR, size));
-        return probe.getLayoutBounds().getWidth();
+        LineRunModel.Paragraph paragraph = line.spec.paragraphs().getFirst();
+        String text = LineRunModel.Spec.text(paragraph);
+        double width = 0;
+        for (LineRunModel.StyledPiece piece : paragraph.pieces(0, text.length())) {
+            StyleAttributeMap style = piece.style();
+            double size = style.getFontSize() == null ? st.base() : style.getFontSize();
+            String family = style.getFontFamily() == null ? network.ike.komet.claude.stamp.print.DocumentFonts.SERIF : style.getFontFamily();
+            javafx.scene.text.Text probe = new javafx.scene.text.Text(text.substring(piece.from(), piece.to()));
+            probe.setFont(Font.font(family, style.isBold() ? javafx.scene.text.FontWeight.BOLD : javafx.scene.text.FontWeight.NORMAL,
+                    style.isItalic() ? javafx.scene.text.FontPosture.ITALIC : javafx.scene.text.FontPosture.REGULAR, size));
+            width += probe.getLayoutBounds().getWidth();
+        }
+        return width;
     }
 
     /** @return the ascent and the line height of a style's font, in points */

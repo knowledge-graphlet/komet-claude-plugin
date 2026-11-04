@@ -44,7 +44,7 @@ class TypstOracleTest {
 
     private static final Geometry LETTER = new Geometry(612, 792, 72, 72, 468, 648);
     /** Six points a character, so suffix widths are unambiguous. */
-    private static final LayoutOracle.Measure WIDTH = (text, unit, mono, bold) -> text.length() * 6.0;
+    private static final LayoutOracle.Measure WIDTH = (text, unit, mono, bold, italic) -> text.length() * 6.0;
 
     @Test
     void parsesEveryKindOfLabelValue() {
@@ -68,7 +68,7 @@ class TypstOracleTest {
 
     @Test
     void readsLinesOffTheWordsAndSkipsMarkupOnlyTheUnitHas() {
-        // Block 0: a heading; block 1: a paragraph whose drawn text carries *bold* markers typst renders without.
+        // Block 0: a heading; block 1: a paragraph holding marks only the unit has, as text Typst prints otherwise would.
         Unit heading = new Unit(0, 0, Kind.HEADING, "A heading", 18, true, 0, 0, 9, true);
         Unit prose = new Unit(1, 1, Kind.PARAGRAPH, "The *quick* brown fox jumps", 12, false, 0, 13, 0, false);
         List<Item> items = new ArrayList<>();
@@ -120,16 +120,17 @@ class TypstOracleTest {
 
     @Test
     void theHyphenationPointNearestTheTailNamesTheCut() {
-        Unit prose = new Unit(0, 0, Kind.PARAGRAPH, "see materialization now `komet-claude` the end", 12, false, 0, 13, 0, false);
+        Unit prose = new Unit(0, 0, Kind.PARAGRAPH, "see materialization now komet-claude the end", 12, false, 0, 13, 0, false)
+                .withInline(List.of(new InlineText.Run(24, 36, true, false, false, null)), List.of(), 0);
         // ma|te|ri|al|iza|tion: suffixes of 13, 11, 9, 7 and 4 characters. A tail of 7.6 characters is nearest the cut
         // after "materia" by any character, but the point after "material" (7 characters, 3.6 pt off) names it.
         TypstOracle.Cut cut = TypstOracle.cutByTail(WIDTH, prose, "materialization", 4, 7.6 * 6);
         assertEquals(8, cut.at());
         assertTrue(cut.point());
         assertEquals(3.6, cut.distance(), 0.001);
-        // A word with no point breaks only at a hyphen or slash of its own: "komet-|claude`" in inline raw.
-        cut = TypstOracle.cutByTail(WIDTH, prose, "`komet-claude`", prose.text().indexOf('`'), 7 * 6);
-        assertEquals(7, cut.at());
+        // A word with no point breaks only at a hyphen or slash of its own: "komet-|claude" in inline raw.
+        cut = TypstOracle.cutByTail(WIDTH, prose, "komet-claude", prose.text().indexOf("komet"), 6 * 6);
+        assertEquals(6, cut.at());
         assertFalse(cut.point());
         assertEquals(0, cut.distance(), 0.001);
         // A word with neither cannot be hyphenated, whatever its tail's width says.
@@ -287,7 +288,7 @@ class TypstOracleTest {
             items = TypstOracle.parse(new String(labels.readAllBytes(), StandardCharsets.UTF_8));
         }
         Unit listing = new Unit(0, 5, Kind.VERBATIM, WRAPPED_LISTING, 8.16, false, 0, 0, 0, false);
-        LayoutOracle.Measure javaFx = (text, unit, mono, bold) -> text.length() * MONO_ADVANCE * unit.fontSize();
+        LayoutOracle.Measure javaFx = (text, unit, mono, bold, italic) -> text.length() * MONO_ADVANCE * unit.fontSize();
 
         Layout layout = TypstOracle.align(items, List.of(listing), LETTER, javaFx);
 
@@ -345,7 +346,7 @@ class TypstOracleTest {
         Path source = folder.resolve("layout.typ");
         Files.writeString(source, TypstWriter.write(model, TypstWriter.PageSetup.DEFAULT, TypstWriter.Labels.WORDS), StandardCharsets.UTF_8);
 
-        Layout layout = new TypstOracle(folder, source, null, (t, unit, mono, bold) -> t.length() * MONO_ADVANCE * unit.fontSize()).layout(units, LETTER);
+        Layout layout = new TypstOracle(folder, source, null, (t, unit, mono, bold, italic) -> t.length() * MONO_ADVANCE * unit.fontSize()).layout(units, LETTER);
 
         assertTrue(layout.pages() > 1, "the listing crosses a page: " + layout.notes());
         List<Line> lines = inSourceOrder(layout, listing);
@@ -393,7 +394,7 @@ class TypstOracleTest {
     private static List<Line> linesOf(Path folder, String typst, List<Unit> units) throws IOException {
         Path source = folder.resolve("lines.typ");
         Files.writeString(source, typst, StandardCharsets.UTF_8);
-        Layout layout = new TypstOracle(folder, source, null, (t, unit, mono, bold) -> t.length() * 6.12).layout(units, LETTER);
+        Layout layout = new TypstOracle(folder, source, null, (t, unit, mono, bold, italic) -> t.length() * 6.12).layout(units, LETTER);
         assertFalse(layout.lines().isEmpty(), layout.notes().toString());
         return layout.lines();
     }
@@ -429,7 +430,7 @@ class TypstOracleTest {
         Path source = folder.resolve("layout.typ");
         Files.writeString(source, TypstWriter.write(model, TypstWriter.PageSetup.DEFAULT, TypstWriter.Labels.WORDS), StandardCharsets.UTF_8);
 
-        Layout layout = new TypstOracle(folder, source, null, (t, u, mono, bold) -> t.length() * 6.12).layout(units, LETTER);
+        Layout layout = new TypstOracle(folder, source, null, (t, u, mono, bold, italic) -> t.length() * 6.12).layout(units, LETTER);
 
         assertTrue(layout.pages() > 10, "the listing runs over many pages: " + layout.pages() + " " + layout.notes());
         List<Line> lines = inSourceOrder(layout, unit);
@@ -454,7 +455,7 @@ class TypstOracleTest {
         Path source = folder.resolve("layout.typ");
         Files.writeString(source, TypstWriter.write(model, TypstWriter.PageSetup.DEFAULT, TypstWriter.Labels.WORDS), StandardCharsets.UTF_8);
 
-        Layout layout = new TypstOracle(folder, source, null, (t, u, mono, bold) -> t.length() * 6.12).layout(units, LETTER);
+        Layout layout = new TypstOracle(folder, source, null, (t, u, mono, bold, italic) -> t.length() * 6.12).layout(units, LETTER);
 
         assertTrue(layout.pages() > 5, "the paragraph runs over pages: " + layout.pages() + " " + layout.notes());
         StringBuilder drawn = new StringBuilder();

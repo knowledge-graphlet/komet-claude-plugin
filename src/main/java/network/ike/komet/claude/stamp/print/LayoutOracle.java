@@ -35,7 +35,7 @@ import java.util.Objects;
 public interface LayoutOracle {
 
     /** What kind of unit, for the spacing and keep rules a greedy oracle applies. */
-    enum Kind { TITLE, HEADING, PARAGRAPH, LIST_ITEM, VERBATIM, TABLE_ROW, FIGURE, OTHER }
+    enum Kind { TITLE, HEADING, PARAGRAPH, LIST_ITEM, VERBATIM, TABLE_ROW, FIGURE, FOOTNOTE, OTHER }
 
     /** The one word a {@link Kind#FIGURE} unit reads as: Typst labels it, and its line is the figure's. */
     String FIGURE_WORD = "figure";
@@ -45,6 +45,18 @@ public interface LayoutOracle {
 
     /** The pitch between baselines as a fraction of the size: Typst's leading of 0.65em plus the cap height. */
     double PITCH = 1.364;
+
+    /** A footnote's size as a fraction of the body's: Typst's {@code footnote.entry} rule. */
+    double FOOTNOTE_SCALE = 0.85;
+
+    /** The rule above a page's footnotes, as a fraction of the content width: Typst's {@code footnote.entry} separator. */
+    double FOOTNOTE_RULE = 0.3;
+
+    /** The gap between a page's footnotes, in ems of the body: {@code footnote.entry}'s {@code gap}, also what stands under the rule. */
+    double FOOTNOTE_GAP = 0.5;
+
+    /** The clear space above the rule, in ems of the body: {@code footnote.entry}'s {@code clearance}. */
+    double FOOTNOTE_CLEARANCE = 1;
 
     /**
      * The horizontal scale that keeps a page line inside Typst's measure. A justified line fills
@@ -79,18 +91,51 @@ public interface LayoutOracle {
      * @param keepWithNext whether it stays on the page the next unit starts on
      * @param figureWidth  a {@link Kind#FIGURE} unit's natural width, 0 for any other
      * @param figureHeight a {@link Kind#FIGURE} unit's natural height, 0 for any other
+     * @param runs         the styled ranges of the text, ascending
+     * @param marks        where the text marks footnotes
+     * @param note         a {@link Kind#FOOTNOTE} unit's number, 0 for any other
      */
     record Unit(int index, int block, Kind kind, String text, double fontSize, boolean bold, double indent, double spaceAbove,
-                double spaceBelow, boolean keepWithNext, double figureWidth, double figureHeight) {
+                double spaceBelow, boolean keepWithNext, double figureWidth, double figureHeight, List<InlineText.Run> runs,
+                List<InlineText.Mark> marks, int note) {
         public Unit {
             Objects.requireNonNull(kind, "kind is null");
             text = text == null ? "" : text;
+            runs = List.copyOf(runs);
+            marks = List.copyOf(marks);
+        }
+
+        /** A figure, or a unit of one style. */
+        public Unit(int index, int block, Kind kind, String text, double fontSize, boolean bold, double indent, double spaceAbove,
+                    double spaceBelow, boolean keepWithNext, double figureWidth, double figureHeight) {
+            this(index, block, kind, text, fontSize, bold, indent, spaceAbove, spaceBelow, keepWithNext, figureWidth, figureHeight, List.of(), List.of(), 0);
         }
 
         /** A unit of text. */
         public Unit(int index, int block, Kind kind, String text, double fontSize, boolean bold, double indent, double spaceAbove,
                     double spaceBelow, boolean keepWithNext) {
             this(index, block, kind, text, fontSize, bold, indent, spaceAbove, spaceBelow, keepWithNext, 0, 0);
+        }
+
+        /** @return this unit with inline spans */
+        public Unit withInline(List<InlineText.Run> styled, List<InlineText.Mark> marked, int number) {
+            return new Unit(index, block, kind, text, fontSize, bold, indent, spaceAbove, spaceBelow, keepWithNext, figureWidth, figureHeight, styled, marked, number);
+        }
+
+        /** @return the styled run holding a character, or {@code null} where the text is plain */
+        public InlineText.Run runAt(int offset) {
+            for (InlineText.Run run : runs) {
+                if (offset >= run.from() && offset < run.to()) {
+                    return run;
+                }
+            }
+            return null;
+        }
+
+        /** @return whether a character is inline raw, which Typst never hyphenates */
+        public boolean monoAt(int offset) {
+            InlineText.Run run = runAt(offset);
+            return run != null && run.mono();
         }
 
         /** @return how far a figure is scaled to fit the band: to its width, then its height, never enlarged */
@@ -221,11 +266,12 @@ public interface LayoutOracle {
         /**
          * @param text the text
          * @param unit the unit it belongs to
-         * @param mono whether the text is an inline raw span (set in the mono font at {@link TypstWriter#RAW_SCALE} of the size)
-         * @param bold whether the text is a strong span
+         * @param mono   whether the text is an inline raw span (set in the mono font at {@link TypstWriter#RAW_SCALE} of the size)
+         * @param bold   whether the text is a strong span
+         * @param italic whether the text is an emphasized span
          * @return the width in points
          */
-        double width(String text, Unit unit, boolean mono, boolean bold);
+        double width(String text, Unit unit, boolean mono, boolean bold, boolean italic);
     }
 
     /**

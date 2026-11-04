@@ -168,9 +168,10 @@ class GreedyFxOracleTest {
 
     @Test
     void anInlineRawSpanIsNotHyphenated() {
-        Unit unit = prose("aaaa bbbb `materialization` cccc");
+        Unit unit = prose("aaaa bbbb materialization cccc")
+                .withInline(List.of(new InlineText.Run(10, 25, true, false, false, null)), List.of(), 0);
         Font font = oracle.font(unit);
-        double avail = oracle.width("aaaa bbbb `materi-", font);
+        double avail = oracle.width("aaaa bbbb materi-", font);
 
         List<int[]> lines = oracle.breaks(unit, avail);
 

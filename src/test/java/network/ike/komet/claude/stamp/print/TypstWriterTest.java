@@ -165,9 +165,48 @@ class TypstWriterTest {
     @Test
     void markupCharactersAreEscaped() {
         String typst = body("""
-                Use *bold* and _emphasis_, a #hash, 100% of [brackets] <angles> and a -- dash.
+                A 2 * 3 sum, snake_case_name, a #hash, 100% of [brackets] <angles> and a -- dash.
                 """);
-        assertEquals("Use \\*bold\\* and \\_emphasis\\_, a \\#hash, 100% of \\[brackets\\] \\<angles\\> and a \\-\\- dash.", typst);
+        assertEquals("A 2 \\* 3 sum, snake\\_case\\_name, a \\#hash, 100% of \\[brackets\\] \\<angles\\> and a \\-\\- dash.", typst);
+    }
+
+    @Test
+    void inlineSpansAreRealTypst() {
+        assertEquals("Use #strong[bold]; and #emph[emphasis];, #raw(\"measurementBasis\");.", body("""
+                Use *bold* and _emphasis_, `measurementBasis`.
+                """));
+        assertEquals("#strong[#emph[both];]; and #strong[#raw(\"code\");];", body("""
+                *_both_* and *`code`*
+                """), "a span nested in a span");
+        assertEquals("#raw(\"a\\\"b\");.foo", body("""
+                `a"b`.foo
+                """), "the semicolon ends the expression, so what follows is text");
+    }
+
+    @Test
+    void referencesPrintTheirText() {
+        assertEquals("See the data types and anf data types, and #link(\"https://ike.network/a\")[the site];.", body("""
+                See xref:anf-data-types[the data types] and <<anf-data-types>>, and https://ike.network/a[the site].
+                """));
+    }
+
+    @Test
+    void aFootnoteIsTypstsAndTakesTheSpaceBeforeItsMark() {
+        assertEquals("Said so.#footnote[With #raw(\"code\"); in it.]; Then more.", body("""
+                Said so. footnote:[With `code` in it.] Then more.
+                """));
+    }
+
+    @Test
+    void aNamedFootnoteIsLabelledAndAMarkPointsAtIt() {
+        assertEquals("One.#footnote[The note.]<shared> Two.#footnote(<shared>);", body("""
+                One. footnote:shared[The note.] Two. footnote:shared[]
+                """));
+    }
+
+    @Test
+    void theRunningHeadLeavesAHeadingsNoteToTheHeading() {
+        assertTrue(TypstWriter.preamble("T", TypstWriter.PageSetup.DEFAULT).contains("show footnote: none"));
     }
 
     @Test
@@ -330,7 +369,7 @@ class TypstWriterTest {
                 Patient reports.
                 ====
                 """);
-        assertEquals("#ike-example([Narrative])[\n  \\*Medication History\\* \\\n  Patient reports.\n]", typst);
+        assertEquals("#ike-example([Narrative])[\n  #strong[Medication History]; \\\n  Patient reports.\n]", typst);
     }
 
     @Test

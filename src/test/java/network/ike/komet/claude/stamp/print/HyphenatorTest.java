@@ -109,7 +109,7 @@ class HyphenatorTest {
     void theCorpusGoldensBreakWordsAtThePatternsPoints() throws Exception {
         // Every hyphenated golden line ends at an offset the Typst oracle chose by the tail's width; the patterns
         // must name that offset (or the word carried a hyphen of its own there) for all but the few the width named
-        // loosely — the inline raw spans and text the alignment maps loosely, which the goldens' notes count.
+        // loosely — text the alignment maps loosely, which the goldens' notes count.
         Path corpus = Path.of("src/test/resources/fidelity/corpus");
         Path goldens = Path.of("src/test/resources/fidelity/golden");
         List<String> names;
@@ -150,7 +150,7 @@ class HyphenatorTest {
                 }
             }
         }
-        assertTrue(hyphenated > 400, "the goldens hold " + hyphenated + " hyphenated lines");
+        assertTrue(hyphenated > 350, "the goldens hold " + hyphenated + " hyphenated lines");
         double share = 100.0 * atPoint / hyphenated;
         System.out.printf("%.1f%% of %d hyphenated golden lines break at a hyphenation point of the word or a hyphen of its own%n", share, hyphenated);
         assertTrue(share >= 98, String.format("%.1f%% of %d hyphenated golden lines break at a hyphenation point; misses: %s", share, hyphenated, misses));

@@ -38,7 +38,8 @@ import java.util.regex.Pattern;
  * alignment maps loosely) falls back to the suffix whose width matches best, table cells are
  * placed as whole rows, and the labels themselves perturb
  * Typst's justification by a fraction of a point — never its line breaks, which the fidelity
- * measurement checks by comparing block positions with and without them. A listing is read
+ * measurement checks by comparing block positions with and without them. A footnote is a unit
+ * of its own ({@link #NOTE_LABEL}), read like a paragraph wherever Typst set it. A listing is read
  * differently, from the labels alone ({@link #rowsOf}): Typst never hyphenates it, and its rows
  * break where its text lets them, not where a width says.
  */
@@ -81,11 +82,28 @@ public final class TypstOracle implements LayoutOracle {
             + "}\"): it => [#it#text(size: 1em)[]]\n";
 
     /** The show rules that label words, in order: see {@link #WORD_LABEL_RULE} and {@link #RUN_RULE}. */
-    public static final String WORD_RULE = WORD_LABEL_RULE + RUN_RULE;
+    public static final String WORD_RULE = WORD_LABEL_RULE + RUN_RULE + TypstOracle.noteRule();
+
+    /** The label around a footnote's entry: its value says which end, its words are the note's, not the block's. */
+    public static final String NOTE_LABEL = "ike-note";
+    /** The value of {@link #NOTE_LABEL} before an entry. */
+    static final int NOTE_START = -2;
+    /** The value of {@link #NOTE_LABEL} after an entry. */
+    static final int NOTE_END = -1;
+
+    /**
+     * The rule that sets a footnote's words apart. Typst answers a query in logical order, so an
+     * entry's words come just before its mark, between two of the block's words, however far
+     * down the page, or over the next, the entry lands; these two labels say where they start
+     * and stop.
+     */
+    private static String noteRule() {
+        return "#show footnote.entry: it => [#metadata(" + NOTE_START + ")<" + NOTE_LABEL + ">#it#metadata(" + NOTE_END + ")<" + NOTE_LABEL + ">]\n";
+    }
 
     /** The expression that lists every label with its value, page and position, in document order. */
     public static final String QUERY = "query(selector(<" + WORD_LABEL + ">).or(<" + WORD_END_LABEL + ">).or(<" + TypstWriter.BLOCK_LABEL
-            + ">).or(<" + TypstWriter.END_LABEL + ">)).map(it => (v: it.value, p: it.location().page(), x: it.location().position().x, y: it.location().position().y))";
+            + ">).or(<" + TypstWriter.END_LABEL + ">).or(<" + NOTE_LABEL + ">)).map(it => (v: it.value, p: it.location().page(), x: it.location().position().x, y: it.location().position().y))";
 
     /** How close, in points, the best suffix's width must come to the tail's for a hyphenation point to be taken. */
     static final double HYPHEN_TOLERANCE = 1.5;
@@ -229,6 +247,8 @@ public final class TypstOracle implements LayoutOracle {
         Map<Integer, List<Word>> wordsByBlock = new LinkedHashMap<>();
         int block = -1;
         int pages = 0;
+        int outer = -1;                                           // the block a note interrupts
+        int note = 0;
         Word open = null;
         for (Item item : items) {
             pages = Math.max(pages, item.page() + 1);
@@ -238,6 +258,11 @@ public final class TypstOracle implements LayoutOracle {
                 open = null;
             }
             switch (item.value()) {
+                case Integer index when index == NOTE_START -> {
+                    outer = block;
+                    block = noteKey(++note);
+                }
+                case Integer index when index == NOTE_END -> block = outer;
                 case Integer index -> block = index;
                 case String text -> {
                     open = new Word(text, item.page(), item.x(), item.y(), item.page(), item.x(), item.y());
@@ -261,7 +286,7 @@ public final class TypstOracle implements LayoutOracle {
         List<Line> lines = new ArrayList<>();
         Map<Integer, List<Unit>> unitsByBlock = new LinkedHashMap<>();
         for (Unit unit : units) {
-            unitsByBlock.computeIfAbsent(unit.block(), b -> new ArrayList<>()).add(unit);
+            unitsByBlock.computeIfAbsent(unit.kind() == Kind.FOOTNOTE ? noteKey(unit.note()) : unit.block(), b -> new ArrayList<>()).add(unit);
         }
         int unplaced = 0;
         List<String> unplacedNames = new ArrayList<>();
@@ -321,13 +346,19 @@ public final class TypstOracle implements LayoutOracle {
         return new Layout(Math.max(1, pages), lines, true, 0, notes);
     }
 
+    /** Where a note's words are kept among the blocks': a block is never negative. */
+    private static int noteKey(int note) {
+        return NOTE_START - note;
+    }
+
     /** A word mapped into a unit's text. */
     record Placed(Word word, int from, int to) { }
 
     /**
      * Maps the words of a block to the units' text by aligning the non-blank characters of both,
-     * in order, skipping what only one side has — inline markup on the unit's side, a list marker
-     * or a smart quote on typst's — by matching three characters ahead.
+     * in order, skipping what only one side has — a list marker or a smart quote on typst's —
+     * by matching three characters ahead. A word cut by an inline span is several of typst's
+     * words here, each with its own labels; a footnote's mark is a word of its own.
      */
     static Map<Unit, List<Placed>> place(List<Word> words, List<Unit> units) {
         List<int[]> unitChars = new ArrayList<>();                 // {unit, offset}
@@ -365,7 +396,7 @@ public final class TypstOracle implements LayoutOracle {
                 j++;
                 continue;
             }
-            // What only one side has — markup on the unit's, a caption or marker on typst's — is skipped;
+            // What only one side has — a caption or marker on typst's — is skipped;
             // where both could be skipped to meet again, the shorter skip is the likelier.
             int skipUnit = ahead(t, i, u, j, 240);
             int skipWord = ahead(u, j, t, i, 240);
@@ -434,6 +465,11 @@ public final class TypstOracle implements LayoutOracle {
             case '\u2013', '\u2014', '\u2010', '\u2011', '\u2212' -> '-';
             case '\u2023', '\u25e6', '\u25aa' -> '\u2022';            // list markers of every depth read as one bullet
             case '\u00a0' -> ' ';
+            case '\u00b9' -> '1';
+            case '\u00b2' -> '2';
+            case '\u00b3' -> '3';
+            case '\u2070' -> '0';
+            case '\u2074', '\u2075', '\u2076', '\u2077', '\u2078', '\u2079' -> (char) ('4' + c - '\u2074');   // a footnote's mark
             default -> c;
         };
     }
@@ -442,7 +478,8 @@ public final class TypstOracle implements LayoutOracle {
      * The lines of a unit from its placed words: one per distinct (page, baseline) the words'
      * end labels sit on — except the unit's last word, whose end label Typst leaves at the
      * paragraph's end: it sits on its start label's line when it fits after it there, else on
-     * the line after. A line's left edge is its first word's end less that word's width. A word
+     * the line after. The first line's left edge is its first word's end less that word's width,
+     * the others' the unit's own. A word
      * that begins a line but whose end lies closer to the unit's left edge than its own width
      * was hyphenated: its tail is on this line, its head — the prefix left when the suffix whose
      * width matches the tail's is taken away — ends the line before, with a hyphen.
@@ -525,6 +562,9 @@ public final class TypstOracle implements LayoutOracle {
         Map<Key, double[]> baselines = new HashMap<>();           // {page, baseline, x}
         int previous = -1;
         for (List<Integer> group : groups) {
+            // Only a unit's first line can start elsewhere: a list's marker, a note's indent. Every line after it
+            // stands at the unit's left edge, whatever the width of the word that leads it says.
+            boolean firstLine = group == groups.getFirst();
             for (int g = 0; g < group.size(); g++) {
                 int k = group.get(g);
                 Placed p = placed.get(k);
@@ -536,7 +576,7 @@ public final class TypstOracle implements LayoutOracle {
                 if (overPage[k]) {
                     // The tail's width: from the next line's left edge to the next word's start, less the space between.
                     Word next = placed.get(k + 1).word();
-                    double tailWidth = next.x() - left - width.width(" ", unit, false, false);
+                    double tailWidth = next.x() - left - width.width(" ", unit, false, false, false);
                     Cut byTail = cutByTail(width, unit, text, p.from(), tailWidth);
                     int cut;
                     if (byTail == null || byTail.distance() > HYPHEN_TOLERANCE * 4) {
@@ -578,7 +618,7 @@ public final class TypstOracle implements LayoutOracle {
                 double slack = Math.max(HYPHEN_TOLERANCE * 2, 0.08 * whole);
                 boolean hyphenated = g == 0 && previous >= 0 && !bogus[k] && tail >= 0 && tail < whole - slack && text.length() >= 4;
                 if (!hyphenated) {
-                    double x = g == 0 ? (last ? left : w.endX() - whole) : Double.MAX_VALUE;
+                    double x = g != 0 ? Double.MAX_VALUE : firstLine && !last ? w.endX() - whole : left;
                     extend(ranges, baselines, line, (int) at[k][0], at[k][1], x, p.from(), p.to(), false);
                     previous = k;
                     continue;
@@ -586,8 +626,7 @@ public final class TypstOracle implements LayoutOracle {
                 Cut byTail = cutByTail(width, unit, text, p.from(), tail);
                 if (byTail == null || byTail.distance() > HYPHEN_TOLERANCE * 4) {
                     // No suffix comes near the tail's width: the word was not hyphenated after all; it stands whole on this line.
-                    double x = w.endX() - whole;
-                    extend(ranges, baselines, line, (int) at[k][0], at[k][1], x, p.from(), p.to(), false);
+                    extend(ranges, baselines, line, (int) at[k][0], at[k][1], left, p.from(), p.to(), false);
                     previous = k;
                     continue;
                 }
@@ -644,7 +683,7 @@ public final class TypstOracle implements LayoutOracle {
                 pitch = Math.min(pitch, next.endY() - w.endY());
             }
         }
-        character = character > 0 ? character : width.width(" ", unit, false, false);
+        character = character > 0 ? character : width.width(" ", unit, false, false, false);
         pitch = pitch < Double.MAX_VALUE ? pitch : unit.fontSize() * PITCH;
         double cap = unit.fontSize() * CAP_HEIGHT;
         int columns = Math.max(1, (int) ((geometry.contentLeft() + geometry.contentWidth() - RAW_INSET - left) / character + 0.01));
@@ -770,8 +809,8 @@ public final class TypstOracle implements LayoutOracle {
      * else the nearest of the word's own break opportunities — after a hyphen or slash it
      * carries, which Typst breaks at in inline raw too, or the pieces of a link — unless a
      * point comes nearer still. A word with neither was not hyphenated, whatever its tail's
-     * width says: the widths of inline markup and of text the alignment maps loosely are not
-     * Typst's, and a word Typst cannot break stands whole on the next line.
+     * width says: the widths of text the alignment maps loosely are not Typst's, and a word
+     * Typst cannot break stands whole on the next line.
      *
      * @return the cut, or {@code null} for a word Typst cannot break
      */
@@ -807,7 +846,7 @@ public final class TypstOracle implements LayoutOracle {
         if (offset < 0) {
             return points;
         }
-        return java.util.Arrays.stream(points).filter(p -> !inRaw(unit.text(), offset + p)).toArray();
+        return java.util.Arrays.stream(points).filter(p -> !unit.monoAt(offset + p)).toArray();
     }
 
     /**
@@ -832,33 +871,15 @@ public final class TypstOracle implements LayoutOracle {
         return cuts.stream().mapToInt(Integer::intValue).toArray();
     }
 
-    /** Whether an offset of a text lies in an inline raw span: between backticks. */
-    static boolean inRaw(String text, int offset) {
-        int count = 0;
-        for (int i = 0; i < Math.min(offset, text.length()); i++) {
-            if (text.charAt(i) == '`') {
-                count++;
-            }
-        }
-        return count % 2 == 1;
-    }
-
     /**
-     * The width of a span of a unit's text as the page draws it: in the mono font when the span
-     * lies between backticks (an inline raw, set at {@link TypstWriter#RAW_SCALE} of the size), bold between
-     * asterisks.
+     * The width of a span of a unit's text as the page draws it, in the style of its first
+     * character; Typst's labels end at every change of style, so a word has one.
      *
      * @param offset the span's offset in the unit's text, or -1 when unknown
      */
     private static double measure(Measure width, Unit unit, String text, int offset) {
-        boolean mono = false;
-        boolean bold = false;
-        if (offset >= 0) {
-            String before = unit.text().substring(0, Math.min(offset, unit.text().length()));
-            mono = inRaw(unit.text(), offset);
-            bold = before.chars().filter(c -> c == '*').count() % 2 == 1;
-        }
-        return width.width(text, unit, mono, bold);
+        InlineText.Run run = offset < 0 ? null : unit.runAt(offset);
+        return width.width(text, unit, run != null && run.mono(), run != null && run.bold(), run != null && run.italic());
     }
 
     /** Whether a hard break — a source line's end, or AsciiDoc's trailing {@code +} — follows a word in the unit's text. */

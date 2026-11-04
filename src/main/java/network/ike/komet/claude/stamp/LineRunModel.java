@@ -23,6 +23,9 @@ import jfx.incubator.scene.control.richtext.model.StyleAttribute;
 import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
 import jfx.incubator.scene.control.richtext.model.StyledTextModelViewOnlyBase;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredLine;
+import network.ike.komet.claude.stamp.print.DocumentFonts;
+import network.ike.komet.claude.stamp.print.InlineText;
+import network.ike.komet.claude.stamp.print.TypstWriter;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -101,8 +104,91 @@ public final class LineRunModel extends StyledTextModelViewOnlyBase {
      * @param lines     the lines in order
      * @param separator what joins consecutive lines ({@code " "} for prose, {@code ""} for one line per paragraph)
      * @param style     the base style of every run
+     * @param runs      the inline spans drawn over the base style, by offset in the paragraph's drawn text, ascending
      */
-    public record Paragraph(List<Line> lines, String separator, StyleAttributeMap style) { }
+    public record Paragraph(List<Line> lines, String separator, StyleAttributeMap style, List<InlineText.Run> runs) {
+
+        public Paragraph {
+            runs = List.copyOf(runs);
+        }
+
+        /** A paragraph of one style. */
+        public Paragraph(List<Line> lines, String separator, StyleAttributeMap style) {
+            this(lines, separator, style, List.of());
+        }
+
+        /**
+         * Cuts a range of the drawn text at the changes of inline style.
+         *
+         * @param from the first character
+         * @param to   the character after the last
+         * @return the pieces in order, covering the range, each in one style
+         */
+        public List<StyledPiece> pieces(int from, int to) {
+            List<StyledPiece> out = new ArrayList<>();
+            int at = from;
+            for (InlineText.Run run : runs) {
+                if (run.to() <= at || run.from() >= to) {
+                    continue;
+                }
+                if (run.from() > at) {
+                    out.add(new StyledPiece(at, run.from(), style));
+                    at = run.from();
+                }
+                int end = Math.min(run.to(), to);
+                out.add(new StyledPiece(at, end, styled(run)));
+                at = end;
+            }
+            if (at < to) {
+                out.add(new StyledPiece(at, to, style));
+            }
+            return out;
+        }
+
+        /** The base style with a span over it: inline raw in the mono font at the raw size, as the Typst writer sets it. */
+        private StyleAttributeMap styled(InlineText.Run run) {
+            StyleAttributeMap.Builder b = StyleAttributeMap.builder().merge(style);
+            if (run.mono()) {
+                b.setFontFamily(DocumentFonts.MONO);
+                if (style.getFontSize() != null) {
+                    b.setFontSize(style.getFontSize() * TypstWriter.RAW_SCALE);
+                }
+            }
+            if (run.bold()) {
+                b.setBold(true);
+            }
+            if (run.italic()) {
+                b.setItalic(true);
+            }
+            return b.build();
+        }
+    }
+
+    /**
+     * A stretch of a paragraph in one style.
+     *
+     * @param from  the first character
+     * @param to    the character after the last
+     * @param style its style
+     */
+    public record StyledPiece(int from, int to, StyleAttributeMap style) { }
+
+    /**
+     * A footnote read out of a spec's prose.
+     *
+     * @param line the source line its macro stands on
+     * @param note the note
+     */
+    public record FootNote(StoredLine line, InlineText.Note note) { }
+
+    /**
+     * A spec with its inline markup read: what the pages draw.
+     *
+     * @param spec  the spec, its lines holding the drawn text and its paragraphs the inline spans
+     * @param marks where its text marks footnotes, by offset in {@link Spec#plainText}
+     * @param notes the footnotes it gives, in order; a repeated mark gives none
+     */
+    public record Inlined(Spec spec, List<InlineText.Mark> marks, List<FootNote> notes) { }
 
     /**
      * What to build a model from: the paragraphs in order. Kept by the surface so the model can
@@ -127,6 +213,73 @@ public final class LineRunModel extends StyledTextModelViewOnlyBase {
                 out.append(text(paragraphs.get(i)));
             }
             return out.toString();
+        }
+
+        /** @return the inline spans of every paragraph, by offset in {@link #plainText} */
+        public List<InlineText.Run> runs() {
+            List<InlineText.Run> all = new ArrayList<>();
+            int at = 0;
+            for (Paragraph p : paragraphs) {
+                for (InlineText.Run run : p.runs()) {
+                    all.add(run.over(run.from() + at, run.to() + at));
+                }
+                at += text(p).length() + 1;
+            }
+            return all;
+        }
+
+        /**
+         * Reads the inline markup of a spec's paragraphs, a paragraph's lines read as one text, so
+         * a span may cross them. Each line keeps the drawn characters from its own start to the
+         * next line's, the space between included, so the paragraph needs no separator and a
+         * line that draws nothing, all of it inside a note, simply has no share.
+         *
+         * @param numbering the document's footnote count
+         * @return the spec as the pages draw it
+         */
+        public Inlined inlined(InlineText.Numbering numbering) {
+            List<Paragraph> read = new ArrayList<>();
+            List<InlineText.Mark> marks = new ArrayList<>();
+            List<FootNote> notes = new ArrayList<>();
+            int at = 0;
+            for (Paragraph p : paragraphs) {
+                StringBuilder source = new StringBuilder();
+                int[] starts = new int[p.lines().size() + 1];
+                for (int i = 0; i < p.lines().size(); i++) {
+                    if (i > 0) {
+                        source.append('\n');
+                    }
+                    starts[i] = source.length();
+                    source.append(drawn(p, p.lines().get(i)));
+                }
+                starts[p.lines().size()] = source.length();
+                InlineText inline = InlineText.of(source.toString(), numbering);
+                String text = inline.text().replace('\n', ' ');
+                List<Line> lines = new ArrayList<>();
+                for (int i = 0; i < p.lines().size(); i++) {
+                    int from = inline.drawnAt(starts[i]);
+                    int to = inline.drawnAt(starts[i + 1]);
+                    if (from < to || (i == 0 && p.lines().size() == 1)) {
+                        lines.add(new Line(p.lines().get(i).line(), text.substring(from, to)));
+                    }
+                }
+                if (lines.isEmpty()) {
+                    lines.add(new Line(p.lines().getFirst().line(), ""));
+                }
+                read.add(new Paragraph(lines, "", p.style(), inline.runs()));
+                marks.addAll(inline.marks(at));
+                for (InlineText.Note note : inline.notes()) {
+                    if (!note.repeat()) {
+                        int line = 0;
+                        while (line + 1 < p.lines().size() && starts[line + 1] <= note.source()) {
+                            line++;
+                        }
+                        notes.add(new FootNote(p.lines().get(line).line(), note));
+                    }
+                }
+                at += text.length() + 1;
+            }
+            return new Inlined(new Spec(read), marks, notes);
         }
 
         /** @return the drawn text of one paragraph: its lines' texts joined by the separator */
@@ -163,6 +316,7 @@ public final class LineRunModel extends StyledTextModelViewOnlyBase {
             }
             Paragraph p = paragraphs.get(paragraph);
             List<Line> own = new ArrayList<>();
+            int first = -1;
             int at = 0;
             for (int i = 0; i < p.lines().size(); i++) {
                 if (i > 0) {
@@ -175,13 +329,24 @@ public final class LineRunModel extends StyledTextModelViewOnlyBase {
                 int s = Math.max(start, from);
                 int e = Math.min(end, to);
                 if (s < e || (text.isEmpty() && from <= start && start < to)) {
+                    first = first < 0 ? s : first;
                     own.add(new Line(p.lines().get(i).line(), text.substring(s - start, Math.max(s, e) - start)));
                 }
             }
+            int end = to;
             if (hyphenated && !own.isEmpty() && !own.getLast().text().endsWith("-")) {
                 // Typst adds the hyphen only where it broke inside a word; a break after a hyphen of the text's own adds none.
                 Line last = own.getLast();
                 own.set(own.size() - 1, new Line(last.line(), last.text() + "-"));
+                end = to + 1;                                     // a hyphen takes the style of the word it breaks
+            }
+            List<InlineText.Run> runs = new ArrayList<>();
+            for (InlineText.Run run : p.runs()) {
+                int s = Math.max(run.from(), first);
+                int e = Math.min(run.to() == to ? end : run.to(), end);
+                if (s < e) {
+                    runs.add(run.over(s - first, e - first));
+                }
             }
             StyleAttributeMap.Builder style = StyleAttributeMap.builder().merge(p.style());
             if (fill) {
@@ -189,7 +354,7 @@ public final class LineRunModel extends StyledTextModelViewOnlyBase {
             } else if (p.style().getTextAlignment() == javafx.scene.text.TextAlignment.JUSTIFY) {
                 style.setTextAlignment(javafx.scene.text.TextAlignment.LEFT);   // the last line of a justified paragraph is ragged
             }
-            return new Spec(own.isEmpty() ? List.of() : List.of(new Paragraph(own, p.separator(), style.build())));
+            return new Spec(own.isEmpty() ? List.of() : List.of(new Paragraph(own, p.separator(), style.build(), runs)));
         }
 
         /** @return the stored lines in order, each once */
@@ -261,7 +426,15 @@ public final class LineRunModel extends StyledTextModelViewOnlyBase {
                 if (decoration.underline(line.line())) {
                     style.setUnderline(true);
                 }
-                builder.addSegment(drawn, style.build());
+                StyleAttributeMap lineStyle = style.build();
+                if (p.runs().isEmpty()) {
+                    builder.addSegment(drawn, lineStyle);
+                } else {
+                    for (StyledPiece piece : p.pieces(start, start + drawn.length())) {
+                        builder.addSegment(drawn.substring(piece.from() - start, piece.to() - start),
+                                overlay(piece.style(), run, decoration.underline(line.line())));
+                    }
+                }
                 Color tint = decoration.tint(line.line());
                 if (tint != null && !drawn.isEmpty()) {
                     builder.addHighlight(start, drawn.length(), tint);
@@ -299,6 +472,15 @@ public final class LineRunModel extends StyledTextModelViewOnlyBase {
             plain.add("");
             runsByParagraph.add(List.of());
         }
+    }
+
+    /** A span's style with what every piece of a source line carries: its run, and the review queue's underline. */
+    private static StyleAttributeMap overlay(StyleAttributeMap style, LineRun run, boolean underline) {
+        StyleAttributeMap.Builder b = StyleAttributeMap.builder().merge(style).set(LINE, run);
+        if (underline) {
+            b.setUnderline(true);
+        }
+        return b.build();
     }
 
     /** @return the spec this model was built from */
