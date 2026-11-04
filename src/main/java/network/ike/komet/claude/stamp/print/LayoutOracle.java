@@ -221,7 +221,7 @@ public interface LayoutOracle {
         /**
          * @param text the text
          * @param unit the unit it belongs to
-         * @param mono whether the text is an inline raw span (set in the mono font at 0.85 of the size)
+         * @param mono whether the text is an inline raw span (set in the mono font at {@link TypstWriter#RAW_SCALE} of the size)
          * @param bold whether the text is a strong span
          * @return the width in points
          */

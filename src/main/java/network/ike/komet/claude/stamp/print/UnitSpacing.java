@@ -30,17 +30,15 @@ import network.ike.komet.claude.stamp.print.LayoutOracle.Unit;
  *       to the larger;</li>
  *   <li>the title's {@code block(below: 1.2em)} is 1.2em of the body; a block title keeps 1em above
  *       and 0.5em below; a table's caption 1.1em of the body plus the first row's inset below;</li>
- *   <li>a raw block adds its 6.5pt inset above and below its lines, which are 1.09em apart.</li>
+ *   <li>a raw block adds its 8pt inset above and below its lines, which are the same 1.364em apart as any.</li>
  * </ul>
  *
  * One place for the rule, so the surface's units and the model's agree.
  */
 public final class UnitSpacing {
 
-    /** The pitch of a raw block's lines as a fraction of its size. */
-    public static final double VERBATIM_PITCH = 1.09;
     /** The inset a raw block keeps above and below its lines. */
-    public static final double VERBATIM_INSET = 6.5;
+    public static final double VERBATIM_INSET = 8;
     /** The inset a table cell keeps above and below its text. */
     public static final double CELL_INSET = 5;
 
@@ -110,6 +108,6 @@ public final class UnitSpacing {
 
     /** @return the pitch between a unit's baselines, in points */
     public static double pitch(Unit unit) {
-        return unit.fontSize() * (unit.kind() == Kind.VERBATIM ? VERBATIM_PITCH : LayoutOracle.PITCH);
+        return unit.fontSize() * LayoutOracle.PITCH;
     }
 }

@@ -105,7 +105,7 @@ public final class ModelUnits {
                 if (!v.title().isEmpty()) {
                     last = add(out, block, Kind.OTHER, v.title(), base * 0.95, true, 0, last, base);
                 }
-                return add(out, block, Kind.VERBATIM, v.text(), base * 0.85, false, 0, last, base);
+                return add(out, block, Kind.VERBATIM, v.text(), base * TypstWriter.RAW_SCALE, false, 0, last, base);
             }
             case ListBlock l -> {
                 Kind last = previous;

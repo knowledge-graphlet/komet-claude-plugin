@@ -201,7 +201,7 @@ final class DocumentSurfaceView {
             return b.build();
         }
 
-        /** The print theme's styles: Noto Serif body at the theme size, Noto Sans Mono at 0.85 of it, a 1.8 title. */
+        /** The print theme's styles: Noto Serif body at the theme size, Noto Sans Mono at the size Typst sets raw text, a 1.8 title. */
         static Styles page(network.ike.komet.claude.doc.print.settings.DocumentTheme theme) {
             double base = theme.baseFontSize();
             String family = theme.fontFamily() == null ? null : network.ike.komet.claude.stamp.print.DocumentFonts.SERIF;
@@ -211,7 +211,8 @@ final class DocumentSurfaceView {
             }
             body.setTextAlignment(javafx.scene.text.TextAlignment.JUSTIFY);   // as Typst justifies; headings and cells override it
             StyleAttributeMap prose = body.build();
-            StyleAttributeMap mono = StyleAttributeMap.builder().setFontFamily(network.ike.komet.claude.stamp.print.DocumentFonts.MONO).setFontSize(base * 0.85).build();
+            StyleAttributeMap mono = StyleAttributeMap.builder().setFontFamily(network.ike.komet.claude.stamp.print.DocumentFonts.MONO)
+                    .setFontSize(base * network.ike.komet.claude.stamp.print.TypstWriter.RAW_SCALE).build();
             return new Styles(prose, mono,
                     StyleAttributeMap.builder().merge(mono).setTextColor(Color.web("#8a8782")).build(),
                     StyleAttributeMap.builder().merge(prose).setFontSize(base * 0.8).setTextColor(Color.web("#8a8782")).build(),
@@ -1488,7 +1489,8 @@ final class DocumentSurfaceView {
             double slack = style.getFontSize() == null ? 8 : style.getFontSize() * 0.6 + 2;
             double width = Math.max(40, Math.max(available, natural + slack) + 8);
             // A line wider than Typst's measure is scaled down to it, so both edges stay where Typst put them.
-            double scale = network.ike.komet.claude.stamp.print.LayoutOracle.lineScale(natural, slack, available,
+            // Not a listing's: the page draws its rows at Typst's size, so a row too long to break runs over the edge as it does in print.
+            double scale = area.listing ? 1 : network.ike.komet.claude.stamp.print.LayoutOracle.lineScale(natural, slack, available,
                     Boolean.TRUE.equals(style.get(LineRunModel.JUSTIFY_FILL)));
             double height;
             boolean clip;

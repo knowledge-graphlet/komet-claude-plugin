@@ -47,6 +47,17 @@ public final class TypstWriter {
     /** The deepest heading level the running head names: a top-level section, or a flowed child's title. */
     private static final int RUNNING_HEAD_DEPTH = 2;
 
+    /** The size the writer's raw rule asks for, in ems of the size Typst's own raw rule leaves. */
+    private static final double RAW_RULE_EM = 0.85;
+    /** The size Typst's own raw rule sets, in ems of the text around it. */
+    private static final double TYPST_RAW_EM = 0.8;
+    /**
+     * The size raw text prints at, as a fraction of the text around it: the two rules compound, so
+     * a listing in a 12 pt body is set at 8.16 pt. What the page draws raw text at, so that JavaFX
+     * and Typst set a listing at one size.
+     */
+    public static final double RAW_SCALE = RAW_RULE_EM * TYPST_RAW_EM;
+
     private TypstWriter() { }
 
     /** Where the folio goes. */
@@ -238,7 +249,8 @@ public final class TypstWriter {
         sb.append("""
                 #show heading: it => { v(0.9em, weak: true); it; v(0.5em, weak: true) }
                 """);
-        sb.append("#show raw: set text(font: ").append(fonts(setup.monoFonts())).append(", size: 0.85em)\n");
+        // Relative, unlike the headings' sizes: raw text sits inside whatever is around it, and takes its size from that.
+        sb.append("#show raw: set text(font: ").append(fonts(setup.monoFonts())).append(", size: ").append(RAW_RULE_EM).append("em)\n");
         sb.append("""
                 #show raw.where(block: true): it => block(width: 100%, fill: luma(247), inset: 8pt, radius: 3pt, it)
                 #set table(stroke: 0.5pt + luma(150), inset: 5pt, align: left + horizon)

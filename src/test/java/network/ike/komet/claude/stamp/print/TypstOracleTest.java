@@ -249,6 +249,9 @@ class TypstOracleTest {
     }
 
     /** The listing the Stamped Document card lost characters from, as the card's unit carries it: delimiters included. */
+    /** A character of Noto Sans Mono, in ems. */
+    private static final double MONO_ADVANCE = 0.6;
+
     private static final String WRAPPED_LISTING = """
             ----
             concept: k:SiteInspectionDecision[Site inspection decision for a first-of-a-kind submission with a conduct concern from an inexperienced applicant] @id=bimo-site-decision
@@ -283,9 +286,8 @@ class TypstOracleTest {
         try (InputStream labels = TypstOracleTest.class.getResourceAsStream("/print/wrapped-listing.labels.json")) {
             items = TypstOracle.parse(new String(labels.readAllBytes(), StandardCharsets.UTF_8));
         }
-        Unit listing = new Unit(0, 5, Kind.VERBATIM, WRAPPED_LISTING, 10.2, false, 0, 0, 0, false);
-        // JavaFX's width, at the unit's size: a quarter wider than Typst sets raw text, whose 0.85em compounds with its own 0.8em.
-        LayoutOracle.Measure javaFx = (text, unit, mono, bold) -> text.length() * 6.12;
+        Unit listing = new Unit(0, 5, Kind.VERBATIM, WRAPPED_LISTING, 8.16, false, 0, 0, 0, false);
+        LayoutOracle.Measure javaFx = (text, unit, mono, bold) -> text.length() * MONO_ADVANCE * unit.fontSize();
 
         Layout layout = TypstOracle.align(items, List.of(listing), LETTER, javaFx);
 
@@ -343,11 +345,12 @@ class TypstOracleTest {
         Path source = folder.resolve("layout.typ");
         Files.writeString(source, TypstWriter.write(model, TypstWriter.PageSetup.DEFAULT, TypstWriter.Labels.WORDS), StandardCharsets.UTF_8);
 
-        Layout layout = new TypstOracle(folder, source, null, (t, unit, mono, bold) -> t.length() * 6.12).layout(units, LETTER);
+        Layout layout = new TypstOracle(folder, source, null, (t, unit, mono, bold) -> t.length() * MONO_ADVANCE * unit.fontSize()).layout(units, LETTER);
 
         assertTrue(layout.pages() > 1, "the listing crosses a page: " + layout.notes());
         List<Line> lines = inSourceOrder(layout, listing);
         double character = (lines.get(1).x() - lines.get(0).x()) / 4;   // "indented" stands four columns in from "top"
+        assertEquals(listing.fontSize() * MONO_ADVANCE, character, 0.05, "typst sets a listing at the unit's size");
         double measure = LETTER.contentLeft() + LETTER.contentWidth() - TypstOracle.RAW_INSET;
         StringBuilder drawn = new StringBuilder();
         for (Line line : lines) {

@@ -519,10 +519,10 @@ public final class GreedyFxOracle implements LayoutOracle {
         return width(text, unit, false, false);
     }
 
-    /** As {@link #width(String, Unit)}, in the mono font at 0.85 of the size for a raw span, bold for a strong one. */
+    /** As {@link #width(String, Unit)}, in the mono font at {@link TypstWriter#RAW_SCALE} of the size for a raw span, bold for a strong one. */
     public double width(String text, Unit unit, boolean mono, boolean bold) {
         Text node = new Text(text);
-        node.setFont(mono ? Font.font(monoFamily, bold ? FontWeight.BOLD : FontWeight.NORMAL, FontPosture.REGULAR, unit.fontSize() * 0.85)
+        node.setFont(mono ? Font.font(monoFamily, bold ? FontWeight.BOLD : FontWeight.NORMAL, FontPosture.REGULAR, unit.fontSize() * TypstWriter.RAW_SCALE)
                 : bold && !unit.bold() ? Font.font(family, FontWeight.BOLD, FontPosture.REGULAR, unit.fontSize()) : font(unit));
         return node.getLayoutBounds().getWidth();
     }

@@ -39,8 +39,8 @@ import java.util.regex.Pattern;
  * placed as whole rows, and the labels themselves perturb
  * Typst's justification by a fraction of a point — never its line breaks, which the fidelity
  * measurement checks by comparing block positions with and without them. A listing is read
- * differently, from the labels alone ({@link #rowsOf}): its text is not the size the page's
- * width function measures, and Typst never hyphenates it.
+ * differently, from the labels alone ({@link #rowsOf}): Typst never hyphenates it, and its rows
+ * break where its text lets them, not where a width says.
  */
 public final class TypstOracle implements LayoutOracle {
 
@@ -589,10 +589,9 @@ public final class TypstOracle implements LayoutOracle {
     private record Row(int page, long y) { }
 
     /**
-     * The rows of a listing, one for each row Typst set, read from its labels alone: its raw
-     * text is set at 0.8 of the size the writer asks for, so the width function, which measures
-     * at the unit's size, says nothing here, and neither does a vote on left edges, which the
-     * most frequent indent would win. What the labels give instead, unlike a paragraph's: every
+     * The rows of a listing, one for each row Typst set, read from its labels alone: a vote on
+     * left edges, as a paragraph takes, would be won by the most frequent indent. What the
+     * labels give instead, unlike a paragraph's: every
      * word's end label stands right after its glyphs on its row, a source line's last word's
      * too; only the listing's closing label is elsewhere, at the block's left edge on the last
      * row. So the left edge is that label, a character's width is the widest any word implies
@@ -622,7 +621,7 @@ public final class TypstOracle implements LayoutOracle {
             }
         }
         character = character > 0 ? character : width.width(" ", unit, false, false);
-        pitch = pitch < Double.MAX_VALUE ? pitch : unit.fontSize() * UnitSpacing.VERBATIM_PITCH;
+        pitch = pitch < Double.MAX_VALUE ? pitch : unit.fontSize() * PITCH;
         double cap = unit.fontSize() * CAP_HEIGHT;
         int columns = Math.max(1, (int) ((geometry.contentLeft() + geometry.contentWidth() - RAW_INSET - left) / character + 0.01));
 
@@ -822,7 +821,7 @@ public final class TypstOracle implements LayoutOracle {
 
     /**
      * The width of a span of a unit's text as the page draws it: in the mono font when the span
-     * lies between backticks (an inline raw, which Typst sets at 0.85 of the size), bold between
+     * lies between backticks (an inline raw, set at {@link TypstWriter#RAW_SCALE} of the size), bold between
      * asterisks.
      *
      * @param offset the span's offset in the unit's text, or -1 when unknown

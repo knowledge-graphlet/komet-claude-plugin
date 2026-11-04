@@ -61,7 +61,7 @@ class ModelUnitsTest {
         assertEquals("A  │  B", units.get(7).text());
         assertTrue(units.get(7).bold(), "a header row is bold");
         assertEquals(Kind.VERBATIM, units.get(9).kind());
-        assertEquals(10.2, units.get(9).fontSize(), 0.001);
+        assertEquals(8.16, units.get(9).fontSize(), 0.001, "raw text at the size Typst sets it: the writer's 0.85em on Typst's own 0.8em");
         assertEquals("raw one\nraw two", units.get(9).text());
         assertEquals(ModelUnits.bullet(0), ModelUnits.bullet(3));
     }
@@ -72,7 +72,7 @@ class ModelUnitsTest {
         Unit heading = new Unit(1, 1, Kind.HEADING, "H", 18, true, 0, 16.2, 9, true);
         Unit prose = new Unit(2, 2, Kind.PARAGRAPH, "p", 12, false, 0, 13.2, 0, false);
         Unit item = new Unit(3, 3, Kind.LIST_ITEM, "i", 12, false, 12, 7.8, 0, false);
-        Unit raw = new Unit(4, 4, Kind.VERBATIM, "r", 10.2, false, 0, 13.2, 0, false);
+        Unit raw = new Unit(4, 4, Kind.VERBATIM, "r", 8.16, false, 0, 13.2, 0, false);
 
         assertEquals(14.4, UnitSpacing.gap(title, prose), 0.001, "the title's gap is 1.2em of the body");
         assertEquals(9, UnitSpacing.gap(heading, prose), 0.001, "a heading's weak spacing replaces the paragraph gap");
@@ -81,7 +81,7 @@ class ModelUnitsTest {
         assertEquals(7.8, UnitSpacing.gap(item, item), 0.001, "tight items a leading apart");
         assertEquals(13.2 + UnitSpacing.VERBATIM_INSET, UnitSpacing.gap(prose, raw), 0.001);
         assertEquals(13.2 + UnitSpacing.VERBATIM_INSET, UnitSpacing.gap(raw, prose), 0.001);
-        assertEquals(UnitSpacing.VERBATIM_PITCH * 10.2, UnitSpacing.pitch(raw), 0.001);
+        assertEquals(LayoutOracle.PITCH * 8.16, UnitSpacing.pitch(raw), 0.001);
         assertEquals(LayoutOracle.PITCH * 12, UnitSpacing.pitch(prose), 0.001);
         assertEquals(0.65 * 12, UnitSpacing.of(Kind.LIST_ITEM, Kind.LIST_ITEM, 12, 12)[0], 0.001);
         assertEquals(1.1 * 12 + UnitSpacing.CELL_INSET - 0.4, UnitSpacing.of(Kind.OTHER, Kind.PARAGRAPH, 12, 12, true)[1], 0.001);
