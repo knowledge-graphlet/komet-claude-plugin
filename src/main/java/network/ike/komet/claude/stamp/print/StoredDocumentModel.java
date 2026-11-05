@@ -247,7 +247,7 @@ public final class StoredDocumentModel {
                 children(children, body);
                 out.add(new Admonition(label, body));
             }
-            case LISTING, LITERAL, DIAGRAM -> out.add(new Verbatim(block.title(), String.join("\n", verbatimLines(own))));
+            case LISTING, LITERAL, DIAGRAM -> out.add(new Verbatim(block.title(), String.join("\n", verbatimLines(own).stream().map(StoredLine::text).toList())));
             case EXAMPLE, QUOTE, SIDEBAR, OPEN -> {
                 List<DocumentModel.Block> body = new ArrayList<>();
                 children(children, body);
@@ -436,13 +436,17 @@ public final class StoredDocumentModel {
         return lines;
     }
 
-    /** The content of a verbatim block: what lies between its first and last delimiter line. */
-    private static List<String> verbatimLines(List<StoredLine> own) {
-        List<String> texts = own.stream().map(StoredLine::text).toList();
+    /**
+     * The content of a verbatim block: what lies between its first and last delimiter line.
+     *
+     * @param own the block's own lines
+     * @return the lines it prints, every one as it stands: none of them is markup
+     */
+    public static List<StoredLine> verbatimLines(List<StoredLine> own) {
         int first = -1;
         int last = -1;
-        for (int i = 0; i < texts.size(); i++) {
-            if (DELIMITER.matcher(texts.get(i)).matches()) {
+        for (int i = 0; i < own.size(); i++) {
+            if (DELIMITER.matcher(own.get(i).text()).matches()) {
                 if (first < 0) {
                     first = i;
                 }
@@ -450,12 +454,12 @@ public final class StoredDocumentModel {
             }
         }
         if (first < 0) {
-            return texts;
+            return own;
         }
         if (last == first) {
-            return texts.subList(first + 1, texts.size());
+            return own.subList(first + 1, own.size());
         }
-        return texts.subList(first + 1, last);
+        return own.subList(first + 1, last);
     }
 
     /**

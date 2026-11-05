@@ -806,7 +806,9 @@ final class DocumentSurfaceView {
                 if (print && nesting == 0 && block.kind() != Block.Kind.OPAQUE) {
                     modelOrdinal++;
                 }
-                Area area = add(member, block, own, paragraphs(own, "", block.kind() == Block.Kind.OPAQUE ? st.monoGrey() : st.mono(), null), depth,
+                // On the page a verbatim block is its source, as the print model has it: no delimiter lines.
+                List<StoredLine> shown = print && block.kind() != Block.Kind.OPAQUE ? network.ike.komet.claude.stamp.print.StoredDocumentModel.verbatimLines(own) : own;
+                Area area = add(member, block, shown, paragraphs(shown, "", block.kind() == Block.Kind.OPAQUE ? st.monoGrey() : st.mono(), null), depth,
                         block.kind() == Block.Kind.LISTING || block.kind() == Block.Kind.LITERAL, section);
                 if (area != null) {
                     if (block.kind() != Block.Kind.OPAQUE) {
@@ -945,6 +947,19 @@ final class DocumentSurfaceView {
         return block.kind() == Block.Kind.OPEN && StructuredBlocks.kindOf(block).isPresent() ? Block.Kind.LISTING : block.kind();
     }
 
+    /** Whether a block prints as verbatim source. */
+    private static boolean printsVerbatim(StoredBlock block) {
+        return switch (printKind(block)) {
+            case LISTING, LITERAL, DIAGRAM -> true;
+            default -> false;
+        };
+    }
+
+    /** The lines of a block the print model keeps: a verbatim block's all, for a source row is no markup however it reads. */
+    private static List<StoredLine> printable(StoredBlock block, List<StoredLine> lines) {
+        return printsVerbatim(block) ? lines : printable(lines);
+    }
+
     /** The lines the print model keeps of a block: not its attribute, anchor, block-title or comment lines. */
     private static List<StoredLine> printable(List<StoredLine> lines) {
         return lines.stream().filter(l -> {
@@ -1047,7 +1062,7 @@ final class DocumentSurfaceView {
                 if (block != null && block.kind() == Block.Kind.OPAQUE) {
                     return null;                                 // comments and attribute entries print nothing
                 }
-                List<StoredLine> kept = block != null && (block.kind() == Block.Kind.SECTION || block.kind() == Block.Kind.DOCUMENT) ? lines : printable(lines);
+                List<StoredLine> kept = block != null && (block.kind() == Block.Kind.SECTION || block.kind() == Block.Kind.DOCUMENT) ? lines : printable(block, lines);
                 if (kept.isEmpty()) {
                     return null;
                 }
@@ -1070,10 +1085,10 @@ final class DocumentSurfaceView {
                     target.get(before).holder.getChildren().addFirst(path);
                 }
             } else {
-                if (print && (block != null && block.kind() == Block.Kind.OPAQUE || printable(part.lines()).isEmpty())) {
+                if (print && (block != null && block.kind() == Block.Kind.OPAQUE || printable(block, part.lines()).isEmpty())) {
                     continue;
                 }
-                List<StoredLine> kept = print ? printable(part.lines()) : part.lines();
+                List<StoredLine> kept = print ? printable(block, part.lines()) : part.lines();
                 Area area = addArea(member, block, kept, restrict(spec, kept), depth, false, section);
                 if (first == null) {
                     first = area;
@@ -1310,7 +1325,7 @@ final class DocumentSurfaceView {
                     : network.ike.komet.claude.stamp.print.LayoutOracle.Kind.HEADING)
                     : switch (blockKind) {
                 case LIST_ITEM, BIBLIOGRAPHY_ENTRY -> network.ike.komet.claude.stamp.print.LayoutOracle.Kind.LIST_ITEM;
-                case LISTING, LITERAL -> network.ike.komet.claude.stamp.print.LayoutOracle.Kind.VERBATIM;
+                case LISTING, LITERAL, DIAGRAM -> network.ike.komet.claude.stamp.print.LayoutOracle.Kind.VERBATIM;
                 case TABLE_ROW -> network.ike.komet.claude.stamp.print.LayoutOracle.Kind.TABLE_ROW;
                 case PARAGRAPH, ADMONITION, SECTION, DOCUMENT -> network.ike.komet.claude.stamp.print.LayoutOracle.Kind.PARAGRAPH;
                 default -> network.ike.komet.claude.stamp.print.LayoutOracle.Kind.OTHER;

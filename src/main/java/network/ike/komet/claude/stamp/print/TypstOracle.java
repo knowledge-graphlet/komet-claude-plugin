@@ -219,8 +219,9 @@ public final class TypstOracle implements LayoutOracle {
 
     /**
      * A word as typst placed it: its start label's position (untrusted, see {@link #WORD_RULE}) and
-     * its end label's; {@code endless} when typst dropped the end label, which it does for a word
-     * hyphenated across a page break.
+     * its end label's; {@code endless} when no end label follows its start label, as for a word
+     * that ends on a later page than it starts: the page's running head and folio stand between.
+     * Such a word's end label, when one comes after them, is {@linkplain #overPage() still its end}.
      */
     record Word(String text, int page, double x, double y, int endPage, double endX, double endY, boolean endless) {
 
@@ -230,6 +231,16 @@ public final class TypstOracle implements LayoutOracle {
 
         Word withoutEnd() {
             return new Word(text, page, x, y, endPage, endX, endY, true);
+        }
+
+        /** @return this endless word, its end label found past the running head on a later page */
+        Word endingOver(int page, double x, double y) {
+            return new Word(text, this.page, this.x, this.y, page, x, y, true);
+        }
+
+        /** @return whether the word's end label stands on a later page than its start label */
+        boolean overPage() {
+            return endPage > page;
         }
     }
 
@@ -277,6 +288,10 @@ public final class TypstOracle implements LayoutOracle {
                             own.set(own.size() - 1, new Word(open.text(), open.page(), open.x(), open.y(), item.page(), item.x(), item.y()));
                         }
                         open = null;
+                    } else if (item.y() >= geometry.contentTop() - 1 && item.y() <= geometry.contentBottom() + 1
+                            && wordsByBlock.get(block) instanceof List<Word> own && !own.isEmpty()
+                            && own.getLast().endless() && item.page() > own.getLast().page() && !own.getLast().overPage()) {
+                        own.set(own.size() - 1, own.getLast().endingOver(item.page(), item.x(), item.y()));
                     }
                 }
                 case null, default -> { }
@@ -702,14 +717,14 @@ public final class TypstOracle implements LayoutOracle {
                     : (int) Math.round((before.endX() - left) / character) + p.from() - placed.get(k - 1).to();
             double x = begins ? left + (p.from() - start) * character : left;
 
-            // The closing label says nothing of a tail, and a word that crosses a page, broken or whole, keeps no end label.
-            boolean told = k < last && !w.endless();
+            // The closing label says nothing of a tail; a word that crosses a page says through the end label past the running head.
+            boolean told = k < last && (!w.endless() || w.overPage());
             int tail = told ? (int) Math.round((w.endX() - left) / character) : 0;
             String word = text.substring(p.from(), p.to());
             boolean broken = told ? tail < length
                     : ownCuts(word).length > 0 && column + length > columns && (k > 0 || w.endless() || w.endY() > w.y() + cap + pitch / 2);
             double[] end;
-            if (!w.endless()) {
+            if (!w.endless() || w.overPage()) {
                 end = new double[] {w.endPage(), w.endY()};
             } else if (column + length <= columns) {
                 end = new double[] {w.page(), w.y()};

@@ -314,6 +314,36 @@ class TypstOracleTest {
         }
     }
 
+    /** The labels of a row that leads a page: its first word's start label stays on the row before, its end label follows the running head. */
+    @Test
+    void aRowThatLeadsAPageKeepsItsFirstWord() {
+        Unit listing = new Unit(0, 0, Kind.VERBATIM, "one two\nthree four\nfive", 8, false, 0, 0, 0, false);
+        List<Item> items = new ArrayList<>();
+        items.add(new Item(0, 0, 72, 690));
+        items.add(new Item("one", 0, 80, 700));
+        items.add(new Item(Boolean.FALSE, 0, 94.4, 700));
+        items.add(new Item("two", 0, 99.2, 700));
+        items.add(new Item(Boolean.FALSE, 0, 113.6, 700));
+        items.add(new Item("three", 0, 113.6, 700));              // left behind at the row before's end
+        items.add(new Item("1", 0, 72, 741));                     // the folio
+        items.add(new Item(Boolean.FALSE, 0, 72, 748));
+        items.add(new Item("Head", 1, 72, 37));                   // the next page's running head
+        items.add(new Item(Boolean.FALSE, 1, 96, 44));
+        items.add(new Item(Boolean.FALSE, 1, 72, 44));            // the head's own closing label
+        items.add(new Item(Boolean.FALSE, 1, 104, 86));           // the end of "three"
+        items.add(new Item("four", 1, 108.8, 86));
+        items.add(new Item(Boolean.FALSE, 1, 128, 86));
+        items.add(new Item("five", 1, 80, 97));
+        items.add(new Item(Boolean.FALSE, 1, 80, 97));            // the listing's closing label, at its left edge
+
+        Layout layout = TypstOracle.align(items, List.of(listing), LETTER, (text, unit, mono, bold, italic) -> text.length() * 4.8);
+
+        List<Line> lines = inSourceOrder(layout, listing);
+        assertEquals(List.of("one two", "three four", "five"), lines.stream().map(l -> l.text(listing)).toList());
+        assertEquals(List.of(0, 1, 1), lines.stream().map(Line::page).toList());
+        assertEquals(List.of(700.0, 86.0, 97.0), lines.stream().map(Line::baseline).toList());
+    }
+
     @Test
     void typstsOwnWrappingOfAListingLosesNoCharacter(@TempDir Path folder) throws IOException {
         assumeTrue(TypstCompiler.locate().isPresent(), "typst is not installed");
