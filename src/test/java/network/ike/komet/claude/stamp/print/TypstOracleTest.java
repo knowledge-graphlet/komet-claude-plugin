@@ -424,7 +424,7 @@ class TypstOracleTest {
     private static List<Line> linesOf(Path folder, String typst, List<Unit> units) throws IOException {
         Path source = folder.resolve("lines.typ");
         Files.writeString(source, typst, StandardCharsets.UTF_8);
-        Layout layout = new TypstOracle(folder, source, null, (t, unit, mono, bold, italic) -> t.length() * 6.12).layout(units, LETTER);
+        Layout layout = new TypstOracle(folder, source, null, (t, unit, mono, bold, italic) -> t.length() * MONO_ADVANCE * unit.fontSize()).layout(units, LETTER);
         assertFalse(layout.lines().isEmpty(), layout.notes().toString());
         return layout.lines();
     }
@@ -535,6 +535,120 @@ class TypstOracleTest {
         assertEquals(120, layout.ofUnit(0).getFirst().baseline());
         assertEquals(140, layout.ofUnit(1).getFirst().baseline());
         assertTrue(layout.notes().isEmpty(), layout.notes().toString());
+    }
+
+    /** A table of numbered rows that repeat the header's own words, so an alignment that reads a repeat as a row loses its place. */
+    private static DocumentModel longTable(int rows) {
+        List<List<String>> table = new ArrayList<>();
+        table.add(List.of("Name", "Value"));
+        for (int r = 0; r < rows; r++) {
+            table.add(List.of("Name " + r, "Value of row " + r + ", which is long enough in its narrow column to run onto a second line"));
+        }
+        return new DocumentModel("T", List.of(new DocumentModel.Table("Rows", List.of(1, 3), 1, table)));
+    }
+
+    private static Layout layoutOf(Path folder, DocumentModel model, List<Unit> units) throws IOException {
+        Path source = folder.resolve("table.typ");
+        Files.writeString(source, TypstWriter.write(model, TypstWriter.PageSetup.DEFAULT, TypstWriter.Labels.WORDS), StandardCharsets.UTF_8);
+        return new TypstOracle(folder, source, null, WIDTH).layout(units, LETTER);
+    }
+
+    @Test
+    void aTableTallerThanAPageKeepsEveryRowInsideThePages(@TempDir Path folder) throws IOException {
+        assumeTrue(TypstCompiler.locate().isPresent(), "typst is not installed");
+        DocumentModel model = longTable(90);
+        List<Unit> units = ModelUnits.of(model, 12);
+        List<Unit> rows = units.stream().filter(u -> u.kind() == Kind.TABLE_ROW).toList();
+
+        Layout layout = layoutOf(folder, model, units);
+
+        assertEquals(List.of(), layout.notes());
+        assertTrue(layout.pages() > 2, "the table runs over pages: " + layout.pages());
+        for (Line line : layout.lines()) {
+            assertTrue(line.baseline() <= LETTER.contentBottom(), "inside the page: " + line);
+        }
+        for (Unit row : rows.subList(1, rows.size())) {
+            assertEquals(1, layout.ofUnit(row.index()).size(), "one line for row " + row.text());
+        }
+        for (int r = 2; r < rows.size(); r++) {
+            Line above = layout.ofUnit(rows.get(r - 1).index()).getFirst();
+            Line below = layout.ofUnit(rows.get(r).index()).getFirst();
+            assertTrue(below.page() > above.page() || below.baseline() > above.baseline(), "each row below the last: " + above + " then " + below);
+        }
+    }
+
+    @Test
+    void aTableRepeatsItsHeaderAtTheTopOfEveryPageItReaches(@TempDir Path folder) throws IOException {
+        assumeTrue(TypstCompiler.locate().isPresent(), "typst is not installed");
+        DocumentModel model = longTable(90);
+        List<Unit> units = ModelUnits.of(model, 12);
+        Unit header = units.stream().filter(u -> u.kind() == Kind.TABLE_ROW).findFirst().orElseThrow();
+
+        Layout layout = layoutOf(folder, model, units);
+
+        List<Line> own = layout.ofUnit(header.index());
+        assertEquals(layout.pages(), own.size(), "one header a page: " + own);
+        for (int k = 1; k < own.size(); k++) {
+            assertEquals(k, own.get(k).page());
+            int page = k;
+            double firstOnPage = layout.onPage(page).stream().mapToDouble(Line::baseline).min().orElseThrow();
+            assertEquals(firstOnPage, own.get(k).baseline(), "the page's first line");
+            assertEquals(0, own.get(k).from());
+            assertEquals(header.text().length(), own.get(k).to());
+        }
+        assertEquals(List.of(), layout.breaks().stream().filter(unit -> unit == header.index()).toList(), "a repeat begins no page");
+    }
+
+    @Test
+    void aRowTallerThanAPageBreaksRatherThanRunOffIt(@TempDir Path folder) throws IOException {
+        assumeTrue(TypstCompiler.locate().isPresent(), "typst is not installed");
+        DocumentModel model = new DocumentModel("T", List.of(new DocumentModel.Table("", List.of(1, 1), 1,
+                List.of(List.of("Head", "Other"), List.of("word ".repeat(1500).strip(), "cell"), List.of("After", "it")))));
+        List<Unit> units = ModelUnits.of(model, 12);
+        Unit after = units.getLast();
+
+        Layout layout = layoutOf(folder, model, units);
+
+        assertEquals(List.of(), layout.notes());
+        assertTrue(layout.pages() > 2, "the row runs over pages: " + layout.pages());
+        assertEquals(layout.pages() - 1, layout.ofUnit(after.index()).getFirst().page(), "the row after it follows its last page");
+    }
+
+    @Test
+    void aCaptionIsNotLeftAtAPagesFootWithoutItsTable(@TempDir Path folder) throws IOException {
+        assumeTrue(TypstCompiler.locate().isPresent(), "typst is not installed");
+        // From room for the caption alone, line by line up to room for the table's head as well.
+        for (int lines = 30; lines < 42; lines++) {
+            List<String> rows = new ArrayList<>(List.of("Head", "Other"));
+            DocumentModel model = new DocumentModel("T", List.of(
+                    new DocumentModel.Paragraph("Filler. +\n".repeat(lines) + "Filler."),
+                    new DocumentModel.Table("Caption", List.of(1, 1), 1, List.of(rows, List.of("One", "Two"), List.of("Three", "Four")))));
+            List<Unit> units = ModelUnits.of(model, 12);
+            Unit caption = units.stream().filter(u -> u.kind() == Kind.OTHER).findFirst().orElseThrow();
+            Unit first = units.stream().filter(u -> u.kind() == Kind.TABLE_ROW).skip(1).findFirst().orElseThrow();
+
+            Layout layout = layoutOf(folder, model, units);
+
+            assertEquals(layout.pageOf(first.index()), layout.pageOf(caption.index()), "at " + lines + " lines above it");
+        }
+    }
+
+    @Test
+    void aRepeatedHeaderIsTakenOutOfTheWordsOnlyAtAPagesTop() {
+        Unit header = new Unit(0, 0, Kind.TABLE_ROW, "Name  \u2502  Value", 12, true, 0, 0, 0, false);
+        TypstOracle.Word name = new TypstOracle.Word("Name", 0, 77, 80, 0, 100, 80);
+        TypstOracle.Word value = new TypstOracle.Word("Value", 0, 200, 80, 0, 230, 80);
+        TypstOracle.Word midPage = new TypstOracle.Word("Name", 0, 77, 100, 0, 100, 100);
+        TypstOracle.Word midPageValue = new TypstOracle.Word("Value", 0, 200, 100, 0, 230, 100);
+        TypstOracle.Word again = new TypstOracle.Word("Name", 1, 77, 80, 1, 100, 80);
+        TypstOracle.Word againValue = new TypstOracle.Word("Value", 1, 200, 80, 1, 230, 80);
+        TypstOracle.Word row = new TypstOracle.Word("Name", 1, 77, 100, 1, 100, 100);
+        List<List<TypstOracle.Word>> repeats = new ArrayList<>();
+
+        List<TypstOracle.Word> words = TypstOracle.withoutRepeats(List.of(name, value, midPage, midPageValue, again, againValue, row), List.of(header), repeats);
+
+        assertEquals(List.of(name, value, midPage, midPageValue, row), words, "the header itself stays, and a row that reads like it");
+        assertEquals(List.of(List.of(again, againValue)), repeats);
     }
 
     @Test

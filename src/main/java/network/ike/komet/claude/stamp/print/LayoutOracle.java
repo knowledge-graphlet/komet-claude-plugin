@@ -94,21 +94,23 @@ public interface LayoutOracle {
      * @param runs         the styled ranges of the text, ascending
      * @param marks        where the text marks footnotes
      * @param note         a {@link Kind#FOOTNOTE} unit's number, 0 for any other
+     * @param columns      a {@link Kind#TABLE_ROW} unit's table's relative column widths; empty for columns of one width
      */
     record Unit(int index, int block, Kind kind, String text, double fontSize, boolean bold, double indent, double spaceAbove,
                 double spaceBelow, boolean keepWithNext, double figureWidth, double figureHeight, List<InlineText.Run> runs,
-                List<InlineText.Mark> marks, int note) {
+                List<InlineText.Mark> marks, int note, List<Integer> columns) {
         public Unit {
             Objects.requireNonNull(kind, "kind is null");
             text = text == null ? "" : text;
             runs = List.copyOf(runs);
             marks = List.copyOf(marks);
+            columns = List.copyOf(columns);
         }
 
         /** A figure, or a unit of one style. */
         public Unit(int index, int block, Kind kind, String text, double fontSize, boolean bold, double indent, double spaceAbove,
                     double spaceBelow, boolean keepWithNext, double figureWidth, double figureHeight) {
-            this(index, block, kind, text, fontSize, bold, indent, spaceAbove, spaceBelow, keepWithNext, figureWidth, figureHeight, List.of(), List.of(), 0);
+            this(index, block, kind, text, fontSize, bold, indent, spaceAbove, spaceBelow, keepWithNext, figureWidth, figureHeight, List.of(), List.of(), 0, List.of());
         }
 
         /** A unit of text. */
@@ -119,7 +121,12 @@ public interface LayoutOracle {
 
         /** @return this unit with inline spans */
         public Unit withInline(List<InlineText.Run> styled, List<InlineText.Mark> marked, int number) {
-            return new Unit(index, block, kind, text, fontSize, bold, indent, spaceAbove, spaceBelow, keepWithNext, figureWidth, figureHeight, styled, marked, number);
+            return new Unit(index, block, kind, text, fontSize, bold, indent, spaceAbove, spaceBelow, keepWithNext, figureWidth, figureHeight, styled, marked, number, columns);
+        }
+
+        /** @return this unit with its table's relative column widths */
+        public Unit withColumns(List<Integer> widths) {
+            return new Unit(index, block, kind, text, fontSize, bold, indent, spaceAbove, spaceBelow, keepWithNext, figureWidth, figureHeight, runs, marks, note, widths);
         }
 
         /** @return the styled run holding a character, or {@code null} where the text is plain */
@@ -163,7 +170,8 @@ public interface LayoutOracle {
     }
 
     /**
-     * One laid-out line of a unit.
+     * One laid-out line of a unit. Lines of a unit cover its text once, but for a table's header
+     * row, which has a line for each page it stands on.
      *
      * @param unit       the unit's index
      * @param page       the 0-based page
@@ -248,7 +256,7 @@ public interface LayoutOracle {
             for (int p = 1; p < pages; p++) {
                 int first = -1;
                 for (Line line : lines) {
-                    if (line.page() == p) {
+                    if (line.page() == p && !(line.from() == 0 && pageOf(line.unit()) < p)) { // a repeated header begins nothing
                         first = line.from() == 0 ? line.unit() : -1;
                         break;
                     }

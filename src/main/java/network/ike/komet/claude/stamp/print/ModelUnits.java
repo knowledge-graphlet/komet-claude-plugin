@@ -136,7 +136,9 @@ public final class ModelUnits {
                 int r = 0;
                 for (List<String> row : t.rows()) {
                     boolean header = r++ < t.headerRows();
-                    last = add(out, notes, block, Kind.TABLE_ROW, String.join("  │  ", row), base, header, 0, last, base);
+                    int at = out.size();
+                    last = add(out, notes, block, Kind.TABLE_ROW, String.join(TableCells.BAR, row), base, header, 0, last, base);
+                    out.set(at, out.get(at).withColumns(t.widths()));
                 }
                 return last;
             }

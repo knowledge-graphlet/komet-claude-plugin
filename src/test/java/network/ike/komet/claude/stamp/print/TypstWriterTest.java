@@ -333,6 +333,26 @@ class TypstWriterTest {
     }
 
     @Test
+    void aTableBreaksBetweenWholeRowsItsCaptionKeptWithIt() {
+        String preamble = TypstWriter.preamble("T", TypstWriter.PageSetup.DEFAULT);
+
+        assertTrue(preamble.contains("#show figure.where(kind: table): set block(breakable: true)"), preamble);
+        assertTrue(preamble.contains("#set table.cell(breakable: false)"), preamble);
+        assertTrue(preamble.contains("#show figure.caption: it => block(sticky: true, it)"), preamble);
+    }
+
+    @Test
+    void aRowThatMayNotFitAPageIsLetBreak() {
+        String tall = "x".repeat(TypstWriter.WHOLE_ROW_CHARACTERS / 4 + 1);
+        String typst = TypstWriter.write(new DocumentModel("", List.of(new Table("", List.of(1, 3), 1, List.of(
+                List.of("Head", "Other"), List.of(tall, "b"), List.of("c", tall), List.of("d", "e"))))), TypstWriter.PageSetup.DEFAULT);
+
+        assertTrue(typst.contains("table.cell(breakable: true)[" + tall + "], table.cell(breakable: true)[b], \n"), "a quarter of the measure: " + typst);
+        assertTrue(typst.contains("[c], [" + tall + "], \n"), "three quarters of it");
+        assertTrue(typst.contains("[d], [e], \n"), "and a short row stays whole");
+    }
+
+    @Test
     void tableWithoutColsOrHeaderPadsShortRows() {
         String typst = body("""
                 |===

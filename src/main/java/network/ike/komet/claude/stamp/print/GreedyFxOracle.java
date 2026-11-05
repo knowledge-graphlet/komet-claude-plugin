@@ -37,7 +37,9 @@ import java.util.Set;
  * lines are placed down the pages as Typst places them — the
  * first baseline a cap height below the content top, baselines a pitch apart, units a paragraph's
  * spacing apart — with a heading kept with the two lines after it and two lines kept at the foot
- * and head of a split unit, as Typst's sticky headings and its orphan and widow costs do. What
+ * and head of a split unit, as Typst's sticky headings and its orphan and widow costs do; a
+ * table breaks between its rows, keeping its caption with its header and first row and setting
+ * its header again on every page it reaches, a line of the header's own. What
  * Typst's optimized breaks still do differently — a line broken short so a later one breaks
  * well — the second pass corrects. Must be used on the JavaFX application thread, or on a
  * thread that may lay text out. A line carrying a footnote's mark takes the note's room from the
@@ -100,6 +102,7 @@ public final class GreedyFxOracle implements LayoutOracle {
         double baseline = -1;                                     // the last baseline on the page; -1 at a page's top
         Unit previous = null;                                     // the unit before, on the same page
         Foot foot = new Foot(units, geometry);
+        List<Unit> header = List.of();                            // the header rows of the table being set
         for (int i = 0; i < units.size(); i++) {
             Unit unit = units.get(i);
             if (unit.kind() == Kind.FOOTNOTE) {
@@ -120,26 +123,33 @@ public final class GreedyFxOracle implements LayoutOracle {
                 previous = unit;
                 continue;
             }
-            if (unit.kind() == Kind.TABLE_ROW && (i == 0 || units.get(i - 1).block() != unit.block())) {
-                // A table is a figure, which Typst never splits: the whole of it moves to the next page when it does not fit.
-                double table = 0;
-                for (int j = i; j < units.size() && (units.get(j).kind() == Kind.TABLE_ROW || units.get(j).kind() == Kind.FOOTNOTE)
-                        && units.get(j).block() == unit.block(); j++) {
-                    table += units.get(j).kind() == Kind.TABLE_ROW ? rowHeight(units.get(j), geometry) : 0;
-                }
-                double first = baseline < 0 ? geometry.contentTop() + cap : baseline + UnitSpacing.gap(previous, unit) + cap;
-                if (baseline >= 0 && first + table - cap > foot.bottom() + 0.01 && table <= geometry.bandHeight()) {
-                    foot.close(page++, lines);
-                    baseline = -1;
-                    previous = null;
-                }
-            }
             if (unit.kind() == Kind.TABLE_ROW) {
-                double first = baseline < 0 ? geometry.contentTop() + cap : baseline + UnitSpacing.gap(previous, unit) + cap;
+                // A table breaks between its rows, each kept whole, its header on every page it reaches.
+                boolean opens = opensTable(units, i);
+                if (opens) {
+                    header = headerRows(units, i);
+                }
                 double height = rowHeight(unit, geometry);
-                lines.add(new Line(i, page, geometry.contentLeft() + TypstOracle.TABLE_INSET, first, 0, unit.text().length(), false));
+                double first = baseline < 0 ? geometry.contentTop() + cap + UnitSpacing.gap(null, unit) : baseline + UnitSpacing.gap(previous, unit) + cap;
+                double kept = opens ? tableHead(units, i, geometry) : height;
+                boolean fits = foot.fit(unit, List.of(new int[] {0, unit.text().length()}), 0, first - cap - UnitSpacing.CELL_INSET + kept, 0) > 0;
+                if (baseline >= 0 && !fits && (opens || !header.contains(unit)) && height <= geometry.bandHeight()) {
+                    foot.close(page++, lines);
+                    baseline = opens ? -1 : repeatHeader(header, page, geometry, lines);
+                    previous = opens || header.isEmpty() ? null : header.getLast();
+                    first = baseline < 0 ? geometry.contentTop() + cap + UnitSpacing.gap(null, unit) : baseline + UnitSpacing.gap(previous, unit) + cap;
+                }
+                double last = setRow(unit, page, first, geometry, lines);
                 foot.take(unit, new int[] {0, unit.text().length()});
-                baseline = first + height - cap - 2 * UnitSpacing.CELL_INSET;
+                double end = last + UnitSpacing.CELL_INSET;
+                while (end > geometry.contentBottom() + 0.01) {
+                    // Only a row taller than a page gets here, which Typst breaks: it runs on under the header.
+                    double over = end - geometry.contentBottom();
+                    foot.close(page++, lines);
+                    double above = repeatHeader(header, page, geometry, lines);
+                    end = (above < 0 ? geometry.contentTop() : above + UnitSpacing.CELL_INSET) + over;
+                }
+                baseline = end - UnitSpacing.CELL_INSET;
                 previous = unit;
                 continue;
             }
@@ -151,6 +161,10 @@ public final class GreedyFxOracle implements LayoutOracle {
             Unit following = nextInFlow(units, i);
             double companion = unit.keepWithNext() && following != null
                     ? UnitSpacing.gap(unit, following) + following.fontSize() * (CAP_HEIGHT + PITCH) : 0;
+            if (following != null && following.kind() == Kind.TABLE_ROW && following.block() == unit.block()) {
+                // A caption stays with the rows its table will not leave at a page's foot.
+                companion = UnitSpacing.gap(unit, following) - UnitSpacing.CELL_INSET + tableHead(units, following.index(), geometry);
+            }
             boolean splittable = unit.kind() == Kind.PARAGRAPH || unit.kind() == Kind.LIST_ITEM;
             boolean whole = !splittable || rows.size() <= 2 || unit.keepWithNext();
             if (baseline >= 0 && first + (whole ? height + companion : pitch) > foot.bottom() + 0.01) {
@@ -202,6 +216,71 @@ public final class GreedyFxOracle implements LayoutOracle {
         foot.close(page, lines);
         lines.sort(Comparator.comparingInt(Line::page).thenComparingInt(Line::unit).thenComparingInt(Line::from));
         return new Layout(page + 1, lines, false, (System.nanoTime() - started) / 1_000_000, List.of());
+    }
+
+    /** Whether a row is its table's first: a table's notes stand between its rows. */
+    private static boolean opensTable(List<Unit> units, int row) {
+        for (int i = row - 1; i >= 0; i--) {
+            if (units.get(i).kind() != Kind.FOOTNOTE) {
+                return units.get(i).kind() != Kind.TABLE_ROW || units.get(i).block() != units.get(row).block();
+            }
+        }
+        return true;
+    }
+
+    /** The header rows of the table a row opens: the bold rows it starts with. */
+    private static List<Unit> headerRows(List<Unit> units, int row) {
+        List<Unit> out = new ArrayList<>();
+        for (int i = row; i < units.size() && units.get(i).block() == units.get(row).block(); i++) {
+            Unit unit = units.get(i);
+            if (unit.kind() == Kind.FOOTNOTE) {
+                continue;
+            }
+            if (unit.kind() != Kind.TABLE_ROW || !unit.bold()) {
+                break;
+            }
+            out.add(unit);
+        }
+        return out;
+    }
+
+    /** What a table must have room for to start on a page, as Typst keeps it: its header and its first row. */
+    private double tableHead(List<Unit> units, int row, Geometry geometry) {
+        List<Unit> header = headerRows(units, row);
+        double height = header.stream().mapToDouble(h -> rowHeight(h, geometry)).sum();
+        for (int i = header.isEmpty() ? row : header.getLast().index() + 1; i < units.size() && units.get(i).block() == units.get(row).block(); i++) {
+            if (units.get(i).kind() == Kind.TABLE_ROW) {
+                return height + rowHeight(units.get(i), geometry);
+            }
+        }
+        return height;
+    }
+
+    /** Sets a table's header rows at a page's top; @return the last's last baseline, -1 for a table with none */
+    private double repeatHeader(List<Unit> header, int page, Geometry geometry, List<Line> lines) {
+        double baseline = -1;
+        Unit previous = null;
+        for (Unit row : header) {
+            double cap = row.fontSize() * CAP_HEIGHT;
+            double first = baseline < 0 ? geometry.contentTop() + cap + UnitSpacing.gap(null, row) : baseline + UnitSpacing.gap(previous, row) + cap;
+            baseline = setRow(row, page, first, geometry, lines);
+            previous = row;
+        }
+        return baseline;
+    }
+
+    /**
+     * Sets a row: its line stands on its first cell's first baseline, a cell being centered in
+     * its row as the writer sets tables.
+     *
+     * @param first the row's first baseline, in its tallest cell
+     * @return that cell's last baseline
+     */
+    private double setRow(Unit row, int page, double first, Geometry geometry, List<Line> lines) {
+        int[] cells = rowLines(row, geometry);
+        double pitch = UnitSpacing.pitch(row);
+        lines.add(new Line(row.index(), page, geometry.contentLeft() + TypstOracle.TABLE_INSET, first + (cells[0] - cells[1]) * pitch / 2, 0, row.text().length(), false));
+        return first + (cells[0] - 1) * pitch;
     }
 
     /** The next unit in the flow after an index, a note being placed elsewhere; {@code null} at the end. */
@@ -636,18 +715,31 @@ public final class GreedyFxOracle implements LayoutOracle {
     }
 
     /**
-     * A table row's height as Typst lays it: its cells share the content width, each wraps in
-     * its share less the inset, and the row is as tall as its tallest cell plus the inset.
+     * A table row's height as Typst lays it: its cells share the content width by its table's
+     * column widths, each wraps in its share less the inset, and the row is as tall as its
+     * tallest cell plus the inset.
      */
     double rowHeight(Unit row, Geometry geometry) {
+        return (rowLines(row, geometry)[0] - 1) * UnitSpacing.pitch(row) + row.fontSize() * CAP_HEIGHT + 2 * UnitSpacing.CELL_INSET;
+    }
+
+    /** @return the lines of a row's tallest cell, and of its first */
+    private int[] rowLines(Unit row, Geometry geometry) {
         String[] cells = row.text().split("\u2502");
-        double share = geometry.contentWidth() / Math.max(1, cells.length) - 2 * TypstOracle.TABLE_INSET;
-        int lines = 1;
-        for (String cell : cells) {
-            Unit one = new Unit(row.index(), row.block(), Kind.PARAGRAPH, cell.strip(), row.fontSize(), row.bold(), 0, 0, 0, false);
-            lines = Math.max(lines, breaks(one, share, false).size());
+        int total = 0;
+        for (int c = 0; c < cells.length; c++) {
+            total += c < row.columns().size() ? row.columns().get(c) : 1;
         }
-        return lines * row.fontSize() * PITCH + 2 * UnitSpacing.CELL_INSET;
+        int tallest = 1;
+        int first = 1;
+        for (int c = 0; c < cells.length; c++) {
+            Unit one = new Unit(row.index(), row.block(), Kind.PARAGRAPH, cells[c].strip(), row.fontSize(), row.bold(), 0, 0, 0, false);
+            double share = geometry.contentWidth() * (c < row.columns().size() ? row.columns().get(c) : 1) / total;
+            int lines = breaks(one, share - 2 * TypstOracle.TABLE_INSET, false).size();
+            tallest = Math.max(tallest, lines);
+            first = c == 0 ? lines : first;
+        }
+        return new int[] {tallest, first};
     }
 
     /** @return the font a unit is set in */

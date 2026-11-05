@@ -32,6 +32,7 @@ import network.ike.komet.claude.stamp.print.DocumentModel.Table;
 import network.ike.komet.claude.stamp.print.DocumentModel.Verbatim;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -348,60 +349,33 @@ public final class StoredDocumentModel {
     }
 
     private Table table(StoredBlock block, List<StoredBlock> children) {
-        List<List<String>> rows = new ArrayList<>();
+        List<String> lines = new ArrayList<>();
         for (StoredBlock row : children) {
-            if (row.kind() != Block.Kind.TABLE_ROW) {
-                continue;
-            }
-            List<String> cells = new ArrayList<>();
-            for (StoredLine line : ownLines(row)) {
-                cells.addAll(cells(line.text()));
-            }
-            if (!cells.isEmpty()) {
-                rows.add(cells);
+            if (row.kind() == Block.Kind.TABLE_ROW) {
+                ownLines(row).forEach(line -> lines.add(line.text()));
             }
         }
-        int columns = rows.stream().mapToInt(List::size).max().orElse(1);
-        List<Integer> widths = widths(block.parameters(), columns);
+        List<List<TableCells.Cell>> cells = TableCells.rows(lines, block.parameters());
+        List<List<String>> rows = cells.stream().map(row -> row.stream().map(TableCells.Cell::text).toList()).toList();
+        List<Integer> widths = widths(block.parameters(), TableCells.columns(cells));
         boolean header = block.parameters().contains("header") && !rows.isEmpty();
         return new Table(block.title(), widths, header ? 1 : 0, rows);
     }
 
-    /** The cells of one table source line: {@code | a | b} gives two, a line with no bar is one cell. */
-    static List<String> cells(String text) {
-        String t = text.strip();
-        if (!t.startsWith("|")) {
-            return List.of(t);
-        }
-        List<String> cells = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
-        boolean open = false;
-        for (int i = 1; i < t.length(); i++) {
-            char c = t.charAt(i);
-            if (c == '\\' && i + 1 < t.length() && t.charAt(i + 1) == '|') {
-                current.append('|');
-                i++;
-            } else if (c == '|') {
-                cells.add(current.toString().strip());
-                current.setLength(0);
-                open = true;
-            } else {
-                current.append(c);
-                open = true;
-            }
-        }
-        if (open || cells.isEmpty()) {
-            cells.add(current.toString().strip());
-        }
-        return cells;
+    /** @return how many columns {@code cols} names, 0 when the table has none */
+    public static int namedColumns(String parameters) {
+        return COLS.matcher(parameters == null ? "" : parameters).find() ? widths(parameters, 0).size() : 0;
     }
 
     /** The relative widths {@code cols} names, repeated specs expanded, padded or cut to the column count. */
-    static List<Integer> widths(String parameters, int columns) {
+    public static List<Integer> widths(String parameters, int columns) {
         List<Integer> widths = new ArrayList<>();
         Matcher m = COLS.matcher(parameters == null ? "" : parameters);
-        if (m.find()) {
-            for (String spec : m.group(1).split(",")) {
+        String named = m.find() ? m.group(1).strip() : "";
+        if (named.matches("\\d+")) {
+            widths.addAll(Collections.nCopies(Integer.parseInt(named), 1)); // cols="3" is three of one width
+        } else if (!named.isEmpty()) {
+            for (String spec : named.split(",")) {
                 Matcher s = COL_SPEC.matcher(spec.strip());
                 int repeat = 1;
                 int width = 1;

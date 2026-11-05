@@ -268,6 +268,9 @@ public final class TypstWriter {
                 #show figure.where(kind: table): set figure.caption(position: top)
                 #show figure.caption: set text(size: 0.85em, weight: "bold")
                 #show figure.caption: set align(left)
+                #show figure.caption: it => block(sticky: true, it)
+                #show figure.where(kind: table): set block(breakable: true)
+                #set table.cell(breakable: false)
                 #set figure(numbering: none)
                 #set list(indent: 1em)
                 #set enum(indent: 1em)
@@ -410,12 +413,12 @@ public final class TypstWriter {
         if (header > 0) {
             out.append(indent).append("    table.header(repeat: true,\n");
             for (int r = 0; r < header; r++) {
-                row(t.rows().get(r), columns, out, indent + "      ");
+                row(t.rows().get(r), columns, false, out, indent + "      ");
             }
             out.append(indent).append("    ),\n");
         }
         for (int r = header; r < t.rows().size(); r++) {
-            row(t.rows().get(r), columns, out, indent + "    ");
+            row(t.rows().get(r), columns, overPage(t, r, columns), out, indent + "    ");
         }
         out.append(indent).append("  ),\n");
         if (!t.title().isEmpty()) {
@@ -425,11 +428,38 @@ public final class TypstWriter {
         out.append(indent).append(")\n\n");
     }
 
-    private static void row(List<String> cells, int columns, StringBuilder out, String indent) {
+    /**
+     * The characters a row's cell may hold, reckoned at the full measure, before the row is let
+     * break over a page: about half a page of body text, so the reckoning can run well short.
+     */
+    static final int WHOLE_ROW_CHARACTERS = 1500;
+
+    /**
+     * Whether a row may be too tall for a page. The preamble keeps rows whole, which is what the
+     * page's one line a row relies on, but Typst runs a whole row taller than a page off its foot
+     * and its text is lost, so such a row keeps Typst's own rule and breaks. How tall a cell sets
+     * is Typst's to know, so this reckons from the text at the cell's share of the measure.
+     */
+    private static boolean overPage(Table t, int r, int columns) {
+        List<String> cells = t.rows().get(r);
+        int total = 0;
+        for (int c = 0; c < columns; c++) {
+            total += c < t.widths().size() ? t.widths().get(c) : 1;
+        }
+        for (int c = 0; c < Math.min(columns, cells.size()); c++) {
+            int width = c < t.widths().size() ? t.widths().get(c) : 1;
+            if ((long) cells.get(c).length() * total / width > WHOLE_ROW_CHARACTERS) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static void row(List<String> cells, int columns, boolean breakable, StringBuilder out, String indent) {
         out.append(indent);
         for (int c = 0; c < columns; c++) {
             String cell = c < cells.size() ? cells.get(c) : "";
-            out.append('[').append(markup(cell)).append("], ");
+            out.append(breakable ? "table.cell(breakable: true)[" : "[").append(markup(cell)).append("], ");
         }
         out.append('\n');
     }

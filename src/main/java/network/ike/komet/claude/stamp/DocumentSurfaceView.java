@@ -431,6 +431,8 @@ final class DocumentSurfaceView {
         /** A page line: the unit it is a line of, which line of it, the page, its left edge and baseline there. */
         int unit = -1;
         int lineOfUnit;
+        /** A table row's table's relative column widths, for the layout oracles. */
+        List<Integer> columns = List.of();
         int page = -1;
         double x;
         double baseline;
@@ -879,6 +881,10 @@ final class DocumentSurfaceView {
                         addArea(member, block, carrier, paragraphs(carrier, "", st.bold(), t -> block.title()), depth, false, section);
                     }
                 }
+                if (print) {
+                    printedRows(member, block, children, header, depth + 1, section);
+                    break;
+                }
                 int r = 0;
                 for (StoredBlock row : children) {
                     List<StoredLine> cells = new ArrayList<>();
@@ -1014,6 +1020,43 @@ final class DocumentSurfaceView {
         String t = CONCEALED_TERM.matcher(text).replaceAll("");
         t = VISIBLE_TERM.matcher(t).replaceAll(m -> java.util.regex.Matcher.quoteReplacement(m.group(1) != null ? m.group(1) : m.group(2)));
         return prose(t.replaceAll("  +", " "));
+    }
+
+    /**
+     * A table's rows as the print model reads them, an area for each: a row need not be a block of
+     * the source, which a blank line ends, so it is drawn from its cells and keeps its lines.
+     */
+    private void printedRows(DocumentAssembly.Member member, StoredBlock table, List<StoredBlock> children, boolean header, int depth, String section) {
+        List<StoredLine> body = new ArrayList<>();
+        Map<Long, StoredBlock> blockOf = new HashMap<>();
+        for (StoredBlock row : children) {
+            for (long nid : row.members()) {
+                member.document().line(nid).ifPresent(line -> {
+                    body.add(line);
+                    blockOf.put(line.nid(), row);
+                });
+            }
+        }
+        List<List<network.ike.komet.claude.stamp.print.TableCells.Cell>> rows =
+                network.ike.komet.claude.stamp.print.TableCells.rows(body.stream().map(StoredLine::text).toList(), table.parameters());
+        List<Integer> widths = network.ike.komet.claude.stamp.print.StoredDocumentModel.widths(table.parameters(),
+                network.ike.komet.claude.stamp.print.TableCells.columns(rows));
+        int r = 0;
+        for (List<network.ike.komet.claude.stamp.print.TableCells.Cell> row : rows) {
+            boolean head = header && r++ == 0;
+            List<LineRunModel.Line> drawn = network.ike.komet.claude.stamp.print.TableCells.drawn(row).stream()
+                    .map(piece -> new LineRunModel.Line(body.get(piece.line()), piece.text())).toList();
+            if (drawn.isEmpty()) {
+                continue;
+            }
+            List<StoredLine> lines = drawn.stream().map(LineRunModel.Line::line).toList();
+            LineRunModel.Spec spec = new LineRunModel.Spec(List.of(new LineRunModel.Paragraph(drawn, " ", head ? st.headerCell() : st.cell())));
+            Area area = add(member, blockOf.get(lines.getFirst().nid()), lines, spec, depth, false, section);
+            if (area != null) {
+                area.columns = widths;
+                area.area.setStyle("-fx-background-color: " + (head ? "#ECEAE6" : "#F4F3F1") + ";");
+            }
+        }
     }
 
     /** A table line as drawn: the leading bar dropped, the cell bars shown as a light rule. */
@@ -1339,7 +1382,7 @@ final class DocumentSurfaceView {
             double above = spacing[0];
             double below = spacing[1];
             out.add(new network.ike.komet.claude.stamp.print.LayoutOracle.Unit(i, area.modelOrdinal, kind, area.spec.plainText(), size, bold, indent,
-                    above, below, area.heading).withInline(area.spec.runs(), area.marks, 0));
+                    above, below, area.heading).withInline(area.spec.runs(), area.marks, 0).withColumns(area.columns));
             previous = kind;
         }
         return out;
@@ -1381,9 +1424,9 @@ final class DocumentSurfaceView {
                 }
                 LineRunModel.Spec spec;
                 boolean whole = line.whole(unit) && unit.kind() != network.ike.komet.claude.stamp.print.LayoutOracle.Kind.VERBATIM
-                        && unitArea.spec.paragraphs().size() == 1 && (k + 1 == own.size()) && k == 0
-                        && (unit.kind() == network.ike.komet.claude.stamp.print.LayoutOracle.Kind.TABLE_ROW
-                        || unit.kind() == network.ike.komet.claude.stamp.print.LayoutOracle.Kind.OTHER);
+                        && unitArea.spec.paragraphs().size() == 1
+                        && (unit.kind() == network.ike.komet.claude.stamp.print.LayoutOracle.Kind.TABLE_ROW   // a header has a line on each page it repeats on
+                        || unit.kind() == network.ike.komet.claude.stamp.print.LayoutOracle.Kind.OTHER && own.size() == 1);
                 if (whole) {
                     spec = unitArea.spec;
                 } else {

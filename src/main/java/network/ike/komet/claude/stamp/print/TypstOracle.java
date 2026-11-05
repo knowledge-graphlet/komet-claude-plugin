@@ -36,7 +36,8 @@ import java.util.regex.Pattern;
  * carried over, measured in the same font. What stays inexact: a word without a hyphenation
  * point near the tail's width (inline raw broken at a hyphen or slash of its own, text the
  * alignment maps loosely) falls back to the suffix whose width matches best, table cells are
- * placed as whole rows, and the labels themselves perturb
+ * placed as whole rows, a header repeated on a later page as another line of its row
+ * ({@link #withoutRepeats}), and the labels themselves perturb
  * Typst's justification by a fraction of a point — never its line breaks, which the fidelity
  * measurement checks by comparing block positions with and without them. A footnote is a unit
  * of its own ({@link #NOTE_LABEL}), read like a paragraph wherever Typst set it. A listing is read
@@ -307,8 +308,13 @@ public final class TypstOracle implements LayoutOracle {
         List<String> unplacedNames = new ArrayList<>();
         int guessedHyphens = 0;
         for (Map.Entry<Integer, List<Unit>> e : unitsByBlock.entrySet()) {
-            List<Word> words = wordsByBlock.getOrDefault(e.getKey(), List.of());
+            List<Unit> header = headerOf(e.getValue());
+            List<List<Word>> repeats = new ArrayList<>();
+            List<Word> words = withoutRepeats(wordsByBlock.getOrDefault(e.getKey(), List.of()), header, repeats);
             Map<Unit, List<Placed>> placed = place(words, e.getValue());
+            for (List<Word> repeat : repeats) {
+                place(repeat, header).forEach((unit, own) -> lines.add(rowLine(unit, own.getFirst().word(), geometry)));
+            }
             for (Unit unit : e.getValue()) {
                 List<Placed> own = placed.getOrDefault(unit, List.of());
                 if (own.isEmpty()) {
@@ -327,12 +333,7 @@ public final class TypstOracle implements LayoutOracle {
                     continue;
                 }
                 if (unit.kind() == Kind.TABLE_ROW || unit.kind() == Kind.OTHER) {
-                    // A row's first word begins a cell: its end label's baseline is the row's; its x is the cell's left
-                    // edge when the word is the cell's last (typst leaves a paragraph's closing label there), else
-                    // the word's width before it.
-                    Word w = own.getFirst().word();
-                    double x = unit.kind() == Kind.TABLE_ROW ? geometry.contentLeft() + TABLE_INSET : geometry.contentLeft() + unit.indent();
-                    lines.add(new Line(unit.index(), w.endPage(), x, w.endY(), 0, unit.text().length(), false));
+                    lines.add(rowLine(unit, own.getFirst().word(), geometry));
                     continue;
                 }
                 if (unit.kind() == Kind.VERBATIM) {
@@ -359,6 +360,87 @@ public final class TypstOracle implements LayoutOracle {
             }
         }
         return new Layout(Math.max(1, pages), lines, true, 0, notes);
+    }
+
+    /**
+     * The line of a unit placed whole. A row's first word begins a cell: its end label's baseline
+     * is the row's; its x is the cell's left edge when the word is the cell's last (typst leaves a
+     * paragraph's closing label there), else the word's width before it.
+     */
+    private static Line rowLine(Unit unit, Word first, Geometry geometry) {
+        double x = unit.kind() == Kind.TABLE_ROW ? geometry.contentLeft() + TABLE_INSET : geometry.contentLeft() + unit.indent();
+        return new Line(unit.index(), first.endPage(), x, first.endY(), 0, unit.text().length(), false);
+    }
+
+    /** A table's header rows, among the units of its block: the bold rows it opens with. */
+    private static List<Unit> headerOf(List<Unit> units) {
+        return units.stream().filter(u -> u.kind() == Kind.TABLE_ROW).takeWhile(Unit::bold).toList();
+    }
+
+    /**
+     * A block's words without the header rows a table repeats on each page it runs to. Typst
+     * labels a repeat like the row itself, between the rows of the table, where the alignment
+     * would read it as rows of the unit's own and lose its place on a header that shares words
+     * with a row. So a page's first words that spell the header, after the header itself, go to
+     * {@code repeats}, one list for each.
+     *
+     * @param words   the block's words
+     * @param header  its table's header rows, empty for any other block
+     * @param repeats takes the repeats
+     * @return the words the units' text holds
+     */
+    static List<Word> withoutRepeats(List<Word> words, List<Unit> header, List<List<Word>> repeats) {
+        if (header.isEmpty()) {
+            return words;
+        }
+        StringBuilder spelled = new StringBuilder();
+        header.forEach(unit -> spelled.append(ink(unit.text())));
+        List<Word> out = new ArrayList<>(words.size());
+        boolean seen = false;
+        int w = 0;
+        while (w < words.size()) {
+            boolean pageStart = w > 0 && words.get(w).endPage() != words.get(w - 1).endPage();
+            int spells = seen && !pageStart ? 0 : spells(words, w, spelled.toString());
+            if (spells == 0) {
+                out.add(words.get(w++));
+            } else if (seen) {
+                repeats.add(List.copyOf(words.subList(w, w + spells)));
+                w += spells;
+            } else {
+                out.addAll(words.subList(w, w + spells));
+                w += spells;
+                seen = true;
+            }
+        }
+        return out;
+    }
+
+    /** How many words from one on spell a text exactly; 0 when they do not. */
+    private static int spells(List<Word> words, int from, String text) {
+        int matched = 0;
+        for (int w = from; w < words.size() && matched < text.length(); w++) {
+            String ink = ink(words.get(w).text());
+            if (!text.startsWith(ink, matched)) {
+                return 0;
+            }
+            matched += ink.length();
+            if (matched == text.length()) {
+                return w - from + 1;
+            }
+        }
+        return 0;
+    }
+
+    /** A text's characters as the two sides can compare them: {@link #normal}, without blanks or the bars between a row's cells. */
+    private static String ink(String text) {
+        StringBuilder out = new StringBuilder(text.length());
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (!Character.isWhitespace(c) && c != '​' && c != '│') {
+                out.append(normal(c));
+            }
+        }
+        return out.toString();
     }
 
     /** Where a note's words are kept among the blocks': a block is never negative. */

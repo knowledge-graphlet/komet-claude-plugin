@@ -23,13 +23,13 @@ import network.ike.komet.claude.stamp.print.LayoutOracle.Unit;
  * golden layouts of the fidelity corpus (2026-10-20) rather than guessed from the preamble:
  *
  * <ul>
- *   <li>paragraphs are {@code par.spacing} = 1.1em of the body apart; tight list items and table
- *       rows a leading (0.65em) apart, a table row's cells inset 5pt top and bottom besides;</li>
+ *   <li>paragraphs are {@code par.spacing} = 1.1em of the body apart; tight list items a leading
+ *       (0.65em) apart; table rows only the 5pt their cells inset at top and bottom;</li>
  *   <li>a heading's weak spacing — 0.9em of its own size above, 0.5em below — replaces the
  *       paragraph spacing next to it rather than competing with it; two weak spacings collapse
  *       to the larger;</li>
  *   <li>the title's {@code block(below: 1.2em)} is 1.2em of the body; a block title keeps 1em above
- *       and 0.5em below; a table's caption 1.1em of the body plus the first row's inset below;</li>
+ *       and 0.5em below; a table's caption a leading (0.65em) below, over the first row's inset;</li>
  *   <li>a raw block adds its 8pt inset above and below its lines, which are the same 1.364em apart as any.</li>
  * </ul>
  *
@@ -57,14 +57,14 @@ public final class UnitSpacing {
             case TITLE -> 0;
             case HEADING -> size * 0.9;
             case LIST_ITEM -> previous == Kind.LIST_ITEM ? base * 0.65 : base * 1.1;
-            case TABLE_ROW -> previous == Kind.TABLE_ROW ? base * 0.65 + 2 * CELL_INSET + 0.5 : base * 1.1;
+            case TABLE_ROW -> previous == Kind.TABLE_ROW ? 2 * CELL_INSET : base * 1.1;
             case OTHER, FIGURE -> base;
             default -> base * 1.1;
         };
         double below = switch (kind) {
             case TITLE -> base * 1.2;
             case HEADING -> size * 0.5;
-            case OTHER -> caption ? base * 1.1 + CELL_INSET - 0.4 : base * 0.5;
+            case OTHER -> caption ? base * 0.65 : base * 0.5;
             default -> 0;
         };
         return new double[] {above, below};
@@ -102,6 +102,9 @@ public final class UnitSpacing {
         }
         if (previous.kind() == Kind.VERBATIM) {
             gap += VERBATIM_INSET;
+        }
+        if (previous.kind() == Kind.TABLE_ROW && unit.kind() != Kind.TABLE_ROW) {
+            gap += CELL_INSET;
         }
         return gap + inset;
     }

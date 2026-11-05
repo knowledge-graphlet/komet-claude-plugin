@@ -22,6 +22,7 @@ import network.ike.komet.claude.stamp.print.LayoutOracle.Unit;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -82,6 +83,101 @@ class GreedyFxOracleTest {
         assertEquals(72 + 500, layout.ofUnit(0).getFirst().baseline(), 1e-6, "a figure's baseline is its foot");
         assertEquals(1, layout.ofUnit(1).getFirst().page());
         assertEquals(72 + 200, layout.ofUnit(1).getFirst().baseline(), 1e-6, "scaled to the measure: half its height");
+    }
+
+    private static final LayoutOracle.Geometry LETTER = new LayoutOracle.Geometry(612, 792, 72, 72, 468, 648);
+
+    /** A table of one-line rows in a block of its own, its header bold, its first row at a unit index. */
+    private static List<Unit> table(int first, int block, int rows) {
+        List<Unit> units = new ArrayList<>();
+        for (int r = 0; r < rows; r++) {
+            units.add(new Unit(first + r, block, Kind.TABLE_ROW, "cell " + r + "  \u2502  other", 12, r == 0, 0,
+                    r == 0 ? 13.2 : 2 * UnitSpacing.CELL_INSET, 0, false));
+        }
+        return units;
+    }
+
+    /** Filler that leaves the page's room for a given number of one-line rows. */
+    private static Unit filler(double height) {
+        return new Unit(0, 0, Kind.FIGURE, LayoutOracle.FIGURE_WORD, 12, false, 0, 0, 0, false, 100, height);
+    }
+
+    @Test
+    void aTableBreaksBetweenItsRowsWithItsHeaderOnEveryPage() {
+        List<Unit> units = table(0, 0, 90);
+
+        var layout = oracle.layout(units, LETTER);
+
+        double row = 12 * LayoutOracle.CAP_HEIGHT + 2 * UnitSpacing.CELL_INSET;
+        int perPage = (int) (LETTER.bandHeight() / row);
+        assertEquals(3, layout.pages(), "a page holds " + perPage + " rows");
+        assertEquals(List.of(0, 1, 2), layout.ofUnit(0).stream().map(LayoutOracle.Line::page).toList(), "a header on every page");
+        assertEquals(0, layout.ofUnit(perPage - 1).getFirst().page());
+        assertEquals(1, layout.ofUnit(perPage).getFirst().page());
+        assertEquals(layout.ofUnit(0).get(1).baseline(), layout.ofUnit(0).getFirst().baseline(), 1e-6, "at the page's top");
+        assertEquals(layout.ofUnit(0).get(1).baseline() + row, layout.ofUnit(perPage).getFirst().baseline(), 1e-6, "the rows below it");
+        for (int u = 1; u < units.size(); u++) {
+            assertEquals(1, layout.ofUnit(u).size(), "one line for row " + u);
+        }
+        assertEquals(List.of(perPage, 2 * perPage - 1), layout.breaks(), "a repeat begins no page");
+    }
+
+    @Test
+    void aTableStartsWhereItsHeaderAndFirstRowFit() {
+        double row = 12 * LayoutOracle.CAP_HEIGHT + 2 * UnitSpacing.CELL_INSET;
+        double gap = 13.2;
+        List<Unit> fits = new ArrayList<>(List.of(filler(LETTER.bandHeight() - gap - 2 * row)));
+        fits.addAll(table(1, 1, 3));
+        List<Unit> short1 = new ArrayList<>(List.of(filler(LETTER.bandHeight() - gap - 2 * row + 1)));
+        short1.addAll(table(1, 1, 3));
+
+        assertEquals(0, oracle.layout(fits, LETTER).ofUnit(2).getFirst().page(), "both rows fit");
+        assertEquals(1, oracle.layout(fits, LETTER).ofUnit(3).getFirst().page(), "the third goes over");
+        var moved = oracle.layout(short1, LETTER);
+        assertEquals(1, moved.ofUnit(1).getFirst().page(), "a header is not left at the foot without a row");
+        assertEquals(1, moved.ofUnit(1).size(), "and has nothing to repeat");
+    }
+
+    @Test
+    void aCaptionStaysWithItsTable() {
+        List<Unit> units = new ArrayList<>(List.of(filler(LETTER.bandHeight() - 60)));
+        units.add(new Unit(1, 1, Kind.OTHER, "A caption", 12, true, 0, 12, 12 * 1.1 + UnitSpacing.CELL_INSET - 0.4, false));
+        units.addAll(table(2, 1, 3));
+
+        var layout = oracle.layout(units, LETTER);
+
+        assertEquals(1, layout.ofUnit(1).getFirst().page());
+        assertEquals(1, layout.ofUnit(2).getFirst().page());
+    }
+
+    @Test
+    void aRowCentersItsShorterCells() {
+        String wide = "many words of a cell that runs to a second line in half the measure, ".repeat(2).strip();
+        Unit row = new Unit(0, 0, Kind.TABLE_ROW, "one  \u2502  " + wide, 12, false, 0, 0, 0, false);
+        int lines = oracle.breaks(new Unit(0, 0, Kind.PARAGRAPH, wide, 12, false, 0, 0, 0, false), LETTER.contentWidth() / 2 - 10, false).size();
+        assertTrue(lines > 1, "a tall cell beside the short one: " + lines);
+        double pitch = 12 * LayoutOracle.PITCH;
+
+        var layout = oracle.layout(List.of(row), LETTER);
+
+        double top = LETTER.contentTop() + UnitSpacing.CELL_INSET + 12 * LayoutOracle.CAP_HEIGHT;
+        assertEquals(top + (lines - 1) * pitch / 2, layout.ofUnit(0).getFirst().baseline(), 1e-6);
+        assertEquals((lines - 1) * pitch + 12 * LayoutOracle.CAP_HEIGHT + 2 * UnitSpacing.CELL_INSET, oracle.rowHeight(row, LETTER), 1e-6);
+    }
+
+    @Test
+    void aRowTallerThanAPageRunsOnUnderTheHeader() {
+        Unit header = table(0, 0, 1).getFirst();
+        String tall = "words ".repeat(1400).strip();
+        Unit row = new Unit(1, 0, Kind.TABLE_ROW, tall, 12, false, 0, 2 * UnitSpacing.CELL_INSET, 0, false);
+        Unit after = new Unit(2, 0, Kind.TABLE_ROW, "after  \u2502  it", 12, false, 0, 2 * UnitSpacing.CELL_INSET, 0, false);
+        assertTrue(oracle.rowHeight(row, LETTER) > LETTER.bandHeight());
+
+        var layout = oracle.layout(List.of(header, row, after), LETTER);
+
+        assertEquals(0, layout.ofUnit(1).getFirst().page(), "it starts where it stands");
+        assertTrue(layout.ofUnit(2).getFirst().page() > 0, "what follows it follows its end");
+        assertEquals(layout.ofUnit(2).getFirst().page() + 1, layout.ofUnit(0).size(), "a header on every page it reaches");
     }
 
     private static List<List<Integer>> plain(List<int[]> lines) {

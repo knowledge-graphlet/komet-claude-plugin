@@ -84,6 +84,9 @@ class ModelUnitsTest {
         assertEquals(LayoutOracle.PITCH * 8.16, UnitSpacing.pitch(raw), 0.001);
         assertEquals(LayoutOracle.PITCH * 12, UnitSpacing.pitch(prose), 0.001);
         assertEquals(0.65 * 12, UnitSpacing.of(Kind.LIST_ITEM, Kind.LIST_ITEM, 12, 12)[0], 0.001);
-        assertEquals(1.1 * 12 + UnitSpacing.CELL_INSET - 0.4, UnitSpacing.of(Kind.OTHER, Kind.PARAGRAPH, 12, 12, true)[1], 0.001);
+        assertEquals(0.65 * 12, UnitSpacing.of(Kind.OTHER, Kind.PARAGRAPH, 12, 12, true)[1], 0.001, "a caption a leading above its table");
+        Unit row = new Unit(5, 5, Kind.TABLE_ROW, "r", 12, false, 0, UnitSpacing.of(Kind.TABLE_ROW, Kind.TABLE_ROW, 12, 12)[0], 0, false);
+        assertEquals(2 * UnitSpacing.CELL_INSET, UnitSpacing.gap(row, row), 0.001, "rows only their cells' insets apart");
+        assertEquals(13.2 + UnitSpacing.CELL_INSET, UnitSpacing.gap(row, prose), 0.001, "and its last");
     }
 }
