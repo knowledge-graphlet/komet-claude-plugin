@@ -167,6 +167,63 @@ class GitDocumentMaterializerIT {
         assertEquals("See the 2025 review.", stored.lines().get(3).annotations().get(0).text());
     }
 
+    /**
+     * A stored document reads as its newest commit by time, whatever branch that commit is on, so a
+     * switch to a branch of older commits has to rebuild it for the card to show HEAD; a branch
+     * ahead of the document only adds its commits; a branch without the file leaves it stored.
+     */
+    @Test
+    void aDocumentFollowsTheBranchItsTreeSwitchedTo() throws Exception {
+        Path repoRoot = Files.createDirectories(root.resolve("branches"));
+        gitIn(repoRoot, "init", "-q", "-b", "main");
+        Path file = repoRoot.resolve("branched.adoc");
+        Files.writeString(file, "= Branched\n\nshared\n");
+        commitAll(repoRoot, "2026-02-01T00:00:00Z", "Start");
+        gitIn(repoRoot, "switch", "-q", "-c", "older");
+        Files.writeString(file, "= Branched\n\nshared\n\nfrom the older branch\n");
+        commitAll(repoRoot, "2026-02-02T00:00:00Z", "Older");
+        gitIn(repoRoot, "switch", "-q", "main");
+        Files.writeString(file, "= Branched\n\nshared\n\nfrom the newer branch\n");
+        commitAll(repoRoot, "2026-02-05T00:00:00Z", "Newer");
+        GitDocumentMaterializer.Result stored = GitDocumentMaterializer.materialize(repoRoot, file);
+        List<DocumentBranch.Member> members = List.of(new DocumentBranch.Member(stored.anchor(), "branched.adoc"));
+
+        gitIn(repoRoot, "switch", "-q", "older");
+        DocumentBranch.Followed toOlder = DocumentBranch.follow(repoRoot, members);
+
+        assertEquals(List.of("branched.adoc"), toOlder.rebuilt(), "newer commits of main would otherwise read as the document");
+        assertEquals(List.of(), toOlder.stale());
+        assertEquals(Files.readAllLines(file), storedLines(stored));
+
+        gitIn(repoRoot, "switch", "-q", "main");
+        DocumentBranch.follow(repoRoot, members);
+        assertEquals(Files.readAllLines(file), storedLines(stored));
+
+        gitIn(repoRoot, "switch", "-q", "-c", "ahead");
+        Files.writeString(file, "= Branched\n\nshared\n\nfrom the newer branch\n\nand beyond\n");
+        commitAll(repoRoot, "2026-02-06T00:00:00Z", "Ahead");
+        DocumentBranch.Followed ahead = DocumentBranch.follow(repoRoot, members);
+        assertEquals(List.of(), ahead.rebuilt(), "a branch ahead of the document only adds commits");
+        assertEquals(Files.readAllLines(file), storedLines(stored));
+
+        gitIn(repoRoot, "switch", "-q", "-c", "without");
+        gitIn(repoRoot, "rm", "-q", "branched.adoc");
+        commitAll(repoRoot, "2026-02-07T00:00:00Z", "Remove");
+        DocumentBranch.Followed without = DocumentBranch.follow(repoRoot, members);
+        assertEquals(List.of("branched.adoc"), without.absent());
+        assertTrue(without.report().contains("Not on this branch"), without.report());
+    }
+
+    private List<String> storedLines(GitDocumentMaterializer.Result stored) {
+        return GitDocumentMaterializer.load(stored.anchor()).orElseThrow().lines().stream().map(GitDocumentMaterializer.StoredLine::text).toList();
+    }
+
+    private void commitAll(Path repoRoot, String date, String message) throws Exception {
+        gitIn(repoRoot, "add", "-A");
+        gitIn(repoRoot, "-c", "user.name=alice", "-c", "user.email=alice@example.test", "-c", "core.hooksPath=/dev/null", "commit", "-q", "--no-gpg-sign",
+                "--date=" + date, "-m", message);
+    }
+
     /** alice creates three lines; bob inserts a topic-id line and edits the middle; Rita affirms lines 2–3 of bob's version. */
     /**
      * A line keeps its identity when it is revised (#1313), so Rita's affirmation stays on the line

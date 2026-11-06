@@ -20,8 +20,10 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -115,7 +117,22 @@ public final class GitOperations {
             }
             return String.join(" \u00b7 ", parts);
         }
+
+        /** @return the remote a first push goes to: {@code origin} when there is one, else the first */
+        public Optional<Remote> pushTarget() {
+            return remotes.stream().filter(remote -> remote.name().equals("origin")).findFirst()
+                    .or(() -> remotes.stream().findFirst());
+        }
     }
+
+    /**
+     * The branches a working tree can switch to.
+     *
+     * @param current the current branch, or empty when HEAD is detached
+     * @param local   the local branches, in git's order
+     * @param remote  the remotes' branches with no local branch of the name, each as {@code origin/name}
+     */
+    public record Branches(String current, List<String> local, List<String> remote) { }
 
     /**
      * One commit as the History view lists it.
@@ -153,7 +170,12 @@ public final class GitOperations {
                 }
             }
         }
-        Run branch = git(root, "rev-parse", "--abbrev-ref", "HEAD");
+        // symbolic-ref names the branch of a repository with no commits yet, which rev-parse cannot;
+        // rev-parse answers for a detached HEAD, which is not a symbolic ref.
+        Run branch = git(root, "symbolic-ref", "--quiet", "--short", "HEAD");
+        if (!branch.ok()) {
+            branch = git(root, "rev-parse", "--abbrev-ref", "HEAD");
+        }
         Run head = git(root, "log", "-1", "--format=%h%x09%s");
         String headSha = "";
         String headText = "";
@@ -190,6 +212,84 @@ public final class GitOperations {
         }
         return new RepositoryState(root, List.copyOf(remotes), branch.ok() ? branch.output().strip() : "", headSha, headText,
                 upstream.ok() ? Optional.of(upstream.output().strip()) : Optional.empty(), ahead, behind, status);
+    }
+
+    /**
+     * Says why a new repository may not be made in a folder. A repository holds everything under
+     * it, so the home folder and the file system's root are refused. A folder a repository already
+     * holds is refused, and so is a {@code .git} entry of any kind, which in a synced tree may be
+     * the empty husk Syncthing left. A folder in a Syncthing tree is refused because {@code .git}
+     * never syncs: the other machines would get the files with no history, and no origin for
+     * materialization to fetch one from.
+     *
+     * @param folder the folder the repository would be made in, which need not exist yet
+     * @return the reason, or empty when the folder may hold a new repository
+     */
+    public static Optional<String> initRefusal(Path folder) {
+        Path target = folder.toAbsolutePath().normalize();
+        if (target.getParent() == null || target.equals(Path.of(System.getProperty("user.home")).toAbsolutePath().normalize())) {
+            return Optional.of("A repository in " + target + " would hold everything under it. Choose a folder for the documents.");
+        }
+        if (Files.exists(target) && !Files.isDirectory(target)) {
+            return Optional.of(target + " is a file, not a folder.");
+        }
+        for (Path dir = target; dir != null; dir = dir.getParent()) {
+            if (Files.exists(dir.resolve(".git"))) {
+                return Optional.of(target + " is already in the repository at " + dir + ".");
+            }
+        }
+        return syncedFolder(target).map(synced -> target + " is in the synced folder " + synced
+                + ", where .git never syncs: other machines would get the files with no history. Choose a folder outside it.");
+    }
+
+    /**
+     * Finds the Syncthing folder holding a path, by the marker Syncthing keeps at a folder's root.
+     *
+     * @param path the path, which need not exist yet
+     * @return the synced folder's root, or empty when the path is in none
+     */
+    public static Optional<Path> syncedFolder(Path path) {
+        for (Path dir = path.toAbsolutePath().normalize(); dir != null; dir = dir.getParent()) {
+            if (Files.isDirectory(dir.resolve(".stfolder"))) {
+                return Optional.of(dir);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Makes a new repository, creating the folder when needed. The first branch is named by the
+     * person's own {@code init.defaultBranch}. Nothing is committed.
+     *
+     * @param folder the folder to make the repository in
+     * @return what git did, or the refusal of {@link #initRefusal}
+     * @throws IOException if the folder cannot be made or git cannot be run
+     */
+    public static Run init(Path folder) throws IOException {
+        Optional<String> refusal = initRefusal(folder);
+        if (refusal.isPresent()) {
+            return new Run(-1, refusal.get());
+        }
+        Path target = folder.toAbsolutePath().normalize();
+        Files.createDirectories(target);
+        return git(target, "init", "--quiet");
+    }
+
+    /**
+     * Adds a remote. It contacts nothing: the first {@link #pushSettingUpstream push} does, and
+     * the repository must already exist there.
+     *
+     * @param root the working tree
+     * @param name the remote's name
+     * @param url  the repository URL, as git takes it
+     * @return what git did
+     * @throws IOException if git cannot be run
+     */
+    public static Run addRemote(Path root, String name, String url) throws IOException {
+        if (name == null || name.isBlank() || url == null || url.isBlank()) {
+            return new Run(-1, "A remote needs a name and a URL.");
+        }
+        return git(root, "remote", "add", "--", name.strip(), url.strip());
     }
 
     /**
@@ -253,6 +353,134 @@ public final class GitOperations {
      */
     public static Run push(Path root) throws IOException {
         return git(root, "push");
+    }
+
+    /**
+     * Pushes a branch that has no upstream yet and makes the remote's branch its upstream, so
+     * the plain {@link #push} and {@link #pullFastForwardOnly pull} work from then on.
+     *
+     * @param root   the working tree
+     * @param remote the remote's name
+     * @param branch the branch
+     * @return what git did
+     * @throws IOException if git cannot be run
+     */
+    public static Run pushSettingUpstream(Path root, String remote, String branch) throws IOException {
+        return git(root, "push", "--set-upstream", remote, branch);
+    }
+
+    /**
+     * Whether HEAD holds a file, which a document needs: it is stored from its history.
+     *
+     * @param root the working tree
+     * @param file the file, relative to the root
+     * @return {@code false} when the file is uncommitted or the repository has no commits yet
+     * @throws IOException if git cannot be run
+     */
+    public static boolean committed(Path root, Path file) throws IOException {
+        return git(root, "cat-file", "-e", "HEAD:" + file.toString().replace('\\', '/')).ok();
+    }
+
+    /**
+     * The files among those named that differ from HEAD in the working tree or the index, or are
+     * untracked: what an edit made outside Komet looks like. A file deleted from the working tree
+     * is left out, since a document stored from it would have nothing left to read.
+     *
+     * @param root  the working tree
+     * @param files the files, relative to the root
+     * @return those that changed, in the order named; empty when the repository has no commits
+     * @throws IOException if git cannot be run
+     */
+    public static List<String> changedFiles(Path root, List<String> files) throws IOException {
+        if (files.isEmpty()) {
+            return List.of();
+        }
+        // Names only, NUL-separated: git quotes neither, and no status column can strip away.
+        Set<String> found = new HashSet<>();
+        for (Run run : List.of(pathsRun(root, files, "diff", "--name-only", "-z", "HEAD"),
+                pathsRun(root, files, "ls-files", "--others", "--exclude-standard", "-z"))) {
+            if (run.ok() && !run.output().isEmpty()) {
+                found.addAll(List.of(run.output().split(String.valueOf((char) 0))));
+            }
+        }
+        return files.stream().filter(found::contains).filter(file -> Files.isRegularFile(root.resolve(file))).toList();
+    }
+
+    /** Runs git over named files, the names read literally: a {@code *} in one is that character. */
+    private static Run pathsRun(Path root, List<String> files, String... args) throws IOException {
+        List<String> command = new ArrayList<>(List.of("--literal-pathspecs"));
+        command.addAll(List.of(args));
+        command.add("--");
+        command.addAll(files);
+        return git(root, command.toArray(String[]::new));
+    }
+
+    /**
+     * Lists the branches. A remote's own HEAD is not a branch, and a remote's branch that has a
+     * local branch of the name is reached by that one.
+     *
+     * @param root the working tree
+     * @return the branches
+     * @throws IOException if git cannot be run
+     */
+    public static Branches branches(Path root) throws IOException {
+        Run refs = git(root, "for-each-ref", "--format=%(refname)%09%(symref)", "refs/heads", "refs/remotes");
+        List<String> local = new ArrayList<>();
+        List<String> remote = new ArrayList<>();
+        if (refs.ok()) {
+            for (String line : refs.output().lines().toList()) {
+                String[] parts = line.split("\t", -1);
+                if (parts[0].startsWith("refs/heads/")) {
+                    local.add(parts[0].substring("refs/heads/".length()));
+                } else if (parts.length < 2 || parts[1].isEmpty()) {
+                    remote.add(parts[0].substring("refs/remotes/".length()));
+                }
+            }
+        }
+        remote.removeIf(name -> local.contains(name.substring(name.indexOf('/') + 1)));
+        Run current = git(root, "symbolic-ref", "--quiet", "--short", "HEAD");
+        return new Branches(current.ok() ? current.output().strip() : "", List.copyOf(local), List.copyOf(remote));
+    }
+
+    /**
+     * Switches to a local branch. Uncommitted changes git can carry come along; when the switch
+     * would overwrite one, git refuses and nothing moves.
+     *
+     * @param root   the working tree
+     * @param branch the local branch
+     * @return what git did
+     * @throws IOException if git cannot be run
+     */
+    public static Run switchBranch(Path root, String branch) throws IOException {
+        return git(root, "switch", branch);
+    }
+
+    /**
+     * Makes a local branch of a remote's and switches to it, as {@link #switchBranch} does.
+     *
+     * @param root   the working tree
+     * @param branch the remote's branch, as {@code origin/name}
+     * @return what git did
+     * @throws IOException if git cannot be run
+     */
+    public static Run trackBranch(Path root, String branch) throws IOException {
+        return git(root, "switch", "--track", branch);
+    }
+
+    /**
+     * Starts a new branch at HEAD and switches to it. No file changes, and in a repository with
+     * no commits yet it names the branch the first commit will start.
+     *
+     * @param root the working tree
+     * @param name the new branch's name
+     * @return what git did
+     * @throws IOException if git cannot be run
+     */
+    public static Run createBranch(Path root, String name) throws IOException {
+        if (name == null || name.isBlank()) {
+            return new Run(-1, "A branch needs a name.");
+        }
+        return git(root, "switch", "-c", name.strip());
     }
 
     /**

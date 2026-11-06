@@ -46,6 +46,10 @@ public final class CommentWriter {
         if (narrative == null || narrative.isBlank()) {
             return;
         }
+        // Narration runs behind the commit: a document rebuilt from git meanwhile took this STAMP with it.
+        if (dev.ikm.tinkar.entity.EntityHandle.get(targetStampNid).entity().isEmpty()) {
+            return;
+        }
         try (StampedWriter writer = StampedWriter.open("komet-narrator", State.ACTIVE,
                 NarratorIdentity.NARRATOR_AUTHOR,
                 NarratorIdentity.NARRATION_MODULE,

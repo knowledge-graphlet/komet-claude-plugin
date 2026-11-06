@@ -195,6 +195,8 @@ module komet.claude {
     // journal's Trash lists and Komet empties as it quits.
     provides dev.ikm.komet.layout.trash.KlTrashProvider
             with network.ike.komet.claude.trash.PluginTrashProvider;
+    provides dev.ikm.komet.layout.tray.KlSidebarTrayProvider
+            with network.ike.komet.claude.stamp.DocumentNavigatorTrayProvider;
 
     // The decision blocks as structured kinds of a stored document: a [decision-tree],
     // [complex-concept], [anf], [calculator] or [calculate] listing block draws on the stamped

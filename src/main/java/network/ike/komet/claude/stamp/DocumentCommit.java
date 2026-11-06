@@ -61,6 +61,23 @@ public final class DocumentCommit {
      * @return the draft, subject first
      */
     public static String draftMessage(String path, List<String> committed, List<String> pending) {
+        return draft("Edited in Komet", path, committed, pending);
+    }
+
+    /**
+     * A first draft of the message for a file changed outside Komet, as {@link #draftMessage}
+     * words one for an edit made in it.
+     *
+     * @param path      the file's repository-relative path
+     * @param committed the lines at HEAD, empty for a file new to git
+     * @param working   the lines in the working tree
+     * @return the draft, subject first
+     */
+    public static String draftWorkingFileMessage(String path, List<String> committed, List<String> working) {
+        return draft("Edited outside Komet", path, committed, working);
+    }
+
+    private static String draft(String where, String path, List<String> committed, List<String> pending) {
         boolean[][] matched = DocumentEditor.matchInOrder(committed, pending);
         List<String> removed = new ArrayList<>();
         for (int i = 0; i < committed.size(); i++) {
@@ -76,7 +93,7 @@ public final class DocumentCommit {
         }
         String name = path.contains("/") ? path.substring(path.lastIndexOf('/') + 1) : path;
         StringBuilder message = new StringBuilder("Edit ").append(name).append("\n\n");
-        message.append("Edited in Komet: ").append(written.size()).append(" line(s) written, ")
+        message.append(where).append(": ").append(written.size()).append(" line(s) written, ")
                 .append(removed.size()).append(" line(s) replaced or removed.\n");
         for (String line : written.subList(0, Math.min(5, written.size()))) {
             if (!line.isBlank()) {
@@ -131,6 +148,28 @@ public final class DocumentCommit {
      * @throws IOException if git cannot be run
      */
     public static Result first(Path repoRoot, String path, String message) throws IOException {
+        return addAndWrite(repoRoot, path, message, false);
+    }
+
+    /**
+     * Commits a file as it stands in the working tree, whatever changed it, adding it first when
+     * git does not track it yet. Only the person's confirmation in the card calls it, as with
+     * {@link #write}.
+     *
+     * @param repoRoot the working tree root
+     * @param path     the file's repository-relative path
+     * @param message  the commit message, subject first
+     * @param sign     whether to sign ({@code -S}) or not ({@code --no-gpg-sign}); never implicit
+     * @return what git did
+     * @throws IOException if git cannot be run
+     */
+    public static Result workingFile(Path repoRoot, String path, String message, boolean sign) throws IOException {
+        return git(repoRoot, List.of("ls-files", "--error-unmatch", "--", path)).ok()
+                ? write(repoRoot, path, message, sign) : addAndWrite(repoRoot, path, message, sign);
+    }
+
+    /** Adds an untracked file and commits it; a commit that fails leaves it untracked again. */
+    private static Result addAndWrite(Path repoRoot, String path, String message, boolean sign) throws IOException {
         Optional<Result> staged = otherStaged(repoRoot, path);
         if (staged.isPresent()) {
             return staged.get();
@@ -139,7 +178,7 @@ public final class DocumentCommit {
         if (!added.ok()) {
             return new Result(false, "", added.output().isEmpty() ? "git add exited " + added.exit() : added.output());
         }
-        Result committed = write(repoRoot, path, message, false);
+        Result committed = write(repoRoot, path, message, sign);
         if (!committed.ok()) {
             git(repoRoot, List.of("reset", "--quiet", "--", path));
         }

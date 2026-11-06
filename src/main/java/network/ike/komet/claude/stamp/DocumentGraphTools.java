@@ -538,7 +538,8 @@ public final class DocumentGraphTools {
                         + "holds the title and a first paragraph, and is committed locally as the document's first commit, because a "
                         + "document is stored from its git history: say so, and that nothing is pushed. Everything you add after is an "
                         + "uncommitted edit as usual, inserted after that first paragraph. Use it when the person asks for a decision "
-                        + "written up and no document is paired; refused when no working tree is open or the file exists.",
+                        + "written up and no document is paired. With no one working tree open it goes in the person's document library, "
+                        + DocumentLibrary.shownRoot() + "; refused when the file exists.",
                 obj("type", "object", "properties", obj(
                         "path", strProp("The new file's path in the working tree, ending in .adoc: decisions/site-inspection.adoc."),
                         "title", strProp("The document's title."),
@@ -552,9 +553,14 @@ public final class DocumentGraphTools {
                         throw new IllegalArgumentException("path, title and summary are all needed");
                     }
                     StampedDocumentCard c = card.get();
-                    Path root = (c != null && c.repoRoot() != null ? Optional.of(c.repoRoot()) : DocumentNarratives.onlyWorkingTree())
-                            .orElseThrow(() -> new IllegalArgumentException("no one working tree is open: ask the person to use Open file… "
-                                    + "or Clone… in a Stamped Document card, so you have the one to make the document in"));
+                    Path root;
+                    try {
+                        // With no one working tree in play, a new document goes where documents live.
+                        Optional<Path> open = c != null && c.repoRoot() != null ? Optional.of(c.repoRoot()) : DocumentNarratives.onlyWorkingTree();
+                        root = open.isPresent() ? open.get() : DocumentLibrary.ensure();
+                    } catch (IOException e) {
+                        throw new IllegalArgumentException("could not make " + DocumentLibrary.shownRoot() + ": " + e.getMessage());
+                    }
                     Path file = root.resolve(path.strip()).normalize();
                     if (!file.startsWith(root) || !file.toString().endsWith(".adoc")) {
                         throw new IllegalArgumentException("path must be an .adoc file inside the working tree " + root);

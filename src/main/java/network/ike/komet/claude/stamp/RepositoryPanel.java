@@ -24,8 +24,8 @@ import javafx.scene.control.Label;
 import javafx.scene.control.TitledPane;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.ColumnConstraints;
+import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.GridPane;
-import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Font;
@@ -45,7 +45,7 @@ import java.util.concurrent.CompletableFuture;
  * remote's name and URL (a link that opens the browser), the branch, HEAD with its short SHA and
  * subject, the commits ahead of and behind the upstream, and the open file's status: clean,
  * modified in the working tree, or carrying an edit pending in Komet — with the operations
- * beside it: Clone…, Fetch, Pull (fast-forward only), Push…, Commit… and History. The host
+ * beside it: New…, Clone…, Add remote…, Fetch, Pull (fast-forward only), Branch…, Push…, Commit… and History. The host
  * performs the operations through the person's own git ({@link GitOperations}); the panel only
  * reads and shows.
  */
@@ -65,11 +65,17 @@ final class RepositoryPanel extends TitledPane {
         /** Whether the shown document carries an edit pending in Komet. */
         boolean pendingEdit();
 
+        void newRepository();
+
         void cloneRepository();
+
+        void addRemote();
 
         void fetch();
 
         void pull();
+
+        void branch();
 
         void push();
 
@@ -85,9 +91,11 @@ final class RepositoryPanel extends TitledPane {
     private final Label head = value("stampedDocumentRepoHead");
     private final Label aheadBehind = value("stampedDocumentRepoAheadBehind");
     private final Label fileStatus = value("stampedDocumentRepoFileStatus");
+    private final Button addRemote = new Button("Add remote…");
     private final Button push = new Button("Push…");
     private final Button pull = new Button("Pull");
     private final Button fetch = new Button("Fetch");
+    private final Button switchBranch = new Button("Branch…");
     private final Button commit = new Button("Commit…");
     private GitOperations.RepositoryState state;
     /** The title's words while the panel is closed. */
@@ -100,7 +108,12 @@ final class RepositoryPanel extends TitledPane {
         setExpanded(false);
         setAnimated(false);
         setTextOverrun(javafx.scene.control.OverrunStyle.CENTER_ELLIPSIS);   // the folder and the file's name both stay
-        expandedProperty().addListener((obs, was, is) -> showTitle());
+        expandedProperty().addListener((obs, was, is) -> {
+            showTitle();
+            if (is) {
+                refresh();                                     // a file may have changed outside Komet since the last read
+            }
+        });
         GridPane grid = new GridPane();
         grid.setHgap(10);
         grid.setVgap(3);
@@ -118,10 +131,17 @@ final class RepositoryPanel extends TitledPane {
         grid.addRow(r++, key("HEAD"), head);
         grid.addRow(r++, key("Upstream"), aheadBehind);
         grid.addRow(r++, key("File"), fileStatus);
+        Button create = new Button("New…");
+        create.setId("stampedDocumentRepoNew");
+        create.setTooltip(new Tooltip("Make a new repository in a folder you choose, through your own git"));
+        create.setOnAction(e -> host.newRepository());
         Button clone = new Button("Clone…");
         clone.setId("stampedDocumentRepoClone");
         clone.setTooltip(new Tooltip("Clone a repository into a new or empty folder, through your own git"));
         clone.setOnAction(e -> host.cloneRepository());
+        addRemote.setId("stampedDocumentRepoAddRemote");
+        addRemote.setTooltip(new Tooltip("Name a repository this one can push to; it must already exist there"));
+        addRemote.setOnAction(e -> host.addRemote());
         fetch.setId("stampedDocumentRepoFetch");
         fetch.setTooltip(new Tooltip("git fetch, through your own git and its credentials"));
         fetch.setOnAction(e -> host.fetch());
@@ -129,16 +149,19 @@ final class RepositoryPanel extends TitledPane {
         pull.setTooltip(new Tooltip("git pull --ff-only: refused and reported when it would merge"));
         pull.setOnAction(e -> host.pull());
         push.setId("stampedDocumentRepoPush");
-        push.setTooltip(new Tooltip("git push, after showing what is ahead and asking"));
+        push.setTooltip(new Tooltip("git push, after showing what is ahead and asking; a first push sets the upstream"));
         push.setOnAction(e -> host.push());
         commit.setId("stampedDocumentRepoCommit");
-        commit.setTooltip(new Tooltip("Commit the edit pending in Komet as your own commit"));
+        commit.setTooltip(new Tooltip("Commit the document's file as your own commit: an edit pending in Komet, or changes made to the file outside it"));
         commit.setOnAction(e -> host.commit());
+        switchBranch.setId("stampedDocumentRepoSwitchBranch");
+        switchBranch.setTooltip(new Tooltip("Switch to another branch, or start a new one; the document follows the branch"));
+        switchBranch.setOnAction(e -> host.branch());
         Button history = new Button("History");
         history.setId("stampedDocumentRepoHistory");
         history.setTooltip(new Tooltip("The commits of the open file and of the repository"));
         history.setOnAction(e -> host.history());
-        HBox buttons = new HBox(6, clone, fetch, pull, push, commit, history);
+        FlowPane buttons = new FlowPane(6, 4, create, clone, addRemote, fetch, pull, switchBranch, push, commit, history);
         buttons.setAlignment(Pos.CENTER_LEFT);
         buttons.setPadding(new Insets(4, 0, 0, 0));
         grid.add(buttons, 0, r, 2, 1);
@@ -173,13 +196,13 @@ final class RepositoryPanel extends TitledPane {
 
     private void showNone() {
         state = null;
-        root.setText("No working tree holds the document's file. Open file… names one, or Clone… makes one.");
+        root.setText("No working tree holds the document's file. Open file… names one, New… makes one, or Clone… brings one.");
         remotes.getChildren().setAll(new Label("—"));
         branch.setText("—");
         head.setText("—");
         aheadBehind.setText("—");
         fileStatus.setText("—");
-        for (Button b : new Button[] {fetch, pull, push, commit}) {
+        for (Button b : new Button[] {addRemote, fetch, pull, switchBranch, push, commit}) {
             b.setDisable(true);
         }
         summary = "not specified" + host.documentPath().map(path -> " \u00b7 " + path).orElse("")
@@ -256,10 +279,13 @@ final class RepositoryPanel extends TitledPane {
             case "untracked" -> "untracked";
             default -> pending ? "an edit is pending in Komet" : "";
         });
+        addRemote.setDisable(false);
+        switchBranch.setDisable(false);
         fetch.setDisable(read.remotes().isEmpty());
         pull.setDisable(read.upstream().isEmpty());
-        push.setDisable(read.upstream().isEmpty() && read.remotes().isEmpty());
-        commit.setDisable(!pending);
+        push.setDisable(read.headSha().isEmpty() || (read.upstream().isEmpty() && read.remotes().isEmpty()));
+        // Not the status read here: a file changed since then is still worth a click, and the click reads it again.
+        commit.setDisable(!pending && host.currentFile().isEmpty());
         summary = read.summary(host.currentFile().orElse(null), pending);
         showTitle();
     }

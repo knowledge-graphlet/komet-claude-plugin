@@ -323,6 +323,10 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     private Path repoRoot;
     /** A report for the status line once the chooser's next open has drawn the document. */
     private String reportAfterOpen;
+    /** What giving a file its repository did, for the report of the materialization that follows. */
+    private String repositoryReport;
+    /** A file asked for before the card was built. */
+    private Path openWhenBuilt;
     private boolean built;
 
     private StampedDocumentCard(KometPreferences preferences) {
@@ -367,6 +371,45 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     @Override
     public Optional<String> documentPath() {
         return Optional.ofNullable(shownPath);
+    }
+
+    /**
+     * @param file a file, by its full path
+     * @return the live card showing the file, or {@code null}
+     */
+    public static StampedDocumentCard showingFile(Path file) {
+        Path wanted = file.toAbsolutePath().normalize();
+        for (WeakReference<StampedDocumentCard> ref : OPEN) {
+            StampedDocumentCard card = ref.get();
+            if (card != null && card.fileOnDisk().filter(wanted::equals).isPresent()) {
+                return card;
+            }
+        }
+        return null;
+    }
+
+    /** @return the shown document's file in the working tree, when one holds it */
+    private Optional<Path> fileOnDisk() {
+        return currentFile().map(relative -> repoRoot.resolve(relative).toAbsolutePath().normalize()).filter(Files::isRegularFile);
+    }
+
+    /** Selects the shown document's file in the journal's Documents tray, or in the Finder for a card outside a journal. */
+    private void showInNavigator() {
+        Optional<Path> file = fileOnDisk();
+        if (file.isEmpty()) {
+            statusLine.setText("No working tree holds the shown document's file; Open file… names one.");
+        } else if (!DocumentNavigatorTray.reveal(fxObject(), file.get())) {
+            DocumentNavigatorTray.showInFinder(file.get());
+        }
+    }
+
+    private void showInFinder() {
+        Optional<Path> file = fileOnDisk();
+        if (file.isEmpty()) {
+            statusLine.setText("No working tree holds the shown document's file; Open file… names one.");
+        } else {
+            DocumentNavigatorTray.showInFinder(file.get());
+        }
     }
 
     /** @return whether this card shows exactly that file of that repository */
@@ -565,7 +608,10 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         Icons.iconOnly(overflow, "mdi2d-dots-horizontal", "Verbs that act on the whole document");
         overflow.getStyleClass().add("stamped-toolbar-control");
         overflow.getItems().addAll(
-                item("Open file…", "stampedDocumentOpenFile", "Choose a committed .adoc file in a git repository; it is materialized if the store lacks it", this::chooseFile),
+                item("Show in Navigator", "stampedDocumentShowInNavigator", "Select the document's file in the journal's Documents tray", this::showInNavigator),
+                item("Show in Finder", "stampedDocumentShowInFinder", "Show the document's file in the Finder", this::showInFinder),
+                new SeparatorMenuItem(),
+                item("Open file…", "stampedDocumentOpenFile", "Choose an .adoc file; it is materialized if the store lacks it, and one with no commit yet is offered a repository and a first commit", this::chooseFile),
                 item("Refresh", "stampedDocumentRefresh", "Re-read the documents the store holds, and the one shown", this::refresh),
                 item("Export…", "stampedDocumentExport", "Write the document from the store back into a repository's working tree at its recorded path, and compare it with HEAD", this::chooseExportTarget),
                 item("Print to PDF…", "stampedDocumentPrintPdf", "Write the document, with the documents it includes, as Typst from the store's blocks and compile it with your installed typst", () -> printToPdf()),
@@ -584,7 +630,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         commit.setId("stampedDocumentCommit");
         commit.setTooltip(new Tooltip("Write the document with your edit into its working tree and record it there as your own git commit"));
         commit.getStyleClass().add("claude-card-toolbar-button");
-        commit.setOnAction(e -> commitPending());
+        commit.setOnAction(e -> commit());
         discard.setId("stampedDocumentDiscard");
         discard.setTooltip(new Tooltip("Cancel the edit made in Komet, so the document reads as committed again"));
         discard.getStyleClass().add("claude-card-toolbar-button");
@@ -747,6 +793,12 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
             DocumentNarratives.workingTreeOpened(repoRoot);
         }
         repositoryPanel.refresh();
+        if (openWhenBuilt != null) {
+            Path file = openWhenBuilt;
+            openWhenBuilt = null;
+            Platform.runLater(() -> open(file));                   // it may ask, and a dialog cannot wait in a layout pass
+            return;
+        }
         refresh();
     }
 
@@ -873,6 +925,20 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     public void openReading(PublicId anchor) {
         views.select(DocumentSurfaceView.View.READING);
         open(anchor);
+    }
+
+    /**
+     * Opens a file in the Reading view, as a card opened from the Documents tray does.
+     *
+     * @param file the file
+     */
+    public void openReading(Path file) {
+        views.select(DocumentSurfaceView.View.READING);
+        if (surface == null) {
+            openWhenBuilt = file;                                  // not realized yet: its first refresh opens it
+            return;
+        }
+        open(file);
     }
 
     /**
@@ -1583,7 +1649,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
 
     private void chooseFile() {
         FileChooser chooser = new FileChooser();
-        chooser.setTitle("Open a committed AsciiDoc file");
+        chooser.setTitle("Open an AsciiDoc file");
         chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("AsciiDoc", "*.adoc", "*.asciidoc"));
         if (repoRoot != null && Files.isDirectory(repoRoot)) {
             chooser.setInitialDirectory(repoRoot.toFile());
@@ -1595,21 +1661,32 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     }
 
     /**
-     * Opens a committed AsciiDoc file: resolves its repository, materializes the commits the
-     * store lacks (asking whether to take the included files too when the file is an
-     * assembly), remembers the working tree and shows the store's document. Public so the
-     * assistant's tools and UI automation can open a file without the chooser; must be called
-     * on the JavaFX application thread.
+     * Opens an AsciiDoc file: resolves its repository, materializes the commits the store lacks
+     * (asking whether to take the included files too when the file is an assembly), remembers
+     * the working tree and shows the store's document. A document is stored from its history, so
+     * a file with no commit is first offered one: a location for a repository when it is in
+     * none, a first commit when it is in one uncommitted. Public so the assistant's tools and UI
+     * automation can open a file without the chooser; must be called on the JavaFX application
+     * thread.
      *
-     * @param file the file to open, inside a git working tree
+     * @param file the file to open
      */
     public void open(Path file) {
         Optional<Path> root = GitRepo.findRoot(file);
         if (root.isEmpty()) {
-            statusLine.setText(file + " is not inside a git working tree.");
+            offerRepository(file);
             return;
         }
         Path relative = root.get().relativize(file.toAbsolutePath().normalize());
+        try {
+            if (!GitOperations.committed(root.get(), relative)) {
+                offerFirstCommit(root.get(), relative);
+                return;
+            }
+        } catch (IOException e) {
+            statusLine.setText("git could not be run: " + e.getMessage());
+            return;
+        }
         int includes = 0;
         try (GitRepo repo = GitRepo.open(root.get())) {
             includes = GitDocumentMaterializer.includeCount(repo.headLines(relative));
@@ -1640,6 +1717,157 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         syncPreferences();
         repositoryPanel.refresh();
         materialize(repoRoot, relative, assembly);
+    }
+
+    /** Asks where a file in no repository should live, with its own folder offered, and places it there. */
+    private void offerRepository(Path file) {
+        Path source = file.toAbsolutePath().normalize();
+        askFolder("Give the Document a Repository", "stampedDocumentRepositoryDialog",
+                source.getFileName() + " is not in a git repository.",
+                "A document is stored from its git history, so this file needs a repository and a first commit. "
+                        + "Only this file is committed, locally, and nothing is pushed. A folder already in a repository "
+                        + "takes the file there; a folder that does not hold the file gets a copy, and the original stays. "
+                        + DocumentLibrary.shownRoot() + " is where documents live.",
+                DocumentLibrary.root(), location -> DocumentRepository.refusal(source, location))
+                .ifPresent(location -> openInRepository(source, location));
+    }
+
+    /**
+     * Places a file in a repository at a location and opens it there, making the repository when
+     * the location has none; public so UI automation can do it without the dialog.
+     *
+     * @param file     the file
+     * @param location the folder for it
+     */
+    public void openInRepository(Path file, Path location) {
+        statusLine.setText("Giving " + file.getFileName() + " a repository …");
+        openPlaced(String.valueOf(file.getFileName()), location, "", () -> DocumentRepository.place(file, location));
+    }
+
+    /** Places a file off the FX thread and opens it there, with what to do next after the report. */
+    private void openPlaced(String name, Path location, String next, IoCall<DocumentRepository.Placed> placing) {
+        CompletableFuture.supplyAsync(() -> uncheck(placing)).whenComplete((placed, failure) -> Platform.runLater(() -> {
+            if (failure != null) {
+                Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
+                statusLine.setText("Could not give " + name + " a repository: " + cause.getMessage());
+                LOG.warn("Placing {} at {} failed", name, location, cause);
+                return;
+            }
+            if (!placed.ok()) {
+                if (placed.root() != null) {
+                    useWorkingTree(placed.root());                // the repository stands; the panel shows it
+                }
+                statusLine.setText(placed.report().replace('\n', ' '));
+                return;
+            }
+            repositoryReport = placed.report() + next;
+            open(placed.file());
+        }));
+    }
+
+    /** Asks before giving a file in a repository its first commit, then opens it. */
+    private void offerFirstCommit(Path root, Path relative) {
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+        confirm.setTitle("First Commit");
+        confirm.getDialogPane().setId("stampedDocumentFirstCommitDialog");
+        confirm.setHeaderText(relative + " is not committed in " + root.getFileName() + ".");
+        confirm.setContentText("A document is stored from its git history, so it needs a first commit. "
+                + "Only this file is committed, locally and unsigned, and nothing is pushed.");
+        ButtonType commit = new ButtonType("Commit");
+        confirm.getButtonTypes().setAll(commit, ButtonType.CANCEL);
+        confirm.initOwner(window());
+        if (confirm.showAndWait().filter(b -> b == commit).isEmpty()) {
+            return;
+        }
+        String path = relative.toString().replace('\\', '/');
+        statusLine.setText("git commit " + path + " …");
+        CompletableFuture.supplyAsync(() -> uncheck(() -> DocumentCommit.first(root, path, "Add " + relative.getFileName() + "\n")))
+                .whenComplete((committed, failure) -> Platform.runLater(() -> {
+                    if (failure != null) {
+                        Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
+                        statusLine.setText("git commit could not run: " + cause.getMessage());
+                        return;
+                    }
+                    if (!committed.ok()) {
+                        statusLine.setText("Not committed: " + committed.output().replace('\n', ' '));
+                        return;
+                    }
+                    repositoryReport = "First commit " + committed.sha().substring(0, 7) + ", nothing pushed.";
+                    open(root.resolve(relative));
+                }));
+    }
+
+    /**
+     * Asks for a folder, saying as the person types why one will not do.
+     *
+     * @param title       the dialog's title
+     * @param id          the dialog pane's id
+     * @param header      what the dialog is about
+     * @param explanation what choosing a folder will do
+     * @param initial     the folder offered, or {@code null} for none
+     * @param refusal     why a folder will not do, or empty when it will
+     * @return the folder chosen, or empty when the person cancelled
+     */
+    private Optional<Path> askFolder(String title, String id, String header, String explanation, Path initial,
+                                     java.util.function.Function<Path, Optional<String>> refusal) {
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.setTitle(title);
+        dialog.getDialogPane().setId(id);
+        dialog.setHeaderText(header);
+        javafx.scene.control.TextField folder = new javafx.scene.control.TextField(initial == null ? "" : initial.toString());
+        folder.setId("stampedDocumentRepositoryFolder");
+        folder.setPromptText("The folder, as a full path");
+        Button browse = new Button("Browse…");
+        browse.setOnAction(e -> {
+            DirectoryChooser chooser = new DirectoryChooser();
+            chooser.setTitle(title);
+            if (initial != null && Files.isDirectory(initial)) {
+                chooser.setInitialDirectory(initial.toFile());
+            }
+            File chosen = chooser.showDialog(window());
+            if (chosen != null) {
+                folder.setText(chosen.toString());
+            }
+        });
+        HBox folderRow = new HBox(6, folder, browse);
+        HBox.setHgrow(folder, javafx.scene.layout.Priority.ALWAYS);
+        Label about = new Label(explanation);
+        about.setWrapText(true);
+        Label refused = new Label();
+        refused.setId("stampedDocumentRepositoryRefusal");
+        refused.setWrapText(true);
+        refused.setStyle("-fx-text-fill: #b3261e;");
+        VBox content = new VBox(8, about, new Label("Folder"), folderRow, refused);
+        content.setPrefWidth(560);
+        dialog.getDialogPane().setContent(content);
+        ButtonType use = new ButtonType("Use This Folder");
+        dialog.getDialogPane().getButtonTypes().setAll(use, ButtonType.CANCEL);
+        Runnable check = () -> {
+            Optional<Path> chosen = folderOf(folder.getText());
+            Optional<String> reason = chosen.isEmpty()
+                    ? Optional.of(folder.getText().isBlank() ? "" : "Give the folder as a full path.")
+                    : refusal.apply(chosen.get());
+            refused.setText(reason.orElse(""));
+            dialog.getDialogPane().lookupButton(use).setDisable(reason.isPresent());
+        };
+        folder.textProperty().addListener((obs, was, is) -> check.run());
+        check.run();
+        dialog.initOwner(window());
+        return dialog.showAndWait().filter(b -> b == use).flatMap(b -> folderOf(folder.getText()));
+    }
+
+    /** The folder typed, with a leading {@code ~} read as the home folder; only a full path is one. */
+    private static Optional<Path> folderOf(String text) {
+        String typed = text.strip();
+        if (typed.equals("~") || typed.startsWith("~/")) {
+            typed = System.getProperty("user.home") + typed.substring(1);
+        }
+        try {
+            Path path = Path.of(typed);
+            return typed.isEmpty() || !path.isAbsolute() ? Optional.empty() : Optional.of(path);
+        } catch (java.nio.file.InvalidPathException e) {
+            return Optional.empty();
+        }
     }
 
     /** Materializes the shown document's file, or asks for a file when no working tree holds it. */
@@ -1697,7 +1925,8 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
             }
             preferences().put(PREF_DOCUMENT, materialized.name());
             syncPreferences();
-            String report = materialized.report();
+            String report = (repositoryReport == null ? "" : repositoryReport + " ") + materialized.report();
+            repositoryReport = null;
             CompletableFuture.supplyAsync(GitDocumentMaterializer::storedDocuments).whenComplete((found, listFailure) -> Platform.runLater(() -> {
                 if (listFailure != null) {
                     statusLine.setText(report);
@@ -2245,15 +2474,226 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         showHistory();
     }
 
+    /**
+     * Commits what the shown document's files hold that HEAD does not: changes made outside Komet
+     * first, one file at a time, then the edit pending in Komet. Reads the files again, since
+     * nothing tells the card when one changes.
+     */
     @Override
     public void commit() {
-        commitPending();
+        Path root = repoRoot;
+        if (root == null || shown == null) {
+            commitPending();                                       // says what is missing, or asks for the working tree
+            return;
+        }
+        List<Loaded> read = members.values().stream().filter(l -> l.path() != null).toList();
+        CompletableFuture.supplyAsync(() -> uncheck(() -> outsideChanges(root, read))).whenComplete((changes, failure) -> Platform.runLater(() -> {
+            if (failure != null) {
+                Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
+                statusLine.setText("Could not read the working tree: " + cause.getMessage());
+                return;
+            }
+            repositoryPanel.refresh();
+            if (!changes.isEmpty()) {
+                commitWorkingFile(root, changes);
+            } else if (pendingEdit) {
+                commitPending();
+            } else {
+                statusLine.setText("Nothing to commit: the document's files match HEAD.");
+            }
+        }));
+    }
+
+    /**
+     * A file changed outside Komet, with a first draft of its message.
+     *
+     * @param path  the file, relative to the working tree
+     * @param draft the draft
+     */
+    private record WorkingChange(String path, String draft) { }
+
+    /** The members' files that differ from HEAD by more than the edit Komet wrote into them; off the FX thread. */
+    private static List<WorkingChange> outsideChanges(Path root, List<Loaded> read) throws IOException {
+        List<String> changed = GitOperations.changedFiles(root, read.stream().map(Loaded::path).toList());
+        List<WorkingChange> changes = new ArrayList<>();
+        for (Loaded loaded : read) {
+            if (!changed.contains(loaded.path())) {
+                continue;
+            }
+            List<String> working = Files.readAllLines(root.resolve(loaded.path()));
+            // A commit that failed leaves the edit in the file: that is the edit, and Commit… retries it.
+            boolean holdsTheEdit = loaded.pending() && GitDocumentExporter.export(loaded.document().anchor(), true)
+                    .filter(pending -> pending.lines().equals(working)).isPresent();
+            if (!holdsTheEdit) {
+                changes.add(new WorkingChange(loaded.path(), DocumentCommit.draftWorkingFileMessage(loaded.path(), headLines(root, loaded.path()), working)));
+            }
+        }
+        return changes;
+    }
+
+    /** A file's lines at HEAD, empty when HEAD does not hold it. */
+    private static List<String> headLines(Path root, String path) throws IOException {
+        if (!GitOperations.committed(root, Path.of(path))) {
+            return List.of();
+        }
+        try (GitRepo repo = GitRepo.open(root)) {
+            return repo.headLines(Path.of(path));
+        }
+    }
+
+    /** Asks for the message and the signing, commits one changed file as it stands, and reads the commit into the store. */
+    private void commitWorkingFile(Path root, List<WorkingChange> changes) {
+        TextArea message = new TextArea(changes.getFirst().draft());
+        message.setId("stampedDocumentCommitMessage");
+        message.setWrapText(true);
+        message.setPrefRowCount(6);
+        ComboBox<String> files = new ComboBox<>();
+        files.setId("stampedDocumentCommitFile");
+        files.getItems().setAll(changes.stream().map(WorkingChange::path).toList());
+        files.setValue(changes.getFirst().path());
+        files.setMaxWidth(Double.MAX_VALUE);
+        files.valueProperty().addListener((obs, was, is) -> changes.stream().filter(c -> c.path().equals(is)).findFirst()
+                .ifPresent(c -> message.setText(c.draft())));
+        List<Node> above = changes.size() == 1 ? List.of() : List.of(new Label(changes.size() + " files changed; a commit holds one"), files);
+        Optional<CommitChoice> choice = askCommit("Commit Changes Made Outside Komet", "stampedDocumentCommitFileDialog",
+                changes.size() == 1 ? "Commit " + changes.getFirst().path() + " as it stands in " + root + "?" : "Commit a changed file in " + root + "?",
+                above, message, "The file changed outside Komet. The commit holds this one file as it stands and is yours, made through your own git. "
+                        + "Signing (-S) gives it non-repudiation."
+                        + (pendingEdit ? " Your edit pending in Komet stays pending unless this commit touches what it edits; then it is settled against the commit, and what the commit did not carry is reported." : ""));
+        if (choice.isEmpty()) {
+            return;
+        }
+        String path = files.getValue();
+        PublicId hostAnchor = shown.anchor();
+        statusLine.setText("Committing " + path + " …");
+        CompletableFuture.supplyAsync(() -> uncheck(() -> {
+            DocumentCommit.Result result = DocumentCommit.workingFile(root, path, choice.get().message(), choice.get().sign());
+            if (!result.ok()) {
+                return "Not committed: " + result.output().replace('\n', ' ');
+            }
+            GitDocumentMaterializer.Result stored = GitDocumentMaterializer.materialize(root, root.resolve(path), true);
+            return "Committed " + result.sha().substring(0, 7) + " (" + (choice.get().sign() ? "signed" : "unsigned") + ")"
+                    + (DocumentEditor.pending(stored.anchor()).isPresent() ? "; " + describe(DocumentEditor.settle(stored.anchor())) : ".");
+        })).whenComplete((report, failure) -> Platform.runLater(() -> {
+            if (failure != null) {
+                Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
+                statusLine.setText("Commit failed: " + cause.getMessage());
+                LOG.warn("Committing {} failed", path, cause);
+                return;
+            }
+            open(hostAnchor, report, null);
+        }));
+    }
+
+    /** Asks which branch to switch to, or what to call a new one. */
+    @Override
+    public void branch() {
+        Path root = repoRoot;
+        if (root == null) {
+            statusLine.setText("No working tree; Open file… names one, New… makes one, or Clone… brings one.");
+            return;
+        }
+        CompletableFuture.supplyAsync(() -> uncheck(() -> GitOperations.branches(root))).whenComplete((branches, failure) -> Platform.runLater(() -> {
+            if (failure != null) {
+                Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
+                statusLine.setText("Could not list the branches: " + cause.getMessage());
+                return;
+            }
+            askBranch(root, branches);
+        }));
+    }
+
+    private void askBranch(Path root, GitOperations.Branches branches) {
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.setTitle("Branches");
+        dialog.getDialogPane().setId("stampedDocumentBranchDialog");
+        dialog.setHeaderText(root.getFileName() + " is on " + (branches.current().isEmpty() ? "no branch" : branches.current()) + ".");
+        ComboBox<String> existing = new ComboBox<>();
+        existing.setId("stampedDocumentBranchChoice");
+        existing.getItems().addAll(branches.local());
+        existing.getItems().addAll(branches.remote());
+        existing.setMaxWidth(Double.MAX_VALUE);
+        existing.setValue(branches.current().isEmpty() ? null : branches.current());
+        javafx.scene.control.TextField created = new javafx.scene.control.TextField();
+        created.setId("stampedDocumentBranchNew");
+        created.setPromptText("The new branch's name");
+        List<String> notes = new ArrayList<>();
+        notes.add("Switching changes the files in the working tree, and the document follows. Uncommitted changes that would be overwritten refuse the switch.");
+        if (pendingEdit) {
+            notes.add("An edit is pending in Komet, so only a new branch is open: it starts here and changes no file. Commit… or Discard edit before switching.");
+        }
+        GitOperations.syncedFolder(root).ifPresent(synced -> notes.add("This repository is in the synced folder " + synced
+                + ": the files a switch changes reach your other machines, whose git stays on its own branch. A working set's members switch together with ws:switch-publish."));
+        Label about = new Label(String.join("\n\n", notes));
+        about.setWrapText(true);
+        VBox content = new VBox(8, about, new Label("Switch to"), existing, new Label("Or start a new branch from HEAD"), created);
+        content.setPrefWidth(560);
+        dialog.getDialogPane().setContent(content);
+        ButtonType switchTo = new ButtonType("Switch");
+        ButtonType create = new ButtonType("Create and Switch");
+        dialog.getDialogPane().getButtonTypes().setAll(switchTo, create, ButtonType.CANCEL);
+        dialog.getDialogPane().lookupButton(switchTo).disableProperty().bind(javafx.beans.binding.Bindings.createBooleanBinding(
+                () -> pendingEdit || existing.getValue() == null || existing.getValue().equals(branches.current()), existing.valueProperty()));
+        dialog.getDialogPane().lookupButton(create).disableProperty().bind(created.textProperty().isEmpty());
+        dialog.initOwner(window());
+        Optional<ButtonType> choice = dialog.showAndWait();
+        if (choice.filter(b -> b == create).isPresent()) {
+            operate("switch -c", () -> uncheck(() -> GitOperations.createBranch(root, created.getText())), null);
+        } else if (choice.filter(b -> b == switchTo).isPresent()) {
+            String chosen = existing.getValue();
+            if (branches.remote().contains(chosen)) {
+                switchTo(root, chosen, () -> uncheck(() -> GitOperations.trackBranch(root, chosen)));
+            } else {
+                switchBranch(chosen);
+            }
+        }
+    }
+
+    /**
+     * Switches the working tree to a local branch, and brings the shown document to it; public so
+     * UI automation can do it without the dialog.
+     *
+     * @param branch the local branch
+     */
+    public void switchBranch(String branch) {
+        Path root = repoRoot;
+        switchTo(root, branch, () -> uncheck(() -> GitOperations.switchBranch(root, branch)));
+    }
+
+    /** Refuses while an edit is pending, since a switch would change the file under it; else switches, and the document follows. */
+    private void switchTo(Path root, String branch, java.util.function.Supplier<GitOperations.Run> operation) {
+        if (pendingEdit) {
+            statusLine.setText("An edit is pending: Commit… or Discard edit before switching branches.");
+            return;
+        }
+        operate("switch " + branch, operation, run -> {
+            if (run.ok() && shown != null) {
+                followBranch(root, run.report("switch").replace('\n', ' '));
+            }
+        });
+    }
+
+    /** Brings the shown document and the documents it includes to HEAD, and reads them again. */
+    private void followBranch(Path root, String report) {
+        PublicId hostAnchor = shown.anchor();
+        List<DocumentBranch.Member> followed = members.values().stream().filter(l -> l.path() != null)
+                .map(l -> new DocumentBranch.Member(l.document().anchor(), l.path())).toList();
+        statusLine.setText(report + " Reading the branch into the knowledge base …");
+        CompletableFuture.supplyAsync(() -> uncheck(() -> DocumentBranch.follow(root, followed))).whenComplete((result, failure) -> Platform.runLater(() -> {
+            if (failure != null) {
+                Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
+                statusLine.setText(report + " The document did not follow: " + cause.getMessage());
+                LOG.warn("Following the branch in {} failed", root, cause);
+                return;
+            }
+            open(hostAnchor, (report + " " + result.report()).strip(), null);
+        }));
     }
 
     /** Runs one git operation off the FX thread, reports what git said, and re-reads the panel. */
     private void operate(String verb, java.util.function.Supplier<GitOperations.Run> operation, java.util.function.Consumer<GitOperations.Run> then) {
         if (repoRoot == null) {
-            statusLine.setText("No working tree; Open file… names one, or Clone… makes one.");
+            statusLine.setText("No working tree; Open file… names one, New… makes one, or Clone… brings one.");
             return;
         }
         statusLine.setText("git " + verb + " …");
@@ -2299,11 +2739,18 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
             statusLine.setText("Nothing known about the repository yet.");
             return;
         }
+        boolean first = state.get().upstream().isEmpty();
+        Optional<GitOperations.Remote> target = state.get().pushTarget();
+        if (first && target.isEmpty()) {
+            statusLine.setText("Nowhere to push: Add remote… names a repository for this branch.");
+            return;
+        }
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
         confirm.setTitle("Push");
         confirm.getDialogPane().setId("stampedDocumentPushDialog");
-        confirm.setHeaderText(state.get().upstream().isEmpty()
-                ? "Push " + state.get().branch() + " of " + state.get().root().getFileName() + "? It has no upstream yet; git decides where it goes."
+        confirm.setHeaderText(first
+                ? "Push " + state.get().branch() + " of " + state.get().root().getFileName() + " to " + target.get().name()
+                        + " (" + target.get().url() + ")? That branch becomes its upstream."
                 : "Push " + state.get().ahead() + " commit(s) of " + state.get().branch() + " to " + state.get().upstream().get() + "?");
         confirm.setContentText("Through your own git, with its credentials. What git says is reported on the status line.");
         ButtonType push = new ButtonType("Push");
@@ -2313,7 +2760,87 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
             return;
         }
         Path root = repoRoot;
-        operate("push", () -> uncheck(() -> GitOperations.push(root)), null);
+        String branch = state.get().branch();
+        operate("push", () -> uncheck(() -> first ? GitOperations.pushSettingUpstream(root, target.get().name(), branch) : GitOperations.push(root)), null);
+    }
+
+    /** Asks for a folder and makes a new repository there, as the working tree. */
+    @Override
+    public void newRepository() {
+        if (pendingEdit) {
+            statusLine.setText("An edit is pending: Commit… or Discard edit before changing the working tree.");
+            return;
+        }
+        askFolder("Create a Repository", "stampedDocumentNewRepositoryDialog",
+                "Create a repository, through your own git.",
+                "It stays on this machine until you add a remote and push. Nothing is committed yet.",
+                Files.exists(DocumentLibrary.root().resolve(".git")) ? null : DocumentLibrary.root(), GitOperations::initRefusal)
+                .ifPresent(this::createRepository);
+    }
+
+    /**
+     * Makes a new repository and makes it the working tree; public so UI automation can do it
+     * without the dialog.
+     *
+     * @param folder the folder to make it in
+     */
+    public void createRepository(Path folder) {
+        statusLine.setText("git init " + folder + " …");
+        CompletableFuture.supplyAsync(() -> uncheck(() -> GitOperations.init(folder))).whenComplete((run, failure) -> Platform.runLater(() -> {
+            if (failure != null) {
+                Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
+                statusLine.setText("git init could not run: " + cause.getMessage());
+                return;
+            }
+            if (!run.ok()) {
+                statusLine.setText("git init refused: " + run.report("init").replace('\n', ' '));
+                return;
+            }
+            useWorkingTree(folder);
+            statusLine.setText("Made a repository at " + repoRoot + ". Open file… chooses a document for it; the assistant can create one in it.");
+        }));
+    }
+
+    /** Asks for a remote's name and URL and adds it to the working tree. */
+    @Override
+    public void addRemote() {
+        Optional<GitOperations.RepositoryState> state = repositoryPanel.state();
+        if (state.isEmpty()) {
+            statusLine.setText("Nothing known about the repository yet.");
+            return;
+        }
+        Dialog<ButtonType> dialog = new Dialog<>();
+        dialog.setTitle("Add a Remote");
+        dialog.getDialogPane().setId("stampedDocumentAddRemoteDialog");
+        dialog.setHeaderText("Add a remote to " + state.get().root().getFileName() + ".");
+        javafx.scene.control.TextField name = new javafx.scene.control.TextField(state.get().remotes().isEmpty() ? "origin" : "");
+        name.setId("stampedDocumentRemoteName");
+        javafx.scene.control.TextField url = new javafx.scene.control.TextField();
+        url.setId("stampedDocumentRemoteUrl");
+        url.setPromptText("https://github.com/owner/repository.git or git@github.com:owner/repository.git");
+        Label about = new Label("The repository must already exist there. Nothing is contacted until you push.");
+        about.setWrapText(true);
+        VBox content = new VBox(8, about, new Label("Name"), name, new Label("Repository URL"), url);
+        content.setPrefWidth(560);
+        dialog.getDialogPane().setContent(content);
+        ButtonType add = new ButtonType("Add");
+        dialog.getDialogPane().getButtonTypes().setAll(add, ButtonType.CANCEL);
+        dialog.getDialogPane().lookupButton(add).disableProperty().bind(name.textProperty().isEmpty().or(url.textProperty().isEmpty()));
+        dialog.initOwner(window());
+        if (dialog.showAndWait().filter(b -> b == add).isEmpty()) {
+            return;
+        }
+        Path root = repoRoot;
+        operate("remote add", () -> uncheck(() -> GitOperations.addRemote(root, name.getText(), url.getText())), null);
+    }
+
+    /** Makes a folder the working tree, remembers it, and has the panel read it. */
+    private void useWorkingTree(Path root) {
+        repoRoot = root.toAbsolutePath().normalize();
+        DocumentNarratives.workingTreeOpened(repoRoot);
+        preferences().put(PREF_WORKING_TREE, repoRoot.toString());
+        syncPreferences();
+        repositoryPanel.refresh();
     }
 
     @Override
@@ -2373,12 +2900,8 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
                 statusLine.setText("git clone refused: " + run.report("clone").replace('\n', ' '));
                 return;
             }
-            repoRoot = target.toAbsolutePath().normalize();
-            DocumentNarratives.workingTreeOpened(repoRoot);
-            preferences().put(PREF_WORKING_TREE, repoRoot.toString());
-            syncPreferences();
+            useWorkingTree(target);
             statusLine.setText("Cloned into " + repoRoot + "; Open file… chooses a document in it. " + run.output().replace('\n', ' '));
-            repositoryPanel.refresh();
         }));
     }
 
@@ -2638,31 +3161,26 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
             return;
         }
         Path root = chosenRoot.get();
-        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
-        confirm.setTitle("Commit Document Edit");
-        confirm.setHeaderText("Write " + pending.path() + " with your edit into " + root + " and commit it?");
+        boolean outside = uncheck(() -> !GitOperations.changedFiles(root, List.of(pending.path())).isEmpty()
+                && !Files.readAllLines(root.resolve(pending.path())).equals(pending.lines()));
+        if (outside) {
+            statusLine.setText(pending.path() + " has changes made outside Komet, which writing your edit would overwrite. Commit… records them first.");
+            return;
+        }
         TextArea message = new TextArea(DocumentCommit.draftMessage(pending.path(), committed.lines(), pending.lines()));
         message.setId("stampedDocumentCommitMessage");
         message.setWrapText(true);
         message.setPrefRowCount(6);
-        Label details = new Label("The message is a draft: rewrite it as you like. The commit holds this one file and is yours,"
-                + " made through your own git. Signing (-S) gives it non-repudiation. Komet then re-reads the commit"
-                + " and settles your edit, reporting anything the commit did not carry.");
-        details.setWrapText(true);
-        confirm.getDialogPane().setContent(new VBox(8, message, details));
-        ButtonType signed = new ButtonType("Signed Commit");
-        ButtonType unsigned = new ButtonType("Unsigned Commit");
-        confirm.getButtonTypes().setAll(signed, unsigned, ButtonType.CANCEL);
-        for (ButtonType type : List.of(signed, unsigned)) {
-            confirm.getDialogPane().lookupButton(type).disableProperty().bind(message.textProperty().isEmpty());
-        }
-        confirm.initOwner(window());
-        Optional<ButtonType> choice = confirm.showAndWait();
-        if (choice.isEmpty() || choice.get() == ButtonType.CANCEL) {
+        Optional<CommitChoice> choice = askCommit("Commit Document Edit", "stampedDocumentCommitDialog",
+                "Write " + pending.path() + " with your edit into " + root + " and commit it?", List.of(), message,
+                "The message is a draft: rewrite it as you like. The commit holds this one file and is yours,"
+                        + " made through your own git. Signing (-S) gives it non-repudiation. Komet then re-reads the commit"
+                        + " and settles your edit, reporting anything the commit did not carry.");
+        if (choice.isEmpty()) {
             return;
         }
-        boolean sign = choice.get() == signed;
-        String text = message.getText();
+        boolean sign = choice.get().sign();
+        String text = choice.get().message();
         statusLine.setText("Writing and committing " + pending.path() + " …");
         CompletableFuture.supplyAsync(() -> {
             try {
@@ -2687,6 +3205,50 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
             }
             open(hostAnchor, report, null);
         }));
+    }
+
+    /**
+     * What the person chose in a commit dialog.
+     *
+     * @param message the message
+     * @param sign    whether to sign
+     */
+    private record CommitChoice(String message, boolean sign) { }
+
+    /**
+     * Asks for a commit's message and whether to sign it.
+     *
+     * @param title   the dialog's title
+     * @param id      the dialog pane's id
+     * @param header  what is being committed
+     * @param above   anything to show above the message
+     * @param message the message field, holding its draft
+     * @param about   what the commit will do
+     * @return the choice, or empty when the person cancelled
+     */
+    private Optional<CommitChoice> askCommit(String title, String id, String header, List<Node> above, TextArea message, String about) {
+        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION);
+        confirm.setTitle(title);
+        confirm.getDialogPane().setId(id);
+        confirm.setHeaderText(header);
+        Label details = new Label(about);
+        details.setWrapText(true);
+        VBox content = new VBox(8);
+        content.getChildren().addAll(above);
+        content.getChildren().addAll(message, details);
+        confirm.getDialogPane().setContent(content);
+        ButtonType signed = new ButtonType("Signed Commit");
+        ButtonType unsigned = new ButtonType("Unsigned Commit");
+        confirm.getButtonTypes().setAll(signed, unsigned, ButtonType.CANCEL);
+        for (ButtonType type : List.of(signed, unsigned)) {
+            confirm.getDialogPane().lookupButton(type).disableProperty().bind(message.textProperty().isEmpty());
+        }
+        confirm.initOwner(window());
+        Optional<ButtonType> choice = confirm.showAndWait();
+        if (choice.isEmpty() || choice.get() == ButtonType.CANCEL) {
+            return Optional.empty();
+        }
+        return Optional.of(new CommitChoice(message.getText(), choice.get() == signed));
     }
 
     /** What settling an edit found, for a status line. */
