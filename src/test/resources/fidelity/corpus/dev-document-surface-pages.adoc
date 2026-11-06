@@ -1631,6 +1631,7 @@ before this topic settles.
 == Decisions
 
 indexterm:[document surface, decisions]
+
 .For KEC
 [cols="1,3", options="header"]
 |===

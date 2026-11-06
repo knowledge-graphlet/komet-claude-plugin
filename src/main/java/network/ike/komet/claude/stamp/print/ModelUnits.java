@@ -104,14 +104,14 @@ public final class ModelUnits {
             case Verbatim v -> {
                 Kind last = previous;
                 if (!v.title().isEmpty()) {
-                    last = add(out, notes, block, Kind.OTHER, v.title(), base * 0.95, true, 0, last, base);
+                    last = add(out, notes, block, Kind.OTHER, v.title(), base * TypstWriter.TITLE_SCALE, true, 0, last, base);
                 }
                 return add(out, notes, block, Kind.VERBATIM, v.text(), base * TypstWriter.RAW_SCALE, false, 0, last, base);
             }
             case ListBlock l -> {
                 Kind last = previous;
                 if (!l.title().isEmpty()) {
-                    last = add(out, notes, block, Kind.OTHER, l.title(), base * 0.95, true, 0, last, base);
+                    last = add(out, notes, block, Kind.OTHER, l.title(), base * TypstWriter.TITLE_SCALE, true, 0, last, base);
                 }
                 int n = 0;
                 for (Item item : l.items()) {
@@ -154,7 +154,7 @@ public final class ModelUnits {
             case Container c -> {
                 Kind last = previous;
                 if (!c.title().isEmpty()) {
-                    last = add(out, notes, block, Kind.OTHER, c.title(), base * 0.9, true, 0, last, base);
+                    last = add(out, notes, block, Kind.OTHER, c.title(), base * TypstWriter.BOX_TITLE_SCALE, true, 0, last, base);
                 }
                 for (Block inner : c.blocks()) {
                     last = block(out, notes, block, inner, base, last, depth);

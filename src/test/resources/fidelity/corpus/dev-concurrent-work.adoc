@@ -370,6 +370,7 @@ indexterm:[concurrent work, order of work]
 == Decisions and open items
 
 indexterm:[concurrent work, decisions]
+
 .Direction agreed with KEC, 2026-10-17
 [cols="1,3", options="header"]
 |===

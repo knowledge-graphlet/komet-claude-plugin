@@ -206,6 +206,11 @@ final class DocumentSurfaceView {
             return StyleAttributeMap.builder().merge(prose).setFontSize(base * network.ike.komet.claude.stamp.print.LayoutOracle.FOOTNOTE_SCALE).build();
         }
 
+        /** A block's title on the page: bold and ragged, at the scale of the body the Typst writer sets it. */
+        StyleAttributeMap blockTitle(double scale) {
+            return StyleAttributeMap.builder().merge(bold).setFontSize(base * scale).build();
+        }
+
         /** The print theme's styles: Noto Serif body at the theme size, Noto Sans Mono at the size Typst sets raw text, a 1.8 title. */
         static Styles page(network.ike.komet.claude.doc.print.settings.DocumentTheme theme) {
             double base = theme.baseFontSize();
@@ -428,6 +433,8 @@ final class DocumentSurfaceView {
         boolean splittable;
         /** In the Page layout: whether the area is a heading that keeps with what follows. */
         boolean heading;
+        /** In the Page layout: whether the area is a block's title, a unit of its own above the block. */
+        boolean caption;
         /** A page line: the unit it is a line of, which line of it, the page, its left edge and baseline there. */
         int unit = -1;
         int lineOfUnit;
@@ -726,12 +733,15 @@ final class DocumentSurfaceView {
             if (print && nesting == 0) {
                 modelOrdinal++;
             }
+            if (print) {
+                caption(member, block, network.ike.komet.claude.stamp.print.TypstWriter.TITLE_SCALE, depth, section);
+            }
             List<StoredLine> all = print ? StructuredBlocks.content(document, block) : StructuredBlocks.lines(document, block);
             Area area = add(member, block, all, paragraphs(all, "", st.mono(), null), depth, !print, section);
             if (area != null) {
                 area.area.setStyle("-fx-background-color: #F4F3F1; -fx-background-radius: 4;");
-                title(area, block);
                 if (!print) {
+                    title(area, block);
                     attachStructured(area, document, block);
                 }
             }
@@ -808,6 +818,9 @@ final class DocumentSurfaceView {
                 if (print && nesting == 0 && block.kind() != Block.Kind.OPAQUE) {
                     modelOrdinal++;
                 }
+                if (print && block.kind() != Block.Kind.OPAQUE) {
+                    caption(member, block, network.ike.komet.claude.stamp.print.TypstWriter.TITLE_SCALE, depth, section);
+                }
                 // On the page a verbatim block is its source, as the print model has it: no delimiter lines.
                 List<StoredLine> shown = print && block.kind() != Block.Kind.OPAQUE ? network.ike.komet.claude.stamp.print.StoredDocumentModel.verbatimLines(own) : own;
                 Area area = add(member, block, shown, paragraphs(shown, "", block.kind() == Block.Kind.OPAQUE ? st.monoGrey() : st.mono(), null), depth,
@@ -816,8 +829,8 @@ final class DocumentSurfaceView {
                     if (block.kind() != Block.Kind.OPAQUE) {
                         area.area.setStyle("-fx-background-color: #F4F3F1; -fx-background-radius: 4;");
                     }
-                    title(area, block);
                     if (!print) {
+                        title(area, block);
                         attachStructured(area, member.document(), block);
                     }
                 }
@@ -828,8 +841,8 @@ final class DocumentSurfaceView {
                 }
                 if (!own.isEmpty() && !print) {
                     add(member, block, own, paragraphs(own, "", st.smallGrey(), null), depth, false, section);
-                } else if (print && !block.title().isEmpty() && !own.isEmpty()) {
-                    add(member, block, own.subList(0, 1), paragraphs(own.subList(0, 1), "", st.bold(), t -> block.title()), depth, false, section);
+                } else if (print) {
+                    caption(member, block, network.ike.komet.claude.stamp.print.TypstWriter.BOX_TITLE_SCALE, depth, section);
                 }
                 nesting++;
                 renderChildren(member, children, depth + 1, section);
@@ -839,7 +852,9 @@ final class DocumentSurfaceView {
                 if (print && nesting == 0) {
                     modelOrdinal++;
                 }
-                if (!own.isEmpty()) {
+                if (print) {
+                    caption(member, block, network.ike.komet.claude.stamp.print.TypstWriter.TITLE_SCALE, depth, section);
+                } else if (!own.isEmpty()) {
                     add(member, block, own, paragraphs(own, " ", st.bold(), t -> t.replaceFirst("^\\.", "")), depth, false, section);
                 }
                 nesting++;
@@ -966,12 +981,21 @@ final class DocumentSurfaceView {
         return printsVerbatim(block) ? lines : printable(lines);
     }
 
-    /** The lines the print model keeps of a block: not its attribute, anchor, block-title or comment lines. */
+    /**
+     * The lines the print model keeps of a block: not its attribute, anchor or comment lines, nor a
+     * block-title line above its content. Below content such a line is text, in the model as in
+     * Asciidoctor: {@code .For KEC} right under an {@code indexterm:} line prints as it stands.
+     */
     private static List<StoredLine> printable(List<StoredLine> lines) {
-        return lines.stream().filter(l -> {
-            String t = l.text().strip();
-            return !t.startsWith("//") && !ATTRIBUTE_LINE.matcher(t).matches() && !ANCHOR_LINE.matcher(t).matches() && !BLOCK_TITLE_LINE.matcher(t).matches();
-        }).toList();
+        List<StoredLine> kept = new ArrayList<>();
+        for (StoredLine line : lines) {
+            String t = line.text().strip();
+            if (!t.startsWith("//") && !ATTRIBUTE_LINE.matcher(t).matches() && !ANCHOR_LINE.matcher(t).matches()
+                    && !(kept.isEmpty() && BLOCK_TITLE_LINE.matcher(t).matches())) {
+                kept.add(line);
+            }
+        }
+        return kept;
     }
 
     /** The heading level offset a member's include lines carry, summed up its chain. */
@@ -1091,6 +1115,24 @@ final class DocumentSurfaceView {
     }
 
     /**
+     * Adds a titled block's caption to the Page layout, a unit of its own before the block's, as
+     * the print model has it. Page lines are built from units, so a title that is only a child
+     * of the block's holder would never be drawn. Its inline markup is read even over a verbatim
+     * block, whose source is not. It stands on the block's title line, so hovering it finds that.
+     *
+     * @param scale its size, in ems of the body
+     */
+    private void caption(DocumentAssembly.Member member, StoredBlock block, double scale, int depth, String section) {
+        List<StoredLine> lines = StructuredBlocks.lines(member.document(), block);
+        if (block.title().isEmpty() || lines.isEmpty()) {
+            return;
+        }
+        List<StoredLine> carrier = lines.stream().filter(l -> BLOCK_TITLE_LINE.matcher(l.text().strip()).matches()).limit(1).toList();
+        carrier = carrier.isEmpty() ? lines.subList(0, 1) : carrier;
+        addArea(member, block, carrier, paragraphs(carrier, "", st.blockTitle(scale), t -> block.title()), depth, false, section, true).caption = true;
+    }
+
+    /**
      * Adds a block's lines to the Reading view: one area, or, where a line is an include whose
      * child the store holds, the lines before it, the child's whole rendering in its place, and
      * the lines after — so an assembly reads as one document. A block cut by an include is not
@@ -1156,7 +1198,12 @@ final class DocumentSurfaceView {
 
     /** Adds one Reading-view area: the block's body with its references beneath, and its marginalia for the margins. */
     private Area addArea(DocumentAssembly.Member member, StoredBlock block, List<StoredLine> lines, LineRunModel.Spec read, int depth, boolean editable, String section) {
-        LineRunModel.Inlined inlined = print && printsInline(block) ? read.inlined(printNotes) : null;
+        return addArea(member, block, lines, read, depth, editable, section, print && printsInline(block));
+    }
+
+    private Area addArea(DocumentAssembly.Member member, StoredBlock block, List<StoredLine> lines, LineRunModel.Spec read, int depth, boolean editable, String section,
+                         boolean inline) {
+        LineRunModel.Inlined inlined = inline ? read.inlined(printNotes) : null;
         LineRunModel.Spec spec = inlined == null ? read : inlined.spec();
         Area area = new Area(member, block, lines, spec, editable && !past, section);
         target.add(area);
@@ -1363,7 +1410,7 @@ final class DocumentSurfaceView {
                         base * network.ike.komet.claude.stamp.print.LayoutOracle.FOOTNOTE_SCALE, false, 0, 0, 0, false).withInline(area.spec.runs(), List.of(), area.note));
                 continue;
             }
-            network.ike.komet.claude.stamp.print.LayoutOracle.Kind kind = area.heading
+            network.ike.komet.claude.stamp.print.LayoutOracle.Kind kind = area.caption ? network.ike.komet.claude.stamp.print.LayoutOracle.Kind.OTHER : area.heading
                     ? (blockKind == Block.Kind.DOCUMENT ? network.ike.komet.claude.stamp.print.LayoutOracle.Kind.TITLE
                     : network.ike.komet.claude.stamp.print.LayoutOracle.Kind.HEADING)
                     : switch (blockKind) {
@@ -1382,7 +1429,7 @@ final class DocumentSurfaceView {
             double above = spacing[0];
             double below = spacing[1];
             out.add(new network.ike.komet.claude.stamp.print.LayoutOracle.Unit(i, area.modelOrdinal, kind, area.spec.plainText(), size, bold, indent,
-                    above, below, area.heading).withInline(area.spec.runs(), area.marks, 0).withColumns(area.columns));
+                    above, below, kind == network.ike.komet.claude.stamp.print.LayoutOracle.Kind.HEADING).withInline(area.spec.runs(), area.marks, 0).withColumns(area.columns));
             previous = kind;
         }
         return out;

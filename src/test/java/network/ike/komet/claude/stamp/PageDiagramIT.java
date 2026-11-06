@@ -55,6 +55,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -67,6 +68,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * A diagram block on the Stamped Document card's pages, read from a corpus document: the page
  * prints its source as Typst does, every row in the mono font at the raw size inside the
  * listing's tint, without its delimiter lines, and each page line is the line Typst placed.
+ * Its caption is a unit of its own above the tint, as every titled block's is: the units on the
+ * page are the print model's.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class PageDiagramIT {
@@ -74,6 +77,8 @@ class PageDiagramIT {
     private static final File PB_STARTER_DATA = new File("target/data/ike-starter-set-reasoned-pb.zip");
     private static final Path CORPUS = Path.of("src/test/resources/fidelity/corpus");
     private static final String NAME = "dev-clause-semantics";
+    /** The title of that document's diagram, which prints above its tint. */
+    private static final String CAPTION = "A clause graph — \"morbid obesity\" worked as an expression tree";
     /** Source rows that would be markup outside a listing. */
     private static final String MARKUP_ROWS = """
             :topic-id: page-rows
@@ -86,6 +91,73 @@ class PageDiagramIT {
             .field = 1
             [[anchor]]
             ----
+            """;
+
+    /** A block of every kind that takes a title, the first with inline markup and a footnote the verbatim source does not have. */
+    private static final String CAPTIONS = """
+            :topic-id: page-captions
+            = Page Captions
+
+            .A *bold* listingfootnote:[Its note.]
+            ----
+            *not bold*
+            ----
+
+            .A literal
+            ....
+            literal
+            ....
+
+            .A diagram
+            [plantuml]
+            ----
+            @startuml
+            a -> b
+            @enduml
+            ----
+
+            .An expression
+            [anf]
+            --
+            clinical statement
+            --
+
+            .A tree that cannot be drawn
+            [decision-tree]
+            --
+            not a tree
+            --
+
+            .A list
+            * one
+            * two
+
+            .A table
+            |===
+            | a | b
+            |===
+
+            .An example
+            ====
+            Inside the example.
+            ====
+
+            .A sidebar
+            ****
+            Inside the sidebar.
+            ****
+
+            .A quote
+            ____
+            Inside the quote.
+            ____
+
+            .An open block
+            --
+            Inside the open block.
+            --
+
+            The end.
             """;
 
     @TempDir
@@ -121,10 +193,8 @@ class PageDiagramIT {
         List<LayoutOracle.Unit> units = onFx(() -> surface.pageUnits(settings.theme()));
         DocumentModel model = StoredDocumentModel.of(document);
 
-        // The surface's verbatim text is the print model's: the source between the delimiters.
-        List<String> printed = ModelUnits.of(model, base).stream().filter(u -> u.kind() == LayoutOracle.Kind.VERBATIM).map(LayoutOracle.Unit::text).toList();
-        List<String> drawn = units.stream().filter(u -> u.kind() == LayoutOracle.Kind.VERBATIM).map(LayoutOracle.Unit::text).toList();
-        assertEquals(printed, drawn);
+        // The surface's units are the print model's, its captions among them, its verbatim text the source between the delimiters.
+        assertEquals(described(ModelUnits.of(model, base)), described(units));
         LayoutOracle.Unit diagram = units.stream().filter(u -> u.text().startsWith("@startuml")).findFirst().orElseThrow();
         assertEquals(LayoutOracle.Kind.VERBATIM, diagram.kind());
         assertTrue(diagram.text().endsWith("@enduml"), diagram.text());
@@ -143,6 +213,7 @@ class PageDiagramIT {
         LayoutOracle.Layout typst = new TypstOracle(folder, source, DocumentFonts.extractTo(folder.resolve("fonts")),
                 (text, unit, mono, bold, italic) -> supplyOnFx(() -> greedy.width(text, unit, mono, bold, italic))).layout(units, geometry);
         assertTrue(typst.notes().stream().noneMatch(n -> n.contains("not placed") || n.contains("typst did not")), typst.notes().toString());
+        assertEquals(typst.ofUnit(diagram.index() - 1).getFirst().page(), typst.ofUnit(diagram.index()).getFirst().page(), "Typst sets the caption on the diagram's first page");
         checkPage(surface, units, diagram, typst, base, geometry);
     }
 
@@ -153,6 +224,52 @@ class PageDiagramIT {
         DocumentSurfaceView surface = surface(document, "page-rows");
         LayoutOracle.Unit listing = onFx(() -> surface.pageUnits(settings.theme())).stream().filter(u -> u.kind() == LayoutOracle.Kind.VERBATIM).findFirst().orElseThrow();
         assertEquals("// a comment in the code\n[Override]\n.field = 1\n[[anchor]]", listing.text());
+    }
+
+    @Test
+    void everyTitledBlocksCaptionIsAUnitAsTheModelHasIt() throws Exception {
+        StoredDocument document = stored("page-captions", CAPTIONS);
+        PrintSettings settings = PrintSettings.DEFAULT;
+        DocumentSurfaceView surface = surface(document, "page-captions");
+        List<LayoutOracle.Unit> units = onFx(() -> surface.pageUnits(settings.theme()));
+        DocumentModel model = onFx(() -> StoredDocumentModel.of(document, Map.of(), surface::printFigures));
+        assertEquals(described(ModelUnits.of(model, settings.theme().baseFontSize())), described(units));
+
+        // A structured block that cannot be drawn prints as its source, under its caption; one that is drawn carries its title in its figure.
+        int source = units.stream().filter(u -> u.text().equals("not a tree")).findFirst().orElseThrow().index();
+        assertEquals("A tree that cannot be drawn", units.get(source - 1).text());
+        assertEquals(LayoutOracle.Kind.OTHER, units.get(source - 1).kind());
+        assertEquals(LayoutOracle.Kind.VERBATIM, units.get(source).kind());
+    }
+
+    /** Without a blank line under the index term the title line is text, in Asciidoctor and the model: the page prints it and keeps its block numbers. */
+    @Test
+    void aTitleLineUnderAnIndexTermPrintsAsTheModelHasIt() throws Exception {
+        StoredDocument document = stored("page-title-text", """
+                :topic-id: page-title-text
+                = Page Title Text
+
+                indexterm:[decisions]
+                .For KEC
+                |===
+                | a | b
+                |===
+
+                The end.
+                """);
+        PrintSettings settings = PrintSettings.DEFAULT;
+        DocumentSurfaceView surface = surface(document, "page-title-text");
+        List<LayoutOracle.Unit> units = onFx(() -> surface.pageUnits(settings.theme()));
+        List<LayoutOracle.Unit> printed = ModelUnits.of(StoredDocumentModel.of(document), settings.theme().baseFontSize());
+        assertEquals(printed.stream().map(u -> u.block() + " " + u.kind() + " " + u.text()).toList(),
+                units.stream().map(u -> u.block() + " " + u.kind() + " " + u.text().strip()).toList());
+        assertTrue(printed.stream().anyMatch(u -> u.kind() == LayoutOracle.Kind.PARAGRAPH && u.text().equals(".For KEC")), printed.toString());
+    }
+
+    /** What a unit is for the page: its place, kind, block, font, spacing and text. */
+    private static List<String> described(List<LayoutOracle.Unit> units) {
+        return units.stream().map(u -> "%d block %d %s %.3fpt%s above %.3f below %.3f%s: %s".formatted(u.index(), u.block(), u.kind(), u.fontSize(),
+                u.bold() ? " bold" : "", u.spaceAbove(), u.spaceBelow(), u.keepWithNext() ? " keeps" : "", u.text())).toList();
     }
 
     /** A document, committed to a repository of its own and materialized. */
@@ -187,6 +304,21 @@ class PageDiagramIT {
         });
         assertTrue(check.contains(" 0 drawing other text"), check);
 
+        // Its caption stands above the tint, in bold at the size Typst sets a block's title.
+        LayoutOracle.Unit caption = units.get(diagram.index() - 1);
+        assertEquals(CAPTION, caption.text());
+        int captionPage = layout.ofUnit(caption.index()).getFirst().page();
+        PageStackView.Placed captionLine = onFx(() -> surface.linesOn(captionPage, geometry.contentLeft(), geometry.contentWidth(), geometry.bandHeight())).stream()
+                .filter(line -> surface.identity(line)[0] == caption.index()).findFirst().orElseThrow();
+        assertEquals(CAPTION, text(captionLine, DocumentFonts.SERIF, true, base * TypstWriter.TITLE_SCALE));
+        double captionBaseline = captionLine.baseline();
+        int firstRowPage = layout.ofUnit(diagram.index()).getFirst().page();
+        assertTrue(captionPage <= firstRowPage, "the caption stands before the diagram");
+        if (captionPage == firstRowPage) {                     // the first pass may carry a listing it will not break to the next page
+            assertTrue(onFx(() -> surface.backdropsOn(captionPage, geometry.contentLeft(), geometry.contentWidth())).stream()
+                    .anyMatch(tint -> ((Region) tint.node()).getStyle().contains("rgb(247,247,247)") && tint.baseline() > captionBaseline), "a tint below the caption");
+        }
+
         List<LayoutOracle.Line> lines = layout.ofUnit(diagram.index());
         List<String> rows = new ArrayList<>();
         for (int page = lines.getFirst().page(); page <= lines.getLast().page(); page++) {
@@ -198,7 +330,7 @@ class PageDiagramIT {
                 if (surface.identity(line)[0] != diagram.index()) {
                     continue;
                 }
-                rows.add(text(line, base * TypstWriter.RAW_SCALE));
+                rows.add(text(line, DocumentFonts.MONO, false, base * TypstWriter.RAW_SCALE));
                 top = Math.min(top, line.baseline());
                 bottom = Math.max(bottom, line.baseline());
             }
@@ -212,15 +344,16 @@ class PageDiagramIT {
         assertFalse(rows.contains("----"), rows.toString());
     }
 
-    /** The text of a placed page line, each piece of it mono at the size. */
-    private static String text(PageStackView.Placed line, double size) {
+    /** The text of a placed page line, each piece of it in the font at the size. */
+    private static String text(PageStackView.Placed line, String family, boolean bold, double size) {
         RichParagraph paragraph = ((RichTextArea) line.node()).getModel().getParagraph(0);
         StringBuilder text = new StringBuilder();
         for (int k = 0; k < paragraph.getSegmentCount(); k++) {
             StyledSegment segment = paragraph.getSegment(k);
             if (segment.getType() == StyledSegment.Type.TEXT && !segment.getText().isBlank()) {
                 StyleAttributeMap style = segment.getStyleAttributeMap(null);
-                assertEquals(DocumentFonts.MONO, style.getFontFamily(), "the font of '" + segment.getText() + "'");
+                assertEquals(family, style.getFontFamily(), "the font of '" + segment.getText() + "'");
+                assertEquals(bold, style.isBold(), "the weight of '" + segment.getText() + "'");
                 assertEquals(size, style.getFontSize(), 0.001, "the size of '" + segment.getText() + "'");
             }
             text.append(segment.getText());

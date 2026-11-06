@@ -63,6 +63,12 @@ public final class TypstWriter {
      */
     public static final double RAW_SCALE = RAW_RULE_EM * TYPST_RAW_EM;
 
+    /** The size of a block's title, in ems of the body: what {@code ike-block-title} sets it at. */
+    public static final double TITLE_SCALE = 0.95;
+
+    /** The size of a boxed block's title, in ems of the body, as the print model has every container's. */
+    public static final double BOX_TITLE_SCALE = 0.9;
+
     private TypstWriter() { }
 
     /** Where the folio goes. */

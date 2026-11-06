@@ -471,6 +471,7 @@ the lineage of printed books names a toggled layer of provenance marks.
 == Decisions
 
 indexterm:[stamped document, decisions]
+
 .For KEC
 [cols="1,3", options="header"]
 |===
