@@ -15,6 +15,14 @@ When this conversation has a paired document, the block goes into the document, 
 The label in `k:Key[label]` is the concept's fully qualified name: it must stand alone, out of this tree and this document. Write `Clear magnetic resonance angiography result`, not `clear`. The same name anywhere is the same concept, here and in every other document, so two nodes that mean the same thing share one name, and two that mean different things must not. A concept the knowledge base already holds under that exact name is that concept. Komet fits long names to the drawing, so never shorten one for the page. If a tool says a name already has a different tree or specification, ask the person whether they are the same; if not, write a more specific name.
 
 
+## One rule for every part
+
+A tree has five parts: decision, alternative, chance, event and outcome. A `residual:` is an event. Each has text, its concept's name, and may have an encoding, a complex concept. A decision and a chance read as questions, an alternative as a course of action, an event as an answer, and an outcome as an end state.
+
+A chance is one topic on one scale, and each event is one point on that scale. Write `Inspection result`, not `Site data`, and give it the events that cover the scale: fail, pass with conditions, pass, each named so it stands alone. A result is never a code: ANF states a quantity on a scale, and the scale's meaning is knowledge. Presence is a scale of two points.
+
+Narrative stays in the report. Discrete findings are statements lifted from it, and the tree takes the overall result. Give a finding its own chance only when it alone changes the decision, because every finding multiplies the paths.
+
 ## The block
 
 One line per vertex or value, two spaces of indentation per level; indentation carries the edges.
