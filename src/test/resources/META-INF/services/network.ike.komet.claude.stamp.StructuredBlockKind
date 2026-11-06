@@ -5,3 +5,9 @@ network.ike.komet.claude.ui.DocumentBlockKinds$ComplexConcept
 network.ike.komet.claude.ui.DocumentBlockKinds$Anf
 network.ike.komet.claude.ui.DocumentBlockKinds$Calculator
 network.ike.komet.claude.ui.DocumentBlockKinds$Calculation
+network.ike.komet.claude.ui.DocumentBlockKinds$ValueTree
+network.ike.komet.claude.ui.DocumentBlockKinds$EffectsTable
+network.ike.komet.claude.ui.DocumentBlockKinds$ForestPlot
+network.ike.komet.claude.ui.DocumentBlockKinds$DeviceRecord
+network.ike.komet.claude.ui.DocumentBlockKinds$Findings
+network.ike.komet.claude.ui.DocumentBlockKinds$FindingsLookup

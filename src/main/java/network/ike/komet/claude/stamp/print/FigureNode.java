@@ -52,9 +52,21 @@ public final class FigureNode {
      * @return a pane of the scaled size
      */
     public static Pane of(DecisionFigure figure, double scale) {
+        return of(figure, scale, DocumentFonts.SERIF);
+    }
+
+    /**
+     * Draws a figure in a named face, for a figure on the reading surface beside the surface's own text.
+     *
+     * @param figure the figure
+     * @param scale  the scale it is drawn at, 1 for its natural size
+     * @param family the font family of its text
+     * @return a pane of the scaled size
+     */
+    public static Pane of(DecisionFigure figure, double scale, String family) {
         Group marks = new Group();
         for (DecisionFigure.Mark mark : figure.marks()) {
-            marks.getChildren().add(node(mark));
+            marks.getChildren().add(node(mark, family));
         }
         marks.getTransforms().add(new Scale(scale, scale, 0, 0));
         Pane pane = new Pane(marks);
@@ -65,7 +77,7 @@ public final class FigureNode {
         return pane;
     }
 
-    private static Node node(DecisionFigure.Mark mark) {
+    private static Node node(DecisionFigure.Mark mark, String family) {
         return switch (mark) {
             case DecisionFigure.Rect r -> {
                 Rectangle shape = new Rectangle(r.x(), r.y(), r.w(), r.h());
@@ -83,7 +95,7 @@ public final class FigureNode {
             case DecisionFigure.Text t -> {
                 Text text = new Text(t.x(), t.top(), t.text());
                 text.setTextOrigin(VPos.TOP);
-                text.setFont(Font.font(DocumentFonts.SERIF, t.bold() ? FontWeight.BOLD : FontWeight.NORMAL,
+                text.setFont(Font.font(family, t.bold() ? FontWeight.BOLD : FontWeight.NORMAL,
                         t.italic() ? FontPosture.ITALIC : FontPosture.REGULAR, t.size()));
                 text.setFill(paint(t.colour()));
                 yield text;

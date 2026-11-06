@@ -153,12 +153,13 @@ public final class BlockContext {
     }
 
         /** An anf block has rendered under a name: the statement is readable by it. */
-    public void defineStatement(String name, AnfStatement statement) {
+    public synchronized void defineStatement(String name, AnfStatement statement) {
         if (name == null || name.isBlank() || statement == null) {
             return;
         }
-        statements.put(name, statement);
-        notifyListeners();
+        if (!statement.equals(statements.put(name, statement))) {
+            notifyListeners();
+        }
     }
 
     /**
@@ -185,6 +186,9 @@ public final class BlockContext {
 
     /** By root identifier: the body of each decision-tree block, which an outcome of another tree may fold in. */
     private final Map<String, String> trees = new java.util.LinkedHashMap<>();
+    /** The document's value trees and effects tables, by identifier. */
+    private final Map<String, EvidenceBlock> evidenceBlocks = new java.util.TreeMap<>();
+    private int evidenceYear = Integer.MAX_VALUE;
     /** By root identifier: the node that draws the tree, which a link from another tree scrolls to. */
     private final Map<String, Node> treeNodes = new HashMap<>();
     /** By root identifier: the trees that fold that tree in at an outcome. */
@@ -216,6 +220,49 @@ public final class BlockContext {
         if (!body.equals(trees.put(identifier, body))) {
             notifyListeners();
         }
+    }
+
+    /**
+     * A value tree or effects table's text, by the identifier its block gives itself, for the
+     * blocks that name it. Listeners hear only when the text changed.
+     */
+    public synchronized void defineEvidenceBlock(String identifier, String info, String body) {
+        EvidenceBlock block = new EvidenceBlock(info, body);
+        if (!block.equals(evidenceBlocks.put(identifier, block))) {
+            notifyListeners();
+        }
+    }
+
+    /** The year a document's evidence is read as of, by default the present. */
+    public synchronized int evidenceYear() {
+        return evidenceYear;
+    }
+
+    /** Reads the document's evidence as of a year; listeners hear when it moved. */
+    public synchronized void setEvidenceYear(int year) {
+        if (year != evidenceYear) {
+            evidenceYear = year;
+            notifyListeners();
+        }
+    }
+
+    /** What the evidence blocks and statements of the document last said, and the year they are read as of. */
+    public synchronized String evidenceState() {
+        return evidenceYear + evidenceBlocks.toString() + new java.util.TreeMap<>(statements);
+    }
+
+    /** The text of the value tree or effects table with an identifier, when its block has been read. */
+    public synchronized Optional<EvidenceBlock> evidenceBlock(String identifier) {
+        return Optional.ofNullable(evidenceBlocks.get(identifier));
+    }
+
+    /**
+     * A benefit-risk block as written.
+     *
+     * @param info its info string
+     * @param body its content
+     */
+    public record EvidenceBlock(String info, String body) {
     }
 
     /** Every tree block of the document, by its root's identifier. */
@@ -256,7 +303,7 @@ public final class BlockContext {
     }
 
     /** The statement an anf block of this document named. */
-    public Optional<AnfStatement> statement(String name) {
+    public synchronized Optional<AnfStatement> statement(String name) {
         return Optional.ofNullable(statements.get(name));
     }
 

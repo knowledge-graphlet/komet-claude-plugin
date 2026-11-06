@@ -211,6 +211,7 @@ public final class DocumentBlockKinds {
 
         @Override
         public List<network.ike.komet.claude.decision.render.DecisionFigure> figures(Source source, Context context) {
+            AnfBlockRenderer.publish(info(source.parameters()), source.content(), context.view(), context.blocks());
             return BlockPrint.fields(name(), List.of(source.content().split("\n", -1)));
         }
 
@@ -263,6 +264,68 @@ public final class DocumentBlockKinds {
         @Override
         public List<network.ike.komet.claude.decision.render.DecisionFigure> figures(Source source, Context context) {
             return BlockPrint.fields(name(), List.of(source.content().split("\n", -1)));
+        }
+    }
+
+    /** A benefit-risk view, drawn from its text and edited as text; a proof of concept, so it writes nothing to the store. */
+    private abstract static class BenefitRiskKind extends RenderedKind {
+        private final BenefitRiskBlockRenderer.View view;
+
+        BenefitRiskKind(String style, String name, BenefitRiskBlockRenderer.View view) {
+            super(style, name);
+            this.view = view;
+        }
+
+        @Override
+        BlockRenderer renderer(Context context, BlockRewriter rewriter) {
+            return new BenefitRiskBlockRenderer(view, context.view(), context.viewProperties(), context.base(), context.blocks());
+        }
+
+        @Override
+        public List<network.ike.komet.claude.decision.render.DecisionFigure> figures(Source source, Context context) {
+            return BenefitRiskBlockRenderer.figures(view, info(source.parameters()), source.content(), context.blocks());
+        }
+    }
+
+    /** {@code [value-tree]}: the objectives of a decision, a goal over domains over criteria and gates. */
+    public static final class ValueTree extends BenefitRiskKind {
+        public ValueTree() {
+            super(network.ike.komet.claude.benefitrisk.ValueTree.TAG, "value tree", BenefitRiskBlockRenderer.View.TREE);
+        }
+    }
+
+    /** {@code [effects-table]}: one row per leaf of the tree it names, each effect computed from its arms. */
+    public static final class EffectsTable extends BenefitRiskKind {
+        public EffectsTable() {
+            super(network.ike.komet.claude.benefitrisk.EffectsTable.TAG, "effects table", BenefitRiskBlockRenderer.View.TABLE);
+        }
+    }
+
+    /** {@code [forest-plot]}: the effects table it names, drawn on one axis; it holds nothing of its own. */
+    public static final class ForestPlot extends BenefitRiskKind {
+        public ForestPlot() {
+            super("forest-plot", "forest plot", BenefitRiskBlockRenderer.View.FOREST);
+        }
+    }
+
+    /** {@code [device-record]}: what a record of the Device Extension would state about a device. */
+    public static final class DeviceRecord extends BenefitRiskKind {
+        public DeviceRecord() {
+            super(network.ike.komet.claude.benefitrisk.DeviceRecord.TAG, "device record", BenefitRiskBlockRenderer.View.DEVICE);
+        }
+    }
+
+    /** {@code [findings]}: a mock of the findings the Device Extension would hold. */
+    public static final class Findings extends BenefitRiskKind {
+        public Findings() {
+            super(network.ike.komet.claude.benefitrisk.Findings.TAG, "findings", BenefitRiskBlockRenderer.View.FINDINGS);
+        }
+    }
+
+    /** {@code [findings-lookup]}: which findings reach a device, as of a year every view then follows. */
+    public static final class FindingsLookup extends BenefitRiskKind {
+        public FindingsLookup() {
+            super("findings-lookup", "findings lookup", BenefitRiskBlockRenderer.View.LOOKUP);
         }
     }
 }

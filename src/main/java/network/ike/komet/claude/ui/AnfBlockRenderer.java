@@ -119,7 +119,24 @@ final class AnfBlockRenderer implements BlockRenderer {
             return List.of();
         }
         String body = literal == null ? "" : literal;
+        publish(info, body, viewCalc, context);
         return List.of(new BlockPiece(() -> new Finding(info, body).column, body.stripTrailing()));
+    }
+
+    /**
+     * Puts a named statement on the context at once, for the blocks that read it: a block's row is
+     * built only when it is drawn, and a page never builds one.
+     */
+    static void publish(String info, String body, ViewCalculator view, BlockContext context) {
+        Optional<String> name = idOf(info);
+        if (name.isEmpty() || body.isBlank()) {
+            return;
+        }
+        try {
+            context.defineStatement(name.get(), AnfAdoc.parse(asAdoc(info, body), id -> GraphTools.resolveConcept(id, view)));
+        } catch (RuntimeException unreadable) {
+            // the block's own row says it could not be read
+        }
     }
 
     /** Whether a fence is an ANF block: its first word is {@code anf}, with or without a type after a comma or space. */
@@ -234,11 +251,14 @@ final class AnfBlockRenderer implements BlockRenderer {
         final String originalBody;
         final VBox column = new VBox(2);
         final HBox line = new HBox(8);
+        /** Who the statement is about, on a row of its own: a group's name is long, and beside the topic it crushes both. */
+        final HBox subjectLine = new HBox(6);
         final Label fold = new Label("▸");
         final boolean element;
         final List<Node> spanNodes = new ArrayList<>();
         final List<Node> elementNodes = new ArrayList<>();
         final List<Node> anfNodes = new ArrayList<>();
+        final List<Node> subjectNodes = new ArrayList<>();
         AnfStatement statement;
         AnfStatementControl control;
         SegmentedControl<ElementLevel> levelSwitch;
@@ -291,12 +311,17 @@ final class AnfBlockRenderer implements BlockRenderer {
                 Tooltip tip = new Tooltip(AnfAdoc.toAdoc(statement).strip());
                 tip.setFont(Font.font("Menlo", base * 0.85));
                 Tooltip.install(line, tip);
+                Tooltip.install(subjectLine, tip);
             }
             line.setOnMouseClicked(e -> toggle());
+            subjectLine.setAlignment(Pos.CENTER_LEFT);
+            subjectLine.setCursor(Cursor.HAND);
+            subjectLine.setPadding(new Insets(0, 0, 0, base + 8));
+            subjectLine.setOnMouseClicked(e -> toggle());
             if (element && context.elementSpans().isSwitchHost(info)) {
                 column.getChildren().add(levelSwitch());
             }
-            column.getChildren().add(line);
+            column.getChildren().addAll(line, subjectLine);
             if (element) {
                 column.getProperties().put(MarkdownRichText.BLOCK_SHOWN, shown);
                 column.getProperties().put(MarkdownRichText.BLOCK_NO_EXPAND, Boolean.TRUE);
@@ -311,6 +336,7 @@ final class AnfBlockRenderer implements BlockRenderer {
         /** The ANF part of the row: the statement's topic and result, its name, or why there is none. */
         private void buildAnf() {
             anfNodes.clear();
+            subjectNodes.clear();
             if (statement == null && element) {
                 anfNodes.add(stateTag("not lifted", "#ece8f2", "#5e4b7e"));
                 return;
@@ -323,6 +349,10 @@ final class AnfBlockRenderer implements BlockRenderer {
                 return;
             }
             anfNodes.addAll(summary(statement));
+            if (statement.subjectOfInformation() != null) {
+                subjectNodes.add(whole(muted("in")));
+                subjectNodes.add(value(statement.subjectOfInformation()));
+            }
             if (stale()) {
                 anfNodes.add(stateTag("stale", "#fcebeb", "#a32d2d"));
             } else if (element && ClinicalElement.needsAttention(statement)) {
@@ -332,7 +362,7 @@ final class AnfBlockRenderer implements BlockRenderer {
                 Label named = new Label(name);
                 named.setFont(Font.font(base * 0.78));
                 named.setTextFill(Color.web("#999"));
-                anfNodes.add(named);
+                (subjectNodes.isEmpty() ? anfNodes : subjectNodes).add(whole(named));
             });
         }
 
@@ -403,6 +433,10 @@ final class AnfBlockRenderer implements BlockRenderer {
             nodes.add(spring);
             line.getChildren().setAll(nodes);
             line.setCursor(anf && statement != null ? Cursor.HAND : Cursor.DEFAULT);
+            boolean subject = visible && anf && !subjectNodes.isEmpty();
+            subjectLine.setVisible(subject);
+            subjectLine.setManaged(subject);
+            subjectLine.getChildren().setAll(subjectNodes);
         }
 
         private Label arrow() {
@@ -421,14 +455,15 @@ final class AnfBlockRenderer implements BlockRenderer {
             }
         }
 
-        /** The folded line's pieces: the topic as a chip, then the result or the request. */
+        /** The folded line's pieces: the topic as a chip, then the result or the request; a result stays whole. */
         private List<Node> summary(AnfStatement s) {
             List<Node> nodes = new ArrayList<>();
-            nodes.add(value(s.topic()));
+            Node topic = value(s.topic());
+            nodes.add(topic);
             switch (s.circumstance()) {
                 case Circumstance.Performance p -> {
                     if (p.result() != null) {
-                        nodes.add(plain(result(p.result())));
+                        nodes.add(whole(plain(result(p.result()))));
                     }
                     if (p.bodySite() != null) {
                         nodes.add(muted("at"));
@@ -438,12 +473,24 @@ final class AnfBlockRenderer implements BlockRenderer {
                 case Circumstance.Request r -> {
                     nodes.add(muted("requested"));
                     if (r.requestedResult() != null) {
-                        nodes.add(plain(result(r.requestedResult())));
+                        nodes.add(whole(plain(result(r.requestedResult()))));
                     }
                 }
-                case Circumstance.Narrative n -> nodes.add(muted("“" + n.text() + "”"));
+                case Circumstance.Narrative n -> {
+                    // the quotation is the piece that gives way, not the topic
+                    whole(topic);
+                    nodes.add(muted("“" + n.text() + "”"));
+                }
             }
             return nodes;
+        }
+
+        /** Keeps a piece at its full width when the line is short of room. */
+        private <N extends Node> N whole(N node) {
+            if (node instanceof Region region) {
+                region.setMinWidth(Region.USE_PREF_SIZE);
+            }
+            return node;
         }
 
         private String result(AnfStatement.Result r) {
