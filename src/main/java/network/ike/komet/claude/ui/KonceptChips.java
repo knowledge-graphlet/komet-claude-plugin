@@ -184,6 +184,58 @@ final class KonceptChips {
 
 
     /**
+     * The chip for a concept a block names by its fully qualified name. The name fixes the
+     * identity, so the identicon is the same before and after the concept is stored: a concept the
+     * store holds is an ordinary badge, and one it does not hold shows the {@code ?} sigil.
+     *
+     * @param name           the concept's fully qualified name
+     * @param viewProperties the interactive surface's view, or {@code null}
+     * @param viewCalc       the view, for a surface with no view properties
+     * @param base           the ambient body font size (px)
+     * @param typography     the label typography; {@code null} renders the default small caps
+     * @return the chip node (never null)
+     */
+    static Node blockConcept(String name, ViewProperties viewProperties, ViewCalculator viewCalc, double base,
+                             KonceptLabelTypography typography) {
+        ViewCalculator view = viewProperties != null ? viewProperties.calculator() : viewCalc;
+        PublicId pid = identity(name, view);
+        // asked before any nid: a nid for an id the store does not hold would be minted, with no record to follow it
+        if (held(pid)) {
+            Node stored = viewProperties != null
+                    ? chip(pid, null, viewProperties, base, typography)
+                    : chip(pid, null, viewCalc, base, typography);
+            if (stored instanceof KonceptBadge) {
+                return stored;
+            }
+        }
+        KonceptBadge badge = new KonceptBadge(pid, name);
+        badge.setKind(network.ike.docs.konceptcore.KonceptKind.UNKNOWN);
+        badge.setAmbientFontSize(base);
+        badge.setLabelTypography(typography);
+        badge.setStandaloneStyling(true);
+        badge.setMaxWidth(Region.USE_PREF_SIZE);
+        return badge;
+    }
+
+    /** The concept a name names; a surface drawn with no store open has only the derived identity. */
+    private static PublicId identity(String name, ViewCalculator view) {
+        try {
+            return network.ike.komet.claude.block.LocalConcepts.identity(name, view);
+        } catch (RuntimeException e) {
+            return dev.ikm.tinkar.common.id.PublicIds.of(network.ike.komet.claude.block.LocalConcepts.uuid(name));
+        }
+    }
+
+    /** Whether the store holds an id; a surface drawn with no store open holds nothing. */
+    private static boolean held(PublicId pid) {
+        try {
+            return dev.ikm.tinkar.common.service.PrimitiveData.get().hasPublicId(pid);
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /**
      * Caps a chip's width where a drawing cannot afford a long name: a badge wider than the cap
      * lays out at the cap and ellipsises its name, which the badge's own gestures recover, the
      * whole identity on hover and the full multi-line name on a click (ike-issues#1036). The

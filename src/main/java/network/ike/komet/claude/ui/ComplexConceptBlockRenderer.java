@@ -31,6 +31,8 @@ import javafx.geometry.Pos;
 import javafx.scene.Cursor;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
+import dev.ikm.komet.framework.controls.KonceptBadge;
+import dev.ikm.komet.framework.controls.KonceptStatus;
 import javafx.scene.control.Label;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.GridPane;
@@ -385,7 +387,12 @@ final class ComplexConceptBlockRenderer implements BlockRenderer {
     private Node header(Spec spec) {
         Label title = new Label("Complex concept");
         title.setFont(Font.font(null, FontWeight.BOLD, base));
-        HBox row = new HBox(8, title, chip(spec.concept()));
+        Node defined = chip(spec.concept());
+        if (defined instanceof KonceptBadge badge) {
+            badge.setStatus(KonceptStatus.COMPLEX);      // this is the card that mark opens, so a click has nothing further to show
+            badge.setOnDisclose(() -> { });
+        }
+        HBox row = new HBox(8, title, defined);
         row.setAlignment(Pos.CENTER_LEFT);
         return row;
     }
@@ -424,27 +431,13 @@ final class ComplexConceptBlockRenderer implements BlockRenderer {
     // ── Chips ───────────────────────────────────────────────────────────
 
     private Node chip(Ref ref) {
-        if (ref.local()) {
-            return localConcept(ref.label());
-        }
-        Optional<PublicId> pid = ComponentText.publicId(ref.nid());
+        Optional<PublicId> pid = ref.local() ? Optional.empty() : ComponentText.publicId(ref.nid());
         if (pid.isEmpty()) {
-            return localConcept(ref.label());
+            return KonceptChips.capped(KonceptChips.blockConcept(ref.label(), viewProperties, viewCalc, base, null), base * 30);
         }
         String sctid = ComponentText.sctid(viewCalc, ref.nid()).orElse(null);
         return KonceptChips.capped(viewProperties != null
                 ? KonceptChips.chip(pid.get(), sctid, viewProperties, base)
                 : KonceptChips.chip(pid.get(), sctid, viewCalc, base), base * 30);
-    }
-
-    private Label localConcept(String text) {
-        Label chip = new Label(text);
-        chip.setFont(Font.font(base * 0.95));
-        chip.getStyleClass().add("decision-local-concept");
-        chip.setStyle("-fx-background-color: #f4f2ec; -fx-background-radius: 9; -fx-padding: 1 7 1 7;"
-                + " -fx-text-fill: #333; -fx-border-color: #b9b3a3; -fx-border-radius: 9; -fx-border-style: dashed;"
-                + " -fx-border-width: 1;");
-        chip.setTooltip(new Tooltip("Not in the knowledge base: read as a concept local to this block"));
-        return chip;
     }
 }

@@ -218,7 +218,7 @@ public final class ComplexConceptWrites {
     }
 
     /** The specification semantic a complex concept has, when it has one this view sees. */
-    static OptionalLong specificationOf(PublicId concept, ViewCalculator view) {
+    public static OptionalLong specificationOf(PublicId concept, ViewCalculator view) {
         if (!SemanticVersions.exists(concept, view)) {
             return OptionalLong.empty();
         }

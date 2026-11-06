@@ -827,6 +827,10 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             if (nid.isEmpty()) {
                 return Optional.empty();
             }
+            if (ids.isLocal(nid.getAsLong()) && context.complexConcept(nid.getAsLong()).isPresent()) {
+                Node chip = KonceptChips.blockConcept(ids.label(nid.getAsLong()), viewProperties, viewCalc, base, typography);
+                return Optional.of(specified(KonceptChips.capped(chip, cap(chip, ids.label(nid.getAsLong()), wrap), wrap), nid.getAsLong()));
+            }
             if (ids.isLocal(nid.getAsLong())) {
                 Label local = localConcept(ids.label(nid.getAsLong()));
                 return Optional.of(specified(cappedLocal(local, cap(local, local.getText(), wrap), wrap), nid.getAsLong()));
@@ -1136,6 +1140,9 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                 Tooltip.install(chip, tip);
             }
             if (chip instanceof KonceptBadge badge) {
+                badge.setStatus(dev.ikm.komet.framework.controls.KonceptStatus.COMPLEX);
+                badge.setStatusSlotReserved(true);
+                badge.setOnDisclose(() -> peekItem(badge, nid).fire());
                 KonceptBadge.contributeMenuItems(badge, (host, n) -> List.of(peekItem(host, n)));
             } else if (chip instanceof javafx.scene.control.Control control) {
                 control.setContextMenu(new javafx.scene.control.ContextMenu(peekItem(chip, nid)));

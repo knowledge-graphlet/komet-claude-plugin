@@ -179,6 +179,9 @@ module komet.claude {
 
     // The plugin's help book (AsciiDoc in this jar, under META-INF/komet-help) and the viewer that
     // renders help in a card's help drawer, found by the card through PluggableService.
+    provides dev.ikm.komet.framework.controls.KonceptDisclosure
+            with network.ike.komet.claude.complexconcept.ComplexConceptDisclosure;
+
     provides dev.ikm.komet.layout.help.KlHelpProvider
             with network.ike.komet.claude.help.PluginHelp;
     provides dev.ikm.komet.layout.help.KlHelpViewer.Factory
