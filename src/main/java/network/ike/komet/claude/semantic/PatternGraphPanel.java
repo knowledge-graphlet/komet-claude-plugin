@@ -17,6 +17,7 @@ package network.ike.komet.claude.semantic;
 
 import dev.ikm.tinkar.common.id.Nid;
 import dev.ikm.komet.framework.dnd.KometClipboard;
+import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
@@ -44,6 +45,7 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.util.StringConverter;
 import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.tools.GraphTools;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -291,7 +293,9 @@ public final class PatternGraphPanel extends VBox {
     /** Resolves a UUID string to a nid, or {@link #SUBJECT} (used here as a "no nid" marker) on failure. */
     private static long resolveUuid(String uuidStr) {
         try {
-            return EntityService.get().nidForPublicId(PublicIds.of(UUID.fromString(uuidStr.trim())));
+            // The arrangement was saved under another knowledge base as easily as this one.
+            PublicId publicId = PublicIds.of(UUID.fromString(uuidStr.trim()));
+            return GraphTools.held(publicId) ? EntityService.get().nidForPublicId(publicId) : SUBJECT;
         } catch (RuntimeException notResolvable) {
             return SUBJECT;
         }

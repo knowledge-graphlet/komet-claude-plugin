@@ -34,6 +34,7 @@ import javafx.scene.layout.Region;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import javafx.scene.text.Text;
+import network.ike.komet.claude.tools.GraphTools;
 
 import java.util.Locale;
 
@@ -59,9 +60,9 @@ final class KonceptChips {
     }
 
     /**
-     * Builds the chip for an existing component id. Falls back to a bare identicon when the name
-     * cannot be resolved, and to an empty {@link Region} if chip construction fails — a chip
-     * failure must never break the surface it is embedded in.
+     * Builds the chip for an existing component id. Falls back to a bare identicon when the store
+     * does not hold the id or the name cannot be resolved, and to an empty {@link Region} if chip
+     * construction fails — a chip failure must never break the surface it is embedded in.
      *
      * @param pid      the resolved, existing component id
      * @param sctid    the SCTID for the tooltip, or {@code null} when identified by UUID/nid
@@ -126,10 +127,13 @@ final class KonceptChips {
                              ViewProperties viewProperties, double base,
                              KonceptLabelTypography typography) {
         try {
-            long nid = PrimitiveData.nid(pid);
             int iconPx = (int) Math.round(base * 0.92);
             ImageView icon = Identicon.generateIdenticon(pid, iconPx, iconPx);
             icon.setSmooth(false);
+            if (!GraphTools.held(pid)) {
+                return icon;
+            }
+            long nid = PrimitiveData.nid(pid);
             // The name is the view's own answer — the language coordinate's description-type
             // priority (LanguageCoordinate.getDescription), never an FQN-first recipe: the chip
             // shows whatever the user's coordinate says the name is, and the owning surface

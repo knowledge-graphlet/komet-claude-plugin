@@ -56,7 +56,14 @@ public final class AnfBlockWrites {
         AnfStatement statement;
         DiTreeEntity tree;
         try {
-            statement = AnfAdoc.parse(String.join("\n", lines) + "\n", identifier -> GraphTools.resolveConcept(identifier, view));
+            statement = AnfAdoc.parse(String.join("\n", lines) + "\n", identifier -> {
+                // A parse keeps an identifier that does not resolve, as a question to clarify; a
+                // write must not, or the store would hold a statement naming nothing.
+                if (!GraphTools.inStore(identifier)) {
+                    throw new IllegalArgumentException("it names " + identifier + ", which is not in this knowledge base.");
+                }
+                return GraphTools.resolveConcept(identifier, view);
+            });
             if (statement == null) {
                 return name + " was not written: the block names no statement type.";
             }

@@ -29,10 +29,13 @@ import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
 import dev.ikm.tinkar.coordinate.stamp.calculator.StampCalculatorWithCache;
 import dev.ikm.tinkar.coordinate.view.ViewCoordinateRecord;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
+import dev.ikm.tinkar.entity.ConceptEntity;
 import dev.ikm.tinkar.entity.Entity;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
+import dev.ikm.tinkar.entity.EntityVersion;
 import dev.ikm.tinkar.entity.FieldDefinitionForEntity;
+import dev.ikm.tinkar.entity.PatternEntity;
 import dev.ikm.tinkar.entity.PatternEntityVersion;
 import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
@@ -48,6 +51,12 @@ import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.koncept.ComponentText;
 import network.ike.komet.claude.koncept.DefinitionText;
 
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -112,7 +121,7 @@ public final class GraphTools {
     public List<AnthropicTool> tools() {
         return List.of(concept(), children(), parents(), descendants(),
                 ancestors(), isA(), axioms(), search(), viewInfo(), debugConcept(),
-                conceptSemantics(), semanticInfo(), pattern(), fieldDataTypes());
+                conceptSemantics(), semanticInfo(), referencingSemantics(), pattern(), fieldDataTypes());
     }
 
     // ── Tools ───────────────────────────────────────────────────────────
@@ -394,7 +403,8 @@ public final class GraphTools {
     private AnthropicTool conceptSemantics() {
         return tool("concept_semantics",
                 "List the semantics (pattern instances) attached to a concept — each with its "
-                        + "pattern name, its own UUID, and its named field values. This is how you "
+                        + "pattern name, its own UUID (written `semantic [UUID]`, the id `semantic_info` "
+                        + "takes), and its named field values. This is how you "
                         + "read structured data hanging off a concept: Test Performed records "
                         + "(analyte, specimen, limit of detection, units), identifiers, comments, and "
                         + "so on. Call this after resolving a concept when the question is about "
@@ -440,8 +450,11 @@ public final class GraphTools {
                         // Semantics can be attached to a semantic (e.g. Allowed Results on a Test
                         // Performed record), and walking up to the concept would silently return
                         // the wrong entity's semantics.
-                        targetNid = EntityService.get()
-                                .nidForPublicId(PublicIds.of(UUID.fromString(trimmed)));
+                        PublicId given = PublicIds.of(UUID.fromString(trimmed));
+                        if (!held(given)) {
+                            return notFound(trimmed);
+                        }
+                        targetNid = EntityService.get().nidForPublicId(given);
                     } catch (IllegalArgumentException notUuid) {
                         // An SCTID always denotes a concept, so resolving is safe here.
                         long nid = resolve(trimmed, v);
@@ -502,8 +515,9 @@ public final class GraphTools {
                         return grpcSemanticInfo(uuid);
                     }
                     try {
-                        SemanticInfo info = semanticFor(
-                                EntityService.get().nidForPublicId(PublicIds.of(uuid)), v);
+                        PublicId given = PublicIds.of(uuid);
+                        SemanticInfo info = held(given)
+                                ? semanticFor(EntityService.get().nidForPublicId(given), v) : null;
                         if (info == null) {
                             return "No semantic found for " + uuid
                                     + " (it may be a concept — use concept_semantics — or have no "
@@ -516,6 +530,254 @@ public final class GraphTools {
                         return "Error retrieving semantic: " + e.getMessage();
                     }
                 });
+    }
+
+    /** Most semantics {@link #referencingSemantics} lists unless told otherwise. */
+    private static final int DEFAULT_REFERENCE_LIMIT = 25;
+
+    /** How long {@link #referencingSemantics} searches field values before saying where it stopped. */
+    private static final Duration REFERENCE_SEARCH_BUDGET = Duration.ofSeconds(20);
+
+    /** How many semantics are read between looks at the clock. */
+    private static final int SEMANTICS_PER_CLOCK_CHECK = 1024;
+
+    private AnthropicTool referencingSemantics() {
+        return tool("referencing_semantics",
+                "List the semantics that point at a component: those attached to it, and those "
+                        + "that hold it in a field value or in a definition tree, so you can see "
+                        + "what uses it and not only what hangs off it. Each is listed with its "
+                        + "pattern, its own UUID (written `semantic [UUID]`, for `semantic_info`), "
+                        + "what it is attached to, and how it points here. Field values are read "
+                        + "at each semantic's latest version in this view. No index covers field "
+                        + "values, so this searches the patterns, smallest first, for up to "
+                        + "20 seconds; the answer says when it stopped early, and then more may "
+                        + "exist. Pass 'pattern' to search one pattern. The instances of a pattern "
+                        + "are not listed for naming that pattern: a semantic points at a pattern "
+                        + "only through a field or by being attached to it.",
+                objectSchema(Map.of(
+                                "id", strProp("the component: a concept's SCTID or UUID, or a pattern's or "
+                                        + "semantic's own UUID"),
+                                "pattern", strProp("optional: only semantics whose pattern name contains "
+                                        + "this text, e.g. 'Test Performed'"),
+                                "limit", Map.of("type", "integer", "description",
+                                        "max semantics listed (default " + DEFAULT_REFERENCE_LIMIT + ")")),
+                        List.of("id")),
+                in -> {
+                    ViewCalculator v = view();
+                    if (v == null) {
+                        return NO_VIEW;
+                    }
+                    // Semantic traversal is not served over gRPC (see conceptSemantics), and there
+                    // the service has no call for it.
+                    if (GrpcSearchService.isActive()) {
+                        return "referencing_semantics needs a local knowledge base; this one is served over "
+                                + "gRPC, which offers no such search. Nothing was searched.";
+                    }
+                    Component target;
+                    try {
+                        target = component(str(in, "id"), v);
+                    } catch (IllegalArgumentException e) {
+                        return e.getMessage();
+                    }
+                    try {
+                        References found = references(target.entity().nid(), str(in, "pattern"),
+                                Math.max(1, intOr(in, "limit", DEFAULT_REFERENCE_LIMIT)), v, REFERENCE_SEARCH_BUDGET);
+                        return render(target, found);
+                    } catch (RuntimeException e) {
+                        return "Error searching for references: " + e.getMessage();
+                    }
+                });
+    }
+
+    /**
+     * A semantic that points at a component.
+     *
+     * @param pattern    its pattern's name
+     * @param semanticId its own UUID
+     * @param retired    whether its latest version is inactive
+     * @param attachedTo the component it is attached to, named and identified
+     * @param via        how it points there: {@code reference}, or {@code field "<name>"} per field
+     */
+    record Referrer(String pattern, String semanticId, boolean retired, String attachedTo, List<String> via) {}
+
+    /**
+     * What a search for references found, and how far it got.
+     *
+     * @param referrers the semantics found, those attached first
+     * @param searched  the semantics whose field values were read
+     * @param total     the semantics in the patterns selected
+     * @param atLimit   true when the search stopped because the limit was reached
+     * @param outOfTime true when the search stopped because the budget ran out
+     */
+    record References(List<Referrer> referrers, long searched, long total, boolean atLimit, boolean outOfTime) {}
+
+    /**
+     * The semantics pointing at a component. The attached ones come from the store's index. The
+     * rest are found by reading semantics, since nothing indexes field values; patterns are taken
+     * smallest first, so a search that runs out of time has covered as many patterns as it could,
+     * and a pattern of a few records is not left waiting behind a hundred million descriptions.
+     *
+     * @param targetNid     the component
+     * @param patternFilter optional case-insensitive substring of the pattern name
+     * @param limit         the most semantics to find
+     * @param v             the view whose latest versions are read
+     * @param budget        how long to read field values
+     * @return what was found
+     */
+    static References references(long targetNid, String patternFilter, int limit, ViewCalculator v, Duration budget) {
+        String filter = (patternFilter == null || patternFilter.isBlank()) ? null : patternFilter.trim().toLowerCase();
+        LinkedHashMap<Long, Referrer> found = new LinkedHashMap<>();
+
+        Iterator<SemanticEntity<SemanticEntityVersion>> attached =
+                EntityService.get().semanticsForComponent(targetNid).iterator();
+        while (attached.hasNext() && found.size() < limit) {
+            SemanticEntity<SemanticEntityVersion> semantic = attached.next();
+            if (selected(semantic.patternNid(), filter, v)) {
+                referrer(semantic, List.of("reference"), v).ifPresent(r -> found.put(semantic.nid(), r));
+            }
+        }
+        boolean atLimit = attached.hasNext();
+
+        List<Long> patterns = new ArrayList<>();
+        EntityService.get().forEachPatternEntity(pattern -> {
+            if (selected(pattern.nid(), filter, v)) {
+                patterns.add(pattern.nid());
+            }
+        });
+        Map<Long, Integer> sizes = new HashMap<>();
+        patterns.forEach(pattern -> sizes.put(pattern, EntityService.get().countSemanticsOfPattern(pattern)));
+        patterns.sort(Comparator.comparing(sizes::get));
+        long total = sizes.values().stream().mapToLong(Integer::longValue).sum();
+
+        long deadline = System.nanoTime() + budget.toNanos();
+        long searched = 0;
+        boolean outOfTime = false;
+        search:
+        for (long patternNid : patterns) {
+            Iterator<SemanticEntity<SemanticEntityVersion>> semantics =
+                    EntityService.get().semanticsOfPattern(patternNid).iterator();
+            while (semantics.hasNext()) {
+                if (searched % SEMANTICS_PER_CLOCK_CHECK == 0 && System.nanoTime() - deadline >= 0) {
+                    outOfTime = true;
+                    break search;
+                }
+                SemanticEntity<SemanticEntityVersion> semantic = semantics.next();
+                searched++;
+                if (!anyVersionHolds(semantic, targetNid)) {
+                    continue;
+                }
+                Optional<SemanticEntityVersion> version = latestOfAnyState(semantic.nid(), v);
+                if (version.isEmpty()) {
+                    continue;
+                }
+                List<String> via = fieldsHolding(targetNid, version.get(), fieldNamesFor(patternNid, v));
+                if (via.isEmpty()) {
+                    continue;
+                }
+                Referrer already = found.get(semantic.nid());
+                if (already != null) {
+                    List<String> both = new ArrayList<>(already.via());
+                    both.addAll(via);
+                    found.put(semantic.nid(), new Referrer(already.pattern(), already.semanticId(),
+                            already.retired(), already.attachedTo(), both));
+                } else if (found.size() >= limit) {
+                    atLimit = true;
+                    break search;
+                } else {
+                    referrer(semantic, via, v).ifPresent(r -> found.put(semantic.nid(), r));
+                }
+            }
+        }
+        return new References(List.copyOf(found.values()), searched, total, atLimit, outOfTime);
+    }
+
+    /** Whether a pattern passes the name filter; every pattern passes when there is none. */
+    private static boolean selected(long patternNid, String filter, ViewCalculator v) {
+        return filter == null || ComponentText.preferredName(v, patternNid).toLowerCase().contains(filter);
+    }
+
+    /** The row for a semantic, or empty when it has no version under the view. */
+    private static Optional<Referrer> referrer(SemanticEntity<SemanticEntityVersion> semantic, List<String> via,
+                                               ViewCalculator v) {
+        return latestOfAnyState(semantic.nid(), v).map(version -> new Referrer(
+                ComponentText.preferredName(v, semantic.patternNid()),
+                ComponentText.leastUuid(semantic.nid()).map(UUID::toString).orElse(""),
+                version.stamp().state() != State.ACTIVE,
+                ComponentText.preferredName(v, semantic.referencedComponentNid()) + ' '
+                        + ComponentText.typedIdentifier(v, semantic.referencedComponentNid()),
+                via));
+    }
+
+    /** The semantic's latest version at the view's position and modules, in either state. */
+    private static Optional<SemanticEntityVersion> latestOfAnyState(long semanticNid, ViewCalculator v) {
+        Latest<SemanticEntityVersion> latest = anyState(v).latest(semanticNid);
+        return latest.isPresent() ? Optional.of(latest.get()) : Optional.empty();
+    }
+
+    /** The view's stamp coordinate in either state, so a retired component still reads as itself. */
+    private static StampCalculatorWithCache anyState(ViewCalculator v) {
+        return StampCalculatorWithCache.getCalculator(
+                v.viewCoordinateRecord().stampCoordinate().withAllowedStates(StateSet.ACTIVE_AND_INACTIVE));
+    }
+
+    /** Whether any version of a semantic holds the component: a cheap test, before the view is asked. */
+    private static boolean anyVersionHolds(SemanticEntity<SemanticEntityVersion> semantic, long targetNid) {
+        for (SemanticEntityVersion version : semantic.versions()) {
+            for (Object value : version.fieldValues()) {
+                if (holds(value, targetNid)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /** How a version points at the component: one {@code field "<name>"} per field that holds it. */
+    private static List<String> fieldsHolding(long targetNid, SemanticEntityVersion version, List<String> fieldNames) {
+        List<String> via = new ArrayList<>();
+        Object[] values = version.fieldValues().toArray();
+        for (int i = 0; i < values.length; i++) {
+            if (holds(values[i], targetNid)) {
+                via.add("field \"" + (i < fieldNames.size() ? fieldNames.get(i) : "field " + i) + '"');
+            }
+        }
+        return via;
+    }
+
+    /**
+     * Whether a field value holds a component: is it, lists it, or names it as a property of a
+     * vertex of a definition tree. A vertex's meaning is not counted: it is the grammar of the
+     * tree, such as a role or an AND, not a component the definition refers to.
+     */
+    private static boolean holds(Object value, long targetNid) {
+        return switch (value) {
+            case EntityFacade facade -> facade.nid() == targetNid;
+            case LongIdCollection ids -> ids.contains(targetNid);
+            case DiTreeEntity tree -> tree.vertexMap().anySatisfy(vertex -> holds(vertex, targetNid));
+            case EntityVertex vertex -> vertex.properties().anySatisfy(property -> holds(property, targetNid));
+            case null, default -> false;
+        };
+    }
+
+    /** The search's answer: what points at the component, then how far the search got. */
+    static String render(Component target, References found) {
+        StringBuilder sb = new StringBuilder(target.name()).append("  [").append(target.uuid()).append("]\n");
+        if (found.referrers().isEmpty()) {
+            sb.append("No semantics found pointing at it.\n");
+        }
+        for (Referrer referrer : found.referrers()) {
+            renderHeading(sb, referrer.pattern(), referrer.semanticId(), referrer.retired());
+            sb.append("  attached to: ").append(referrer.attachedTo()).append('\n')
+                    .append("  points here by: ").append(String.join(", ", referrer.via())).append('\n');
+        }
+        sb.append('[').append(found.referrers().size()).append(" semantics; read ")
+                .append(found.searched()).append(" of ").append(found.total()).append(" semantics");
+        if (found.outOfTime()) {
+            sb.append("; STOPPED FOR TIME with the largest patterns unread, so more may exist. Narrow with 'pattern'.");
+        } else if (found.atLimit()) {
+            sb.append("; STOPPED AT THE LIMIT, so more may exist. Narrow with 'pattern' or raise 'limit'.");
+        }
+        return sb.append(']').toString();
     }
 
     // ── gRPC-mode variants ───────────────────────────────────────────────
@@ -727,9 +989,7 @@ public final class GraphTools {
             if (!(entity instanceof SemanticEntity<?> semantic)) {
                 return null;
             }
-            Latest<SemanticEntityVersion> latest = StampCalculatorWithCache.getCalculator(
-                            v.viewCoordinateRecord().stampCoordinate().withAllowedStates(StateSet.ACTIVE_AND_INACTIVE))
-                    .latest(semanticNid);
+            Latest<SemanticEntityVersion> latest = anyState(v).latest(semanticNid);
             if (!latest.isPresent()) {
                 return null;
             }
@@ -840,14 +1100,7 @@ public final class GraphTools {
 
     /** Renders one semantic as its pattern, UUID, and named fields. */
     private static void renderSemantic(StringBuilder sb, SemanticInfo info) {
-        sb.append("Pattern: ").append(info.patternName());
-        if (!info.semanticId().isEmpty()) {
-            sb.append("  [").append(info.semanticId()).append(']');
-        }
-        if (info.retired()) {
-            sb.append("  (retired)");
-        }
-        sb.append('\n');
+        renderHeading(sb, info.patternName(), info.semanticId(), info.retired());
         if (info.fields().isEmpty()) {
             sb.append("  (no field values)\n");
             return;
@@ -855,6 +1108,21 @@ public final class GraphTools {
         for (NamedField field : info.fields()) {
             sb.append("  - ").append(field.name()).append(": ").append(field.value()).append('\n');
         }
+    }
+
+    /**
+     * A semantic's heading line. Its UUID is labelled: bare, beside a pattern's name, it read as
+     * the pattern's, and {@code semantic_info} is called with it.
+     */
+    private static void renderHeading(StringBuilder sb, String patternName, String semanticId, boolean retired) {
+        sb.append("Pattern: ").append(patternName);
+        if (!semanticId.isEmpty()) {
+            sb.append("  semantic [").append(semanticId).append(']');
+        }
+        if (retired) {
+            sb.append("  (retired)");
+        }
+        sb.append('\n');
     }
 
     private AnthropicTool search() {
@@ -978,12 +1246,31 @@ public final class GraphTools {
                 return NONE;
             }
         }
-        long nid = toConceptNid(EntityService.get().nidForPublicId(PublicIds.of(uuid)));
-        // A nid may be minted for an unknown id; treat "no name" as not present.
+        PublicId publicId = PublicIds.of(uuid);
+        if (!held(publicId)) {
+            return NONE;
+        }
+        long nid = toConceptNid(EntityService.get().nidForPublicId(publicId));
+        // A component this view does not name is treated as not present.
         if (v.getFullyQualifiedNameText(nid).isEmpty() && v.getDescriptionText(nid).isEmpty()) {
             return NONE;
         }
         return nid;
+    }
+
+    /**
+     * Whether the store holds a public id, asked before asking for its nid: for an id it does not
+     * hold, that would mint one, which outlives the session with no record behind it, or be
+     * refused with an exception by a store keyed by pattern. The model can pass any identifier.
+     *
+     * <p>Over gRPC, {@code hasPublicId} knows only the ids already fetched, and there is no local
+     * store to mint into, so every id is let through to the service.
+     *
+     * @param publicId the public id
+     * @return true when its nid can be asked for
+     */
+    public static boolean held(PublicId publicId) {
+        return GrpcSearchService.isActive() || PrimitiveData.get().hasPublicId(publicId);
     }
 
     /**
@@ -1009,11 +1296,109 @@ public final class GraphTools {
         if (uuids.isEmpty()) {
             return NONE;
         }
-        long nid = toConceptNid(EntityService.get().nidForPublicId(PublicIds.of(uuids.toArray(new UUID[0]))));
+        PublicId publicId = PublicIds.of(uuids.toArray(new UUID[0]));
+        if (!held(publicId)) {
+            return NONE;
+        }
+        long nid = toConceptNid(EntityService.get().nidForPublicId(publicId));
         if (v.getFullyQualifiedNameText(nid).isEmpty() && v.getDescriptionText(nid).isEmpty()) {
             return NONE;
         }
         return nid;
+    }
+
+    /** What a component is, in the words a tool's input and answer use. */
+    public enum ComponentKind {
+        /** A concept. */
+        CONCEPT,
+        /** A pattern. */
+        PATTERN,
+        /** A semantic: an instance of a pattern. */
+        SEMANTIC;
+
+        /** The word for this kind. */
+        public String word() {
+            return name().toLowerCase(java.util.Locale.ROOT);
+        }
+    }
+
+    /**
+     * A component as a view shows it.
+     *
+     * @param entity  the component
+     * @param kind    what it is
+     * @param name    its name under the view; a semantic's is its text
+     * @param uuid    its own UUID
+     * @param retired whether its latest version under the view is inactive
+     */
+    public record Component(Entity<?> entity, ComponentKind kind, String name, String uuid, boolean retired) {}
+
+    /**
+     * Resolves an SCTID, a UUID, or a comma-joined {@code PublicId} to the component it names,
+     * taken as given: unlike {@link #resolve}, a semantic stays a semantic and is not walked up to
+     * its concept. Nothing is written, not even a nid for an identifier the store has not seen.
+     *
+     * <p>A component is found when the store holds it and it has a version, in either state, at
+     * the view's position and modules, the versions the read tools show.
+     *
+     * @param id the identifier
+     * @param v  the view
+     * @return the component
+     * @throws IllegalArgumentException when it does not resolve, with what to tell the model
+     */
+    public static Component component(String id, ViewCalculator v) {
+        if (!inStore(id)) {
+            throw new IllegalArgumentException(notInStore(id));
+        }
+        long nid = EntityService.get().nidForPublicId(publicIdOf(id.trim()));
+        Entity<?> entity = EntityHandle.get(nid).orNull();
+        ComponentKind kind = switch (entity) {
+            case ConceptEntity<?> _ -> ComponentKind.CONCEPT;
+            case PatternEntity<?> _ -> ComponentKind.PATTERN;
+            case SemanticEntity<?> _ -> ComponentKind.SEMANTIC;
+            case null -> throw new IllegalArgumentException(notInStore(id));
+            default -> throw new IllegalArgumentException(
+                    "'" + id + "' identifies a STAMP, which is not a concept, pattern or semantic.");
+        };
+        Latest<EntityVersion> latest = anyState(v).latest(nid);
+        if (!latest.isPresent()) {
+            throw new IllegalArgumentException("'" + id + "' is a " + kind.word() + " with no version in this "
+                    + "view, so the read tools do not show it. Call view_info to see the coordinate.");
+        }
+        return new Component(entity, kind, ComponentText.fullyQualifiedName(v, nid),
+                ComponentText.identifier(nid), latest.get().stamp().state() != State.ACTIVE);
+    }
+
+    /**
+     * Whether the store holds an identifier, in any state and under any view: the test for a
+     * writer, which must refuse what is not there. {@link #resolveConcept} answers empty for that
+     * and for a retired concept alike.
+     *
+     * @param id an SCTID, a UUID, or a comma-joined {@code PublicId}
+     * @return true when the store holds it
+     */
+    public static boolean inStore(String id) {
+        PublicId publicId = id == null || id.isBlank() ? null : publicIdOf(id.trim());
+        return publicId != null && held(publicId);
+    }
+
+    /** What is said of an identifier the store does not hold. */
+    private static String notInStore(String id) {
+        return "No component found for '" + id + "' in this knowledge base "
+                + "(accepts an SCTID, or a concept's, pattern's or semantic's UUID).";
+    }
+
+    /** The public id an identifier spells, or null when it is not one. */
+    private static PublicId publicIdOf(String id) {
+        try {
+            if (id.indexOf(',') >= 0) {
+                return PublicIds.of(java.util.Arrays.stream(id.split(","))
+                        .map(part -> UUID.fromString(part.trim())).toArray(UUID[]::new));
+            }
+            return PublicIds.of(UUID.fromString(id));
+        } catch (IllegalArgumentException notUuid) {
+            return id.indexOf(',') >= 0 ? null : PublicIds.of(UuidUtil.fromSNOMED(id));
+        }
     }
 
     /**

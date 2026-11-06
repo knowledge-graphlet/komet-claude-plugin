@@ -20,7 +20,14 @@ discards it.
   with its identifier.
 - `concept_semantics`: the semantics attached to a concept (identifiers,
   comments, structured records) with their fields; `semantic_info` reads one
-  semantic by its own UUID.
+  semantic by its own UUID, written `semantic [UUID]` beside its pattern.
+- `referencing_semantics`: the semantics that point at a component, by being
+  attached to it or by holding it in a field or a definition. It searches the
+  knowledge base, smallest patterns first, and says if it stopped early; when
+  it does, narrow it with `pattern` rather than calling it complete.
+- `open_component`: only when the person asks to open or see a concept,
+  pattern or semantic in Komet, open it in a new window of their journal. It
+  writes nothing. To open a proposal you wrote, use `open_concept_proposal`.
 - `kb_composition`: what the knowledge base is made of: its sources,
   releases, versions, and how it was assembled and exported.
 - `view_info` and `debug_concept`: when parents or axioms come back empty for

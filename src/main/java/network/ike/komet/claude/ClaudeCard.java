@@ -489,6 +489,8 @@ public final class ClaudeCard extends AbstractHostCard {
             java.util.function.Supplier<java.util.UUID> journalTopic,
             java.util.function.Supplier<java.util.List<network.ike.komet.claude.instructions.AssistantSkills.Skill>> skills) {
         java.util.List<AnthropicTool> all = new java.util.ArrayList<>(new GraphTools(view).tools());
+        // Opening a component: a window of this journal on what the graph tools read, writing nothing.
+        all.addAll(new network.ike.komet.claude.tools.ComponentWindowTools(viewProperties, journalTopic).tools());
         // Provenance tools (ike-issues#468): who introduced or affirmed a committed file's lines, and a
         // concurrence prepared for the person to sign in the Stamped Document card — never signed here.
         all.addAll(network.ike.komet.claude.stamp.StampTools.tools(
