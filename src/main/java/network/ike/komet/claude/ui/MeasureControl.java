@@ -33,13 +33,16 @@ import network.ike.komet.claude.decision.render.DecisionFigureText;
 import java.util.Optional;
 
 /**
- * The control that opens when the pointer rests on a value's name in the tornado: the value's
- * lower and upper bound, a slider between them, and the value the tree is drawn at. Moving the
- * slider previews the tree at that value, live and uncommitted; the button makes it a what-if.
- * The bounds are the slider's range, the swing's by default, and typing other bounds moves the
- * range, never the block.
+ * The control that opens on a click on a value's name in the tornado: the value's lower and upper
+ * bound, a slider between them, and the value the tree is drawn at. Moving the slider or typing a
+ * value previews the tree at that value, live and uncommitted; the button makes it a what-if. The
+ * bounds are the slider's range, the swing's by default. Typing other bounds moves the range, and
+ * typing a value outside it widens the range to take it in, never the block.
  */
 final class MeasureControl extends VBox {
+
+    /** The popover's width, in ems of the document's text. */
+    static final double WIDTH_EMS = 26;
 
     /** What the control asks of the chart it opens from. */
     interface Listener {
@@ -53,12 +56,18 @@ final class MeasureControl extends VBox {
     final TextField lower;
     final TextField upper;
     final Slider slider;
-    final Label shown;
+    final TextField shown;
     final Button apply;
     private final Listener listener;
     /** The slider's resolution: one tidy step per whole pixel of its track, never finer. */
     private double step = 1;
     private boolean snapping;
+    /** The value being tried: where the slider stands, or exactly what was typed. */
+    private double current;
+    /** Whether the value has moved from where the tree stands: until it has, the step does not touch it. */
+    private boolean moved;
+    /** The value field's text as this control last wrote it: any other text is a person's. */
+    private String written = "";
 
     /**
      * @param name   what the value is
@@ -71,11 +80,10 @@ final class MeasureControl extends VBox {
         this.listener = listener;
         setId("measure-control");
         setPadding(new Insets(8, 10, 8, 10));
-        setStyle("-fx-background-color: #fffdf6; -fx-border-color: #d9c48a; -fx-border-radius: 6; -fx-background-radius: 6;"
-                + " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.25), 8, 0, 0, 2);");
         Label title = new Label(name);
         title.setFont(Font.font(null, FontWeight.BOLD, base * 0.9));
         title.setTextFill(MeasureChip.INK);
+        title.setWrapText(true);
         Label how = new Label(stated ? "the block's stated interval" : "an assumed range; type other bounds to move it");
         how.setFont(Font.font(base * 0.75));
         how.setTextFill(javafx.scene.paint.Color.web("#666"));
@@ -97,12 +105,12 @@ final class MeasureControl extends VBox {
         slider.setShowTickMarks(true);
         slider.setMajorTickUnit(Math.max((range.upper() - range.lower()) / 4, 1e-9));
         slider.setMinorTickCount(1);
-        Tooltip.install(slider, new Tooltip("Move to draw the tree at that value"));
 
-        shown = new Label();
+        shown = new TextField();
         shown.setId("measure-control-value");
         shown.setFont(Font.font(null, FontWeight.BOLD, base * 0.9));
-        shown.setTextFill(TornadoChart.HOT);
+        shown.setPrefColumnCount(8);
+        shown.setMinWidth(javafx.scene.layout.Region.USE_PREF_SIZE);
         apply = new Button("Use this value");
         apply.setId("measure-control-apply");
         apply.setFont(Font.font(base * 0.85));
@@ -113,7 +121,8 @@ final class MeasureControl extends VBox {
 
         getChildren().addAll(title, how, bounds, slider, foot);
         restep();
-        show(slider.getValue());
+        current = slider.getValue();
+        write(TornadoChart.value(current));
         slider.widthProperty().addListener((obs, was, now) -> restep());
         slider.valueProperty().addListener((obs, was, now) -> {
             if (snapping) {
@@ -128,12 +137,58 @@ final class MeasureControl extends VBox {
                     snapping = false;
                 }
             }
+            moved = true;
             show(snapped);
             listener.preview(snapped);
         });
         lower.setOnAction(e -> rerange());
         upper.setOnAction(e -> rerange());
-        apply.setOnAction(e -> listener.commit(snap(slider.getValue())));
+        shown.setOnAction(e -> typeValue());
+        apply.setOnAction(e -> {
+            if (typeValue()) {
+                listener.commit(current);
+            }
+        });
+    }
+
+    /**
+     * Reads the value field when its text differs from the value being tried, and previews what it
+     * reads. A value outside the range widens the range to take it in.
+     *
+     * @return false when the field holds nothing that reads as one value
+     */
+    boolean typeValue() {
+        if (shown.getText().equals(written)) {
+            return true;
+        }
+        Optional<Bounds> typed = DecisionTreeEdits.typed(shown.getText()).filter(b -> b.lower() == b.upper());
+        if (typed.isEmpty()) {
+            shown.setStyle("-fx-border-color: #c0392b;");
+            return false;
+        }
+        shown.setStyle("");
+        double value = typed.get().lower();
+        if (value < slider.getMin() || value > slider.getMax()) {
+            double min = Math.min(value, slider.getMin());
+            double max = Math.max(value, slider.getMax());
+            slider.setMin(min);
+            slider.setMax(max);
+            lower.setText(TornadoChart.value(min).replace(",", ""));
+            upper.setText(TornadoChart.value(max).replace(",", ""));
+            slider.setMajorTickUnit(Math.max((max - min) / 4, 1e-9));
+            restep();
+        }
+        snapping = true;
+        try {
+            slider.setValue(value);     // as typed: only the pointer is held to the slider's step
+        } finally {
+            snapping = false;
+        }
+        moved = true;
+        current = value;
+        written = shown.getText();
+        listener.preview(value);
+        return true;
     }
 
     /**
@@ -146,7 +201,7 @@ final class MeasureControl extends VBox {
         double pixels = Math.max(1, width - 16);
         step = niceStep((slider.getMax() - slider.getMin()) / pixels);
         slider.setBlockIncrement(step);
-        if (!snapping) {
+        if (moved && !snapping) {
             double snapped = snap(slider.getValue());
             if (snapped != slider.getValue()) {
                 snapping = true;
@@ -195,7 +250,14 @@ final class MeasureControl extends VBox {
     }
 
     private void show(double value) {
-        shown.setText(DecisionFigureText.atStep(value, step));
+        current = value;
+        write(DecisionFigureText.atStep(value, step));
+    }
+
+    private void write(String text) {
+        written = text;
+        shown.setStyle("");
+        shown.setText(text);
     }
 
     /** Reads the two bound fields and moves the slider's range to them, holding its value within. */

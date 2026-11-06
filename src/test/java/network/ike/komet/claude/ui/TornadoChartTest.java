@@ -264,7 +264,7 @@ class TornadoChartTest {
     }
 
     @Test
-    @DisplayName("Resting on a value's name opens its control: bounds, a slider that previews, and a button that commits")
+    @DisplayName("A value's control has its bounds, a slider that previews, and a button that commits")
     void controlPreviewsAndCommits() throws Exception {
         onFx(() -> {
             Recording host = new Recording();
@@ -302,6 +302,110 @@ class TornadoChartTest {
             assertEquals(scanCost + "~", host.previews.get(host.previews.size() - 1), "closing takes the preview back");
             assertTrue(chart.control().isEmpty());
         });
+    }
+
+    @Test
+    @DisplayName("A click on a name opens its control; a second click closes it and a click on another name moves to it")
+    void nameClickOpensAndCloses() throws Exception {
+        onFx(() -> {
+            Recording host = new Recording();
+            TornadoChart chart = drawn(host);
+            int scanCost = tree.children(vertexOf("rda-scan"), MoneyCost.class).get(0).vertexIndex();
+            TornadoChart.Row row = chart.row(scanCost).orElseThrow();
+            TornadoChart.Row other = chart.row(DecisionTreeSensitivity.HEALTH_PRICE).orElseThrow();
+            chart.nameClicked(row);
+            assertTrue(chart.control().isPresent(), "the click opens it");
+            MeasureControl first = chart.control().orElseThrow();
+            first.slider.setValue(900);
+            chart.nameClicked(other);
+            assertTrue(chart.control().isPresent());
+            assertTrue(chart.control().orElseThrow() != first, "the click moves to the other name");
+            assertEquals(scanCost + "~", host.previews.get(host.previews.size() - 1), "and takes the first preview back");
+            chart.nameClicked(other);
+            assertTrue(chart.control().isEmpty(), "a click on the name that opened it closes it");
+        });
+    }
+
+    @Test
+    @DisplayName("Moving the pointer never closes the control")
+    void pointerLeavingKeepsTheControl() throws Exception {
+        onFx(() -> {
+            TornadoChart chart = drawn(new Recording());
+            int scanCost = tree.children(vertexOf("rda-scan"), MoneyCost.class).get(0).vertexIndex();
+            TornadoChart.Row row = chart.row(scanCost).orElseThrow();
+            MeasureControl control = chart.openControl(scanCost);
+            javafx.event.Event.fireEvent(row.name, mouse(javafx.scene.input.MouseEvent.MOUSE_EXITED));
+            javafx.event.Event.fireEvent(control, mouse(javafx.scene.input.MouseEvent.MOUSE_EXITED));
+            assertTrue(chart.control().isPresent(), "only a click, Esc or the button closes it");
+            assertEquals(null, control.getOnMouseExited(), "and it has no timer waiting on the pointer");
+        });
+    }
+
+    @Test
+    @DisplayName("A typed value previews as typed, widens the range when it is outside, and is what the button uses")
+    void typedValue() throws Exception {
+        onFx(() -> {
+            Recording host = new Recording();
+            TornadoChart chart = drawn(host);
+            int scanCost = tree.children(vertexOf("rda-scan"), MoneyCost.class).get(0).vertexIndex();
+            MeasureControl control = chart.openControl(scanCost);
+            control.shown.setText("1,234");
+            control.shown.fireEvent(new javafx.event.ActionEvent());
+            assertEquals(scanCost + "~1234", host.previews.get(host.previews.size() - 1), "not held to the slider's step");
+            assertEquals(1_234, control.slider.getValue(), 1e-9);
+            control.shown.setText("2000");
+            control.shown.fireEvent(new javafx.event.ActionEvent());
+            assertEquals(2_000, control.slider.getMax(), 1e-9, "the range widens to take it in");
+            assertEquals("2000", control.upper.getText());
+            control.shown.setText("not a number");
+            control.apply.fire();
+            assertTrue(host.tried.isEmpty(), "nothing is tried from a value that does not read");
+            assertTrue(chart.control().isPresent(), "and the control stays open to correct it");
+            control.shown.setText("1500");
+            control.apply.fire();
+            assertEquals(List.of(scanCost + "=1500"), host.tried, "the button uses what is typed, without an Enter first");
+        });
+    }
+
+    @Test
+    @DisplayName("A control opens at the value the tree stands at, not at the nearest step of its slider")
+    void opensAtTheExactValue() throws Exception {
+        onFx(() -> {
+            List<Double> committed = new ArrayList<>();
+            MeasureControl control = new MeasureControl("a share", network.ike.komet.claude.decision.Bounds.of(0.01875, 0.075), 0.0375, false, 14,
+                    new MeasureControl.Listener() {
+                        @Override
+                        public void preview(double value) {
+                        }
+
+                        @Override
+                        public void commit(double value) {
+                            committed.add(value);
+                        }
+                    });
+            assertEquals("0.0375", control.shown.getText());
+            control.slider.setPrefWidth(400);
+            control.apply.fire();
+            assertEquals(List.of(0.0375), committed, "used untouched, the value is what the tree already had");
+        });
+    }
+
+    @Test
+    @DisplayName("The click that closes a popover does not open it again when it reaches the name")
+    void closingClickDoesNotReopen() {
+        MeasurePeek peek = new MeasurePeek();
+        Object row = new Object();
+        assertTrue(peek.opens(row), "nothing has closed");
+        peek.closed(row);
+        assertTrue(peek.opens(new Object()), "another row opens at once");
+        peek.closed(row);
+        assertFalse(peek.opens(row), "the click that closed this row's popover does not open it again");
+        assertTrue(peek.opens(row), "the next click does");
+    }
+
+    private static javafx.scene.input.MouseEvent mouse(javafx.event.EventType<javafx.scene.input.MouseEvent> type) {
+        return new javafx.scene.input.MouseEvent(type, 0, 0, 0, 0, javafx.scene.input.MouseButton.NONE, 0,
+                false, false, false, false, false, false, false, false, false, false, null);
     }
 
     private static void onFx(Runnable body) throws Exception {

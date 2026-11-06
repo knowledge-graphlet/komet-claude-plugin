@@ -19,9 +19,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
-import javafx.animation.PauseTransition;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.Cursor;
 import javafx.scene.control.Label;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
@@ -32,8 +32,6 @@ import javafx.scene.paint.Color;
 import javafx.scene.shape.Line;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.Font;
-import javafx.stage.Popup;
-import javafx.util.Duration;
 import network.ike.komet.claude.calculator.CalculatorSensitivity;
 import network.ike.komet.claude.decision.Bounds;
 
@@ -43,7 +41,7 @@ import network.ike.komet.claude.decision.Bounds;
  * result for every input at its midpoint. A bar is solid when the input's own bounds are an
  * interval, an observed resolution or a missing input's plausible range, and hollow when the
  * sweep assumed a swing for a point reading. Resting on a bar lights the input's row through the
- * {@link Host}; resting on its name opens the value control, whose slider previews the result and
+ * {@link Host}; a click on its name opens the value control, whose slider previews the result and
  * whose button writes an assumption.
  */
 final class CalculatorTornado extends VBox {
@@ -73,8 +71,7 @@ final class CalculatorTornado extends VBox {
     private static final double BAR_HEIGHT = 12;
 
     private final Map<Long, Row> rows = new LinkedHashMap<>();
-    private final Popup popup = new Popup();
-    private final PauseTransition hideDelay = new PauseTransition(Duration.millis(600));
+    private final MeasurePeek peek = new MeasurePeek();
     private Row controlRow;
 
     private final class Row {
@@ -93,8 +90,8 @@ final class CalculatorTornado extends VBox {
             name.setMinWidth(NAME_WIDTH);
             name.setPrefWidth(NAME_WIDTH);
             name.setTooltip(new Tooltip(swept.solid()
-                    ? "Swung across the input's own interval; rest here for a slider"
-                    : "A point reading swung across an assumed range; rest here for a slider"));
+                    ? "Swung across the input's own interval; click for a slider"
+                    : "A point reading swung across an assumed range; click for a slider"));
             track.setPrefHeight(BAR_HEIGHT + 6);
             track.setMinHeight(BAR_HEIGHT + 6);
             HBox.setHgrow(track, javafx.scene.layout.Priority.ALWAYS);
@@ -143,8 +140,8 @@ final class CalculatorTornado extends VBox {
             long quantity = swept.input().quantity();
             line.setOnMouseEntered(e -> host.light(quantity, true));
             line.setOnMouseExited(e -> host.light(quantity, false));
-            name.setOnMouseEntered(e -> open(this, base));
-            name.setOnMouseExited(e -> scheduleHide());
+            name.setCursor(Cursor.HAND);
+            name.setOnMouseClicked(e -> nameClicked(this, base));
             track.setOnMouseClicked(e -> {
                 double w = track.getWidth();
                 if (w <= 0) {
@@ -186,12 +183,10 @@ final class CalculatorTornado extends VBox {
         legend.setTextFill(Color.web("#666"));
         legend.setWrapText(true);
         getChildren().add(legend);
-        popup.setAutoHide(true);
-        popup.setHideOnEscape(true);
-        hideDelay.setOnFinished(e -> {
-            popup.hide();
-            controlRow = null;
-            host.preview(0, OptionalDouble.empty());
+        sceneProperty().addListener((obs, was, now) -> {
+            if (now == null) {
+                peek.close();
+            }
         });
     }
 
@@ -219,11 +214,17 @@ final class CalculatorTornado extends VBox {
         return Optional.of(swing.lower() + t * (swing.upper() - swing.lower()));
     }
 
-    private void open(Row row, double base) {
-        hideDelay.stop();
-        if (controlRow == row && popup.isShowing()) {
-            return;
+    /** A click on an input's name opens its control, or closes it when it is the one open. */
+    private void nameClicked(Row row, double base) {
+        if (controlRow == row) {
+            closeControl();
+        } else if (peek.opens(row)) {
+            open(row, base);
         }
+    }
+
+    private void open(Row row, double base) {
+        closeControl();
         controlRow = row;
         long quantity = row.swept.input().quantity();
         double current = row.swept.swing().midpoint();
@@ -236,23 +237,23 @@ final class CalculatorTornado extends VBox {
 
                     @Override
                     public void commit(double value) {
-                        popup.hide();
+                        peek.close();
                         controlRow = null;
                         host.preview(quantity, OptionalDouble.empty());
                         host.assume(quantity, value);
                     }
                 });
-        control.setOnMouseEntered(e -> hideDelay.stop());
-        control.setOnMouseExited(e -> scheduleHide());
-        popup.getContent().setAll(control);
-        javafx.geometry.Point2D at = row.name.localToScreen(0, row.name.getHeight());
-        if (at != null) {
-            popup.show(row.name, at.getX(), at.getY() + 2);
-        }
+        peek.show(row, control, row.name, base * MeasureControl.WIDTH_EMS, this::closeControl);
     }
 
-    private void scheduleHide() {
-        hideDelay.playFromStart();
+    /** Closes the control, and takes the result back to where it stands. */
+    private void closeControl() {
+        if (controlRow == null) {
+            return;
+        }
+        controlRow = null;
+        peek.close();
+        host.preview(0, OptionalDouble.empty());
     }
 
     /** The rows drawn, for a test. */

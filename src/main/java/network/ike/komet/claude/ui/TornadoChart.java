@@ -25,9 +25,6 @@ import javafx.scene.layout.Region;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Line;
 import javafx.scene.shape.Rectangle;
-import javafx.stage.Popup;
-import javafx.animation.PauseTransition;
-import javafx.util.Duration;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import network.ike.komet.claude.decision.Bounds;
@@ -57,7 +54,7 @@ import java.util.OptionalDouble;
  * Where the root's chosen alternative flips inside the range, the bar changes colour beyond the
  * flip and a tick carries the threshold; a legend names the colours. Resting on a bar lights the
  * measure on the tree through the {@link Host}; a click on a bar tries the value under the
- * pointer as a what-if. Drawn as the shared {@code DecisionFigureTornado} draws the figure.
+ * pointer as a what-if, and a click on a name opens the value's control. Drawn as the shared {@code DecisionFigureTornado} draws the figure.
  */
 final class TornadoChart extends Region {
 
@@ -147,8 +144,7 @@ final class TornadoChart extends Region {
     private final Label probe = new Label();
     private final Label footnote;
     private final Line marker = new Line();
-    private final Popup popup = new Popup();
-    private final PauseTransition hideDelay = new PauseTransition(Duration.millis(600));
+    private final MeasurePeek peek = new MeasurePeek();
     private MeasureControl control;
     private Row controlRow;
     private double barLeft;
@@ -197,13 +193,9 @@ final class TornadoChart extends Region {
         marker.setStrokeWidth(2.5);
         marker.setVisible(false);
         marker.setMouseTransparent(true);
-        popup.setAutoHide(true);
-        popup.setAutoFix(true);
-        popup.setOnAutoHide(e -> closeControl());
-        hideDelay.setOnFinished(e -> closeControl());
         sceneProperty().addListener((obs, was, now) -> {
-            if (now == null && popup.isShowing()) {
-                popup.hide();
+            if (now == null) {
+                peek.close();
             }
         });
         getChildren().add(axisTitle);
@@ -234,7 +226,7 @@ final class TornadoChart extends Region {
     }
 
     private String footnote() {
-        StringBuilder sb = new StringBuilder(DecisionFigureTornado.FOOTNOTE + " Click a bar to try the value under the pointer.");
+        StringBuilder sb = new StringBuilder(DecisionFigureTornado.FOOTNOTE + " Click a bar to try the value under the pointer, or a name to set its value.");
         int still = (int) sweep.swings().stream().filter(s -> (net ? s.netWidth() : s.width()) <= 0).count();
         if (still > 0) {
             sb.append(' ').append(still == 1 ? "One value does not move the answer." : still + " values do not move the answer.");
@@ -382,16 +374,13 @@ final class TornadoChart extends Region {
         row.name.setOnMouseEntered(e -> {
             highlight(vertex, true);
             host.light(vertex, true);
-            hideDelay.stop();
-            if (controlRow != row) {
-                openControl(vertex);
-            }
         });
         row.name.setOnMouseExited(e -> {
             highlight(vertex, false);
             host.light(vertex, false);
-            hideDelay.playFromStart();
         });
+        row.name.setCursor(Cursor.HAND);
+        row.name.setOnMouseClicked(e -> nameClicked(row));
         row.band.setOnMouseMoved(e -> valueAt(row, e.getX()).ifPresent(value -> {
             probe.setText(host.quantity(vertex, value) + " → " + (net
                     ? "net " + money(swing.netAtValue(value).orElse(Double.NaN)) + ", expected cost "
@@ -425,6 +414,15 @@ final class TornadoChart extends Region {
 
     // ── The value's control ──────────────────────────────────────────────────
 
+    /** A click on a value's name opens its control, or closes it when it is the one open. */
+    void nameClicked(Row row) {
+        if (controlRow == row) {
+            closeControl();
+        } else if (peek.opens(row)) {
+            openControl(row.swing.measureVertex());
+        }
+    }
+
     /**
      * Opens the control for a value beneath its name: its bounds, a slider, and the value the
      * tree is drawn at. Any control already open closes first, and its preview with it.
@@ -447,26 +445,21 @@ final class TornadoChart extends Region {
 
                     @Override
                     public void commit(double value) {
-                        popup.hide();
+                        peek.close();
                         control = null;
                         controlRow = null;
                         marker.setVisible(false);
                         host.tryValue(measureVertex, value);
                     }
                 });
-        control.setOnMouseEntered(e -> hideDelay.stop());
-        control.setOnMouseExited(e -> hideDelay.playFromStart());
-        popup.getContent().setAll(control);
         if (getScene() != null && getScene().getWindow() != null) {
-            javafx.geometry.Point2D at = row.name.localToScreen(0, row.name.getHeight() + 2);
-            popup.show(getScene().getWindow(), at.getX(), at.getY());
+            peek.show(row, control, row.name, base * MeasureControl.WIDTH_EMS, this::closeControl);
         }
         return control;
     }
 
     /** Closes the control, and takes the tree back to where it stands. */
     void closeControl() {
-        hideDelay.stop();
         if (control == null) {
             return;
         }
@@ -474,9 +467,7 @@ final class TornadoChart extends Region {
         control = null;
         controlRow = null;
         marker.setVisible(false);
-        if (popup.isShowing()) {
-            popup.hide();
-        }
+        peek.close();
         host.preview(row.swing.measureVertex(), OptionalDouble.empty());
     }
 
