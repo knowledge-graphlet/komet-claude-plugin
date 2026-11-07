@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.stamp;
 
+import design.knowledge.stamp.adoc.git.GitRepo;
 import dev.ikm.komet.layout.tray.KlSidebarTray;
 import dev.ikm.komet.layout_engine.host.MakeCardWindowEvent;
 import dev.ikm.tinkar.common.id.PublicId;
@@ -22,12 +23,15 @@ import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.events.EvtBusFactory;
 import javafx.application.Platform;
 import javafx.collections.ObservableList;
+import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.SplitPane;
+import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.Tooltip;
 import javafx.scene.control.TreeCell;
@@ -59,12 +63,16 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
 
 /**
- * The journal's Documents tray: the folders of {@link DocumentLibrary} as a tree over a detail of
- * what is selected, and Open in Journal, which shows a document on a card of this journal. A
+ * The journal's Documents tray: a drop-down of the repository's branches over the folders of
+ * {@link DocumentLibrary} as a tree, over a detail of what is selected with a preview of a
+ * document's opening, and Open in Journal, which shows a document on a card of this journal. A
  * document that lives elsewhere joins the tree as its repository's folder when its card asks to
- * be shown here. The detail is read-only rich text, so it can be selected and copied.
+ * be shown here. The drop-down speaks for the repository holding the selection, and every card
+ * on that repository follows a switch. The detail is read-only rich text, so it can be selected
+ * and copied.
  */
 final class DocumentNavigatorTray implements KlSidebarTray {
 
@@ -88,8 +96,19 @@ final class DocumentNavigatorTray implements KlSidebarTray {
     private final Button open = button("Open in Journal", "stampedDocumentNavigatorOpen", "Show the document on a card in this journal");
     private final Button finder = button("Show in Finder", "stampedDocumentNavigatorFinder", "Show the file or folder in the Finder");
     private final VBox emptyState = new VBox();
+    private final ComboBox<String> branch = new ComboBox<>();
+    private final Button newBranch = button("New…", "stampedDocumentNavigatorNewBranch", "Start a new branch from HEAD; no file changes");
+    private final TextField newBranchName = new TextField();
+    private final HBox branchRow = new HBox(6, branch, newBranch);
+    /** The repository the drop-down speaks for, once read. */
+    private Path branchRoot;
+    private GitOperations.Branches branches;
+    /** Set while the drop-down is filled, so that filling it is not taken for a choice. */
+    private boolean fillingBranches;
     /** Advanced at each selection; a detail read for an older one is dropped. */
     private int reading;
+    /** Advanced at each reading of the branches; an older one is dropped. */
+    private int readingBranches;
 
     DocumentNavigatorTray(UUID journalTopic) {
         this.journalTopic = journalTopic;
@@ -105,7 +124,24 @@ final class DocumentNavigatorTray implements KlSidebarTray {
         Label subtitle = new Label("Stamped documents in " + DocumentLibrary.shownRoot());
         subtitle.getStyleClass().add("subtitle-label");
         subtitle.setWrapText(true);
-        VBox header = new VBox(titleRow, subtitle);
+        branch.setId("stampedDocumentNavigatorBranch");
+        branch.setMaxWidth(Double.MAX_VALUE);
+        branch.setPromptText("No branch");
+        branch.setTooltip(new Tooltip("The branch of this repository. Choosing another switches the working tree, and open documents follow"));
+        branch.setOnAction(e -> chooseBranch());
+        HBox.setHgrow(branch, Priority.ALWAYS);
+        newBranch.setOnAction(e -> askNewBranch(true));
+        newBranchName.setId("stampedDocumentNavigatorNewBranchName");
+        newBranchName.setPromptText("The new branch's name");
+        newBranchName.setOnAction(e -> createBranch());
+        newBranchName.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ESCAPE) {
+                askNewBranch(false);
+            }
+        });
+        askNewBranch(false);
+        branchRow.setPadding(new Insets(6, 0, 0, 0));
+        VBox header = new VBox(titleRow, subtitle, branchRow, newBranchName);
         header.getStyleClass().add("header");
 
         tree.setId("stampedDocumentNavigatorTree");
@@ -122,7 +158,7 @@ final class DocumentNavigatorTray implements KlSidebarTray {
         detail.setId("stampedDocumentNavigatorDetail");
         SplitPane split = new SplitPane(tree, detail);
         split.setOrientation(Orientation.VERTICAL);
-        split.setDividerPositions(0.6);
+        split.setDividerPositions(0.38);
 
         Label emptyTitle = new Label("No documents yet");
         emptyTitle.getStyleClass().add("empty-title");
@@ -182,6 +218,138 @@ final class DocumentNavigatorTray implements KlSidebarTray {
         emptyState.setManaged(read.isEmpty());
         kept.filter(Files::exists).ifPresent(this::reveal);
         selected().ifPresent(this::select);                    // what the detail says may have changed too
+        readBranches();
+    }
+
+    /** @return the repository of the selection, or the library's when nothing is selected */
+    private Optional<Path> repository() {
+        return selected().or(() -> Optional.of(DocumentLibrary.root()).filter(Files::isDirectory))
+                .flatMap(path -> GitRepo.findRoot(path).map(found -> found.toAbsolutePath().normalize()));
+    }
+
+    /** Reads the branches of the repository the tray is on, and fills the drop-down off the FX thread. */
+    private void readBranches() {
+        int asked = ++readingBranches;
+        Optional<Path> found = repository();
+        branchRow.setVisible(found.isPresent());
+        branchRow.setManaged(found.isPresent());
+        if (found.isEmpty()) {
+            branchRoot = null;
+            askNewBranch(false);
+            return;
+        }
+        Path root = found.get();
+        CompletableFuture.supplyAsync(() -> {
+            try {
+                return GitOperations.branches(root);
+            } catch (IOException e) {
+                throw new java.io.UncheckedIOException(e);
+            }
+        }).whenComplete((read, failure) -> Platform.runLater(() -> {
+            if (asked != readingBranches) {
+                return;
+            }
+            if (failure != null) {
+                LOG.warn("Listing the branches of {} failed", root, failure);
+                status.setText("Could not list the branches: " + message(failure));
+                return;
+            }
+            branchRoot = root;
+            branches = read;
+            fillingBranches = true;
+            try {
+                List<String> names = new ArrayList<>(read.local());
+                if (!read.current().isEmpty() && !names.contains(read.current())) {
+                    names.addFirst(read.current());                // a repository with no commits has no refs yet
+                }
+                names.addAll(read.remote());
+                branch.getItems().setAll(names);
+                branch.setValue(read.current().isEmpty() ? null : read.current());
+            } finally {
+                fillingBranches = false;
+            }
+        }));
+    }
+
+    private void askNewBranch(boolean asked) {
+        newBranchName.clear();
+        newBranchName.setVisible(asked);
+        newBranchName.setManaged(asked);
+        if (asked) {
+            newBranchName.requestFocus();
+        }
+    }
+
+    private void createBranch() {
+        Path root = branchRoot;
+        String name = newBranchName.getText();
+        if (root == null || name.isBlank()) {
+            askNewBranch(false);
+            return;
+        }
+        askNewBranch(false);
+        changeBranch(root, name.strip(), () -> {
+            try {
+                return GitOperations.createBranch(root, name);
+            } catch (IOException e) {
+                throw new java.io.UncheckedIOException(e);
+            }
+        }, false);
+    }
+
+    private void chooseBranch() {
+        String chosen = branch.getValue();
+        Path root = branchRoot;
+        if (fillingBranches || chosen == null || root == null || branches == null || chosen.equals(branches.current())) {
+            return;
+        }
+        boolean remote = branches.remote().contains(chosen);
+        changeBranch(root, chosen, () -> {
+            try {
+                return remote ? GitOperations.trackBranch(root, chosen) : GitOperations.switchBranch(root, chosen);
+            } catch (IOException e) {
+                throw new java.io.UncheckedIOException(e);
+            }
+        }, true);
+    }
+
+    /**
+     * Runs one change of branch off the FX thread, then brings the cards on the repository to it,
+     * one after another, since a card that must rebuild its document erases from the store.
+     *
+     * @param changesFiles whether the change can change files, which an edit pending in Komet refuses
+     */
+    private void changeBranch(Path root, String name, Supplier<GitOperations.Run> change, boolean changesFiles) {
+        List<StampedDocumentCard> cards = StampedDocumentCard.onRepository(root);
+        if (changesFiles && cards.stream().anyMatch(StampedDocumentCard::pendingEdit)) {
+            status.setText("An edit is pending on a card: Commit… or Discard edit before switching branches.");
+            readBranches();
+            return;
+        }
+        branchRow.setDisable(true);
+        status.setText("Switching to " + name + " …");
+        CompletableFuture.supplyAsync(change).whenComplete((run, failure) -> Platform.runLater(() -> {
+            branchRow.setDisable(false);
+            if (failure != null) {
+                LOG.warn("Switching {} to {} failed", root, name, failure);
+                status.setText("Not switched: " + message(failure));
+                readBranches();
+                return;
+            }
+            if (!run.ok()) {
+                status.setText("Git refused: " + run.report("switch").replace('\n', ' '));
+                readBranches();
+                return;
+            }
+            String report = run.report("switch").replace('\n', ' ');
+            status.setText(report + GitOperations.syncedFolder(root).map(synced -> " This repository is in the synced folder " + synced
+                    + ": the files reach your other machines, whose git stays on its own branch.").orElse(""));
+            CompletableFuture<Void> following = CompletableFuture.completedFuture(null);
+            for (StampedDocumentCard card : cards) {
+                following = following.thenCompose(done -> card.followSwitch(report));
+            }
+            shown();                                           // the folders and documents are the branch's now
+        }));
     }
 
     private Optional<Path> selected() {
@@ -211,11 +379,14 @@ final class DocumentNavigatorTray implements KlSidebarTray {
             detail.showText("");
             return;
         }
-        status.setText("");
+        if (repository().filter(found -> found.equals(branchRoot)).isEmpty()) {
+            readBranches();
+        }
         CompletableFuture.supplyAsync(() -> {
             try {
                 DocumentLibrary.Details details = DocumentLibrary.details(path);
-                return DocumentLibrary.markdown(details, details.folder() ? Optional.empty() : stored(details));
+                String said = DocumentLibrary.markdown(details, details.folder() ? Optional.empty() : stored(details));
+                return details.folder() || !DocumentLibrary.isDocument(path) ? said : said + "\n---\n\n" + DocumentLibrary.preview(path);
             } catch (IOException e) {
                 throw new java.io.UncheckedIOException(e);
             }
@@ -276,7 +447,7 @@ final class DocumentNavigatorTray implements KlSidebarTray {
     void reveal(Path file) {
         Path target = file.toAbsolutePath().normalize();
         if (tops.getChildren().stream().noneMatch(top -> target.startsWith(top.getValue()))) {
-            elsewhere.add(design.knowledge.stamp.adoc.git.GitRepo.findRoot(target).map(found -> found.toAbsolutePath().normalize()).orElse(target.getParent()));
+            elsewhere.add(GitRepo.findRoot(target).map(found -> found.toAbsolutePath().normalize()).orElse(target.getParent()));
             shown();
         }
         TreeItem<Path> at = tops.getChildren().stream().filter(top -> target.startsWith(top.getValue())).findFirst().orElse(null);
@@ -300,15 +471,53 @@ final class DocumentNavigatorTray implements KlSidebarTray {
      * @return whether the journal has the tray: a card in a window of its own does not
      */
     static boolean reveal(Node from, Path file) {
-        Scene scene = from == null ? null : from.getScene();
-        if (scene == null || !(scene.lookup("#" + TOGGLE_ID) instanceof ToggleButton toggle)
-                || scene.lookup("#" + TRAY_ID) == null
-                || !(scene.lookup("#" + TRAY_ID).getProperties().get(DocumentNavigatorTray.class) instanceof DocumentNavigatorTray tray)) {
-            return false;
+        return of(from).map(tray -> {
+            tray.bringOut(from);
+            tray.reveal(file);
+            return tray;
+        }).isPresent();
+    }
+
+    /**
+     * Brings the tray out on a file with its branch drop-down open, which is where a card sends a
+     * person who asks for its branches.
+     *
+     * @param from a node of the card
+     * @param file the card's file
+     * @return whether the journal has the tray
+     */
+    static boolean revealBranches(Node from, Path file) {
+        return of(from).map(tray -> {
+            tray.bringOut(from);
+            tray.reveal(file);
+            tray.branch.requestFocus();
+            tray.branch.show();
+            return tray;
+        }).isPresent();
+    }
+
+    /**
+     * Reads the tray's detail again, as a card does once a document has been read in, since what
+     * the detail says of the knowledge base has changed.
+     *
+     * @param from a node of the card
+     */
+    static void readAgain(Node from) {
+        of(from).ifPresent(tray -> tray.selected().ifPresent(tray::select));
+    }
+
+    private void bringOut(Node from) {
+        if (from.getScene().lookup("#" + TOGGLE_ID) instanceof ToggleButton toggle) {
+            toggle.setSelected(true);
         }
-        toggle.setSelected(true);
-        tray.reveal(file);
-        return true;
+    }
+
+    /** The tray of the journal a node is in; a card in a window of its own has none. */
+    private static Optional<DocumentNavigatorTray> of(Node from) {
+        Scene scene = from == null ? null : from.getScene();
+        return scene != null && scene.lookup("#" + TRAY_ID) instanceof Node tray
+                && tray.getProperties().get(DocumentNavigatorTray.class) instanceof DocumentNavigatorTray found
+                ? Optional.of(found) : Optional.empty();
     }
 
     /**

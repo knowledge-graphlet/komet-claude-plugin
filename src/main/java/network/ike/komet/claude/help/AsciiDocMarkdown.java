@@ -63,7 +63,7 @@ public final class AsciiDocMarkdown {
      * @param adoc the topic's AsciiDoc source
      * @return its Markdown
      */
-    static String markdown(String adoc) {
+    public static String markdown(String adoc) {
         Document document = IkeDialectParser.parse(adoc);
         StringBuilder md = new StringBuilder();
         if (!document.title().isBlank()) {

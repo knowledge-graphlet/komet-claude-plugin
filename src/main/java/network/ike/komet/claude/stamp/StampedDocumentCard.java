@@ -382,11 +382,28 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         Path wanted = file.toAbsolutePath().normalize();
         for (WeakReference<StampedDocumentCard> ref : OPEN) {
             StampedDocumentCard card = ref.get();
-            if (card != null && card.fileOnDisk().filter(wanted::equals).isPresent()) {
+            if (card != null && card.onScreen() && card.fileOnDisk().filter(wanted::equals).isPresent()) {
                 return card;
             }
         }
         return null;
+    }
+
+    /**
+     * @param root a working tree
+     * @return the live cards on that working tree
+     */
+    static List<StampedDocumentCard> onRepository(Path root) {
+        Path wanted = root.toAbsolutePath().normalize();
+        return OPEN.stream().map(WeakReference::get)
+                .filter(card -> card != null && card.onScreen() && card.repoRoot != null
+                        && card.repoRoot.toAbsolutePath().normalize().equals(wanted))
+                .toList();
+    }
+
+    /** @return whether the card is in a window: a closed one stays in {@link #OPEN} until it is collected */
+    private boolean onScreen() {
+        return fxObject().getScene() != null;
     }
 
     /** @return the shown document's file in the working tree, when one holds it */
@@ -1138,6 +1155,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
             if (afterShow != null) {
                 afterShow.run();
             }
+            DocumentNavigatorTray.readAgain(fxObject());               // what its detail says of the store may have changed
         }));
     }
 
@@ -2639,12 +2657,16 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         }));
     }
 
-    /** Asks which branch to switch to, or what to call a new one. */
+    /** Takes the person to the branch drop-down of the journal's Documents tray; a card outside a journal asks here instead. */
     @Override
     public void branch() {
         Path root = repoRoot;
         if (root == null) {
             statusLine.setText("No working tree; Open file… names one, New… makes one, or Clone… brings one.");
+            return;
+        }
+        Optional<Path> file = fileOnDisk();
+        if (file.isPresent() && DocumentNavigatorTray.revealBranches(fxObject(), file.get())) {
             return;
         }
         CompletableFuture.supplyAsync(() -> uncheck(() -> GitOperations.branches(root))).whenComplete((branches, failure) -> Platform.runLater(() -> {
@@ -2727,21 +2749,39 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         });
     }
 
+    /**
+     * Brings the card to a branch the Documents tray switched its working tree to.
+     *
+     * @param report what git said
+     * @return done once the store holds the branch, so that cards follow one at a time
+     */
+    CompletableFuture<Void> followSwitch(String report) {
+        repositoryPanel.refresh();
+        if (shown == null) {
+            statusLine.setText(report);
+            return CompletableFuture.completedFuture(null);
+        }
+        return followBranch(repoRoot, report);
+    }
+
     /** Brings the shown document and the documents it includes to HEAD, and reads them again. */
-    private void followBranch(Path root, String report) {
+    private CompletableFuture<Void> followBranch(Path root, String report) {
         PublicId hostAnchor = shown.anchor();
         List<DocumentBranch.Member> followed = members.values().stream().filter(l -> l.path() != null)
                 .map(l -> new DocumentBranch.Member(l.document().anchor(), l.path())).toList();
         statusLine.setText(report + " Reading the branch into the knowledge base …");
+        CompletableFuture<Void> done = new CompletableFuture<>();
         CompletableFuture.supplyAsync(() -> uncheck(() -> DocumentBranch.follow(root, followed))).whenComplete((result, failure) -> Platform.runLater(() -> {
             if (failure != null) {
                 Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
                 statusLine.setText(report + " The document did not follow: " + cause.getMessage());
                 LOG.warn("Following the branch in {} failed", root, cause);
-                return;
+            } else {
+                open(hostAnchor, (report + " " + result.report()).strip(), null);
             }
-            open(hostAnchor, (report + " " + result.report()).strip(), null);
+            done.complete(null);
         }));
+        return done;
     }
 
     /** Runs one git operation off the FX thread, reports what git said, and re-reads the panel. */

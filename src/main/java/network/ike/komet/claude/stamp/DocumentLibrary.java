@@ -16,6 +16,7 @@
 package network.ike.komet.claude.stamp;
 
 import design.knowledge.stamp.adoc.git.GitRepo;
+import network.ike.komet.claude.help.AsciiDocMarkdown;
 
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
@@ -27,9 +28,12 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
- * The standard place for stamped documents: {@code ~/komet/docs}, one git repository whose folders
+ * The standard place for stamped documents: {@code ~/komet/adoc}, one git repository whose folders
  * the person arranges. It is outside the synced development tree on purpose: {@code .git} never
  * syncs, so a repository made there would reach other machines as bare files. A document moves
  * between machines by push and pull. What the navigator shows of a folder or a file is read here,
@@ -40,12 +44,31 @@ public final class DocumentLibrary {
     /** A system property naming another location, as a test or a second library needs. */
     static final String LOCATION_PROPERTY = "ike.document.library";
 
+    /** How much of a document the navigator previews: enough to know it by, and quick to draw. */
+    static final int PREVIEW_LENGTH = 6000;
+
+    /** A block's attribute line that names a kind of block, with no {@code name=value} first. */
+    private static final Pattern BLOCK_ATTRIBUTES = Pattern.compile("^\\[([a-z][a-z-]*)(?:,.*)?]$");
+    private static final Pattern LISTING_DELIMITER = Pattern.compile("^(-{4,}|\\.{4,})$");
+    private static final Pattern BLOCK_DELIMITER = Pattern.compile("^(-{2}|-{4,}|\\.{4,}|={4,}|\\+{4,})$");
+    /** The block kinds that are themselves writing, which a preview shows as text. */
+    private static final Set<String> WRITTEN_BLOCKS = Set.of("source", "listing", "literal", "quote", "verse", "example", "sidebar",
+            "abstract", "partintro", "appendix", "bibliography", "glossary", "index", "preface", "horizontal", "qanda", "stem", "latexmath", "asciimath");
+    /** A concept in the text: {@code k:ScanNow[Scan now?]} or {@code candidate[a new term]}, the last with what follows it on the line. */
+    private static final Pattern CONCEPT_REFERENCE = Pattern.compile("\\b(?:k:[A-Za-z0-9_-]+|candidate)\\[([^\\]]*)](?:\\s+(?:@id|disp)=\\S+)*");
+    /** A citation that says something: {@code <<id,the words>>}. */
+    private static final Pattern NAMED_CITATION = Pattern.compile("<<[^>,\\s]+,\\s*([^>]+)>>");
+    /** A citation that is only a key, which says nothing in a preview: {@code <<k040627>>}. */
+    private static final Pattern BARE_CITATION = Pattern.compile("\\s*<<[^>,\\s]+>>");
+    private static final Pattern ATTRIBUTE_ENTRY = Pattern.compile("^:!?[A-Za-z0-9_][A-Za-z0-9_-]*!?:.*$");
+    private static final Pattern CROSS_REFERENCE = Pattern.compile("\\[([^\\]]+)]\\(xref:[^)]*\\)");
+
     private DocumentLibrary() { }
 
     /** @return the library's folder, which need not exist yet */
     public static Path root() {
         String named = System.getProperty(LOCATION_PROPERTY);
-        return (named == null || named.isBlank() ? Path.of(System.getProperty("user.home"), "komet", "docs") : Path.of(named))
+        return (named == null || named.isBlank() ? Path.of(System.getProperty("user.home"), "komet", "adoc") : Path.of(named))
                 .toAbsolutePath().normalize();
     }
 
@@ -83,7 +106,8 @@ public final class DocumentLibrary {
 
     /**
      * What the navigator lists in a folder: its folders, then its documents, each by name. Hidden
-     * entries are left out, {@code .git} among them.
+     * entries are left out, {@code .git} among them, and so is a folder that holds files but no
+     * document, as a folder of figures does. An empty folder stays, since someone has just made it.
      *
      * @param folder the folder
      * @return the entries
@@ -92,7 +116,7 @@ public final class DocumentLibrary {
     public static List<Path> children(Path folder) throws IOException {
         try (var entries = Files.list(folder)) {
             return entries.filter(entry -> !entry.getFileName().toString().startsWith("."))
-                    .filter(entry -> Files.isDirectory(entry) || isDocument(entry))
+                    .filter(entry -> Files.isDirectory(entry) ? !holdsOnlyOtherFiles(entry) : isDocument(entry))
                     .sorted(Comparator.comparing((Path entry) -> !Files.isDirectory(entry))
                             .thenComparing(entry -> entry.getFileName().toString().toLowerCase()))
                     .toList();
@@ -162,6 +186,14 @@ public final class DocumentLibrary {
         }
     }
 
+    private static boolean holdsOnlyOtherFiles(Path folder) {
+        try (var entries = Files.list(folder)) {
+            return entries.findAny().isPresent() && documentsUnder(folder) == 0;
+        } catch (IOException e) {
+            return true;
+        }
+    }
+
     /** Counts the documents under a folder, leaving hidden folders out. */
     private static int documentsUnder(Path folder) throws IOException {
         int[] count = {0};
@@ -185,6 +217,101 @@ public final class DocumentLibrary {
             }
         });
         return count[0];
+    }
+
+    /**
+     * The opening of a document as Markdown, for the navigator to show under what it says of the
+     * file. It reads the working tree, so it shows the file as it is now, whatever the knowledge
+     * base holds. The title is left out, since the detail already heads with it, and so are the
+     * includes of an assembly, which name files rather than say anything, with attribute entries,
+     * comments and citation keys. A structured block is one line saying what it is, since its
+     * source says nothing to a reader and drawing it needs the knowledge base, and so is a table,
+     * whose columns would be tall and thin in the pane; a reference to a concept is its name.
+     *
+     * @param file the document
+     * @return the preview
+     * @throws IOException if the file cannot be read
+     */
+    public static String preview(Path file) throws IOException {
+        String source = withoutBlockSource(Files.readString(file).lines().toList());
+        source = CONCEPT_REFERENCE.matcher(source).replaceAll("$1");
+        source = NAMED_CITATION.matcher(source).replaceAll("$1");
+        String text = AsciiDocMarkdown.markdown(BARE_CITATION.matcher(source).replaceAll(""));
+        text = CROSS_REFERENCE.matcher(text).replaceAll("$1");
+        text = text.replace("{{plus}}", "+").replace("{plus}", "+");
+        if (text.startsWith("# ")) {
+            int end = text.indexOf('\n');
+            text = end < 0 ? "" : text.substring(end).strip() + "\n";
+        }
+        if (text.length() <= PREVIEW_LENGTH) {
+            return text;
+        }
+        int end = text.lastIndexOf("\n\n", PREVIEW_LENGTH);
+        String opening = text.substring(0, end > 0 ? end : PREVIEW_LENGTH).strip();
+        boolean inCode = opening.split("```", -1).length % 2 == 0;           // cut inside a listing: close it
+        return opening + (inCode ? "\n```" : "") + "\n\n_The preview stops here. Open in Journal reads the whole document._\n";
+    }
+
+    /** The source lines of a preview: includes gone, and each structured block one line, repeats run together. */
+    private static String withoutBlockSource(List<String> lines) {
+        List<String> kept = new ArrayList<>();
+        String lastBlock = "";
+        String listing = null;                                 // inside a listing, block syntax is an example of itself
+        for (int i = 0; i < lines.size(); i++) {
+            String line = lines.get(i);
+            if (listing != null) {
+                kept.add(line);
+                listing = line.equals(listing) ? null : listing;
+                continue;
+            }
+            if (LISTING_DELIMITER.matcher(line).matches()) {
+                listing = line;
+                kept.add(line);
+                continue;
+            }
+            if (line.equals("////") || line.equals("++++")) {        // a comment, or markup for the page alone
+                i = endOf(lines, i);
+                continue;
+            }
+            if (line.equals("|===")) {                         // a table's columns do not fit a narrow pane
+                i = endOf(lines, i);
+                kept.add("");
+                kept.add("_A table, drawn when the document opens._");
+                kept.add("");
+                continue;
+            }
+            if (line.startsWith("include::") || line.startsWith("//") || ATTRIBUTE_ENTRY.matcher(line).matches()) {
+                continue;
+            }
+            Matcher block = BLOCK_ATTRIBUTES.matcher(line);
+            if (block.matches() && !WRITTEN_BLOCKS.contains(block.group(1))) {
+                if (i + 1 < lines.size() && BLOCK_DELIMITER.matcher(lines.get(i + 1)).matches()) {
+                    i = endOf(lines, i + 1);
+                }
+                String named = block.group(1).equals("anf") ? "ANF statement" : block.group(1).replace('-', ' ');
+                if (!named.equals(lastBlock)) {
+                    kept.add("");
+                    kept.add("_" + Character.toUpperCase(named.charAt(0)) + named.substring(1) + ", drawn when the document opens._");
+                    kept.add("");
+                }
+                lastBlock = named;
+                continue;
+            }
+            if (!line.isBlank()) {
+                lastBlock = "";
+            }
+            kept.add(line);
+        }
+        return String.join("\n", kept);
+    }
+
+    /** The index of the line closing the delimited block that opens at a line, or the last line when it never closes. */
+    private static int endOf(List<String> lines, int opening) {
+        int i = opening + 1;
+        while (i < lines.size() && !lines.get(i).equals(lines.get(opening))) {
+            i++;
+        }
+        return Math.min(i, lines.size() - 1);
     }
 
     /**

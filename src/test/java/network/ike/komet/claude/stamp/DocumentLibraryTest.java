@@ -42,7 +42,7 @@ class DocumentLibraryTest {
     @BeforeEach
     void aLibraryOfItsOwn() throws Exception {
         assumeTrue(GitOperations.git(scratch, "config", "--global", "user.email").ok(), "no global git identity");
-        library = scratch.resolve("komet/docs");
+        library = scratch.resolve("komet/adoc");
         System.setProperty(DocumentLibrary.LOCATION_PROPERTY, library.toString());
     }
 
@@ -59,11 +59,134 @@ class DocumentLibraryTest {
     }
 
     @Test
-    void theStandardPlaceIsKometDocsInTheHomeFolder() {
+    void theStandardPlaceIsKometAdocInTheHomeFolder() {
         System.clearProperty(DocumentLibrary.LOCATION_PROPERTY);
 
-        assertEquals(Path.of(System.getProperty("user.home"), "komet", "docs"), DocumentLibrary.root());
-        assertEquals("~/komet/docs", DocumentLibrary.shownRoot());
+        assertEquals(Path.of(System.getProperty("user.home"), "komet", "adoc"), DocumentLibrary.root());
+        assertEquals("~/komet/adoc", DocumentLibrary.shownRoot());
+    }
+
+    @Test
+    void aPreviewReadsTheOpeningWithoutTheTitleOrTheIncludes() throws Exception {
+        Path file = document("guide.adoc", """
+                = The Guide
+                :toc: left
+
+                A first paragraph.
+
+                == A section
+
+                include::topics/part.adoc[leveloffset=+1]
+
+                * an item
+                """);
+
+        String preview = DocumentLibrary.preview(file);
+
+        assertFalse(preview.contains("The Guide"), preview);
+        assertFalse(preview.contains("include::"), preview);
+        assertFalse(preview.contains(":toc:"), preview);
+        assertTrue(preview.contains("A first paragraph."), preview);
+        assertTrue(preview.contains("A section"), preview);
+        assertTrue(preview.contains("an item"), preview);
+    }
+
+    @Test
+    void aPreviewSaysWhatAStructuredBlockIsAndNamesConcepts() throws Exception {
+        Path file = document("consult.adoc", """
+                = Consult
+
+                Should k:ScanNow[this patient have a scan]?
+
+                [anf,type=performance,id=one]
+                --
+                topic:: candidate[material problem] disp=PENDING
+                --
+
+                [anf,type=performance,id=two]
+                --
+                topic:: candidate[other problem] disp=PENDING
+                --
+
+                [decision-tree,model=site]
+
+                [source,java]
+                ----
+                int kept = 1;
+                ----
+
+                ----
+                [anf,id=an-example]
+                ----
+                """);
+
+        String preview = DocumentLibrary.preview(file);
+
+        assertTrue(preview.contains("Should this patient have a scan?"), preview);
+        assertFalse(preview.contains("k:ScanNow"), preview);
+        assertFalse(preview.contains("material problem"), preview);
+        assertEquals(1, preview.split("ANF statement", -1).length - 1, preview);
+        assertTrue(preview.contains("Decision tree, drawn when the document opens."), preview);
+        assertTrue(preview.contains("int kept = 1;"), preview);
+        assertTrue(preview.contains("[anf,id=an-example]"), preview);
+    }
+
+    @Test
+    void aPreviewLeavesOutWhatOnlyTheBuildReads() throws Exception {
+        Path file = document("assembly.adoc", """
+                = Assembly
+
+                :topics: .
+                // a note to the author
+
+                ++++
+                <style>sup { color: red; }</style>
+                ++++
+
+                The FDA found it equivalent <<k040627>>, as <<ref-two,the second report>> says.
+
+                [cols="1,2", options="header"]
+                |===
+                | One | Two
+                |===
+                """);
+
+        String preview = DocumentLibrary.preview(file);
+
+        assertFalse(preview.contains(":topics:"), preview);
+        assertFalse(preview.contains("a note to the author"), preview);
+        assertFalse(preview.contains("<style>"), preview);
+        assertTrue(preview.contains("The FDA found it equivalent, as the second report says."), preview);
+        assertTrue(preview.contains("A table, drawn when the document opens."), preview);
+        assertFalse(preview.contains("| One"), preview);
+    }
+
+    @Test
+    void aFolderOfFiguresIsNotListed() throws Exception {
+        Path text = document("guides/one.adoc", "= One\n");
+        Files.createDirectories(library.resolve("guides/images"));
+        Files.writeString(library.resolve("guides/images/figure.svg"), "<svg/>");
+
+        assertEquals(List.of(text), DocumentLibrary.children(library.resolve("guides")));
+    }
+
+    @Test
+    void aLongDocumentsPreviewStopsAtAParagraphAndSaysSo() throws Exception {
+        Path file = document("long.adoc", "= Long\n\n" + "A paragraph of the document.\n\n".repeat(1000));
+
+        String preview = DocumentLibrary.preview(file);
+
+        assertTrue(preview.length() < DocumentLibrary.PREVIEW_LENGTH + 100, "length " + preview.length());
+        assertTrue(preview.endsWith("Open in Journal reads the whole document._\n"), preview);
+    }
+
+    @Test
+    void aPreviewCutInsideAListingClosesIt() throws Exception {
+        Path file = document("code.adoc", "= Code\n\n----\n" + "line\n\n".repeat(2000) + "----\n");
+
+        String preview = DocumentLibrary.preview(file);
+
+        assertEquals(1, preview.split("```", -1).length % 2, preview.substring(0, 80));
     }
 
     @Test
