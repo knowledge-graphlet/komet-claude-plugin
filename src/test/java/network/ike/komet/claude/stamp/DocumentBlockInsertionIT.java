@@ -302,6 +302,30 @@ class DocumentBlockInsertionIT {
         return DocumentEditor.settle(anchor);
     }
 
+    /** The Insert menu's other leaf kinds: a literal and an admonition are added as one block each; a list, which holds items, is refused. */
+    @Test
+    void aLiteralAndAnAdmonitionAreAddedAsOneBlockEachAndAListIsRefused() throws Exception {
+        Path dir = repository("leaf-kinds");
+        Path file = dir.resolve("insertion.adoc");
+        PublicId anchor = GitDocumentMaterializer.materialize(dir, file).anchor();
+        long after = blockStartingWith(anchor, Block.Kind.PARAGRAPH, "Another paragraph.");
+
+        DocumentEditor.Edit literal = DocumentEditor.addBlock(anchor, after, Block.Kind.LITERAL, "....\nkept as is\n....\n", edit);
+        StoredDocument pending = GitDocumentMaterializer.load(anchor, true).orElseThrow();
+        assertEquals(3, literal.added());
+        assertEquals(Block.Kind.LITERAL, pending.blocks().get(literal.block()).kind());
+
+        DocumentEditor.Edit note = DocumentEditor.addBlock(anchor, literal.block(), Block.Kind.ADMONITION, "NOTE: Mind this.\n", edit);
+        pending = GitDocumentMaterializer.load(anchor, true).orElseThrow();
+        assertEquals(Block.Kind.ADMONITION, pending.blocks().get(note.block()).kind());
+        assertEquals(original(dir).replace("Another paragraph.\n", "Another paragraph.\n\n....\nkept as is\n....\n\nNOTE: Mind this.\n"), export(anchor, true),
+                "both blocks follow the chosen one in order, a blank line before each");
+
+        IllegalArgumentException refused = org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> DocumentEditor.addBlock(anchor, note.block(), Block.Kind.LIST, "* one\n* two\n", edit));
+        assertTrue(refused.getMessage().contains("not a plain list"), refused.getMessage());
+    }
+
     /** Nothing pending, no provisional element, and the store gives back the committed file. */
     static void assertSettledAs(PublicId anchor, Path dir, String committed) throws Exception {
         assertTrue(DocumentEditor.pending(anchor).isEmpty(), "nothing is left pending");

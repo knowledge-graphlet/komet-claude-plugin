@@ -106,6 +106,50 @@ public interface StructuredBlockKind {
     }
 
     /**
+     * The kind's name as the surface's Insert menu shows it: its name with a capital first letter.
+     *
+     * @return the menu entry
+     */
+    default String menuName() {
+        String name = name();
+        return name.isEmpty() ? name : Character.toUpperCase(name.charAt(0)) + name.substring(1);
+    }
+
+    /**
+     * What Insert adds for this kind: the skeleton of a new block, attribute line and fences
+     * included, or empty when blocks of this kind are not inserted from the menu
+     * (ike-lab-documents topic {@code dev-document-edit-menu}). A kind reads the document's other
+     * blocks to name what the new block draws: a tornado names the model the document already has.
+     *
+     * @param context what the document's blocks have made known
+     * @return the skeleton
+     */
+    default Optional<Skeleton> skeleton(Context context) {
+        return Optional.empty();
+    }
+
+    /**
+     * A new block of a kind, as Insert adds it.
+     *
+     * @param text             the block's whole text: attribute line, fences and content
+     * @param opensForEditing  whether the surface opens the new block for editing at once; a block
+     *                         that draws at once from its attributes alone, such as a tornado over
+     *                         a model the document has, is inserted and left
+     */
+    record Skeleton(String text, boolean opensForEditing) {
+
+        /** A listing block of a style, with its content between four-dash fences. */
+        public static Skeleton listing(String attributes, String content, boolean opensForEditing) {
+            return new Skeleton(attributes + "\n----\n" + (content.isEmpty() ? "" : content.endsWith("\n") ? content : content + "\n") + "----", opensForEditing);
+        }
+
+        /** An open block of a style, with its content between two-dash fences, the form the ANF blocks take. */
+        public static Skeleton open(String attributes, String content, boolean opensForEditing) {
+            return new Skeleton(attributes + "\n--\n" + (content.endsWith("\n") ? content : content + "\n") + "--", opensForEditing);
+        }
+    }
+
+    /**
      * A structured block's source as its document holds it.
      *
      * @param parameters the block's attribute line, verbatim, as {@code [anf,type=performance]}

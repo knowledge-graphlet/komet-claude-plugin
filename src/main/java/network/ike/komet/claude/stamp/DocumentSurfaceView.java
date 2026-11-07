@@ -25,8 +25,10 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckMenuItem;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
+import javafx.scene.control.Menu;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.SeparatorMenuItem;
 import javafx.scene.control.Tooltip;
@@ -131,8 +133,11 @@ final class DocumentSurfaceView {
         /** Saves an in-place edit of a block as the person's pending edit. */
         void saveEdit(StoredBlock block, String text);
 
-        /** Asks for a new block's text and adds it after the block the selection starts in, as the person's pending edit. */
-        default void addBlockAfterSelection(Block.Kind kind) { }
+        /** Inserts a new block after the block the selection starts in, as the person's pending edit, and opens it for editing when the entry says so. */
+        default void insertAfterSelection(DocumentInserts.Insertion insertion) { }
+
+        /** Print to PDF, as the card's menu offers it. */
+        default void printPdf() { }
 
         /** Asks to confirm, then deletes the block the selection starts in, as the person's pending edit. */
         default void deleteSelectedBlock() { }
@@ -271,11 +276,16 @@ final class DocumentSurfaceView {
     private final Map<Long, Area> areasByBlock = new HashMap<>();
     private final Popup popover = new Popup();
     private final PauseTransition hoverDelay = new PauseTransition(Duration.millis(350));
+    /**
+     * The one menu of every view (ike-lab-documents topic {@code dev-document-edit-menu}): built
+     * once, shown from every line area, its verbs enabled by what is selected and whether an edit
+     * is open. Annotate, Block, Insert, View and Record, a separator between the families.
+     */
     private final ContextMenu menu = new ContextMenu();
     private final MenuItem editItem = new MenuItem("Edit block");
-    private final MenuItem addParagraphItem = new MenuItem("Add paragraph after…");
-    private final MenuItem addListingItem = new MenuItem("Add listing after…");
     private final MenuItem deleteItem = new MenuItem("Delete block…");
+    private final Menu insertMenu = new Menu("Insert");
+    private final Map<View, CheckMenuItem> viewItems = new LinkedHashMap<>();
     private final Label headerTitle = new Label();
     private final Label headerSection = new Label();
     private final VBox header = new VBox(1, headerTitle, headerSection);
@@ -2031,9 +2041,10 @@ final class DocumentSurfaceView {
             }
             boolean structural = editableBlockOfSelection().isEmpty() || editing != null;
             editItem.setDisable(structural);
-            addParagraphItem.setDisable(structural);
-            addListingItem.setDisable(structural);
             deleteItem.setDisable(structural);
+            insertMenu.setDisable(structural);
+            refreshInsertMenu();
+            viewItems.forEach((candidate, item) -> item.setSelected(candidate == view));
             menu.show(rta, e.getScreenX(), e.getScreenY());
             e.consume();
         });
@@ -2157,31 +2168,81 @@ final class DocumentSurfaceView {
 
     private void buildMenu() {
         menu.setId("stampedDocumentContextMenu");
-        MenuItem affirm = new MenuItem("Affirm…");
-        affirm.setId("stampedDocumentAffirm");
-        affirm.setOnAction(e -> host.annotate(AnnotationKind.AFFIRMATION));
-        MenuItem refute = new MenuItem("Refute…");
-        refute.setId("stampedDocumentRefute");
-        refute.setOnAction(e -> host.annotate(AnnotationKind.REFUTATION));
-        MenuItem comment = new MenuItem("Comment…");
-        comment.setId("stampedDocumentComment");
-        comment.setOnAction(e -> host.annotate(AnnotationKind.COMMENT));
-        MenuItem retract = new MenuItem("Retract…");
-        retract.setId("stampedDocumentRetract");
-        retract.setOnAction(e -> host.annotate(AnnotationKind.RETRACTION));
+        // Annotate: the acts on a committed selection
+        MenuItem affirm = item("Affirm…", "stampedDocumentAffirm", () -> host.annotate(AnnotationKind.AFFIRMATION));
+        MenuItem refute = item("Refute…", "stampedDocumentRefute", () -> host.annotate(AnnotationKind.REFUTATION));
+        MenuItem comment = item("Comment…", "stampedDocumentComment", () -> host.annotate(AnnotationKind.COMMENT));
+        MenuItem retract = item("Retract…", "stampedDocumentRetract", () -> host.annotate(AnnotationKind.RETRACTION));
+        // Block: the verbs on the editable block the selection starts in
         editItem.setId("stampedDocumentEditBlock");
         editItem.setOnAction(e -> editSelectedBlock());
-        addParagraphItem.setId("stampedDocumentAddParagraph");
-        addParagraphItem.setOnAction(e -> host.addBlockAfterSelection(Block.Kind.PARAGRAPH));
-        addListingItem.setId("stampedDocumentAddListing");
-        addListingItem.setOnAction(e -> host.addBlockAfterSelection(Block.Kind.LISTING));
         deleteItem.setId("stampedDocumentDeleteBlock");
         deleteItem.setOnAction(e -> host.deleteSelectedBlock());
-        MenuItem history = new MenuItem("Show history");
-        history.setId("stampedDocumentShowHistory");
-        history.setOnAction(e -> host.showHistory());
-        menu.getItems().addAll(affirm, refute, comment, retract, new SeparatorMenuItem(), editItem, addParagraphItem, addListingItem, deleteItem,
-                new SeparatorMenuItem(), history);
+        // Insert: filled when the menu is asked for, since what the kinds offer reads the shown document
+        insertMenu.setId("stampedDocumentInsertMenu");
+        // View: the four views, the shown one checked
+        for (View candidate : View.values()) {
+            CheckMenuItem item = new CheckMenuItem(switch (candidate) {
+                case SOURCE -> "Source";
+                case READING -> "Reading";
+                case PAGE_LAYOUT -> "Page layout";
+                case GRAPH -> "Graph";
+            });
+            item.setId("stampedDocumentMenuView" + DocumentInserts.camel(candidate.name().toLowerCase(java.util.Locale.ROOT)));
+            item.setOnAction(e -> {
+                item.setSelected(candidate == view);                // the card switches; the check follows the view
+                host.viewRequested(candidate);
+            });
+            viewItems.put(candidate, item);
+        }
+        // Record: what the document is and was
+        MenuItem history = item("Show history", "stampedDocumentShowHistory", host::showHistory);
+        MenuItem print = item("Print to PDF…", "stampedDocumentMenuPrintPdf", host::printPdf);
+        menu.getItems().addAll(affirm, refute, comment, retract, new SeparatorMenuItem(), editItem, deleteItem, new SeparatorMenuItem(), insertMenu,
+                new SeparatorMenuItem());
+        menu.getItems().addAll(viewItems.values());
+        menu.getItems().addAll(new SeparatorMenuItem(), history, print);
+    }
+
+    private static MenuItem item(String text, String id, Runnable action) {
+        MenuItem item = new MenuItem(text);
+        item.setId(id);
+        item.setOnAction(e -> action.run());
+        return item;
+    }
+
+    /**
+     * Fills the Insert submenu for the shown document: the standard blocks, the admonitions, then
+     * every kind that offers a skeleton, read over the document's block context so a rendering
+     * names the model the document has.
+     */
+    private void refreshInsertMenu() {
+        insertMenu.getItems().clear();
+        for (DocumentInserts.Insertion insertion : DocumentInserts.standard()) {
+            insertMenu.getItems().add(insertItem(insertion));
+        }
+        Menu admonitions = new Menu("Admonition");
+        admonitions.setId("stampedDocumentInsertAdmonition");
+        for (DocumentInserts.Insertion insertion : DocumentInserts.admonitions()) {
+            admonitions.getItems().add(insertItem(insertion));
+        }
+        insertMenu.getItems().add(admonitions);
+        StructuredBlockKind.Context context = new StructuredBlockKind.Context(host.view(), host.viewProperties(), blocks, st.base(), null);
+        List<MenuItem> ours = new ArrayList<>();
+        for (StructuredBlockKind kind : StructuredBlocks.kinds()) {
+            DocumentInserts.of(kind, context).ifPresent(insertion -> ours.add(insertItem(insertion)));
+        }
+        if (!ours.isEmpty()) {
+            insertMenu.getItems().add(new SeparatorMenuItem());
+            insertMenu.getItems().addAll(ours);
+        }
+    }
+
+    private MenuItem insertItem(DocumentInserts.Insertion insertion) {
+        MenuItem item = new MenuItem(insertion.label());
+        item.setId(insertion.id());
+        item.setOnAction(e -> host.insertAfterSelection(insertion));
+        return item;
     }
 
     /** @return the editable block the selection starts in, for the host's structural verbs */

@@ -112,6 +112,22 @@ public final class StructuredBlocks {
     }
 
     /**
+     * Every kind the surface knows, for the Insert menu: the registered kinds, then the provided
+     * ones a registered kind of the same style has not replaced, in the order they are provided.
+     *
+     * @return the kinds
+     */
+    public static List<StructuredBlockKind> kinds() {
+        List<StructuredBlockKind> kinds = new ArrayList<>(REGISTERED.values());
+        for (StructuredBlockKind kind : provided()) {
+            if (!REGISTERED.containsKey(key(kind.style()))) {
+                kinds.add(kind);
+            }
+        }
+        return List.copyOf(kinds);
+    }
+
+    /**
      * The kind of a block, when it is structured: a listing block whose style a kind names.
      *
      * @param block the block

@@ -214,7 +214,9 @@ module komet.claude {
                     network.ike.komet.claude.ui.DocumentBlockKinds.ForestPlot,
                     network.ike.komet.claude.ui.DocumentBlockKinds.DeviceRecord,
                     network.ike.komet.claude.ui.DocumentBlockKinds.Findings,
-                    network.ike.komet.claude.ui.DocumentBlockKinds.FindingsLookup;
+                    network.ike.komet.claude.ui.DocumentBlockKinds.FindingsLookup,
+                    network.ike.komet.claude.ui.DocumentBlockKinds.KonceptTree,
+                    network.ike.komet.claude.ui.DocumentBlockKinds.KonceptDefinition;
 
     // The identity tables of ANF statement, complex concept specification and decision trees, which
     // tinkar-core's write path correlates by

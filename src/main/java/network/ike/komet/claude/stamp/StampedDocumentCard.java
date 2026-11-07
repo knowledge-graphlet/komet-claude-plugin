@@ -3053,34 +3053,43 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
      * document and shows the new lines with the edited mark.
      */
     @Override
-    public void addBlockAfterSelection(Block.Kind kind) {
+    public void insertAfterSelection(DocumentInserts.Insertion insertion) {
         if (shown == null) {
             statusLine.setText("Choose a document first.");
             return;
         }
         Optional<StoredBlock> after = surface.selectedEditableBlock();
         if (after.isEmpty()) {
-            statusLine.setText("Select a line of a paragraph or listing; the new " + kind.name().toLowerCase() + " goes after its block.");
+            statusLine.setText("Select a line of a paragraph or listing; the new " + insertion.label().toLowerCase() + " goes after its block.");
             return;
         }
-        Dialog<String> dialog = new Dialog<>();
-        dialog.setTitle("Add " + (kind == Block.Kind.LISTING ? "Listing" : "Paragraph"));
-        dialog.getDialogPane().setId("stampedDocumentAddBlockDialog");
-        dialog.setHeaderText("The new " + kind.name().toLowerCase() + "'s AsciiDoc source, one line per line"
-                + (kind == Block.Kind.LISTING ? ", ---- delimiters included" : "")
-                + ". It goes after the selected block, as your pending edit, uncommitted until you commit the document in git.");
-        TextArea text = new TextArea();
-        text.setId("stampedDocumentAddBlockText");
-        text.setWrapText(true);
-        text.setPrefRowCount(6);
-        text.setPrefColumnCount(72);
-        dialog.getDialogPane().setContent(text);
-        dialog.getDialogPane().getButtonTypes().setAll(ButtonType.OK, ButtonType.CANCEL);
-        dialog.getDialogPane().lookupButton(ButtonType.OK).disableProperty().bind(text.textProperty().isEmpty());
-        dialog.setResultConverter(button -> button == ButtonType.OK ? text.getText() : null);
-        dialog.initOwner(window());
-        dialog.showAndWait().filter(t -> !t.isBlank()).ifPresent(t -> performStructural("Adding the block", KometConcept.ADD_DOCUMENT_BLOCK,
-                AddDocumentBlock.input(after.get().nid(), kind, t.endsWith("\n") ? t : t + "\n")));
+        long afterNid = after.get().nid();
+        PublicId anchor = shown.anchor();
+        performStructural("Inserting the " + insertion.label().toLowerCase(), KometConcept.ADD_DOCUMENT_BLOCK,
+                AddDocumentBlock.input(afterNid, insertion.kind(), insertion.text()),
+                insertion.opensForEditing() ? () -> editBlockAfter(anchor, afterNid) : null);
+    }
+
+    /** Opens the block that now follows one for editing: the block Insert added, once the document is read again. */
+    private void editBlockAfter(PublicId anchor, long after) {
+        Optional<GitDocumentMaterializer.StoredDocument> document = GitDocumentMaterializer.load(anchor, true);
+        if (document.isEmpty()) {
+            return;
+        }
+        List<DocumentOutline.Node> nodes = new DocumentOutline(document.get()).nodes();
+        for (int i = 0; i + 1 < nodes.size(); i++) {
+            if (nodes.get(i).block().nid() == after) {
+                if (!surface.editBlock(nodes.get(i + 1).block().nid())) {
+                    statusLine.setText("The new block is pending; Edit block opens it.");
+                }
+                return;
+            }
+        }
+    }
+
+    @Override
+    public void printPdf() {
+        chooseAndPrint();
     }
 
     /** Delete block…: confirms, then performs the starter set's {@code Delete document block} action on the block the selection starts in. */
@@ -3111,6 +3120,15 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
 
     /** Performs an action that changes the document's structure off the FX thread and re-reads the document. */
     private void performStructural(String doing, dev.ikm.tinkar.terms.ConceptFacade action, dev.ikm.komet.actions.KometActionInput input) {
+        performStructural(doing, action, input, null);
+    }
+
+    /**
+     * Performs an action that changes the document's structure off the FX thread, re-reads the
+     * document, then runs what follows the showing, such as opening the block Insert added.
+     */
+    private void performStructural(String doing, dev.ikm.tinkar.terms.ConceptFacade action, dev.ikm.komet.actions.KometActionInput input,
+                                   Runnable afterShow) {
         PublicId anchor = shown.anchor();
         EditCoordinateRecord edit = editCoordinate();
         ViewCalculator view = view();
@@ -3127,7 +3145,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
                         statusLine.setText(doing + " refused: " + result.message());
                         return;
                     }
-                    open(anchor, "Pending: " + result.message(), null);
+                    open(anchor, "Pending: " + result.message(), afterShow);
                 }));
     }
 

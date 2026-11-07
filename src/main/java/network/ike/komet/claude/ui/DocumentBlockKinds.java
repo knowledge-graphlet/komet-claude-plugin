@@ -144,6 +144,20 @@ public final class DocumentBlockKinds {
         return previous.map(text -> network.ike.komet.claude.stamp.StructuredBlockKind.Source.of(text).content());
     }
 
+    /** The first model the document's blocks have published, which a new rendering names. */
+    static Optional<String> firstModel(StructuredBlockKind.Context context) {
+        return context.blocks() == null ? Optional.empty() : context.blocks().models().keySet().stream().findFirst();
+    }
+
+    /** The skeleton of a new decision as the tree grammar states it: one choice, two alternatives, an outcome each. */
+    static final String DECISION_SKELETON = """
+            decision: k:Choice[The choice to make] @id=new-decision
+              alternative: k:FirstAlternative[The first alternative] @id=new-first
+                outcome: k:FirstOutcome[What follows from the first alternative] @id=new-first-outcome
+              alternative: k:SecondAlternative[The second alternative] @id=new-second
+                outcome: k:SecondOutcome[What follows from the second alternative] @id=new-second-outcome
+            """;
+
     /**
      * {@code [decision-tree, model=…]}: a rendering of a graphlet model, the tree drawn and rolled
      * back with its ledger and sentences; it holds no structure and no number, so it writes nothing.
@@ -165,6 +179,16 @@ public final class DocumentBlockKinds {
             String info = info(source.parameters());
             Optional<String> body = modelBody(info, source, context);
             return body.map(text -> BlockPrint.tree(info, text, context.view(), context.blocks())).orElse(List.of());
+        }
+
+        /** A rendering of the document's model when it has one, drawn at once; else a tree of its own, opened for editing. */
+        @Override
+        public Optional<Skeleton> skeleton(Context context) {
+            Optional<String> model = firstModel(context);
+            if (model.isPresent()) {
+                return Optional.of(Skeleton.listing("[decision-tree, model=" + model.get() + ", cohort=100]", "", false));
+            }
+            return Optional.of(Skeleton.listing("[decision-tree, cohort=100, title=\"The choice to make\"]", DECISION_SKELETON, true));
         }
 
         /** A block with a body of its own, as the assistant's replies state one, is written as its tree. */
@@ -215,6 +239,25 @@ public final class DocumentBlockKinds {
             return BlockPrint.model(info, body, context.view(), context.blocks());
         }
 
+        /** A model of a new decision: the tree with one chance, and the parameter the chance reads. */
+        @Override
+        public Optional<Skeleton> skeleton(Context context) {
+            String body = """
+                    decision: k:Choice[The choice to make] @id=new-decision
+                      parameter = [0.5,0.5] k:EventChance[Chance that the event happens] @id=new-event-chance basis=estimated
+                      alternative: k:FirstAlternative[The first alternative] @id=new-first
+                        chance: k:Event[Whether the event happens] @id=new-event
+                          event: k:Happens[The event happens] @id=new-happens
+                            p = from k:EventChance[] @id=new-event-chance
+                            outcome: k:FirstOutcomeIfHappens[What follows when the event happens] @id=new-first-happens
+                          residual: k:DoesNotHappen[The event does not happen] @id=new-does-not-happen
+                            outcome: k:FirstOutcomeIfNot[What follows when it does not] @id=new-first-not
+                      alternative: k:SecondAlternative[The second alternative] @id=new-second
+                        outcome: k:SecondOutcome[What follows from the second alternative] @id=new-second-outcome
+                    """;
+            return Optional.of(Skeleton.listing("[graphlet-model, id=new-model]", body, true));
+        }
+
         /**
          * The model, as a version of its graph in the document's module, one version per value the
          * person commits: a parameter that reads one of the document's statements holds the
@@ -248,6 +291,13 @@ public final class DocumentBlockKinds {
             Optional<String> body = modelBody(info, source, context);
             return body.map(text -> BlockPrint.tornado(info, text, context.view(), context.blocks())).orElse(List.of());
         }
+
+        /** The tornado of the document's model, drawn at once when the document has one. */
+        @Override
+        public Optional<Skeleton> skeleton(Context context) {
+            Optional<String> model = firstModel(context);
+            return Optional.of(Skeleton.listing("[tornado, model=" + model.orElse("model-id") + "]", "", model.isEmpty()));
+        }
     }
 
     /** {@code [complex-concept]}: the complex concept's card. */
@@ -266,6 +316,12 @@ public final class DocumentBlockKinds {
         @Override
         public List<network.ike.komet.claude.decision.render.DecisionFigure> figures(Source source, Context context) {
             return BlockPrint.complexConcept(source.content(), context.view(), context.blocks());
+        }
+
+        /** A concept named and not yet defined, opened in its editor. */
+        @Override
+        public Optional<Skeleton> skeleton(Context context) {
+            return Optional.of(Skeleton.listing("[complex-concept]", "concept: k:NewConcept[A new concept] @id=new-concept", true));
         }
 
         /** The complex concept: its first version, as Propose writes it, then versions of its specification. */
@@ -295,6 +351,16 @@ public final class DocumentBlockKinds {
             return BlockPrint.fields(name(), List.of(source.content().split("\n", -1)));
         }
 
+        /** A performance with its topic and result still to name, in the open-block form the lab documents take. */
+        @Override
+        public Optional<Skeleton> skeleton(Context context) {
+            String body = """
+                    topic:: candidate[What was observed] disp=PENDING
+                    result:: [0,0] candidate[The scale it was observed on] disp=PENDING
+                    """;
+            return Optional.of(Skeleton.open("[anf,type=performance,id=new-statement]", body, true));
+        }
+
         /**
          * The statement, as a statement of its block, through the ANF statement actions; a block
          * that only marks an element of the prose, with no content, states none.
@@ -313,6 +379,17 @@ public final class DocumentBlockKinds {
     public static final class Calculator extends RenderedKind {
         public Calculator() {
             super(CalculatorText.TAG, "calculator");
+        }
+
+        /** A calculator with one output and one input, its equation still to write. */
+        @Override
+        public Optional<Skeleton> skeleton(Context context) {
+            String body = """
+                    calculator: k:NewCalculator[A new calculator] @id=new-calculator
+                      output = k:Result[The result] @id=new-result in k:Unit[The unit of the result] @id=new-unit
+                      input: k:Input[An input] @id=new-input topic=k:InputTopic[What the input measures] @id=new-input-topic in k:Unit[] @id=new-unit required
+                    """;
+            return Optional.of(Skeleton.listing("[calculator, title=\"A new calculator\"]", body, true));
         }
 
         @Override
@@ -334,6 +411,16 @@ public final class DocumentBlockKinds {
             super(CalculationText.TAG, "calculation");
         }
 
+        /** A calculation binding one input to a statement, the calculator and statement still to name. */
+        @Override
+        public Optional<Skeleton> skeleton(Context context) {
+            String body = """
+                    calculate: k:Result[The result] @id=new-result
+                      bind = k:Input[An input] @id=new-input anf:statement-id
+                    """;
+            return Optional.of(Skeleton.listing("[calculate]", body, true));
+        }
+
         @Override
         BlockRenderer renderer(Context context, BlockRewriter rewriter) {
             CalculatorBlockRenderer renderer = new CalculatorBlockRenderer(context.view(), context.viewProperties(), context.base(), context.blocks());
@@ -350,10 +437,20 @@ public final class DocumentBlockKinds {
     /** A benefit-risk view, drawn from its text and edited as text; a proof of concept, so it writes nothing to the store. */
     private abstract static class BenefitRiskKind extends RenderedKind {
         private final BenefitRiskBlockRenderer.View view;
+        private final String skeletonAttributes;
+        private final String skeletonBody;
 
-        BenefitRiskKind(String style, String name, BenefitRiskBlockRenderer.View view) {
+        BenefitRiskKind(String style, String name, BenefitRiskBlockRenderer.View view, String skeletonAttributes, String skeletonBody) {
             super(style, name);
             this.view = view;
+            this.skeletonAttributes = skeletonAttributes;
+            this.skeletonBody = skeletonBody;
+        }
+
+        /** The block's skeleton, opened for editing: every benefit-risk block is edited as its text. */
+        @Override
+        public Optional<Skeleton> skeleton(Context context) {
+            return Optional.of(Skeleton.listing(skeletonAttributes, skeletonBody, true));
         }
 
         @Override
@@ -370,42 +467,114 @@ public final class DocumentBlockKinds {
     /** {@code [value-tree]}: the objectives of a decision, a goal over domains over criteria and gates. */
     public static final class ValueTree extends BenefitRiskKind {
         public ValueTree() {
-            super(network.ike.komet.claude.benefitrisk.ValueTree.TAG, "value tree", BenefitRiskBlockRenderer.View.TREE);
+            super(network.ike.komet.claude.benefitrisk.ValueTree.TAG, "value tree", BenefitRiskBlockRenderer.View.TREE,
+                    "[value-tree, id=new-value-tree]", """
+                    goal: k:Goal[What the decision is for] @id=new-goal
+                      domain: k:Favorable[Favorable effects] @id=new-favorable polarity=favorable
+                        criterion: k:Benefit[A benefit, in its unit] @id=new-benefit better=higher
+                      domain: k:Unfavorable[Unfavorable effects] @id=new-unfavorable polarity=unfavorable
+                        criterion: k:Harm[A harm, in its unit] @id=new-harm better=lower
+                    """);
         }
     }
 
     /** {@code [effects-table]}: one row per leaf of the tree it names, each effect computed from its arms. */
     public static final class EffectsTable extends BenefitRiskKind {
         public EffectsTable() {
-            super(network.ike.komet.claude.benefitrisk.EffectsTable.TAG, "effects table", BenefitRiskBlockRenderer.View.TABLE);
+            super(network.ike.komet.claude.benefitrisk.EffectsTable.TAG, "effects table", BenefitRiskBlockRenderer.View.TABLE,
+                    "[effects-table, id=new-effects, tree=new-value-tree]", """
+                    alternative: k:FirstAlternative[The first alternative] @id=new-first
+                    alternative: k:SecondAlternative[The second alternative] @id=new-second
+                    row: k:Benefit[] @id=new-benefit
+                      arm: new-first mean=0 sd=1 n=1 source=source-id
+                      arm: new-second mean=0 sd=1 n=1 source=source-id
+                    """);
         }
     }
 
     /** {@code [forest-plot]}: the effects table it names, drawn on one axis; it holds nothing of its own. */
     public static final class ForestPlot extends BenefitRiskKind {
         public ForestPlot() {
-            super("forest-plot", "forest plot", BenefitRiskBlockRenderer.View.FOREST);
+            super("forest-plot", "forest plot", BenefitRiskBlockRenderer.View.FOREST, "[forest-plot, table=new-effects]", "");
         }
     }
 
     /** {@code [device-record]}: what a record of the Device Extension would state about a device. */
     public static final class DeviceRecord extends BenefitRiskKind {
         public DeviceRecord() {
-            super(network.ike.komet.claude.benefitrisk.DeviceRecord.TAG, "device record", BenefitRiskBlockRenderer.View.DEVICE);
+            super(network.ike.komet.claude.benefitrisk.DeviceRecord.TAG, "device record", BenefitRiskBlockRenderer.View.DEVICE,
+                    "[device-record, id=new-device]", """
+                    device: k:Device[The device] @id=new-device
+                      material: k:Material[A material the device is made of] @id=new-material
+                      states = "What the device is for, and how it is used."
+                    """);
         }
     }
 
     /** {@code [findings]}: a mock of the findings the Device Extension would hold. */
     public static final class Findings extends BenefitRiskKind {
         public Findings() {
-            super(network.ike.komet.claude.benefitrisk.Findings.TAG, "findings", BenefitRiskBlockRenderer.View.FINDINGS);
+            super(network.ike.komet.claude.benefitrisk.Findings.TAG, "findings", BenefitRiskBlockRenderer.View.FINDINGS,
+                    "[findings, id=new-findings]", """
+                    finding: k:Finding[What was found] @id=new-finding
+                      statement = anf:statement-id
+                      material: k:Material[The material the finding concerns] @id=new-material
+                      source = "Who reported it, and when"
+                    """);
         }
     }
 
     /** {@code [findings-lookup]}: which findings reach a device, as of a year every view then follows. */
     public static final class FindingsLookup extends BenefitRiskKind {
         public FindingsLookup() {
-            super("findings-lookup", "findings lookup", BenefitRiskBlockRenderer.View.LOOKUP);
+            super("findings-lookup", "findings lookup", BenefitRiskBlockRenderer.View.LOOKUP,
+                    "[findings-lookup, device=new-device, findings=new-findings, year=2026]", "");
+        }
+    }
+
+    /**
+     * {@code [koncept-tree]}: the hierarchy under a concept, drawn as a tree of its children; the
+     * concept is named by a token line, {@code k:sctid=…[label]}.
+     */
+    public static final class KonceptTree extends RenderedKind {
+        public KonceptTree() {
+            super(KonceptTreeBlockRenderer.TAG, "koncept tree");
+        }
+
+        @Override
+        BlockRenderer renderer(Context context, BlockRewriter rewriter) {
+            return context.viewProperties() == null
+                    ? new KonceptTreeBlockRenderer(context.view(), context.base())
+                    : new KonceptTreeBlockRenderer(context.viewProperties(), context.base());
+        }
+
+        /** A tree rooted at the SNOMED CT root, the concept to replace by the one the person means. */
+        @Override
+        public Optional<Skeleton> skeleton(Context context) {
+            return Optional.of(Skeleton.listing("[koncept-tree]", "k:sctid=138875005[SNOMED CT Concept]", true));
+        }
+    }
+
+    /** {@code [koncept-definition]}: a proposed definition, its necessary and sufficient sets over concepts. */
+    public static final class KonceptDefinition extends RenderedKind {
+        public KonceptDefinition() {
+            super(network.ike.komet.claude.authoring.ProposedDefinition.TAG, "koncept definition");
+        }
+
+        @Override
+        BlockRenderer renderer(Context context, BlockRewriter rewriter) {
+            return new KonceptDefinitionBlockRenderer(context.view(), context.base());
+        }
+
+        /** A definition with a title and one necessary parent, to be refined. */
+        @Override
+        public Optional<Skeleton> skeleton(Context context) {
+            String body = """
+                    proposed: A new concept
+                    necessary
+                      k:sctid=404684003[Clinical finding]
+                    """;
+            return Optional.of(Skeleton.listing("[koncept-definition]", body, true));
         }
     }
 }

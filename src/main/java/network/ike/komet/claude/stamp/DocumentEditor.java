@@ -200,22 +200,40 @@ public final class DocumentEditor {
      *
      * @param anchor the document anchor's id
      * @param after  the nid of the block to insert after, whose members are all lines
-     * @param kind   {@link Block.Kind#PARAGRAPH} or {@link Block.Kind#LISTING}
+     * @param kind   a kind {@link #isLeafKind} allows
      * @param text   the new block's text, one line per line
      * @param edit   the edit coordinate whose author and path the edit is written under
      * @return what the insertion did: the new block's nid and the lines added
      * @throws IllegalArgumentException when the block is not one of the document's, holds child blocks, the
-     *                                  kind is neither, or the text does not form exactly one block of that kind
+     *                                  kind is not a leaf kind, or the text does not form exactly one block of that kind
      */
     public static synchronized Edit addBlock(PublicId anchor, long after, Block.Kind kind, String text, EditCoordinate edit) {
         return addBlock(anchor, after, kind, text, edit.getAuthorNidForChanges(), edit.getDefaultPathNid());
     }
 
+    /**
+     * The kinds a new block may take: the kinds whose block is its lines and nothing else, so one
+     * block semantic with the lines as members is the whole of it. A paragraph, a listing, a
+     * literal, an admonition in its paragraph form, an image macro, and a structured open block,
+     * whose kind reads its content as one structure. A list, a table, a section or a delimited
+     * container holds other blocks, and is not added this way (topic {@code dev-document-edit-menu}).
+     *
+     * @param kind a block kind
+     * @return whether a block of that kind is inserted as one block of lines
+     */
+    public static boolean isLeafKind(Block.Kind kind) {
+        return kind == Block.Kind.PARAGRAPH || kind == Block.Kind.LISTING || kind == Block.Kind.LITERAL
+                || kind == Block.Kind.ADMONITION || kind == Block.Kind.IMAGE || kind == Block.Kind.OPEN;
+    }
+
+    /** What {@link #isLeafKind} allows, for a refusal's sentence. */
+    public static final String LEAF_KINDS = "a paragraph, a listing, a literal, an admonition, an image or a structured open block";
+
     private static Edit addBlock(PublicId anchor, long after, Block.Kind kind, String text, long authorNid, long pathNid) {
         DocumentVocabulary.requirePresent();
         StructuredBlockKind.Source source = StructuredBlockKind.Source.of(text == null ? "" : text);
-        if (kind != Block.Kind.PARAGRAPH && kind != Block.Kind.LISTING && !structuredOpen(kind, source.parameters())) {
-            throw new IllegalArgumentException("A new block is a paragraph, a listing or a structured open block, not a plain " + kind.name().toLowerCase());
+        if (!isLeafKind(kind) || (kind == Block.Kind.OPEN && !structuredOpen(kind, source.parameters()))) {
+            throw new IllegalArgumentException("A new block is " + LEAF_KINDS + ", not a plain " + kind.name().toLowerCase());
         }
         List<String> newLines = text == null ? List.of() : text.lines().toList();
         if (newLines.isEmpty() || newLines.stream().allMatch(String::isBlank)) {
@@ -258,6 +276,9 @@ public final class DocumentEditor {
                 if (added.kind() != kind || added.firstLine() != at + 2 || added.lastLine() != at + 1 + newLines.size()) {
                     throw new IllegalArgumentException("The text does not form one " + kind.name().toLowerCase() + " block after the chosen one"
                             + (added.kind() == kind ? "" : "; it reads as a " + added.kind().name().toLowerCase()));
+                }
+                if (!added.children().isEmpty() && !structuredOpen(added.kind(), added.parameters())) {
+                    throw new IllegalArgumentException("The text forms a " + kind.name().toLowerCase() + " that holds other blocks; a new block is its lines alone");
                 }
             } else if (expected.kind() != newBlocks.get(i).kind()) {
                 throw new IllegalArgumentException("The text would change the document's structure");

@@ -13,3 +13,5 @@ network.ike.komet.claude.ui.DocumentBlockKinds$ForestPlot
 network.ike.komet.claude.ui.DocumentBlockKinds$DeviceRecord
 network.ike.komet.claude.ui.DocumentBlockKinds$Findings
 network.ike.komet.claude.ui.DocumentBlockKinds$FindingsLookup
+network.ike.komet.claude.ui.DocumentBlockKinds$KonceptTree
+network.ike.komet.claude.ui.DocumentBlockKinds$KonceptDefinition

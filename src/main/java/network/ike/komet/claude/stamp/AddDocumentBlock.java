@@ -88,8 +88,8 @@ public final class AddDocumentBlock implements KometAction {
             return KometActionResult.refused(input, "Adding a block takes two fields: the new block's kind and its text.");
         }
         Optional<Block.Kind> kind = AsciiDocModelTerms.kindOf(kindConcept.publicId());
-        if (kind.isEmpty() || (kind.get() != Block.Kind.PARAGRAPH && kind.get() != Block.Kind.LISTING && kind.get() != Block.Kind.OPEN)) {
-            return KometActionResult.refused(input, "A new block is a paragraph, a listing or a structured open block.");
+        if (kind.isEmpty() || !DocumentEditor.isLeafKind(kind.get())) {
+            return KometActionResult.refused(input, "A new block is " + DocumentEditor.LEAF_KINDS + ".");
         }
         try {
             DocumentVocabulary.requirePresent();
@@ -121,7 +121,13 @@ public final class AddDocumentBlock implements KometAction {
         if (written.isEmpty()) {
             return KometActionResult.failed(input, "The insertion left no pending version of the new block.");
         }
-        return KometActionResult.completed(input, written.get().stamp(), "a " + kind.get().name().toLowerCase() + " of "
+        String what = switch (kind.get()) {
+            case OPEN -> "a structured block";
+            case ADMONITION -> "an admonition";
+            case IMAGE -> "an image";
+            default -> "a " + kind.get().name().toLowerCase();
+        };
+        return KometActionResult.completed(input, written.get().stamp(), what + " of "
                 + done.added() + (done.added() == 1 ? " line" : " lines") + " added; uncommitted until you commit the document in git.");
     }
 }
