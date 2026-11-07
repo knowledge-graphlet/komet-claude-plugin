@@ -96,7 +96,8 @@ import java.util.regex.Pattern;
  * <p>An aggregator — a compendium or guide assembled from {@code include::} directives — is
  * materialized as an assembly ({@link #materializeAssembly(Path, Path)}): the file, then every
  * file it includes as its own document, each written by the same single-file path
- * (IKE-Network/ike-issues#1307).
+ * (IKE-Network/ike-issues#1307), a file a working tree beside this one holds under that tree
+ * (IKE-Network/ike-issues#1345).
  */
 public final class GitDocumentMaterializer {
 
@@ -356,12 +357,15 @@ public final class GitDocumentMaterializer {
      * Materialize an assembly: the file itself, then every file its {@code include::}
      * directives name, each as its own document, in include order
      * (IKE-Network/ike-issues#1307). An include resolves through the text's attribute entries,
-     * the repository's conventions or the including file's directory
-     * ({@link IncludeResolver}); it must be committed in this repository and be AsciiDoc, and
-     * one that is not is reported by name while the rest proceed. An included file that is
-     * itself an aggregator is followed in turn, each file once, so a cycle ends where it began.
-     * Every document is written the way {@link #materialize(Path, Path)} writes one, so the
-     * batch is as incremental and idempotent as the single file.
+     * the AsciiDoc roots of the committed tree or the including file's directory
+     * ({@link IncludeResolver}); one that is not committed in this repository is looked for
+     * under the AsciiDoc roots of the working trees beside it ({@link WorkingTrees}, topic
+     * {@code dev-adoc-packages}, IKE-Network/ike-issues#1345), and materializes under the tree
+     * that holds it. It must be AsciiDoc, and one that resolves nowhere is reported by name while
+     * the rest proceed. An included file that is itself an aggregator is followed in turn, each
+     * file once, so a cycle ends where it began. Every document is written the way
+     * {@link #materialize(Path, Path)} writes one, so the batch is as incremental and idempotent
+     * as the single file.
      *
      * @param repoRoot working-tree root
      * @param file     the assembly file within it, absolute or root-relative
@@ -373,28 +377,121 @@ public final class GitDocumentMaterializer {
         Path relative = (file.isAbsolute() ? root.relativize(file.toAbsolutePath().normalize()) : file).normalize();
         List<Result> documents = new ArrayList<>();
         List<Unresolved> unresolved = new ArrayList<>();
-        Set<Path> visited = new LinkedHashSet<>();
-        try (GitRepo repo = GitRepo.open(root)) {
-            List<String> lines = repo.headLines(relative);
-            visited.add(relative);
+        try (Trees trees = new Trees(root)) {
+            List<String> lines = trees.repo(root).headLines(relative);
+            trees.visited.add(root.resolve(relative));
             documents.add(materialize(root, root.resolve(relative)));
-            follow(repo, root, relative, lines, visited, documents, unresolved);
+            follow(trees, root, relative, lines, documents, unresolved);
         }
         LOG.info("Materialized assembly {}: {}", relative, new AssemblyResult(documents, unresolved).summary());
         return new AssemblyResult(documents, unresolved);
     }
 
-    private static void follow(GitRepo repo, Path root, Path including, List<String> lines, Set<Path> visited,
-                               List<Result> documents, List<Unresolved> unresolved) throws IOException {
-        Map<Path, List<String>> committed = new HashMap<>();
-        java.util.function.Predicate<Path> exists = candidate -> committedLines(repo, candidate, committed).isPresent();
-        for (IncludeResolver.Resolution resolution : IncludeResolver.resolve(root, including, lines, exists)) {
-            if (resolution.resolved().isEmpty()) {
-                unresolved.add(new Unresolved(including, resolution.line(), resolution.target(), resolution.reason()));
+    /**
+     * The trees of one batch: the assembly's own, and the neighbours the origin manifest lists
+     * when an include is not committed in it. Each tree's repository is opened once, its
+     * committed paths listed once, and a file's committed lines read once.
+     */
+    private static final class Trees implements AutoCloseable {
+
+        final Path root;
+        /** Every file the batch has materialized, absolute, so a file named twice or a cycle is followed once. */
+        final Set<Path> visited = new LinkedHashSet<>();
+        private final Map<Path, GitRepo> repos = new LinkedHashMap<>();
+        private final Map<Path, List<String>> paths = new HashMap<>();
+        private final Map<Path, Map<Path, List<String>>> lines = new HashMap<>();
+        private List<Path> neighbours;
+
+        Trees(Path root) {
+            this.root = root;
+        }
+
+        GitRepo repo(Path tree) throws IOException {
+            GitRepo repo = repos.get(tree);
+            if (repo == null) {
+                repo = GitRepo.open(tree);
+                repos.put(tree, repo);
+            }
+            return repo;
+        }
+
+        /** The working trees beside the assembly's, found once and only when an include misses. */
+        List<Path> neighbours() {
+            if (neighbours == null) {
+                neighbours = WorkingTrees.beside(root).trees();
+            }
+            return neighbours;
+        }
+
+        /** A tree's committed paths, listed once. */
+        List<String> committedPaths(Path tree) {
+            return paths.computeIfAbsent(tree, t -> {
+                try {
+                    return GitOperations.committedPaths(t);
+                } catch (IOException e) {
+                    LOG.warn("Listing the committed files of {} failed: {}", t, e.getMessage());
+                    return List.of();
+                }
+            });
+        }
+
+        /** A file's committed lines in a tree, or empty when HEAD there does not hold it. */
+        Optional<List<String>> committedLines(Path tree, Path relative) {
+            Map<Path, List<String>> cache = lines.computeIfAbsent(tree, t -> new HashMap<>());
+            List<String> cached = cache.get(relative);
+            if (cached != null) {
+                return Optional.of(cached);
+            }
+            try {
+                List<String> read = repo(tree).headLines(relative);
+                cache.put(relative, read);
+                return Optional.of(read);
+            } catch (IOException e) {
+                return Optional.empty();
+            }
+        }
+
+        @Override
+        public void close() {
+            repos.values().forEach(GitRepo::close);
+        }
+    }
+
+    private static void follow(Trees trees, Path root, Path including, List<String> lines, List<Result> documents,
+                               List<Unresolved> unresolved) throws IOException {
+        Map<String, String> attributes = IncludeResolver.attributeEntries(lines);
+        java.util.function.Predicate<Path> exists = candidate -> trees.committedLines(root, candidate).isPresent();
+        java.util.function.Function<String, List<Path>> underRoots = rest -> IncludeResolver.endingWith(trees.committedPaths(root), rest);
+        for (IncludeResolver.Resolution resolution : IncludeResolver.resolve(root, including, lines, exists, underRoots)) {
+            Path tree = root;
+            Path target = resolution.resolved().orElse(null);
+            String reason = resolution.reason();
+            if (target == null && !reason.startsWith("ambiguous")) {
+                // not committed in this tree: the neighbours, in the manifest's order, the first that holds it
+                for (Path other : trees.neighbours()) {
+                    List<Path> found = IncludeResolver.underRoots(resolution.target(), attributes,
+                            rest -> IncludeResolver.endingWith(trees.committedPaths(other), rest));
+                    if (found.size() > 1) {
+                        reason = "ambiguous under the AsciiDoc roots of " + other.getFileName() + ": "
+                                + String.join(", ", found.stream().map(Path::toString).toList());
+                        break;
+                    }
+                    if (found.size() == 1) {
+                        tree = other;
+                        target = found.getFirst();
+                        break;
+                    }
+                }
+                if (target == null && !reason.startsWith("ambiguous") && !trees.neighbours().isEmpty()) {
+                    reason += "; nor under the AsciiDoc roots of " + trees.neighbours().size() + " working tree(s) beside it";
+                }
+            }
+            if (target == null) {
+                unresolved.add(new Unresolved(including, resolution.line(), resolution.target(), reason));
                 continue;
             }
-            Path target = resolution.resolved().get();
-            if (!visited.add(target)) {
+            Path absolute = tree.resolve(target).normalize();
+            if (!trees.visited.add(absolute)) {
                 continue;                                        // already in this batch: a cycle, or named twice
             }
             String name = target.getFileName().toString();
@@ -402,26 +499,11 @@ public final class GitDocumentMaterializer {
                 unresolved.add(new Unresolved(including, resolution.line(), resolution.target(), "not an AsciiDoc file"));
                 continue;
             }
-            List<String> targetLines = committedLines(repo, target, committed).orElseThrow();
-            documents.add(materialize(root, root.resolve(target)));
+            List<String> targetLines = trees.committedLines(tree, target).orElseThrow();
+            documents.add(materialize(tree, absolute));
             if (!IncludeResolver.includes(targetLines).isEmpty()) {
-                follow(repo, root, target, targetLines, visited, documents, unresolved);
+                follow(trees, tree, target, targetLines, documents, unresolved);
             }
-        }
-    }
-
-    /** A file's committed lines, or empty when HEAD does not hold it. */
-    private static Optional<List<String>> committedLines(GitRepo repo, Path relative, Map<Path, List<String>> cache) {
-        List<String> cached = cache.get(relative);
-        if (cached != null) {
-            return Optional.of(cached);
-        }
-        try {
-            List<String> lines = repo.headLines(relative);
-            cache.put(relative, lines);
-            return Optional.of(lines);
-        } catch (IOException e) {
-            return Optional.empty();
         }
     }
 

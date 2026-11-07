@@ -131,7 +131,8 @@ import java.util.stream.Collectors;
  * working tree, and shows the store's copy.
  *
  * <p>An assembly opens as one document: the host's include lines that name documents the store
- * holds (by their recorded path under the same working tree) show those children in place, each
+ * holds (by their recorded path under the same working tree, or under a working tree beside it
+ * when the include names a library another repository holds) show those children in place, each
  * still its own document ({@link DocumentAssembly}). A selection is located to the one member it
  * lies in, so an annotation's trailers name the child's file; the footer follows the member
  * under the viewport; an edit in place inside a child edits that child's block, and Commit…
@@ -1019,8 +1020,13 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
 
     /**
      * Reads the host and every document its includes resolve to, by recorded path: under a known
-     * working tree the child's anchor is the identity its file materializes under; without one,
-     * the store's documents of that path (the first when two repositories hold it).
+     * working tree the child's anchor is the identity its file materializes under there, or under
+     * a working tree beside it when the include names a library another repository holds
+     * ({@link WorkingTrees}, topic {@code dev-adoc-packages}); without a known tree, the store's
+     * documents of that path (the first when two repositories hold it). An include that names a
+     * file under the AsciiDoc roots is matched against the committed paths of the known tree and
+     * then of its neighbours, each listed once with one git call, and never against a listing of
+     * the whole store while a tree is known.
      */
     private static Opened read(PublicId anchor, Path root, long asOf) {
         Optional<Loaded> host = Loaded.read(anchor, root, true, asOf);
@@ -1035,22 +1041,70 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
             return new Opened(before, Map.of(empty.host().path(), before), empty, asOf);
         }
         Map<String, Loaded> loaded = new LinkedHashMap<>();
-        Map<String, List<PublicId>> byPath = root == null ? GitDocumentMaterializer.storedDocumentsByPath() : Map.of();
+        List<Path> trees = new ArrayList<>();
+        if (root != null) {
+            trees.add(root);
+            trees.addAll(WorkingTrees.beside(root).trees());
+        }
+        Map<Path, List<String>> committed = new HashMap<>();
+        java.util.function.Function<Path, List<String>> committedPaths = tree -> committed.computeIfAbsent(tree, t -> {
+            try {
+                return GitOperations.committedPaths(t);
+            } catch (IOException e) {
+                LOG.warn("Listing the committed files of {} failed: {}", t, e.getMessage());
+                return List.of();
+            }
+        });
+        java.util.concurrent.atomic.AtomicReference<Map<String, List<PublicId>>> listed = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.function.Supplier<Map<String, List<PublicId>>> byPath = () -> {
+            if (listed.get() == null) {
+                listed.set(GitDocumentMaterializer.storedDocumentsByPath());
+            }
+            return listed.get();
+        };
         java.util.function.Function<String, Optional<StoredDocument>> store = path -> {
             Loaded known = loaded.get(path);
             if (known != null) {
                 return Optional.of(known.document());
             }
-            PublicId child = root != null ? GitDocumentMaterializer.documentAnchor(root, path)
-                    : byPath.getOrDefault(path, List.of()).stream().findFirst().orElse(null);
-            if (child == null || child.equals(anchor)) {
-                return Optional.empty();
+            Optional<Loaded> read = Optional.empty();
+            for (Path tree : trees) {
+                PublicId under = GitDocumentMaterializer.documentAnchor(tree, path);
+                if (under.equals(anchor)) {
+                    continue;
+                }
+                read = Loaded.read(under, tree, false, asOf);
+                if (read.isPresent()) {
+                    break;
+                }
             }
-            Optional<Loaded> read = Loaded.read(child, root, false, asOf);
+            if (read.isEmpty() && root == null) {
+                for (PublicId candidate : byPath.get().getOrDefault(path, List.of())) {
+                    if (candidate.equals(anchor)) {
+                        continue;
+                    }
+                    read = Loaded.read(candidate, null, false, asOf);
+                    if (read.isPresent()) {
+                        break;
+                    }
+                }
+            }
             read.ifPresent(l -> loaded.put(path, l));
             return read.map(Loaded::document);
         };
-        DocumentAssembly assembly = DocumentAssembly.of(host.get().document(), host.get().path(), store);
+        java.util.function.Function<String, List<Path>> underRoots = rest -> {
+            if (root == null) {
+                return IncludeResolver.endingWith(byPath.get().keySet(), rest);
+            }
+            for (Path tree : trees) {
+                List<Path> found = IncludeResolver.endingWith(committedPaths.apply(tree), rest);
+                if (!found.isEmpty()) {
+                    return found;
+                }
+            }
+            return List.of();
+        };
+        DocumentAssembly assembly = DocumentAssembly.of(host.get().document(), host.get().path(), store, underRoots);
         Map<String, Loaded> members = new LinkedHashMap<>();
         members.put(assembly.host().path(), host.get());
         for (DocumentAssembly.Member child : assembly.children()) {
@@ -3119,10 +3173,20 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
                 : Coordinates.Edit.Default();
     }
 
-    /** The working tree to commit into: the one known, or one the person chooses. */
+    /**
+     * The working tree to commit into: the one known; else the one tree beside it that holds the
+     * file, for a child included from another repository ({@link WorkingTrees}); else one the
+     * person chooses.
+     */
     private Optional<Path> workingTree(String path) {
         if (repoRoot != null && path != null && Files.isRegularFile(repoRoot.resolve(path))) {
             return Optional.of(repoRoot);
+        }
+        if (repoRoot != null && path != null) {
+            List<Path> beside = WorkingTrees.beside(repoRoot).holding(path);
+            if (beside.size() == 1) {
+                return Optional.of(beside.getFirst());
+            }
         }
         DirectoryChooser chooser = new DirectoryChooser();
         chooser.setTitle("Working tree that holds " + path);

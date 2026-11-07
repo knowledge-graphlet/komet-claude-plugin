@@ -45,8 +45,8 @@ import java.util.function.Function;
  * order both views stack and the ordinals a {@link LineSelection} runs over.
  *
  * <p>Resolution follows the materializer ({@link IncludeResolver}): the text's own attribute
- * entries, the repository conventions, then the including file's directory, against the paths
- * the store records. The assembly reads nothing itself; it is a pure function of the host, the
+ * entries, the AsciiDoc roots the caller lists, then the including file's directory, against
+ * the paths the store records. The assembly reads nothing itself; it is a pure function of the host, the
  * host's recorded path and a lookup of stored documents by repository-relative path.
  */
 public final class DocumentAssembly {
@@ -131,10 +131,13 @@ public final class DocumentAssembly {
     private final Map<Long, List<StoredReference>> references = new HashMap<>();
     private final Set<String> visited = new LinkedHashSet<>();
     private final Function<String, Optional<StoredDocument>> store;
+    private final Function<String, List<Path>> underRoots;
     private final Map<String, Optional<StoredDocument>> looked = new HashMap<>();
 
-    private DocumentAssembly(StoredDocument host, String hostPath, Function<String, Optional<StoredDocument>> store) {
+    private DocumentAssembly(StoredDocument host, String hostPath, Function<String, Optional<StoredDocument>> store,
+                             Function<String, List<Path>> underRoots) {
         this.store = store;
+        this.underRoots = underRoots;
         this.host = new Member(host, hostPath == null ? "" : hostPath, 0, null);
         if (!this.host.path().isEmpty()) {
             visited.add(this.host.path());
@@ -149,10 +152,28 @@ public final class DocumentAssembly {
      * @param host     the host document
      * @param hostPath the host's repository-relative path, or {@code null} when none is recorded (then nothing resolves)
      * @param store    a lookup of the store's documents by repository-relative path (forward slashes)
-     * @return the assembly
+     * @return the assembly, with nothing resolved under the AsciiDoc roots since no listing is given
      */
     public static DocumentAssembly of(StoredDocument host, String hostPath, Function<String, Optional<StoredDocument>> store) {
-        return new DocumentAssembly(host, hostPath, store);
+        return new DocumentAssembly(host, hostPath, store, rest -> List.of());
+    }
+
+    /**
+     * The assembly of a host document whose includes may name files under the AsciiDoc roots
+     * (topic {@code dev-adoc-packages}): {@code {adoc}/network.ike.lab/dev/overview.adoc}, or
+     * {@code {topics}/topics/dev/overview.adoc} in the layout before packages, is a path under
+     * some library's {@code src/docs/asciidoc}, in this working tree or one beside it.
+     *
+     * @param host       the host document
+     * @param hostPath   the host's repository-relative path, or {@code null} when none is recorded (then nothing resolves)
+     * @param store      a lookup of the store's documents by repository-relative path (forward slashes)
+     * @param underRoots the recorded paths whose tail is {@code src/docs/asciidoc} and the path given,
+     *                   {@link IncludeResolver#endingWith} over the paths the caller knows, nearest tree first
+     * @return the assembly
+     */
+    public static DocumentAssembly of(StoredDocument host, String hostPath, Function<String, Optional<StoredDocument>> store,
+                                      Function<String, List<Path>> underRoots) {
+        return new DocumentAssembly(host, hostPath, store, underRoots);
     }
 
     /**
@@ -163,7 +184,7 @@ public final class DocumentAssembly {
      * @return the assembly of one member
      */
     public static DocumentAssembly single(StoredDocument document, String path) {
-        return new DocumentAssembly(document, path, p -> Optional.empty());
+        return new DocumentAssembly(document, path, p -> Optional.empty(), rest -> List.of());
     }
 
     /** Appends a member's lines in surface order, each resolved include line followed by its child's. */
@@ -175,7 +196,7 @@ public final class DocumentAssembly {
         if (!member.path().isEmpty()) {
             List<String> texts = document.lines().stream().map(StoredLine::text).toList();
             if (!IncludeResolver.includes(texts).isEmpty()) {
-                for (IncludeResolver.Resolution r : IncludeResolver.resolve(RESOLUTION_ROOT, Path.of(member.path()), texts, this::stored)) {
+                for (IncludeResolver.Resolution r : IncludeResolver.resolve(RESOLUTION_ROOT, Path.of(member.path()), texts, this::stored, underRoots)) {
                     byLine.put(r.line(), r);
                 }
             }

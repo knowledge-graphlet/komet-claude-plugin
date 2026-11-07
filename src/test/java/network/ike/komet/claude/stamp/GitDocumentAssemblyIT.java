@@ -161,4 +161,76 @@ class GitDocumentAssemblyIT {
             throw new IllegalStateException("git " + String.join(" ", args) + " failed: " + out);
         }
     }
+
+    /**
+     * An include that names a library another repository holds resolves under the AsciiDoc roots
+     * of the working trees beside this one, as the origin manifest lists them, and the child
+     * materializes under the tree that holds it (topic {@code dev-adoc-packages},
+     * IKE-Network/ike-issues#1345): the UNLV proposal including ike-lab-documents topics.
+     */
+    @Test
+    void anIncludeOfALibraryInAnotherWorkingTreeMaterializesUnderThatTree() throws Exception {
+        Path folder = Files.createDirectories(root.resolve("fleet"));
+        Files.createDirectories(folder.resolve("scripts"));
+        Files.writeString(folder.resolve(WorkingTrees.ORIGINS), """
+                proposals https://example.test/proposals.git
+                documents https://example.test/documents.git
+                """);
+        Path documents = Files.createDirectories(folder.resolve("documents"));
+        gitIn(documents, "init", "-q", "-b", "main");
+        Path library = Files.createDirectories(documents.resolve("topics/src/docs/asciidoc/network.ike.lab/ikm"));
+        Files.writeString(library.resolve("health-it-challenges.adoc"), """
+                :topic-id: ikm-health-it-challenges
+                [[ikm-health-it-challenges]]
+                = Health IT Challenges
+
+                A claim from the lab documents.
+                """);
+        gitIn(documents, "add", "topics/src/docs/asciidoc/network.ike.lab/ikm/health-it-challenges.adoc");
+        gitIn(documents, "-c", "user.name=alice", "-c", "user.email=alice@example.test", "commit", "-q", "--no-gpg-sign",
+                "--date=2026-04-01T00:00:00Z", "-m", "a lab topic");
+
+        Path proposals = Files.createDirectories(folder.resolve("proposals"));
+        gitIn(proposals, "init", "-q", "-b", "main");
+        Path own = Files.createDirectories(proposals.resolve("unlv-topics/src/docs/asciidoc/network.ike.lab/lab"));
+        Files.writeString(own.resolve("infrastructure-imperative.adoc"), """
+                :topic-id: lab-infrastructure-imperative
+                [[lab-infrastructure-imperative]]
+                = The Infrastructure Imperative
+
+                A claim from the proposals.
+                """);
+        Path proposal = Files.createDirectories(proposals.resolve("ike-lab-unlv-proposal/src/docs/asciidoc")).resolve("proposal.adoc");
+        Files.writeString(proposal, """
+                = Proposal
+                :doctype: book
+
+                include::{adoc}/network.ike.lab/lab/infrastructure-imperative.adoc[leveloffset=+1]
+
+                include::{adoc}/network.ike.lab/ikm/health-it-challenges.adoc[leveloffset=+1]
+
+                include::{adoc}/network.ike.lab/ikm/absent.adoc[leveloffset=+1]
+                """);
+        gitIn(proposals, "add", "unlv-topics/src/docs/asciidoc/network.ike.lab/lab/infrastructure-imperative.adoc",
+                "ike-lab-unlv-proposal/src/docs/asciidoc/proposal.adoc");
+        gitIn(proposals, "-c", "user.name=alice", "-c", "user.email=alice@example.test", "commit", "-q", "--no-gpg-sign",
+                "--date=2026-04-02T00:00:00Z", "-m", "a proposal over two libraries");
+
+        GitDocumentMaterializer.AssemblyResult result = GitDocumentMaterializer.materializeAssembly(proposals, proposal);
+
+        assertEquals(List.of("ike-lab-unlv-proposal/src/docs/asciidoc/proposal.adoc", "lab-infrastructure-imperative", "ikm-health-it-challenges"),
+                result.documents().stream().map(GitDocumentMaterializer.Result::name).toList(),
+                "the proposal, its own library's topic, then the topic the other working tree holds");
+        assertEquals(GitDocumentMaterializer.documentAnchor(documents, "topics/src/docs/asciidoc/network.ike.lab/ikm/health-it-challenges.adoc"),
+                result.documents().get(2).anchor(), "the child is the document its file materializes under in its own tree");
+        assertEquals(GitDocumentMaterializer.documentAnchor(proposals, "unlv-topics/src/docs/asciidoc/network.ike.lab/lab/infrastructure-imperative.adoc"),
+                result.documents().get(1).anchor());
+        assertEquals(1, result.unresolved().size(), "the absent topic is reported, not fatal: " + result.unresolved());
+        GitDocumentMaterializer.Unresolved absent = result.unresolved().getFirst();
+        assertEquals("{adoc}/network.ike.lab/ikm/absent.adoc", absent.target());
+        assertTrue(absent.reason().contains("beside it"), "the neighbours were looked in: " + absent.reason());
+
+        GitDocumentMaterializer.AssemblyResult again = GitDocumentMaterializer.materializeAssembly(proposals, proposal);
+        assertEquals(0, again.commits(), "a re-run writes nothing");
+    }
 }

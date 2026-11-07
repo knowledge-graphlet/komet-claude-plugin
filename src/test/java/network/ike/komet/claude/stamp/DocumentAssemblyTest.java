@@ -57,7 +57,7 @@ class DocumentAssemblyTest {
         return lines.stream().map(StoredLine::text).toList();
     }
 
-    /** The ANF shape: an aggregator whose {@code :topics:} attribute the build settles, resolved through the convention. */
+    /** The ANF shape: an aggregator whose {@code :topics:} attribute the build settles, resolved under the AsciiDoc roots the store records. */
     private static DocumentAssembly compendium(Map<String, StoredDocument> store) {
         StoredDocument host = document(
                 "= Compendium",
@@ -74,7 +74,8 @@ class DocumentAssemblyTest {
                 "== Closing",
                 "",
                 "The end.");
-        return DocumentAssembly.of(host, "compendium/src/docs/asciidoc/compendium.adoc", path -> Optional.ofNullable(store.get(path)));
+        return DocumentAssembly.of(host, "compendium/src/docs/asciidoc/compendium.adoc", path -> Optional.ofNullable(store.get(path)),
+                rest -> IncludeResolver.endingWith(store.keySet(), rest));
     }
 
     @Test

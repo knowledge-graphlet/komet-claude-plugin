@@ -21,29 +21,35 @@ import design.knowledge.stamp.adoc.dialect.Reference;
 
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TreeSet;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
  * Where an assembly's {@code include::} directives point, as committed text alone can say
- * (IKE-Network/ike-issues#1307). An aggregator such as the ANF compendium names its topics
- * through an attribute — {@code include::{topics}/topics/anf/why-standardize.adoc[]} — whose
- * value is settled by the build ({@code :topics: {generated}/topics-asciidoc}, unpacked from a
- * sibling module at build time), so the text's own attribute entries resolve some includes and
+ * (IKE-Network/ike-issues#1307, #1345; ike-lab-documents topic {@code dev-adoc-packages}). An
+ * aggregator names its topics through an attribute whose value the build settles —
+ * {@code include::{adoc}/network.ike.lab/dev/overview.adoc[]} with {@code :adoc:} pointing at
+ * the tree the build unpacks every topic library into, or {@code {topics}/topics/dev/overview.adoc}
+ * in the layout before packages — so the text's own attribute entries resolve some includes and
  * not others. The resolver tries, in order:
  *
  * <ol>
  *   <li>the target with every {@code {name}} replaced by the document's own attribute entry,
  *       header or body, relative to the including file's directory (or absolute), when nothing
  *       is left unresolved;</li>
- *   <li>the repository conventions: a target under {@code {topics}} maps onto the topic
- *       library's source root, {@code topics/src/docs/asciidoc}, relative to the repository
- *       root;</li>
+ *   <li>the AsciiDoc roots: a target that begins with an attribute the text does not settle
+ *       names a file by its path under some library's root, {@value #ASCIIDOC_ROOT}, wherever
+ *       that root is in the tree. The caller lists the committed files whose path ends so (the
+ *       git tree, or the store's recorded paths). One answer resolves; two or more refuse by
+ *       name, never a guess; a library module's name is not assumed;</li>
  *   <li>the target as written, relative to the including file's directory.</li>
  * </ol>
  *
@@ -53,16 +59,15 @@ import java.util.regex.Pattern;
  */
 public final class IncludeResolver {
 
+    /** Where a library's AsciiDoc sources are, relative to its module: the one path the roots rule relies on. */
+    public static final String ASCIIDOC_ROOT = "src/docs/asciidoc";
+
     /** A header or body attribute entry: {@code :name: value}. */
     private static final Pattern ATTRIBUTE_ENTRY = Pattern.compile("^:([A-Za-z0-9_][A-Za-z0-9_-]*)!?:(?:\\s+(.*))?$");
     /** An attribute reference in a target: {@code {name}}. */
     private static final Pattern ATTRIBUTE_REFERENCE = Pattern.compile("\\{([A-Za-z0-9_][A-Za-z0-9_-]*)}");
-
-    /**
-     * Repository conventions: the attribute an aggregator uses for a library's unpacked copy,
-     * and where that library's sources live under the repository root.
-     */
-    static final Map<String, String> CONVENTIONS = Map.of("topics", "topics/src/docs/asciidoc");
+    /** A target that begins with an attribute: the attribute, then what follows it. */
+    private static final Pattern LEADING_ATTRIBUTE = Pattern.compile("^\\{([A-Za-z0-9_][A-Za-z0-9_-]*)}/?(.*)$");
 
     private IncludeResolver() { }
 
@@ -118,24 +123,84 @@ public final class IncludeResolver {
     }
 
     /**
-     * Resolve every include of one file.
+     * Resolve every include of one file through its attribute entries and its own directory
+     * alone: with no listing of the tree, nothing resolves under the AsciiDoc roots.
      *
-     * @param repoRoot  the repository root, for the conventions and for keeping every answer inside it
+     * @param repoRoot  the repository root, for keeping every answer inside it
      * @param including the including file, relative to the repository root
      * @param lines     the including file's committed lines
      * @param exists    whether a candidate, relative to the repository root, is a file the caller accepts
      * @return one resolution per include directive, in document order
      */
     public static List<Resolution> resolve(Path repoRoot, Path including, List<String> lines, Predicate<Path> exists) {
+        return resolve(repoRoot, including, lines, exists, rest -> List.of());
+    }
+
+    /**
+     * Resolve every include of one file.
+     *
+     * @param repoRoot   the repository root, for keeping every answer inside it
+     * @param including  the including file, relative to the repository root
+     * @param lines      the including file's committed lines
+     * @param exists     whether a candidate, relative to the repository root, is a file the caller accepts
+     * @param underRoots the committed files, relative to the repository root, whose path ends with
+     *                   {@value #ASCIIDOC_ROOT} and the path given; {@link #endingWith} over a listing
+     * @return one resolution per include directive, in document order
+     */
+    public static List<Resolution> resolve(Path repoRoot, Path including, List<String> lines, Predicate<Path> exists,
+                                           Function<String, List<Path>> underRoots) {
         Map<String, String> attributes = attributeEntries(lines);
         List<Resolution> resolutions = new ArrayList<>();
         for (Reference include : includes(lines)) {
-            resolutions.add(resolveOne(repoRoot, including, attributes, include, exists));
+            resolutions.add(resolveOne(repoRoot, including, attributes, include, exists, underRoots));
         }
         return resolutions;
     }
 
-    private static Resolution resolveOne(Path repoRoot, Path including, Map<String, String> attributes, Reference include, Predicate<Path> exists) {
+    /**
+     * The files under the AsciiDoc roots that a target names: the rule alone, for a caller that
+     * looks in a tree the including file is not in (another working tree beside this one). A
+     * target that does not begin with an attribute the entries leave unset names nothing here.
+     *
+     * @param target     the target as written
+     * @param attributes the including document's attribute entries
+     * @param underRoots the committed files of that tree whose path ends with {@value #ASCIIDOC_ROOT} and the path given
+     * @return the candidates, in the listing's order; one is a resolution, more is an ambiguity
+     */
+    public static List<Path> underRoots(String target, Map<String, String> attributes, Function<String, List<Path>> underRoots) {
+        Matcher leading = LEADING_ATTRIBUTE.matcher(target.strip());
+        if (!leading.matches() || attributes.containsKey(leading.group(1)) && !ATTRIBUTE_REFERENCE.matcher(substitute(target, attributes)).find()) {
+            return List.of();
+        }
+        String rest = substitute(leading.group(2), attributes);
+        if (rest.isEmpty() || ATTRIBUTE_REFERENCE.matcher(rest).find() || rest.contains("://")) {
+            return List.of();
+        }
+        return underRoots.apply(rest);
+    }
+
+    /**
+     * The paths of a listing that end with {@value #ASCIIDOC_ROOT} and the path given: the files
+     * a library of any name holds at that path under its root.
+     *
+     * @param paths the committed paths, forward slashes, relative to one tree
+     * @param rest  the path under a root, as the include names it
+     * @return the matches, sorted, each as a path relative to that tree
+     */
+    public static List<Path> endingWith(Collection<String> paths, String rest) {
+        String suffix = ASCIIDOC_ROOT + "/" + rest.replace('\\', '/');
+        TreeSet<String> found = new TreeSet<>();
+        for (String path : paths) {
+            String p = path.replace('\\', '/');
+            if (p.equals(suffix) || p.endsWith("/" + suffix)) {
+                found.add(p);
+            }
+        }
+        return found.stream().map(Path::of).toList();
+    }
+
+    private static Resolution resolveOne(Path repoRoot, Path including, Map<String, String> attributes, Reference include,
+                                         Predicate<Path> exists, Function<String, List<Path>> underRoots) {
         String target = include.target().strip();
         if (target.isEmpty()) {
             return new Resolution(include, Optional.empty(), "empty target");
@@ -145,28 +210,37 @@ public final class IncludeResolver {
         }
         Path base = including.getParent() == null ? Path.of("") : including.getParent();
         List<String> tried = new ArrayList<>();
+        boolean leadsWithAttribute = LEADING_ATTRIBUTE.matcher(target).matches();
 
         String substituted = substitute(target, attributes);
         if (!ATTRIBUTE_REFERENCE.matcher(substituted).find()) {
             Optional<Path> candidate = inside(repoRoot, base, substituted);
-            if (candidate.isEmpty()) {
+            if (candidate.isEmpty() && !leadsWithAttribute) {
                 return new Resolution(include, Optional.empty(), "outside this repository: " + substituted);
             }
-            if (exists.test(candidate.get())) {
+            if (candidate.isPresent() && exists.test(candidate.get())) {
                 return new Resolution(include, candidate, "");
             }
-            tried.add(candidate.get().toString());
+            tried.add(candidate.map(Path::toString).orElse(substituted));
         }
 
-        Matcher leading = Pattern.compile("^\\{([A-Za-z0-9_][A-Za-z0-9_-]*)}/?(.*)$").matcher(target);
-        if (leading.matches() && CONVENTIONS.containsKey(leading.group(1))) {
-            String rest = substitute(leading.group(2), attributes);
-            if (!ATTRIBUTE_REFERENCE.matcher(rest).find()) {
-                Optional<Path> candidate = inside(repoRoot, Path.of(CONVENTIONS.get(leading.group(1))), rest);
-                if (candidate.isPresent() && exists.test(candidate.get())) {
-                    return new Resolution(include, candidate, "");
+        List<Path> roots = underRoots(target, attributes, underRoots);
+        if (roots.size() == 1) {
+            Optional<Path> candidate = inside(repoRoot, Path.of(""), roots.getFirst().toString());
+            if (candidate.isPresent() && exists.test(candidate.get())) {
+                return new Resolution(include, candidate, "");
+            }
+        } else if (roots.size() > 1) {
+            return new Resolution(include, Optional.empty(), "ambiguous under the AsciiDoc roots: "
+                    + String.join(", ", roots.stream().map(Path::toString).toList()));
+        }
+        if (roots.isEmpty() && leadsWithAttribute) {
+            Matcher leading = LEADING_ATTRIBUTE.matcher(target);
+            if (leading.matches()) {
+                String rest = substitute(leading.group(2), attributes);
+                if (!rest.isEmpty() && !ATTRIBUTE_REFERENCE.matcher(rest).find()) {
+                    tried.add("*/" + ASCIIDOC_ROOT + "/" + rest);
                 }
-                candidate.ifPresent(c -> tried.add(c.toString()));
             }
         }
 

@@ -406,6 +406,23 @@ public final class GitOperations {
         return files.stream().filter(found::contains).filter(file -> Files.isRegularFile(root.resolve(file))).toList();
     }
 
+    /**
+     * Every file committed at HEAD, as a path relative to the working tree: what the include
+     * resolver lists the AsciiDoc roots from (topic {@code dev-adoc-packages}). One call, no file
+     * opened; empty when the repository has no commits.
+     *
+     * @param root the working tree
+     * @return the committed paths, forward slashes, in git's order
+     * @throws IOException if git cannot be run
+     */
+    public static List<String> committedPaths(Path root) throws IOException {
+        Run run = git(root, "ls-tree", "-r", "--name-only", "-z", "HEAD");
+        if (!run.ok() || run.output().isEmpty()) {
+            return List.of();
+        }
+        return List.of(run.output().split(String.valueOf((char) 0)));
+    }
+
     /** Runs git over named files, the names read literally: a {@code *} in one is that character. */
     private static Run pathsRun(Path root, List<String> files, String... args) throws IOException {
         List<String> command = new ArrayList<>(List.of("--literal-pathspecs"));
