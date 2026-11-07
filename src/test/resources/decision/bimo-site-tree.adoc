@@ -1,0 +1,44 @@
+[decision-tree, cohort=100]
+----
+decision: k:SiteInspectionDecision[Inspect the site?] @id=bimo-site-decision
+  parameter = [0.15,0.15] k:UnreliablePrior[Chance the site's data materially misstates the result, for a submission like this] @id=bimo-prior basis=estimated
+  parameter = [0.8,0.8] k:InspectionSensitivity[Chance an inspection finds a material problem when there is one] @id=bimo-sensitivity basis=estimated
+  parameter = [0.05,0.05] k:InspectionFalseAlarm[Chance an inspection raises a material finding on sound data] @id=bimo-false-alarm basis=estimated
+  parameter = [60000,60000] k:InspectionCost[Cost of an inspection, to the agency and the applicant] @id=bimo-inspection-cost in k:Usd[US dollar] @id=bimo-usd basis=estimated
+  parameter = [250000,250000] k:ReanalysisCost[Cost of excluding the site's data and re-analysing] @id=bimo-reanalysis-cost in k:Usd[US dollar] @id=bimo-usd basis=estimated
+  parameter = [5000000,5000000] k:BadApprovalCost[Cost of an approval that rests on unreliable data] @id=bimo-bad-approval-cost in k:Usd[US dollar] @id=bimo-usd basis=estimated
+  alternative: k:Inspect[inspect] @id=bimo-inspect statement=anf:req-inspection
+    money = from k:InspectionCost[] @id=bimo-inspection-cost in k:Usd[US dollar] @id=bimo-usd
+    count = [1,1] k:Inspection[inspections] @id=bimo-inspection
+    chance: k:SiteData[Site data] @id=bimo-data-inspected
+      event: k:Unreliable[unreliable] @id=bimo-unreliable-inspected
+        p = from k:UnreliablePrior[] @id=bimo-prior
+        chance: k:InspectionFinds[Inspection finds it?] @id=bimo-finds
+          event: k:Found[found] @id=bimo-found statement=anf:perf-problem-found
+            p = from k:InspectionSensitivity[] @id=bimo-sensitivity
+            money = from k:ReanalysisCost[] @id=bimo-reanalysis-cost in k:Usd[US dollar] @id=bimo-usd
+            count = [1,1] k:ProblemFound[problems found] @id=bimo-problem-found
+            outcome: k:SoundDecision[decision on sound data] @id=bimo-sound-after-finding
+          residual: k:Missed[missed] @id=bimo-missed
+            money = from k:BadApprovalCost[] @id=bimo-bad-approval-cost in k:Usd[US dollar] @id=bimo-usd
+            count = [1,1] k:BadApproval[approvals on unreliable data] @id=bimo-bad-approval
+            outcome: k:BadDecision[approval on unreliable data] @id=bimo-bad-inspected
+      residual: k:Sound[sound] @id=bimo-sound-inspected
+        chance: k:FalseFinding[Inspection raises a finding anyway?] @id=bimo-false-finding
+          event: k:Alarm[false finding] @id=bimo-alarm
+            p = from k:InspectionFalseAlarm[] @id=bimo-false-alarm
+            money = from k:ReanalysisCost[] @id=bimo-reanalysis-cost in k:Usd[US dollar] @id=bimo-usd
+            count = [1,1] k:NeedlessReanalysis[needless re-analyses] @id=bimo-needless-reanalysis
+            outcome: k:SoundDecision[decision on sound data] @id=bimo-sound-after-alarm
+          residual: k:Clear[clear] @id=bimo-clear
+            outcome: k:SoundDecision[decision on sound data] @id=bimo-sound-clear
+  alternative: k:NoInspection[do not inspect] @id=bimo-no-inspection
+    chance: k:SiteData[Site data] @id=bimo-data-uninspected
+      event: k:Unreliable[unreliable] @id=bimo-unreliable-uninspected
+        p = from k:UnreliablePrior[] @id=bimo-prior
+        money = from k:BadApprovalCost[] @id=bimo-bad-approval-cost in k:Usd[US dollar] @id=bimo-usd
+        count = [1,1] k:BadApproval[approvals on unreliable data] @id=bimo-bad-approval
+        outcome: k:BadDecision[approval on unreliable data] @id=bimo-bad-uninspected
+      residual: k:Sound[sound] @id=bimo-sound-uninspected
+        outcome: k:SoundDecision[decision on sound data] @id=bimo-sound-uninspected-outcome
+----

@@ -155,7 +155,9 @@ public final class DecisionTreeText {
      */
     public record Parsed(Optional<DecisionTree> tree, ImmutableList<ProfileFinding> findings,
                          ImmutableIntIntMap lines, java.util.Map<Long, String> labels,
-                         java.util.Map<Integer, java.util.List<String>> documentStatements) {
+                         java.util.Map<Integer, java.util.List<String>> documentStatements,
+                         java.util.Map<Integer, String> parameterStatements,
+                         java.util.Map<Integer, Bounds> ranges) {
 
         public Parsed(Optional<DecisionTree> tree, ImmutableList<ProfileFinding> findings, ImmutableIntIntMap lines) {
             this(tree, findings, lines, java.util.Map.of(), java.util.Map.of());
@@ -164,6 +166,73 @@ public final class DecisionTreeText {
         public Parsed(Optional<DecisionTree> tree, ImmutableList<ProfileFinding> findings, ImmutableIntIntMap lines,
                       java.util.Map<Long, String> labels) {
             this(tree, findings, lines, labels, java.util.Map.of());
+        }
+
+        public Parsed(Optional<DecisionTree> tree, ImmutableList<ProfileFinding> findings, ImmutableIntIntMap lines,
+                      java.util.Map<Long, String> labels, java.util.Map<Integer, java.util.List<String>> documentStatements) {
+            this(tree, findings, lines, labels, documentStatements, java.util.Map.of(), java.util.Map.of());
+        }
+
+        /**
+         * The name of the document's {@code anf} block a parameter reads, {@code parameter =
+         * [0.15,0.15] anf:est-material-problem}, by the parameter's vertex: the statement holds
+         * the range someone determined, and the model holds the value the tree runs at.
+         */
+        public Optional<String> parameterStatement(int vertexIndex) {
+            return Optional.ofNullable(parameterStatements.get(vertexIndex));
+        }
+
+        /**
+         * The range the statement a parameter reads determined, by the parameter's vertex, when
+         * the document has the statement: what a sweep swings the parameter over, as stated,
+         * while the tree runs at the parameter's own value.
+         */
+        public Optional<Bounds> range(int vertexIndex) {
+            return Optional.ofNullable(ranges.get(vertexIndex));
+        }
+
+        /**
+         * The vertices that wait for a statement the document has not stated yet: a parameter that
+         * reads such a statement and holds no value, and every measure that reads that parameter.
+         * What the profile check finds on them, no bounds and no semantic, is the waiting itself,
+         * so a surface names the statement once instead.
+         */
+        public java.util.Set<Integer> waiting() {
+            java.util.Set<Integer> waiting = new java.util.HashSet<>();
+            if (tree.isEmpty()) {
+                return waiting;
+            }
+            java.util.Set<Long> quantities = new java.util.HashSet<>();
+            for (DecisionElement.Parameter parameter : tree.get().nodesOfType(DecisionElement.Parameter.class)) {
+                int vertex = parameter.vertexIndex();
+                if (parameterStatements.containsKey(vertex) && !ranges.containsKey(vertex) && !parameter.measure().stated()) {
+                    waiting.add(vertex);
+                    parameter.quantity().ifPresent(quantities::add);
+                }
+            }
+            for (DecisionElement element : tree.get().nodes()) {
+                Measure measure = switch (element) {
+                    case DecisionElement.Cost cost -> cost.measure();
+                    case DecisionElement.Probability p -> p.measure();
+                    case DecisionElement.Parameter p -> p.measure();
+                    default -> null;
+                };
+                if (measure != null && measure.derived() && quantities.contains(measure.derivedFrom().getAsLong())) {
+                    waiting.add(element.vertexIndex());
+                }
+            }
+            return waiting;
+        }
+
+        /** The names of the statements the model's parameters read that the document has not stated yet. */
+        public java.util.List<String> missingStatements() {
+            java.util.List<String> missing = new java.util.ArrayList<>();
+            parameterStatements.forEach((vertex, name) -> {
+                if (!ranges.containsKey(vertex) && !missing.contains(name)) {
+                    missing.add(name);
+                }
+            });
+            return missing;
         }
 
         /**
@@ -232,6 +301,13 @@ public final class DecisionTreeText {
      */
     public static final String ANF_REFERENCE = "anf:";
 
+    /**
+     * The prefix of the identity local to the block that a statement's candidate measure semantic
+     * takes, {@code candidate[US dollar]} read as {@code candidate:US dollar}: one identity per
+     * label, so every statement on the same candidate scale is on one scale.
+     */
+    public static final String CANDIDATE_SCALE = "candidate:";
+
     // ── Emit ─────────────────────────────────────────────────────────────────
 
     /** The whole block, header and delimiters included, ending with a newline. */
@@ -295,7 +371,12 @@ public final class DecisionTreeText {
             }
         }
         boolean share = measure.semanticNid() == tree.terms().shareAtNode();
-        if (!share && measure.semanticNid() != 0) {
+        // a parameter that reads a statement is on the statement's scale, which it does not write; nor is a value that reads it
+        boolean statementScale = element instanceof Parameter parameter && parameter.quantity().isPresent()
+                && isStatement(ids, parameter.quantity().getAsLong())
+                || measure.derived() && isStatement(ids, measure.derivedFrom().getAsLong()) && measure.operands().isEmpty()
+                || isCandidateScale(ids, measure.semanticNid());
+        if (!share && measure.semanticNid() != 0 && !statementScale) {
             if (element instanceof Parameter || measure.derived()) {
                 sb.append(" in");
             }
@@ -316,8 +397,19 @@ public final class DecisionTreeText {
         long nid = concept.getAsLong();
         Optional<String> identifier = ids.identifier(nid);
         if (identifier.isPresent()) {
-            sb.append(' ').append(Tokens.concept(ids.label(nid), identifier.get()));
+            // a statement's parameter is named by the statement, anf:<name>, never as a concept token
+            sb.append(' ').append(isStatement(ids, nid) ? identifier.get() : Tokens.concept(ids.label(nid), identifier.get()));
         }
+    }
+
+    /** Whether a nid is the identity local to the block of one of the document's statements, {@code anf:<name>}. */
+    public static boolean isStatement(Identities ids, long nid) {
+        return ids.identifier(nid).filter(id -> id.startsWith(ANF_REFERENCE)).isPresent();
+    }
+
+    /** Whether a measure semantic came from a statement's candidate scale, which the statement states and the block does not write. */
+    private static boolean isCandidateScale(Identities ids, long nid) {
+        return ids.identifier(nid).filter(id -> id.startsWith(CANDIDATE_SCALE)).isPresent();
     }
 
     /** A reference attribute, written only when the store can name the component: a nid is local and never written. */
@@ -386,7 +478,22 @@ public final class DecisionTreeText {
      * what-if on it.
      */
     public static Parsed parse(String text, DecisionTerms terms, Identities ids, ExternalQuantities externals) {
-        Reader reader = new Reader(terms, ids);
+        return parse(text, terms, ids, externals, StatementMeasures.none());
+    }
+
+    /**
+     * Reads a block whose parameters may read the document's ANF statements by name
+     * ({@code dev-decision-point-knowledge}, settled 2026-11-06): {@code parameter = [0.15,0.15]
+     * anf:est-material-problem} reads the statement's range and scale, and holds the value the
+     * tree runs at; {@code parameter = anf:est-material-problem} runs at the midpoint of the
+     * statement's range, computed, never written. {@code p = from anf:…} and {@code money = from
+     * anf:…} read such a parameter as {@code from} a quantity does. A statement the document has
+     * not stated yet leaves its parameter without a value, so the tree waits for it rather than
+     * guessing; {@link Parsed#missingStatements()} names them.
+     */
+    public static Parsed parse(String text, DecisionTerms terms, Identities ids, ExternalQuantities externals,
+                               StatementMeasures statements) {
+        Reader reader = new Reader(terms, ids, statements);
         BlockLines.Parsed lines = BlockLines.parse(text);
         lines.problems().forEach(problem -> reader.findings.add(ProfileFinding.ofTree(problem)));
         if (lines.roots().size() != 1) {
@@ -438,7 +545,8 @@ public final class DecisionTreeText {
                     + String.join(", ", reader.localSymbols)));
         }
         return new Parsed(Optional.of(tree), reader.findings.toImmutable(), reader.lines.toImmutable(),
-                java.util.Map.copyOf(reader.labels), java.util.Map.copyOf(reader.documentStatements));
+                java.util.Map.copyOf(reader.labels), java.util.Map.copyOf(reader.documentStatements),
+                java.util.Map.copyOf(reader.parameterStatements), java.util.Map.copyOf(reader.ranges));
     }
 
     private static ProfileFinding finding(Line line, String message) {
@@ -461,7 +569,11 @@ public final class DecisionTreeText {
     }
 
     /** One item of a value line's head: an interval, a concept token, or one of the words from, of and in. */
-    private sealed interface Item permits IntervalItem, ConceptItem, Keyword {
+    private sealed interface Item permits IntervalItem, ConceptItem, Keyword, ReferenceItem {
+    }
+
+    /** The name of one of the document's anf blocks, {@code anf:est-material-problem}. */
+    private record ReferenceItem(String name) implements Item {
     }
 
     private record IntervalItem(Tokens.Interval interval) implements Item {
@@ -490,10 +602,37 @@ public final class DecisionTreeText {
         /** The quantities read with from alone, and the quantities the block's parameters name, for the externals. */
         private final Set<Long> readQuantities = new LinkedHashSet<>();
         private final Set<Long> parameterQuantities = new LinkedHashSet<>();
+        /** The document's statements, for the parameters that read one by name. */
+        private final StatementMeasures statements;
+        /** By parameter vertex: the name of the statement it reads. */
+        private final java.util.Map<Integer, String> parameterStatements = new java.util.LinkedHashMap<>();
+        /** By parameter vertex: the range its statement determined, when the document has the statement. */
+        private final java.util.Map<Integer, Bounds> ranges = new java.util.LinkedHashMap<>();
+        /** By quantity: the measure semantic its parameter is on, so a read without {@code in} takes it. */
+        private final java.util.Map<Long, Long> parameterSemantics = new java.util.HashMap<>();
 
-        private Reader(DecisionTerms terms, Identities ids) {
+        private Reader(DecisionTerms terms, Identities ids, StatementMeasures statements) {
             this.terms = terms;
             this.ids = ids;
+            this.statements = statements == null ? StatementMeasures.none() : statements;
+        }
+
+        /**
+         * The quantity a statement's parameter is named by: an identity local to the block under
+         * the statement's name, the same wherever the name recurs, labelled as the statement
+         * names it. A statement is never a concept of the store, so the identity is always local.
+         */
+        private long statementQuantity(Line line, String name, Optional<StatementMeasures.Stated> stated) {
+            String label = stated.map(StatementMeasures.Stated::label).filter(l -> !l.isBlank()).orElse(name);
+            OptionalLong local = ids.local(ANF_REFERENCE + name, label);
+            if (local.isEmpty()) {
+                findings.add(finding(line, "a parameter cannot read the statement anf:" + name + " here"));
+                return 0;
+            }
+            if (stated.isPresent()) {
+                labels.put(local.getAsLong(), label);
+            }
+            return local.getAsLong();
         }
 
         private void children(Line line, DecisionTree.Builder.Handle handle, String parentWord) {
@@ -562,6 +701,10 @@ public final class DecisionTreeText {
             List<Tokens.Concept> operands = new ArrayList<>();
             Tokens.Concept unit = null;
             String mode = "";
+            // the statement a parameter reads, the statement a value reads as it is, and the statements a derivation reads
+            String statementName = null;
+            String readStatement = null;
+            java.util.Map<Integer, String> operandStatements = new java.util.HashMap<>();
             for (Item item : items) {
                 switch (item) {
                     case IntervalItem i -> {
@@ -571,6 +714,28 @@ public final class DecisionTreeText {
                         interval = i.interval();
                     }
                     case Keyword k -> mode = k.word();
+                    case ReferenceItem r -> {
+                        switch (mode) {
+                            case "from" -> {
+                                if (derivation != null || readStatement != null) {
+                                    findings.add(finding(line, "a measure reads one statement after from: anf:" + r.name()));
+                                }
+                                readStatement = r.name();
+                            }
+                            case "of" -> {
+                                operandStatements.put(operands.size(), r.name());
+                                operands.add(new Tokens.Concept("", r.name(), Optional.of(ANF_REFERENCE + r.name())));
+                            }
+                            case "in" -> findings.add(finding(line, "a measure semantic is a concept, not a statement: anf:" + r.name()));
+                            default -> {
+                                if (parameter && quantity == null && statementName == null) {
+                                    statementName = r.name();
+                                } else {
+                                    findings.add(finding(line, "an unexpected statement: anf:" + r.name()));
+                                }
+                            }
+                        }
+                    }
                     case ConceptItem c -> {
                         switch (mode) {
                             case "from" -> derivation = c.concept();
@@ -589,11 +754,22 @@ public final class DecisionTreeText {
                     }
                 }
             }
-            if (interval == null && derivation == null) {
+            if (statementName != null) {
+                // a parameter that reads a statement: the statement's range and scale, the model's value
+                if (derivation != null || readStatement != null || !operands.isEmpty()) {
+                    findings.add(finding(line, "a parameter that reads a statement is not also derived"));
+                }
+                if (unit != null) {
+                    findings.add(finding(line, "a parameter that reads a statement is on the statement's own scale, so it names no measure semantic"));
+                }
+                statementParameter(line, node, statementName, interval);
+                return;
+            }
+            if (interval == null && derivation == null && readStatement == null) {
                 findings.add(finding(line, "a measure begins with an interval, [lo,hi], or is derived from a kind: " + line.head()));
                 return;
             }
-            if (interval != null && derivation != null) {
+            if (interval != null && (derivation != null || readStatement != null)) {
                 findings.add(finding(line, "a measure is stated or derived, not both"));
             }
             long semantic;
@@ -601,6 +777,12 @@ public final class DecisionTreeText {
                 semantic = resolveConcept(line, unit, "a measure semantic");
             } else if (share) {
                 semantic = terms.shareAtNode();
+            } else if (readStatement != null) {
+                // a cost that reads a statement's parameter is on that parameter's scale
+                Optional<StatementMeasures.Stated> stated = statements.measure(readStatement);
+                long quantityNid = statementQuantity(line, readStatement, stated);
+                Long known = parameterSemantics.get(quantityNid);
+                semantic = known != null ? known : stated.map(StatementMeasures.Stated::semanticNid).orElse(0L);
             } else {
                 semantic = 0;
                 findings.add(finding(line, (kind == terms.countCostMeasure() ? "a count names what it counts" : "a cost names its measure semantic")
@@ -608,7 +790,24 @@ public final class DecisionTreeText {
             }
             UUID vertexId = vertexId(line);
             DecisionTree.Builder.Handle measure;
-            if (derivation != null) {
+            if (readStatement != null) {
+                // from a statement alone reads its parameter as it is
+                long quantityNid = statementQuantity(line, readStatement, statements.measure(readStatement));
+                if (quantityNid != 0) {
+                    readQuantities.add(quantityNid);
+                }
+                if (parameter) {
+                    long parameterQuantity = quantity == null ? 0 : resolveConcept(line, quantity, "a parameter's quantity");
+                    if (quantity == null) {
+                        findings.add(finding(line, "a parameter names its quantity"));
+                    }
+                    parameterQuantities.add(parameterQuantity);
+                    parameterSemantics.put(parameterQuantity, semantic);
+                    measure = node.derivedParameter(parameterQuantity, quantityNid, new long[0], semantic, vertexId);
+                } else {
+                    measure = node.derived(kind, quantityNid, new long[0], semantic, vertexId);
+                }
+            } else if (derivation != null) {
                 // from a quantity alone, with nothing after of, reads that parameter as it is
                 boolean reads = operands.isEmpty() && !namesDerivationKind(derivation);
                 long kindNid = reads ? resolveConcept(line, derivation, "a quantity a measure reads")
@@ -629,14 +828,20 @@ public final class DecisionTreeText {
                                 + Tokens.concept(quantity.label(), quantity.identifier().orElse(null)) + " as the quantity"));
                     }
                 }
-                long[] operandNids = operands.stream()
-                        .mapToLong(operand -> resolveConcept(line, operand, "an operand")).toArray();
+                long[] operandNids = new long[operands.size()];
+                for (int i = 0; i < operands.size(); i++) {
+                    String operandStatement = operandStatements.get(i);
+                    operandNids[i] = operandStatement != null
+                            ? statementQuantity(line, operandStatement, statements.measure(operandStatement))
+                            : resolveConcept(line, operands.get(i), "an operand");
+                }
                 if (parameter) {
                     long quantityNid = quantity == null ? 0 : resolveConcept(line, quantity, "a parameter's quantity");
                     if (quantity == null) {
                         findings.add(finding(line, "a parameter names its quantity"));
                     }
                     parameterQuantities.add(quantityNid);
+                    parameterSemantics.put(quantityNid, semantic);
                     measure = node.derivedParameter(quantityNid, kindNid, operandNids, semantic, vertexId);
                 } else {
                     measure = node.derived(kind, kindNid, operandNids, semantic, vertexId);
@@ -652,6 +857,7 @@ public final class DecisionTreeText {
                         findings.add(finding(line, "a parameter names its quantity"));
                     }
                     parameterQuantities.add(quantityNid);
+                    parameterSemantics.put(quantityNid, semantic);
                     measure = node.parameter(quantityNid, bounds, semantic, vertexId);
                 } else {
                     measure = node.measure(kind, bounds, semantic, vertexId);
@@ -669,7 +875,47 @@ public final class DecisionTreeText {
             });
         }
 
-        /** The head of a value line as items: intervals, concept tokens with their @id, and the three keywords. */
+        /**
+         * A parameter that reads one of the document's statements by name: on the statement's
+         * scale, swept over the statement's range, run at the value the line states or, when it
+         * states none, at the range's midpoint, computed here and never written. A statement the
+         * document has not stated yet leaves the parameter with no value, and the tree waits.
+         */
+        private void statementParameter(Line line, DecisionTree.Builder.Handle node, String name, Tokens.Interval interval) {
+            Optional<StatementMeasures.Stated> stated = statements.measure(name);
+            long quantityNid = statementQuantity(line, name, stated);
+            parameterQuantities.add(quantityNid);
+            Bounds value;
+            if (interval != null) {
+                value = new Bounds(
+                        interval.lower() == null ? Double.NEGATIVE_INFINITY : interval.lower(),
+                        interval.upper() == null ? Double.POSITIVE_INFINITY : interval.upper(),
+                        !interval.includeLower(), !interval.includeUpper());
+                if (!value.isPoint()) {
+                    findings.add(finding(line, "the value a model runs at is one number, with equal bounds; the range is the statement's"));
+                }
+            } else if (stated.isPresent() && !Double.isInfinite(stated.get().range().midpoint())) {
+                value = Bounds.point(stated.get().range().midpoint());
+            } else {
+                value = Bounds.none();
+            }
+            long semantic = stated.map(StatementMeasures.Stated::semanticNid).orElse(0L);
+            parameterSemantics.put(quantityNid, semantic);
+            DecisionTree.Builder.Handle measure = node.parameter(quantityNid, value, semantic, vertexId(line));
+            lines.put(measure.vertexIndex(), line.number());
+            parameterStatements.put(measure.vertexIndex(), name);
+            stated.ifPresent(s -> ranges.put(measure.vertexIndex(), s.range()));
+            line.attributes().forEach((attribute, text) -> {
+                switch (attribute) {
+                    case "basis" -> basis(line, text).ifPresent(measure::basis);
+                    case "source" -> resolve(line, text, "a basis source").ifPresent(measure::basisSource);
+                    case "@vertex" -> { }
+                    default -> findings.add(finding(line, "unknown attribute of a measure: " + attribute));
+                }
+            });
+        }
+
+        /** The head of a value line as items: intervals, concept tokens with their @id, the three keywords, and anf: names. */
         private List<Item> items(Line line, String head) {
             List<Item> items = new ArrayList<>();
             List<String> words = Tokens.words(head);
@@ -683,7 +929,9 @@ public final class DecisionTreeText {
                     continue;
                 }
                 keyword = "";
-                if (word.startsWith("k:")) {
+                if (word.startsWith(ANF_REFERENCE) && word.length() > ANF_REFERENCE.length()) {
+                    items.add(new ReferenceItem(word.substring(ANF_REFERENCE.length())));
+                } else if (word.startsWith("k:")) {
                     String text = word;
                     if (i + 1 < words.size() && words.get(i + 1).startsWith("@id=")) {
                         text = word + " " + words.get(++i);

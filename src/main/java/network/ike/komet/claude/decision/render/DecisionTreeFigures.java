@@ -147,6 +147,22 @@ public final class DecisionTreeFigures {
     /** How wide a name is drawn on a page, in ems: beyond it a name wraps, to three lines at most. */
     private static final double PAGE_NAME_EMS = 8;
 
+    /**
+     * A tornado block as a page draws it: the sweep's bars alone, as the tree's page once drew
+     * them beneath the tree; empty when nothing swings.
+     *
+     * @param sweep  the sensitivity
+     * @param ids    names what the tree names
+     * @param symbol the money sign
+     * @return the figure, when there is one
+     */
+    public static Optional<DecisionFigure> tornadoPage(DecisionTreeSensitivity sweep, Identities ids, String symbol) {
+        if (sweep.swings().isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(DecisionFigureTornado.build(tornado(sweep, ids, symbol), TextFigure.WIDTH, root -> money(root, symbol)));
+    }
+
     /** The colour of the words that name the tree an outcome folds in: a link's blue. */
     static final String FOLD_IN = "#1f5fa8";
 

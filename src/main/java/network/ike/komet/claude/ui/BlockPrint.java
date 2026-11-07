@@ -25,8 +25,10 @@ import network.ike.komet.claude.decision.DecisionTerms;
 import network.ike.komet.claude.decision.DecisionTree;
 import network.ike.komet.claude.decision.DecisionTreeSensitivity;
 import network.ike.komet.claude.decision.DecisionTreeText;
+import network.ike.komet.claude.decision.GraphletModelText;
 import network.ike.komet.claude.decision.LinkedTrees;
 import network.ike.komet.claude.decision.Rollback;
+import network.ike.komet.claude.decision.StatementMeasures;
 import network.ike.komet.claude.decision.ValuationCoordinate;
 import network.ike.komet.claude.decision.render.DecisionFigure;
 import network.ike.komet.claude.decision.render.DecisionFigureText;
@@ -57,11 +59,12 @@ final class BlockPrint {
     private BlockPrint() {
     }
 
-    /** A decision tree block, as {@link DecisionTreeBlockRenderer} reads it. */
+    /** A decision tree block, as {@link DecisionTreeBlockRenderer} reads it: the tree, its ledger and sentences, no tornado. */
     static List<DecisionFigure> tree(String info, String body, ViewCalculator view, BlockContext blocks) {
         DecisionTerms terms = DecisionTerms.fromBindings();
         Identities ids = blocks.identities(view);
-        DecisionTreeText.Parsed parsed = DecisionTreeText.parse(body, terms, ids, blocks.externals());
+        StatementMeasures statements = blocks.statementMeasures(ids, terms);
+        DecisionTreeText.Parsed parsed = DecisionTreeText.parse(body, terms, ids, blocks.externals(), statements);
         if (parsed.tree().isEmpty()) {
             return List.of();
         }
@@ -71,15 +74,71 @@ final class BlockPrint {
         ValuationCoordinate coordinate = ValuationCoordinate.pricingHealthAt(Bounds.point(price),
                 semantic(tree, DecisionElement.MoneyCost.class, terms.moneySemantic()),
                 semantic(tree, DecisionElement.HealthCost.class, terms.healthSemantic()));
-        Rollback rollback = Rollback.of(tree, coordinate, LinkedTrees.of(blocks.trees(), terms, ids, blocks.externals()));
-        Optional<DecisionTreeSensitivity> sweep = rollback.determinable()
-                ? BlockSweep.sweep(body, terms, ids, price, BlockSweep.DEFAULT_STEPS, blocks.externals(), blocks.trees())
-                : Optional.empty();
+        Rollback rollback = Rollback.of(tree, coordinate, LinkedTrees.of(blocks.trees(), terms, ids, blocks.externals(), statements));
         long money = coordinate.moneySemantic();
         String unit = money == 0 ? "" : shown.label(money);
         OptionalDouble cohort = DecisionTreeText.cohort(info).map(OptionalDouble::of).orElse(OptionalDouble.empty());
-        return DecisionTreeFigures.page(tree, rollback, shown, sweep, DecisionFigureText.symbolFor(unit == null ? "" : unit), cohort,
+        return DecisionTreeFigures.page(tree, rollback, shown, Optional.empty(), DecisionFigureText.symbolFor(unit == null ? "" : unit), cohort,
                 vertex -> tree.node(vertex).filter(n -> n instanceof DecisionElement.Node node && !node.statements().isEmpty()).isPresent());
+    }
+
+    /** A tornado block, as {@link TornadoBlockRenderer} reads it: the model's one-way sensitivity, swept at the block's price. */
+    static List<DecisionFigure> tornado(String info, String body, ViewCalculator view, BlockContext blocks) {
+        DecisionTerms terms = DecisionTerms.fromBindings();
+        Identities ids = blocks.identities(view);
+        StatementMeasures statements = blocks.statementMeasures(ids, terms);
+        DecisionTreeText.Parsed parsed = DecisionTreeText.parse(body, terms, ids, blocks.externals(), statements);
+        if (parsed.tree().isEmpty()) {
+            return List.of();
+        }
+        DecisionTree tree = parsed.tree().get();
+        Identities shown = parsed.labelled(ids);
+        double price = DecisionTreeText.healthPrice(info).orElse(DecisionTreeText.DEFAULT_HEALTH_PRICE);
+        Optional<DecisionTreeSensitivity> sweep = BlockSweep.sweep(body, terms, ids, price, BlockSweep.DEFAULT_STEPS,
+                blocks.externals(), blocks.trees(), statements);
+        long money = semantic(tree, DecisionElement.MoneyCost.class, terms.moneySemantic());
+        String unit = money == 0 ? "" : shown.label(money);
+        return sweep.flatMap(s -> DecisionTreeFigures.tornadoPage(s, shown, DecisionFigureText.symbolFor(unit == null ? "" : unit)))
+                .map(List::of).orElse(List.of());
+    }
+
+    /**
+     * A graphlet-model block: its parameters, each with the value the tree runs at and, for one
+     * that reads a statement, the range the statement determined; the structure is the tree
+     * rendering's to draw.
+     */
+    static List<DecisionFigure> model(String info, String body, ViewCalculator view, BlockContext blocks) {
+        DecisionTerms terms = DecisionTerms.fromBindings();
+        Identities ids = blocks.identities(view);
+        StatementMeasures statements = blocks.statementMeasures(ids, terms);
+        DecisionTreeText.Parsed parsed = DecisionTreeText.parse(body, terms, ids, blocks.externals(), statements);
+        if (parsed.tree().isEmpty()) {
+            return List.of();
+        }
+        DecisionTree tree = parsed.tree().get();
+        Identities shown = parsed.labelled(ids);
+        network.ike.komet.claude.decision.Derivations derivations = network.ike.komet.claude.decision.Derivations.of(tree);
+        long money = semantic(tree, DecisionElement.MoneyCost.class, terms.moneySemantic());
+        String symbol = DecisionFigureText.symbolFor(money == 0 ? "" : shown.label(money));
+        List<List<String>> table = new ArrayList<>();
+        table.add(List.of("parameter", "value", "statement", "range"));
+        for (DecisionElement.Parameter parameter : tree.nodesOfType(DecisionElement.Parameter.class)) {
+            int index = parameter.vertexIndex();
+            Optional<Bounds> bounds = derivations.bounds(index);
+            boolean share = parameter.measure().semanticNid() == terms.shareAtNode();
+            boolean isMoney = parameter.measure().semanticNid() == money && money != 0;
+            DecisionFigureText.Unit unit = share ? DecisionFigureText.Unit.SHARE : isMoney ? DecisionFigureText.Unit.MONEY : DecisionFigureText.Unit.PLAIN;
+            String value = bounds.map(b -> b.isPoint() ? DecisionFigureText.quantity(b.lower(), unit, symbol)
+                    : DecisionFigureText.quantity(b.lower(), unit, symbol) + " to " + DecisionFigureText.quantity(b.upper(), unit, symbol)).orElse("not determinable");
+            String name = parameter.quantity().isPresent() ? shown.label(parameter.quantity().getAsLong()) : "a parameter";
+            String statement = parsed.parameterStatement(index).map(s -> "anf:" + s).orElse("");
+            String range = parsed.range(index).map(r -> r.isPoint() ? DecisionFigureText.quantity(r.lower(), unit, symbol)
+                    : DecisionFigureText.quantity(r.lower(), unit, symbol) + " to " + DecisionFigureText.quantity(r.upper(), unit, symbol)).orElse("");
+            table.add(List.of(name, value, statement, range));
+        }
+        String id = GraphletModelText.modelId(info, body).orElse("");
+        return List.of(TextFigure.of("graphlet-model", Optional.of("Graphlet model" + (id.isEmpty() ? "" : " " + id)),
+                List.of("The model's parameters, each at the value the tree runs at; a parameter that reads a statement is swept over the statement's range."), table));
     }
 
     private static long semantic(DecisionTree tree, Class<? extends DecisionElement.Cost> kind, long fallback) {

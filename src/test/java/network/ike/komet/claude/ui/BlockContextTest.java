@@ -50,4 +50,52 @@ class BlockContextTest {
         java.lang.ref.Reference.reachabilityFence(first);
         java.lang.ref.Reference.reachabilityFence(second);
     }
+
+    @Test
+    void aModelIsHeardWhenItsTextMovesAndWrittenThroughItsBlock() {
+        BlockContext context = new BlockContext();
+        AtomicInteger heard = new AtomicInteger();
+        Runnable rendering = heard::incrementAndGet;
+        context.listen(rendering);
+        StringBuilder written = new StringBuilder();
+        network.ike.komet.claude.decision.GraphletModel model = new network.ike.komet.claude.decision.GraphletModel(
+                "site", "graphlet-model id=site", "decision: k:X[x] @id=x\n  parameter = anf:est-x\n", java.util.Optional.of(written::append));
+        context.defineModel(model, 1);
+        assertEquals(1, heard.get());
+        context.defineModel(model, 1);
+        assertEquals(1, heard.get(), "the same text again is silent");
+        assertEquals("site", context.model("site").orElseThrow().id());
+        // "Use this value" from a rendering: the model's block takes the restated line
+        context.model("site").orElseThrow().write(2, network.ike.komet.claude.decision.Bounds.point(0.15));
+        assertEquals("decision: k:X[x] @id=x\n  parameter = [0.15,0.15] anf:est-x\n", written.toString());
+        java.lang.ref.Reference.reachabilityFence(rendering);
+    }
+
+    @Test
+    void aBlockToldOfItsOwnPublicationIsNotThrownOff() {
+        // the context tells every listener at once, the publishing block among them, before its own build is done
+        BlockContext context = new BlockContext();
+        java.util.concurrent.atomic.AtomicReference<Runnable> self = new java.util.concurrent.atomic.AtomicReference<>();
+        AtomicInteger told = new AtomicInteger();
+        Runnable listener = told::incrementAndGet;
+        self.set(listener);
+        context.listen(listener);
+        context.defineModel(new network.ike.komet.claude.decision.GraphletModel("m", "graphlet-model id=m", "decision: k:X[x] @id=x\n", java.util.Optional.empty()), 1);
+        assertEquals(1, told.get(), "a block hears its own publication, so it must not act on it before it has read");
+        java.lang.ref.Reference.reachabilityFence(self);
+    }
+
+    @Test
+    void theNewKindsAreNamedByTheirStyles() {
+        assertEquals("graphlet-model", new DocumentBlockKinds.GraphletModel().style());
+        assertEquals("tornado", new DocumentBlockKinds.Tornado().style());
+        assertEquals(java.util.Optional.of("site"),
+                network.ike.komet.claude.decision.GraphletModelText.modelReference(DocumentBlockKinds.info("[tornado, model=site]")));
+        org.junit.jupiter.api.Assertions.assertTrue(TornadoBlockRenderer.accepts("tornado model=site"));
+        org.junit.jupiter.api.Assertions.assertFalse(TornadoBlockRenderer.accepts("tornado"), "a tornado renders a model, so it names one");
+        org.junit.jupiter.api.Assertions.assertTrue(DecisionTreeBlockRenderer.accepts("decision-tree model=site cohort=100", ""),
+                "a rendering has no body of its own");
+        org.junit.jupiter.api.Assertions.assertTrue(GraphletModelBlockRenderer.accepts("graphlet-model id=site", "decision: k:X[x] @id=x\n"));
+        org.junit.jupiter.api.Assertions.assertFalse(GraphletModelBlockRenderer.accepts("decision-tree", "decision: k:X[x] @id=x\n"));
+    }
 }

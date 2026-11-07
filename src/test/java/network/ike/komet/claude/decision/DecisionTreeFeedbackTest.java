@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static network.ike.komet.claude.decision.ScanTreeRollbackTest.T;
@@ -139,5 +140,63 @@ class DecisionTreeFeedbackTest {
 
         assertTrue(message.contains("\nBlock 2:\n- the decision “Later?”: a decision has no alternative"), message);
         assertFalse(message.contains("Block 1:"), message);
+    }
+
+    @Test
+    @DisplayName("A model whose parameters read the reply's statements rolls back on them, and a statement stated elsewhere is passed over")
+    void aModelReadsTheRepliesStatements() {
+        String reply = """
+                ```anf type=performance id=est-cost
+                topic:: candidate[clinical site inspection] disp=PENDING
+                result:: [60000,60000] candidate[US dollar] disp=PENDING
+                ```
+
+                ```anf type=performance id=est-prior
+                topic:: candidate[material problem] disp=PENDING
+                subject_of_information:: candidate[submissions like this one] disp=PENDING
+                result:: [0.005,0.4] candidate[share of the subject group] disp=PENDING
+                ```
+
+                ```anf type=performance id=est-bad
+                topic:: candidate[approval on unreliable data] disp=PENDING
+                result:: [5000000,5000000] candidate[US dollar] disp=PENDING
+                ```
+
+                ```graphlet-model id=m
+                decision: k:D[Inspect?] @id=d
+                  parameter = [0.15,0.15] anf:est-prior
+                  parameter = anf:est-cost
+                  parameter = anf:est-bad
+                  alternative: k:I[inspect] @id=i
+                    money = from anf:est-cost
+                    outcome: k:O[done] @id=o
+                  alternative: k:N[do not] @id=n
+                    chance: k:C[Site data] @id=c
+                      event: k:U[unreliable] @id=u
+                        p = from anf:est-prior
+                        money = from anf:est-bad
+                        outcome: k:B[bad] @id=b
+                      residual: k:S[sound] @id=s
+                        outcome: k:G[good] @id=g
+                ```
+
+                ```decision-tree model=m cohort=100
+                ```
+                """;
+        BlockIdentities ids = BlockIdentities.storeFree();
+        List<DecisionTreeFeedback.Block> blocks = DecisionTreeFeedback.blocks(reply);
+        assertEquals(1, blocks.size(), "the model is read; the rendering states nothing to read");
+        StatementMeasures statements = DecisionTreeFeedback.statementMeasures(reply, ids, T);
+        assertEquals(Bounds.of(0.005, 0.4), statements.measure("est-prior").orElseThrow().range());
+        assertEquals(T.shareAtNode(), statements.measure("est-prior").orElseThrow().semanticNid());
+        assertEquals("material problem among submissions like this one", statements.measure("est-prior").orElseThrow().label());
+        List<String> problems = DecisionTreeFeedback.problems(blocks.get(0), T, ids, Map.of(), Map.of(), statements);
+        assertTrue(problems.isEmpty(), () -> "problems: " + problems);
+        assertEquals(Optional.empty(), DecisionTreeFeedback.message(reply, T, BlockIdentities.storeFree()));
+        // a statement the reply does not give leaves its parameter without a value, and that is not sent back
+        String without = reply.replace("```anf type=performance id=est-cost", "```anf type=performance id=est-cost-elsewhere");
+        List<String> passedOver = DecisionTreeFeedback.problems(DecisionTreeFeedback.blocks(without).get(0), T, ids, Map.of(), Map.of(),
+                DecisionTreeFeedback.statementMeasures(without, ids, T));
+        assertTrue(passedOver.isEmpty(), () -> "problems: " + passedOver);
     }
 }

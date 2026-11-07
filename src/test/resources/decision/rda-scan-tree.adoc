@@ -1,4 +1,4 @@
-[decision-tree, health-price=100000, title="Should this patient have a scan in year 2? Every number carries an orange callout that the table beneath works from the model assumptions, and every dollar figure a mark the key explains. Read $2,980§ at MRA result as follows: 1,000 patients who have just been scanned go on to cost $2,980,000 between them, which is $2,980 each on average. No one patient pays that sum."]
+[graphlet-model, id=rda-scan-model]
 ----
 decision: k:ScanNow[Scan now?] @id=rda-scan-now
   parameter = [0.02,0.02] k:Reopening[Late reopening hazard in year 2] @id=rda-reopening-hazard basis=estimated

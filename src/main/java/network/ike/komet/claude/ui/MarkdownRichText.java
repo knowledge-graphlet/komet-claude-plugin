@@ -140,6 +140,8 @@ public final class MarkdownRichText {
     private final KonceptTreeBlockRenderer trees;
     /** The decision-tree block renderer, held so chip typography can be forwarded. */
         private final DecisionTreeBlockRenderer decisions;
+        private final GraphletModelBlockRenderer models;
+        private final TornadoBlockRenderer tornadoes;
     private final ComplexConceptBlockRenderer concepts;
         private final CalculatorBlockRenderer calculators;
     private final AnfBlockRenderer statements;
@@ -189,6 +191,8 @@ public final class MarkdownRichText {
                 new KonceptDefinitionBlockRenderer(viewProperties == null ? null : viewProperties.calculator(), base),
                 new ComplexConceptBlockRenderer(viewProperties, base, context),
                                 new DecisionTreeBlockRenderer(viewProperties, base, context),
+                new GraphletModelBlockRenderer(viewProperties, base, context),
+                new TornadoBlockRenderer(viewProperties, base, context),
                 new CalculatorBlockRenderer(viewProperties, base, context),
                 new AnfBlockRenderer(viewProperties, base, context));
     }
@@ -211,6 +215,8 @@ public final class MarkdownRichText {
                 new KonceptDefinitionBlockRenderer(viewCalc, base),
                 new ComplexConceptBlockRenderer(viewCalc, base, context),
                                 new DecisionTreeBlockRenderer(viewCalc, base, context),
+                new GraphletModelBlockRenderer(viewCalc, base, context),
+                new TornadoBlockRenderer(viewCalc, base, context),
                 new CalculatorBlockRenderer(viewCalc, base, context),
                 new AnfBlockRenderer(viewCalc, base, context));
     }
@@ -218,13 +224,16 @@ public final class MarkdownRichText {
     private MarkdownRichText(double base, String fontFamily, BlockContext context, ConceptChipInlineDecorator decorator,
                              KonceptTreeBlockRenderer trees, KonceptDefinitionBlockRenderer definitions,
                              ComplexConceptBlockRenderer concepts,
-                                                          DecisionTreeBlockRenderer decisions, CalculatorBlockRenderer calculators,
+                                                          DecisionTreeBlockRenderer decisions, GraphletModelBlockRenderer models,
+                             TornadoBlockRenderer tornadoes, CalculatorBlockRenderer calculators,
                              AnfBlockRenderer statements) {
         this.base = base;
         this.context = context;
         this.decorator = decorator;
         this.trees = trees;
         this.decisions = decisions;
+        this.models = models;
+        this.tornadoes = tornadoes;
         this.concepts = concepts;
                 this.calculators = calculators;
         this.statements = statements;
@@ -240,6 +249,12 @@ public final class MarkdownRichText {
             }
                         if (pieces.isEmpty()) {
                 pieces = decisions.render(info, literal, style);
+            }
+            if (pieces.isEmpty()) {
+                pieces = models.render(info, literal, style);
+            }
+            if (pieces.isEmpty()) {
+                pieces = tornadoes.render(info, literal, style);
             }
                         if (pieces.isEmpty()) {
                 pieces = calculators.render(info, literal, style);
@@ -262,6 +277,8 @@ public final class MarkdownRichText {
         decorator.setChipTypography(typography);
         trees.setChipTypography(typography);
                 decisions.setChipTypography(typography);
+        models.setChipTypography(typography);
+        tornadoes.setChipTypography(typography);
                 calculators.setChipTypography(typography);
         statements.setChipTypography(typography);
     }
@@ -281,6 +298,8 @@ public final class MarkdownRichText {
     /** Where a rendered decision tree's what-if goes when the reader writes it back; null offers the what-if alone. */
         public void setBlockRewriter(BlockRewriter rewriter) {
                 decisions.setRewriter(rewriter);
+        models.setRewriter(rewriter);
+        tornadoes.setRewriter(rewriter);
         concepts.setRewriter(rewriter);
         calculators.setRewriter(rewriter);
         statements.setRewriter(rewriter);

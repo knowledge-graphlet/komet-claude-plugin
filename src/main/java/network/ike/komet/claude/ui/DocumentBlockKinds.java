@@ -23,6 +23,7 @@ import network.ike.komet.claude.calculator.CalculationText;
 import network.ike.komet.claude.calculator.CalculatorText;
 import network.ike.komet.claude.complexconcept.ComplexConceptText;
 import network.ike.komet.claude.decision.DecisionTreeText;
+import network.ike.komet.claude.decision.GraphletModelText;
 import network.ike.komet.claude.stamp.StructuredBlocks;
 import network.ike.komet.claude.stamp.StructuredBlockKind;
 
@@ -143,7 +144,10 @@ public final class DocumentBlockKinds {
         return previous.map(text -> network.ike.komet.claude.stamp.StructuredBlockKind.Source.of(text).content());
     }
 
-    /** {@code [decision-tree]}: the tree drawn and rolled back, its ledger, sentences and tornado. */
+    /**
+     * {@code [decision-tree, model=…]}: a rendering of a graphlet model, the tree drawn and rolled
+     * back with its ledger and sentences; it holds no structure and no number, so it writes nothing.
+     */
     public static final class DecisionTree extends RenderedKind {
         public DecisionTree() {
             super(DecisionTreeText.TAG, "decision tree");
@@ -158,15 +162,94 @@ public final class DocumentBlockKinds {
 
         @Override
         public List<network.ike.komet.claude.decision.render.DecisionFigure> figures(Source source, Context context) {
-            String content = source.content();
-            return BlockPrint.tree(info(source.parameters()), content.endsWith("\n") ? content : content + "\n", context.view(), context.blocks());
+            String info = info(source.parameters());
+            Optional<String> body = modelBody(info, source, context);
+            return body.map(text -> BlockPrint.tree(info, text, context.view(), context.blocks())).orElse(List.of());
         }
 
-        /** The tree, as a version of its tree semantic. */
+        /** A block with a body of its own, as the assistant's replies state one, is written as its tree. */
         @Override
         public Optional<String> write(Source source, long block, Optional<String> previous, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
+            if (GraphletModelText.modelReference(info(source.parameters())).isPresent()) {
+                return Optional.empty();
+            }
             return Optional.of(network.ike.komet.claude.decision.DecisionTreeWrites
                     .write(info(source.parameters()), source.content(), view, edit, StructuredBlocks.context(block, content(previous))).message());
+        }
+    }
+
+    /** The text a rendering reads: the model it names, when the document has it, else the block's own content. */
+    static Optional<String> modelBody(String info, StructuredBlockKind.Source source, StructuredBlockKind.Context context) {
+        Optional<String> model = GraphletModelText.modelReference(info);
+        if (model.isPresent()) {
+            return context.blocks().model(model.get()).map(network.ike.komet.claude.decision.GraphletModel::body);
+        }
+        String content = source.content();
+        return Optional.of(content.endsWith("\n") ? content : content + "\n");
+    }
+
+    /**
+     * {@code [graphlet-model]}: the model of a decision, structure and parameters as one versioned
+     * property graph ({@code dev-decision-point-knowledge}, 2026-11-06). The block publishes its
+     * model for the document's renderings, and on a page prints its parameters.
+     */
+    public static final class GraphletModel extends RenderedKind {
+        public GraphletModel() {
+            super(GraphletModelText.TAG, "graphlet model");
+        }
+
+        @Override
+        BlockRenderer renderer(Context context, BlockRewriter rewriter) {
+            GraphletModelBlockRenderer renderer = new GraphletModelBlockRenderer(context.view(), context.viewProperties(), context.base(), context.blocks());
+            renderer.setRewriter(rewriter);
+            return renderer;
+        }
+
+        @Override
+        public List<network.ike.komet.claude.decision.render.DecisionFigure> figures(Source source, Context context) {
+            String content = source.content();
+            String body = content.endsWith("\n") ? content : content + "\n";
+            String info = info(source.parameters());
+            GraphletModelBlockRenderer.publish(info, body, context.blocks(), null);
+            return BlockPrint.model(info, body, context.view(), context.blocks());
+        }
+
+        /**
+         * The model, as a version of its graph in the document's module. A model whose parameters
+         * read the document's statements is held: the identity such a parameter takes in the
+         * store is not settled, and the text, which is the canonical form, is saved regardless.
+         */
+        @Override
+        public Optional<String> write(Source source, long block, Optional<String> previous, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
+            String info = info(source.parameters());
+            if (source.content().lines().anyMatch(line -> line.contains(" " + DecisionTreeText.ANF_REFERENCE)
+                    && line.strip().matches("^(parameter|p|probability|money|health|count)\\s*=.*"))) {
+                return Optional.of("The model's text is saved. It was not written to the knowledge base as a graph: its parameters read"
+                        + " the document's statements, and the identity such a parameter takes in the store is not settled yet.");
+            }
+            return Optional.of(network.ike.komet.claude.decision.DecisionTreeWrites
+                    .write(info, source.content(), view, edit, StructuredBlocks.context(block, content(previous))).message());
+        }
+    }
+
+    /** {@code [tornado, model=…]}: a rendering of a graphlet model as its one-way sensitivity. */
+    public static final class Tornado extends RenderedKind {
+        public Tornado() {
+            super(TornadoBlockRenderer.TAG, "tornado");
+        }
+
+        @Override
+        BlockRenderer renderer(Context context, BlockRewriter rewriter) {
+            TornadoBlockRenderer renderer = new TornadoBlockRenderer(context.view(), context.viewProperties(), context.base(), context.blocks());
+            renderer.setRewriter(rewriter);
+            return renderer;
+        }
+
+        @Override
+        public List<network.ike.komet.claude.decision.render.DecisionFigure> figures(Source source, Context context) {
+            String info = info(source.parameters());
+            Optional<String> body = modelBody(info, source, context);
+            return body.map(text -> BlockPrint.tornado(info, text, context.view(), context.blocks())).orElse(List.of());
         }
     }
 

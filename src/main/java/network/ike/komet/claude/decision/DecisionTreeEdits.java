@@ -33,6 +33,8 @@ public final class DecisionTreeEdits {
 
     /** The interval a value line states, right after its {@code =}. */
     private static final Pattern STATED = Pattern.compile("^(\\s*[A-Za-z][A-Za-z0-9_-]*\\s*=\\s*)[\\[(][^\\])]*[\\])]");
+    /** A parameter line that reads a statement and states no value of its own, {@code parameter = anf:…}: a value goes before the name. */
+    private static final Pattern UNSTATED = Pattern.compile("^(\\s*parameter\\s*=\\s*)(?=" + Pattern.quote(DecisionTreeText.ANF_REFERENCE) + ")");
     private static final Pattern HEALTH_PRICE = Pattern.compile("(?i)\\bhealth-price=([^\\s,\\]]+)");
 
     private DecisionTreeEdits() {
@@ -51,13 +53,19 @@ public final class DecisionTreeEdits {
         if (line < 1 || line > lines.length) {
             return Optional.empty();
         }
-        Matcher m = STATED.matcher(lines[line - 1]);
-        if (!m.find()) {
-            return Optional.empty();
-        }
         String interval = Tokens.interval(finite(bounds.lower()), finite(bounds.upper()),
                 !bounds.lowerOpen(), !bounds.upperOpen());
-        lines[line - 1] = m.group(1) + interval + lines[line - 1].substring(m.end());
+        Matcher m = STATED.matcher(lines[line - 1]);
+        if (m.find()) {
+            lines[line - 1] = m.group(1) + interval + lines[line - 1].substring(m.end());
+            return Optional.of(String.join("\n", lines));
+        }
+        // a parameter that ran at its statement's midpoint now states the value it runs at
+        Matcher unstated = UNSTATED.matcher(lines[line - 1]);
+        if (!unstated.find()) {
+            return Optional.empty();
+        }
+        lines[line - 1] = unstated.group(1) + interval + " " + lines[line - 1].substring(unstated.end());
         return Optional.of(String.join("\n", lines));
     }
 

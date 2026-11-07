@@ -203,6 +203,8 @@ module komet.claude {
     // surface through the transcript's renderers (ike-lab-documents dev-decision-document).
     provides network.ike.komet.claude.stamp.StructuredBlockKind
             with network.ike.komet.claude.ui.DocumentBlockKinds.DecisionTree,
+                    network.ike.komet.claude.ui.DocumentBlockKinds.GraphletModel,
+                    network.ike.komet.claude.ui.DocumentBlockKinds.Tornado,
                     network.ike.komet.claude.ui.DocumentBlockKinds.ComplexConcept,
                     network.ike.komet.claude.ui.DocumentBlockKinds.Anf,
                     network.ike.komet.claude.ui.DocumentBlockKinds.Calculator,

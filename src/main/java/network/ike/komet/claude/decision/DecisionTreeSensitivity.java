@@ -278,6 +278,26 @@ public final class DecisionTreeSensitivity {
      * @param steps how many steps the range is divided into; the samples are one more, plus one at each flip
      */
     public static DecisionTreeSensitivity of(DecisionTree tree, Rollback base, Mover mover, int steps) {
+        return of(tree, base, mover, steps, vertex -> Optional.empty());
+    }
+
+    /**
+     * The range a parameter's statement determined, by the parameter's vertex, when the document
+     * has the statement: the parameter then swings over it, as stated, while the tree runs at the
+     * parameter's own value ({@code dev-decision-point-knowledge}, settled 2026-11-06).
+     */
+    @FunctionalInterface
+    public interface Ranges {
+        Optional<Bounds> range(int measureVertex);
+    }
+
+    /**
+     * Sweeps every stated measure of a tree and the price of a healthy year, a parameter that
+     * reads a statement over the statement's range.
+     *
+     * @param ranges the ranges the parameters' statements determined, by vertex
+     */
+    public static DecisionTreeSensitivity of(DecisionTree tree, Rollback base, Mover mover, int steps, Ranges ranges) {
         if (steps < 2) {
             throw new IllegalArgumentException("a sweep takes two or more steps, not " + steps);
         }
@@ -299,14 +319,16 @@ public final class DecisionTreeSensitivity {
                     continue;
                 }
                 int vertex = element.vertexIndex();
-                Optional<Bounds> range = range(tree, base, element, measure);
+                // a parameter that reads a statement swings over the range the statement determined, when it is one
+                Optional<Bounds> determined = ranges.range(vertex).filter(r -> !r.isPoint() && !Double.isInfinite(r.lower()) && !Double.isInfinite(r.upper()));
+                Optional<Bounds> range = determined.isPresent() ? determined : range(tree, base, element, measure);
                 if (range.isEmpty()) {
                     unswept.add(new Unswept(vertex, element instanceof Probability
                             ? "its chance has no residual event to take up what it gives or takes"
                             : "a value of zero has no assumed range"));
                     continue;
                 }
-                boolean stated = !measure.bounds().isPoint();
+                boolean stated = determined.isPresent() || !measure.bounds().isPoint();
                 sweep(tree, baseChosen, vertex, range.get(), stated, measure.bounds().midpoint(),
                         value -> mover.moved(vertex, Bounds.point(value)), steps)
                         .ifPresentOrElse(swings::add,

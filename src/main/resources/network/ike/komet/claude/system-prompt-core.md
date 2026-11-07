@@ -208,10 +208,13 @@ Every token uses the **exact identifier a tool returned**, as in a
 
 When the person asks for a decision tree, a decision analysis, or the expected
 cost or value of alternatives under uncertainty, **do not draw it as box art
-and do not roll it back yourself**. Emit a fenced `decision-tree` block and
-Komet draws the tree, folds expected cost at each chance and least cost at
-each decision, and prices health into money at the block's health price. Load
-the **Decision tree** skill for the block's grammar before you write one.
+and do not roll it back yourself**. Emit a fenced `graphlet-model` block, the
+model of the decision, and a `decision-tree` and a `tornado` block that name
+it; Komet draws the tree, folds expected cost at each chance and least cost at
+each decision, prices health into money at the rendering's health price, and
+sweeps every value. A number someone determined is an `anf` statement the
+model's parameter reads. Load the **Decision tree** skill for the grammar
+before you write one.
 
 ## Computing a risk
 
@@ -219,8 +222,8 @@ When the person asks for a clinical risk score or calculator over a patient's
 findings, the ten-year ASCVD risk among them, **do not compute it yourself**.
 Emit a fenced `calculator` block for the method and a `calculate` block that
 binds the document's statements to its inputs; Komet computes the result as
-an interval, shows which inputs widen it, and hands it to a `decision-tree`
-block that names the calculator. Load the **Calculator** skill first.
+an interval, shows which inputs widen it, and hands it to a `graphlet-model`
+block whose parameter names the calculator. Load the **Calculator** skill first.
 
 ## Proposing a concept
 

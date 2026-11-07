@@ -47,7 +47,6 @@ import network.ike.komet.claude.block.BlockLines;
 import network.ike.komet.claude.block.Identities;
 import network.ike.komet.claude.complexconcept.ComplexConceptText;
 import network.ike.komet.claude.block.Tokens;
-import network.ike.komet.claude.decision.BlockSweep;
 import network.ike.komet.claude.decision.Bounds;
 import network.ike.komet.claude.decision.Cohort;
 import network.ike.komet.claude.decision.DecisionElement;
@@ -59,10 +58,10 @@ import network.ike.komet.claude.decision.DecisionTerms;
 import network.ike.komet.claude.decision.DecisionTree;
 import network.ike.komet.claude.decision.DecisionTreeEdits;
 import network.ike.komet.claude.decision.DecisionTreeFeedback;
-import network.ike.komet.claude.decision.DecisionTreeSensitivity;
-import network.ike.komet.claude.decision.DecisionTreeSensitivity.Flip;
-import network.ike.komet.claude.decision.DecisionTreeSensitivity.Swing;
 import network.ike.komet.claude.decision.DecisionTreeText;
+import network.ike.komet.claude.decision.GraphletModel;
+import network.ike.komet.claude.decision.GraphletModelText;
+import network.ike.komet.claude.decision.StatementMeasures;
 import network.ike.komet.claude.decision.Derivations;
 import network.ike.komet.claude.decision.Measure;
 import network.ike.komet.claude.decision.Rollback;
@@ -76,7 +75,6 @@ import network.ike.komet.claude.decision.ValuationCoordinate;
 import network.ike.komet.claude.decision.ViewIdentities;
 import network.ike.komet.claude.decision.render.DecisionFigureText;
 import network.ike.komet.claude.decision.render.DecisionTreeFigures;
-import network.ike.komet.claude.decision.render.SweptQuantity;
 import network.ike.komet.claude.koncept.ComponentText;
 import org.eclipse.collections.api.list.ImmutableList;
 
@@ -91,8 +89,6 @@ import java.util.OptionalDouble;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
 
 /**
  * The live rendering of a {@code decision-tree} block on the assistant surface
@@ -106,13 +102,19 @@ import java.util.concurrent.Executors;
  * the reader writes it back, which hands the restated block to the surface's
  * {@link BlockRewriter}; a surface without one offers the what-if alone. A finding of the parse,
  * the profile's checks or the rollback is listed beneath the tree and shown at the glyph it sits
- * on. Beneath that, the block's one-way sensitivity is drawn as a {@link TornadoChart}: the
- * {@link BlockSweep} runs off the application thread, since it reads the block once per step,
- * and the chart lands when it is done, with a mark on every chip whose range flips the choice.
+ * on. The one-way sensitivity is the {@code [tornado]} block's, a rendering of its own.
  *
- * <p>The block declines when it is not this profile's, when it has no root decision line, or
- * when there is no view to resolve against, so the text renders preformatted as any other
- * unrendered block does. The block's info may set the price: {@code decision-tree
+ * <p>Since 2026-11-06 the block is a rendering of a graphlet model ({@code dev-decision-point-knowledge}):
+ * {@code [decision-tree, model=<id>]} draws the model the document's {@code graphlet-model} block
+ * of that id publishes on the {@link BlockContext}, and holds no structure and no number of its
+ * own, only how the model is viewed, the health price and the cohort. A value the reader moves on
+ * such a rendering is written into the model, which every rendering that names it then redraws;
+ * where the model cannot be written, the move stays a what-if of this rendering. A block with a
+ * body of its own is read as it always was, the assistant's reply among them.
+ *
+ * <p>The block declines when it is not this profile's, when it has no root decision line and
+ * names no model, or when there is no view to resolve against, so the text renders preformatted
+ * as any other unrendered block does. The block's info may set the price: {@code decision-tree
  * health-price=100000}; the default is $100,000, the regulatory topics' central value.
  */
 final class DecisionTreeBlockRenderer implements BlockRenderer {
@@ -127,12 +129,6 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
     /** Gives each block its {@link Live#order}. */
     private static final java.util.concurrent.atomic.AtomicLong ORDERS = new java.util.concurrent.atomic.AtomicLong();
 
-    /** Where a sweep runs: one thread behind the surface; a test may run it in place. */
-    static Executor sweepExecutor = Executors.newSingleThreadExecutor(runnable -> {
-        Thread thread = new Thread(runnable, "decision-tree-sweep");
-        thread.setDaemon(true);
-        return thread;
-    });
 
         DecisionTreeBlockRenderer(ViewCalculator viewCalc, double base, BlockContext context) {
         this(viewCalc, null, base, context);
@@ -166,7 +162,8 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         String body = literal == null ? "" : literal;
         double price = DecisionTreeText.healthPrice(info).orElse(DecisionTreeText.DEFAULT_HEALTH_PRICE);
         OptionalDouble cohort = DecisionTreeText.cohort(info).map(OptionalDouble::of).orElse(OptionalDouble.empty());
-        return List.of(new BlockPiece(() -> new Live(info, body, price, cohort).column, body.stripTrailing()));
+        String model = GraphletModelText.modelReference(info).orElse(null);
+        return List.of(new BlockPiece(() -> new Live(info, body, price, cohort, model).column, body.stripTrailing()));
     }
 
     // ── Pure decisions (no store access) ────────────────────────────────
@@ -179,6 +176,10 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
     static boolean accepts(String info, String literal) {
         if (!DecisionTreeText.isTagged(info)) {
             return false;
+        }
+        // a rendering of a model has no body of its own
+        if (GraphletModelText.modelReference(info).isPresent()) {
+            return true;
         }
         BlockLines.Parsed lines = BlockLines.parse(literal);
         return lines.roots().size() == 1
@@ -205,13 +206,17 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
      * it, the price, which nodes are folded, and the column that shows it all, rebuilt whenever
      * any of these move.
      */
-    private final class Live implements DecisionTreeDiagram.Host, TornadoChart.Host {
+    private final class Live implements DecisionTreeDiagram.Host {
         final String originalInfo;
-        final String originalBody;
+        String originalBody;
         final double originalPrice;
         String body;
         double price;
         int moves;
+        /** The model this block renders, by id; null when the block carries its own body. */
+        final String modelId;
+        /** The model as last drawn, so a move of its text is told from any other change of the context. */
+        GraphletModel model;
         final Set<Integer> collapsed = new HashSet<>();
         /** Whether the rejected alternatives have been folded once, as the first drawing does; a click unfolds them. */
         private boolean foldedRejected;
@@ -228,8 +233,6 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         DecisionTreeText.Parsed parsed;
         DecisionTree tree;
         DecisionTreeDiagram diagram;
-        TornadoChart tornado;
-        Label priceMark;
         final Map<Integer, MeasureChip> parameterChips = new HashMap<>();
         /** How wide a name may be in the drawing, in ems: narrower when the tree must fit a narrow region. */
         double chipEms = CHIP_EMS;
@@ -243,32 +246,27 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         /** The drawing as it was last built, built again at full size for the escape. */
         java.util.function.Supplier<DecisionTreeDiagram> whole;
 
-        /** Which rebuild a sweep belongs to: a sweep that lands after the next rebuild is dropped, or not started. */
-        volatile int generation;
         /** When this block was made, among the blocks of every document: the latest of those restating a tree holds it. */
         final long order = ORDERS.incrementAndGet();
-        /** The top of the column: header, parameters and the drawing, redrawn alone during a preview. */
+        /** The top of the column: header, parameters and the drawing. */
         final VBox top = new VBox(6);
-        /** The rollback the block stands at, which a preview is drawn against. */
+        /** The rollback the block stands at. */
         Rollback committed;
         List<ProfileFinding> committedFindings = List.of();
-        DecisionTreeSensitivity lastSweep;
-        boolean previewing;
-        /** The preview asked for last, applied once per pulse so a dragged slider does not queue redraws. */
-        Runnable pendingPreview;
 
         /** The cohort the block asks to be counted out for, when it does. */
         final OptionalDouble cohortSize;
 
         Live(String info, String body, double price) {
-            this(info, body, price, OptionalDouble.empty());
+            this(info, body, price, OptionalDouble.empty(), null);
         }
 
-        Live(String info, String body, double price, OptionalDouble cohortSize) {
+        Live(String info, String body, double price, OptionalDouble cohortSize, String modelId) {
             this.originalInfo = info;
             this.originalBody = body;
             this.originalPrice = price;
             this.cohortSize = cohortSize;
+            this.modelId = modelId;
             this.body = body;
             this.price = price;
             column.getStyleClass().add("decision-tree");
@@ -287,6 +285,16 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         }
 
         private void rebuildIfReadsExternal() {
+            if (modelId != null) {
+                // the model moved: its text is this block's, so a what-if of this rendering is over
+                Optional<GraphletModel> now = context.model(modelId);
+                boolean moved = now.isPresent() && (model == null || !now.get().body().equals(model.body()));
+                if (moved || now.isEmpty() != (model == null)) {
+                    moves = 0;
+                    rebuild();
+                    return;
+                }
+            }
             if (readsExternal) {
                 rebuild();
             }
@@ -318,26 +326,41 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
         }
 
         private void rebuildNow() {
-            generation++;
-            tornado = null;
-            lastSweep = null;
-            previewing = false;
-            pendingPreview = null;
             parameterChips.clear();
-                        parsed = DecisionTreeText.parse(body, terms, ids, context.externals());
-                        shown = parsed.labelled(ids);
-            List<ProfileFinding> findings = new ArrayList<>(parsed.findings().castToList());
             column.getChildren().clear();
+            if (modelId != null) {
+                // a rendering: the model's text is the body, as the document holds it now
+                model = context.model(modelId).orElse(null);
+                if (model == null) {
+                    readsExternal = true;
+                    column.getChildren().add(waiting("Waiting for the model \u201C" + modelId
+                            + "\u201D: no graphlet-model block of this document names it yet."));
+                    return;
+                }
+                if (moves == 0) {
+                    originalBody = model.body();
+                    body = model.body();
+                }
+            }
+            StatementMeasures statements = context.statementMeasures(ids, terms);
+            parsed = DecisionTreeText.parse(body, terms, ids, context.externals(), statements);
+            shown = parsed.labelled(ids);
+            List<ProfileFinding> findings = new ArrayList<>(parsed.findings().castToList());
             if (parsed.tree().isEmpty()) {
                 column.getChildren().add(findingsOnly(findings));
                 return;
             }
             tree = parsed.tree().get();
-            findings.addAll(tree.check().castToList());
+            java.util.Set<Integer> waiting = parsed.waiting();
+            tree.check().forEach(finding -> {
+                if (!waiting.contains(finding.vertexIndex())) {
+                    findings.add(finding);
+                }
+            });
             // known to the document by its root, so another tree may fold it in; then the document's trees are what this one folds in
             treeId = LinkedTrees.rootIdentifier(tree, ids).orElse(null);
             context.defineTree(treeId, body, column, order);
-            linked = LinkedTrees.of(context.trees(), terms, ids, context.externals());
+            linked = LinkedTrees.of(context.trees(), terms, ids, context.externals(), statements);
             Rollback rollback = Rollback.of(tree, coordinate(tree, price), linked);
             rollback.foldedAll().forEachValue(inner ->
                     LinkedTrees.rootIdentifier(inner.tree(), ids).ifPresent(folded -> context.noteFoldIn(treeId, folded)));
@@ -348,6 +371,8 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                     || rollback.findings().anySatisfy(f -> f.message().contains("has no parameter for"))
                     || findings.stream().anyMatch(f -> f.message().contains("has no parameter for"))
                     || TreeStatements.held(parsed).stream().anyMatch(h -> context.statement(h.name()).isEmpty())
+                    // a statement a parameter reads not stated yet
+                    || !parsed.missingStatements().isEmpty()
                     // a tree it folds in not drawn yet, or a tree others fold in, which links back to them
                     || rollback.findings().anySatisfy(f -> f.message().equals(Rollback.FOLDS_IN_NOTHING))
                     || tree.root().filter(r -> !(r instanceof DecisionElement.Decision)).isPresent();
@@ -364,6 +389,9 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             rollback.findings().forEach(finding -> messages.add(DecisionTreeFeedback.describe(tree, shown, finding)));
             messages.addAll(TreeStatements.findings(tree, shown, parsed,
                     name -> context.statement(name).map(DecisionTreeBlockRenderer::kind), true));
+            for (String name : parsed.missingStatements()) {
+                messages.add("anf:" + name + ": no anf block of the document states it yet, so its parameter has no value");
+            }
             if (!messages.isEmpty()) {
                 Label gaps = new Label(String.join("\n", messages));
                 gaps.setFont(Font.font(base * 0.9));
@@ -371,100 +399,22 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                 gaps.setStyle("-fx-text-fill: #8a5a00;");
                 column.getChildren().add(gaps);
             }
-            column.getChildren().add(sensitivity(rollback));
             if (moves > 0) {
                 column.getChildren().add(whatIfBar());
             }
         }
 
-        /**
-         * The sensitivity section: a heading now, the tornado when the sweep lands. The sweep reads
-         * the block once per step, so it runs behind the surface on its own identities, and is
-         * dropped if the block has been rebuilt meanwhile.
-         */
-        private VBox sensitivity(Rollback rollback) {
-            VBox section = new VBox(3);
-            section.setPadding(new Insets(6, 0, 0, 0));
-            Label heading = new Label("Sensitivity of the choice, one value at a time");
-            heading.setFont(Font.font(null, FontWeight.BOLD, base * 0.9));
-            section.getChildren().add(heading);
-            if (!rollback.determinable()) {
-                Label none = new Label("Nothing to sweep until the tree is determinable.");
-                none.setFont(Font.font(base * 0.85));
-                none.setStyle("-fx-text-fill: #666;");
-                section.getChildren().add(none);
-                return section;
-            }
-            Label wait = new Label("computing…");
-            wait.setFont(Font.font(base * 0.85));
-            wait.setStyle("-fx-text-fill: #666;");
-            section.getChildren().add(wait);
-            int mine = generation;
-            String text = body;
-            double at = price;
-            sweepExecutor.execute(() -> {
-                if (mine != generation) {
-                    return;
-                }
-                Optional<DecisionTreeSensitivity> swept;
-                try {
-                    swept = BlockSweep.sweep(text, terms, ids, at, BlockSweep.DEFAULT_STEPS, context.externals(), context.trees());
-                } catch (RuntimeException e) {
-                    swept = Optional.empty();
-                }
-                Optional<DecisionTreeSensitivity> landed = swept;
-                Platform.runLater(() -> {
-                    if (mine != generation) {
-                        return;
-                    }
-                    section.getChildren().remove(wait);
-                    if (landed.isEmpty()) {
-                        Label none = new Label("The block could not be swept.");
-                        none.setFont(Font.font(base * 0.85));
-                        none.setStyle("-fx-text-fill: #8a5a00;");
-                        section.getChildren().add(none);
-                        return;
-                    }
-                    // the chart asks the host to print each quantity as it is built, so the sweep goes first
-                    lastSweep = landed.get();
-                    tornado = new TornadoChart(landed.get(), base, this);
-                    tornado.setId("tornado-chart");
-                    section.getChildren().add(new FittedFigure(tornado, base, base * TORNADO_LEAST_EMS));
-                    markFlips(landed.get());
-                });
-            });
-            return section;
+        /** A line saying what the rendering waits for, in place of the drawing. */
+        private Label waiting(String text) {
+            Label note = new Label(text);
+            note.setId("decision-tree-waiting");
+            note.setFont(Font.font(base * 0.9));
+            note.setWrapText(true);
+            note.setStyle("-fx-text-fill: #8a5a00;");
+            return note;
         }
 
-        /** A mark on every chip whose range flips the root's choice, and on the price when it does. */
-        private void markFlips(DecisionTreeSensitivity sweep) {
-            int root = tree.rootIndex();
-            for (Swing swing : sweep.swings()) {
-                ImmutableList<Flip> flips = swing.flipsAt(root);
-                if (flips.isEmpty()) {
-                    continue;
-                }
-                Flip flip = flips.get(0);
-                String tip = "Flips the choice at " + SweptQuantity.of(sweep, shown, swing.measureVertex(), "").print(flip.at())
-                        + ": " + alternativeName(flip.chosenBelow()) + " up to there, " + alternativeName(flip.chosenAbove()) + " beyond";
-                if (swing.measureVertex() == DecisionTreeSensitivity.HEALTH_PRICE) {
-                    if (priceMark != null) {
-                        priceMark.setText("▲ flips at " + symbol() + money(Bounds.point(flip.at())));
-                        priceMark.setTooltip(new Tooltip(tip));
-                        priceMark.setVisible(true);
-                        priceMark.setManaged(true);
-                    }
-                    continue;
-                }
-                MeasureChip chip = parameterChips.get(swing.measureVertex());
-                if (chip == null && diagram != null) {
-                    chip = diagram.chip(swing.measureVertex()).orElse(null);
-                }
-                if (chip != null) {
-                    chip.mark(tip);
-                }
-            }
-        }
+
 
         /** The coordinate a tree is read at: its own cost semantics, at a price. */
         private ValuationCoordinate coordinate(DecisionTree tree, double at) {
@@ -561,9 +511,6 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                 top.getChildren().add(line);
             }
             top.getChildren().add(legend(rollback, cohort));
-            if (lastSweep != null) {
-                markFlips(lastSweep);
-            }
         }
 
         /** One line beneath the drawing saying what its numbers are. */
@@ -603,6 +550,13 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             Label title = new Label("Decision tree");
             title.setFont(Font.font(null, FontWeight.BOLD, base));
             header.getChildren().add(title);
+            if (modelId != null) {
+                Label modelName = new Label("model " + modelId);
+                modelName.setId("decision-tree-model");
+                modelName.setFont(Font.font("Menlo", base * 0.8));
+                modelName.setStyle("-fx-text-fill: #666;");
+                header.getChildren().add(modelName);
+            }
             drawn.root().ifPresent(root -> concept(root.concept()).ifPresent(header.getChildren()::add));
             // the trees that fold this one in, each a link back to where it is folded in
             if (treeId != null) {
@@ -633,13 +587,6 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                 }
             });
             header.getChildren().addAll(priceLabel, priceField);
-            priceMark = new Label();
-            priceMark.setId("price-flip-mark");
-            priceMark.setFont(Font.font(null, FontWeight.BOLD, base * 0.75));
-            priceMark.setStyle("-fx-text-fill: #d98b1a;");
-            priceMark.setVisible(false);
-            priceMark.setManaged(false);
-            header.getChildren().add(priceMark);
             rollback.rootValue().ifPresent(value -> {
                 Label expected = new Label("expected cost " + symbol() + money(value));
                 expected.setFont(Font.font(null, FontWeight.BOLD, base * 0.9));
@@ -697,7 +644,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             bar.setStyle("-fx-background-color: #fff8e6; -fx-background-radius: 6; -fx-border-color: #e6c87a;"
                     + " -fx-border-radius: 6;");
             Label what = new Label("What-if: " + (moves == 1 ? "one value moved" : moves + " values moved")
-                    + (rewriter == null ? "; the block is unchanged" : ""));
+                    + (rewriter == null || modelId != null ? (modelId != null ? "; the model is unchanged" : "; the block is unchanged") : ""));
             what.setFont(Font.font(base * 0.9));
             bar.getChildren().add(what);
             Hyperlink revert = new Hyperlink("Revert");
@@ -709,7 +656,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                 rebuild();
             });
             bar.getChildren().add(revert);
-            if (rewriter != null) {
+            if (rewriter != null && modelId == null) {
                 Button write = new Button("Write back to the block");
                 write.setFont(Font.font(base * 0.9));
                 write.setTooltip(new Tooltip("Restates the block in the document with these values"));
@@ -745,9 +692,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                 priorEms = chipEms;
                 priorNatural = natural;
                 chipEms = next;
-                if (!previewing) {
-                    fillTop(tree, committed, price, Optional.empty(), committedFindings);
-                }
+                fillTop(tree, committed, price, Optional.empty(), committedFindings);
             }
         }
 
@@ -893,13 +838,18 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
 
         @Override
         public boolean editable(int measureVertex) {
-            return parsed.lineOf(measureVertex).isPresent() && tree.measure(measureVertex).stated();
+            return parsed.lineOf(measureVertex).isPresent()
+                    && (tree.measure(measureVertex).stated() || parsed.parameterStatement(measureVertex).isPresent());
         }
 
         @Override
         public void edit(int measureVertex, Bounds bounds) {
             OptionalInt line = parsed.lineOf(measureVertex);
             if (line.isEmpty()) {
+                return;
+            }
+            // a value moved on a rendering is the model's: written there, every rendering that names the model redraws
+            if (model != null && moves == 0 && model.writable() && model.write(line.getAsInt(), bounds)) {
                 return;
             }
             DecisionTreeEdits.restate(body, line.getAsInt(), bounds).ifPresent(restated -> {
@@ -921,28 +871,10 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
 
         @Override
         public void hover(int measureVertex, boolean on) {
-            if (tornado != null) {
-                tornado.highlight(measureVertex, on);
-            }
+            // the tornado is another rendering of the model
         }
 
-        // ── The tornado's host ──────────────────────────────────────────────
-
-        @Override
-        public String nameOf(int measureVertex) {
-            return lastSweep != null ? SweptQuantity.name(lastSweep, shown, measureVertex) : SweptQuantity.name(tree, shown, measureVertex);
-        }
-
-        @Override
-        public String quantity(int measureVertex, double value) {
-            if (lastSweep == null) {
-                return DecisionFigureText.shown(value, true, false);
-            }
-            return SweptQuantity.of(lastSweep, shown, measureVertex, symbol()).print(value);
-        }
-
-        @Override
-        public String moneyUnit() {
+        private String moneyUnit() {
             long semantic = semantic(tree, MoneyCost.class, terms.moneySemantic());
             return unitName(semantic, "");
         }
@@ -952,8 +884,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
             return DecisionFigureText.symbolFor(moneyUnit());
         }
 
-        @Override
-        public String alternativeName(int alternativeVertex) {
+        String alternativeName(int alternativeVertex) {
             if (alternativeVertex < 0) {
                 return "no sure choice";
             }
@@ -961,137 +892,7 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
                     ? Optional.of(shown.label(n.concept().getAsLong())) : Optional.empty()).orElse("an alternative");
         }
 
-        @Override
-        public void light(int measureVertex, boolean on) {
-            if (measureVertex == DecisionTreeSensitivity.HEALTH_PRICE) {
-                return;
-            }
-            // a value of a tree folded in acts at every outcome that folds that tree in: light the paths to them
-            Optional<DecisionTreeSensitivity.FoldedValue> folded = lastSweep == null ? Optional.empty() : lastSweep.folded(measureVertex);
-            if (folded.isPresent()) {
-                if (diagram != null) {
-                    for (DecisionElement.Outcome outcome : tree.nodesOfType(DecisionElement.Outcome.class)) {
-                        java.util.OptionalLong reference = outcome.treeReference();
-                        if (reference.isPresent() && reference.getAsLong() == folded.get().treeRoot()) {
-                            diagram.lightMeasure(outcome.vertexIndex(), on);
-                        }
-                    }
-                }
-                return;
-            }
-            if (measureVertex < 0) {
-                return;
-            }
-            MeasureChip chip = parameterChips.get(measureVertex);
-            if (chip != null) {
-                chip.setHot(on);
-            }
-            if (diagram != null) {
-                diagram.lightMeasure(measureVertex, on);
-            }
-        }
 
-        @Override
-        public void preview(int measureVertex, OptionalDouble value) {
-            if (value.isEmpty()) {
-                pendingPreview = null;
-                if (previewing) {
-                    previewing = false;
-                    fillTop(tree, committed, price, Optional.empty(), committedFindings);
-                }
-                return;
-            }
-            boolean queued = pendingPreview != null;
-            pendingPreview = () -> drawPreview(measureVertex, value.getAsDouble());
-            if (!queued) {
-                Platform.runLater(() -> {
-                    Runnable run = pendingPreview;
-                    pendingPreview = null;
-                    if (run != null) {
-                        run.run();
-                    }
-                });
-            }
-        }
-
-        /** Draws the top of the column at one value of a measure, the committed rollback as the reference. */
-        private void drawPreview(int measureVertex, double value) {
-            String text = body;
-            double at = price;
-            LinkedTrees links = linked;
-            Optional<DecisionTreeSensitivity.FoldedValue> folded = lastSweep == null ? Optional.empty() : lastSweep.folded(measureVertex);
-            if (measureVertex == DecisionTreeSensitivity.HEALTH_PRICE) {
-                at = value;
-            } else if (folded.isPresent()) {
-                // a value of a tree folded in: that tree's block restated, this tree rolled back over it
-                Optional<LinkedTrees> moved = movedLinks(folded.get(), value);
-                if (moved.isEmpty()) {
-                    return;
-                }
-                links = moved.get();
-            } else {
-                OptionalInt line = parsed.lineOf(measureVertex);
-                if (line.isEmpty()) {
-                    return;
-                }
-                Optional<String> restated = DecisionTreeEdits.restate(body, line.getAsInt(), Bounds.point(value));
-                if (restated.isEmpty()) {
-                    return;
-                }
-                text = restated.get();
-            }
-                        DecisionTreeText.Parsed again = DecisionTreeText.parse(text, terms, ids, context.externals());
-            if (again.tree().isEmpty()) {
-                return;
-            }
-            DecisionTree drawn = again.tree().get();
-            List<ProfileFinding> findings = new ArrayList<>(again.findings().castToList());
-            findings.addAll(drawn.check().castToList());
-            previewing = true;
-            fillTop(drawn, Rollback.of(drawn, coordinate(drawn, at), links), at, Optional.of(committed), findings);
-        }
-
-        /** The document's trees with one value of a folded tree restated, for a preview. */
-        private Optional<LinkedTrees> movedLinks(DecisionTreeSensitivity.FoldedValue folded, double value) {
-            Optional<String> identifier = ids.identifier(folded.treeRoot());
-            Map<String, String> bodies = new java.util.LinkedHashMap<>(context.trees());
-            if (identifier.isEmpty() || !bodies.containsKey(identifier.get())) {
-                return Optional.empty();
-            }
-            String linkedBody = bodies.get(identifier.get());
-            OptionalInt line = DecisionTreeText.parse(linkedBody, terms, ids, context.externals()).lineOf(folded.vertex());
-            if (line.isEmpty()) {
-                return Optional.empty();
-            }
-            return DecisionTreeEdits.restate(linkedBody, line.getAsInt(), Bounds.point(value)).map(restated -> {
-                bodies.put(identifier.get(), restated);
-                return LinkedTrees.of(bodies, terms, ids, context.externals());
-            });
-        }
-
-        /** Whether the top of the column shows a preview rather than where the block stands; for a test. */
-        boolean previewing() {
-            return previewing;
-        }
-
-        @Override
-        public void tryValue(int measureVertex, double value) {
-            // a value of a tree folded in is tried where it is stated: go to that tree
-            Optional<DecisionTreeSensitivity.FoldedValue> folded = lastSweep == null ? Optional.empty() : lastSweep.folded(measureVertex);
-            if (folded.isPresent()) {
-                ids.identifier(folded.get().treeRoot()).flatMap(context::treeNode).ifPresent(SurfaceNavigation::reveal);
-                return;
-            }
-            if (measureVertex == DecisionTreeSensitivity.HEALTH_PRICE) {
-                if (value != price) {
-                    price = value;
-                    moves++;
-                    rebuild();
-                }
-                return;
-            }
-            edit(measureVertex, Bounds.point(value));
-        }
 
         /** The semantic a tree's costs of a kind are on, taken from the first such cost; the parent semantic otherwise. */
         private long semantic(DecisionTree of, Class<? extends Cost> kind, long fallback) {
@@ -1252,8 +1053,6 @@ final class DecisionTreeBlockRenderer implements BlockRenderer {
     private static final double CHIP_EMS = 16;
     /** The narrowest a name is drawn to fit a tree to its region; narrower still, the tree is scaled. */
     private static final double MIN_CHIP_EMS = 8;
-    /** The narrowest the chart is laid out, in ems: narrower, its bars have no room between names and values, and it scales. */
-    private static final double TORNADO_LEAST_EMS = 38;
     /** What a chip takes beside its name, in ems: its identicon, status mark and padding. */
     private static final double CHIP_CHROME_EMS = 3;
 

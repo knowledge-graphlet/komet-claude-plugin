@@ -110,6 +110,8 @@ import java.util.stream.Collectors;
  */
 final class DocumentSurfaceView {
 
+    private static final org.slf4j.Logger LOG = org.slf4j.LoggerFactory.getLogger(DocumentSurfaceView.class);
+
     /** What the surface asks of its card. */
     interface Host {
         ViewCalculator view();
@@ -2331,6 +2333,7 @@ final class DocumentSurfaceView {
             view = kind.get().view(source, new StructuredBlockKind.Context(host.view(), host.viewProperties(), blocks, st.base(),
                     area.editable ? text -> host.saveEdit(block, text) : null));
         } catch (RuntimeException failure) {
+            LOG.warn("The {} block {} could not be read; it is shown as its text", kind.get().name(), block.nid(), failure);
             host.status("The " + kind.get().name() + " block could not be read; it is shown as its text: " + failure.getMessage());
             return;
         }

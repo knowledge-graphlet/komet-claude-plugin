@@ -1,0 +1,44 @@
+[graphlet-model, id=bimo-site-model]
+----
+decision: k:SiteInspectionDecision[Inspect the site?] @id=bimo-site-decision
+  parameter = [0.15,0.15] anf:est-material-problem
+  parameter = [0.8,0.8] anf:est-inspection-sensitivity
+  parameter = [0.05,0.05] anf:est-inspection-false-alarm
+  parameter = [60000,60000] anf:est-inspection-cost
+  parameter = [250000,250000] anf:est-reanalysis-cost
+  parameter = [5000000,5000000] anf:est-bad-approval-cost
+  alternative: k:Inspect[inspect] @id=bimo-inspect statement=anf:req-inspection
+    money = from anf:est-inspection-cost
+    count = [1,1] k:Inspection[inspections] @id=bimo-inspection
+    chance: k:SiteData[Site data] @id=bimo-data-inspected
+      event: k:Unreliable[unreliable] @id=bimo-unreliable-inspected
+        p = from anf:est-material-problem
+        chance: k:InspectionFinds[Inspection finds it?] @id=bimo-finds
+          event: k:Found[found] @id=bimo-found statement=anf:perf-problem-found
+            p = from anf:est-inspection-sensitivity
+            money = from anf:est-reanalysis-cost
+            count = [1,1] k:ProblemFound[problems found] @id=bimo-problem-found
+            outcome: k:SoundDecision[decision on sound data] @id=bimo-sound-after-finding
+          residual: k:Missed[missed] @id=bimo-missed
+            money = from anf:est-bad-approval-cost
+            count = [1,1] k:BadApproval[approvals on unreliable data] @id=bimo-bad-approval
+            outcome: k:BadDecision[approval on unreliable data] @id=bimo-bad-inspected
+      residual: k:Sound[sound] @id=bimo-sound-inspected
+        chance: k:FalseFinding[Inspection raises a finding anyway?] @id=bimo-false-finding
+          event: k:Alarm[false finding] @id=bimo-alarm
+            p = from anf:est-inspection-false-alarm
+            money = from anf:est-reanalysis-cost
+            count = [1,1] k:NeedlessReanalysis[needless re-analyses] @id=bimo-needless-reanalysis
+            outcome: k:SoundDecision[decision on sound data] @id=bimo-sound-after-alarm
+          residual: k:Clear[clear] @id=bimo-clear
+            outcome: k:SoundDecision[decision on sound data] @id=bimo-sound-clear
+  alternative: k:NoInspection[do not inspect] @id=bimo-no-inspection
+    chance: k:SiteData[Site data] @id=bimo-data-uninspected
+      event: k:Unreliable[unreliable] @id=bimo-unreliable-uninspected
+        p = from anf:est-material-problem
+        money = from anf:est-bad-approval-cost
+        count = [1,1] k:BadApproval[approvals on unreliable data] @id=bimo-bad-approval
+        outcome: k:BadDecision[approval on unreliable data] @id=bimo-bad-uninspected
+      residual: k:Sound[sound] @id=bimo-sound-uninspected
+        outcome: k:SoundDecision[decision on sound data] @id=bimo-sound-uninspected-outcome
+----

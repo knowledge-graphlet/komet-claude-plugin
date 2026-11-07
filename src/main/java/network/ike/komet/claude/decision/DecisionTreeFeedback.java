@@ -70,7 +70,9 @@ public final class DecisionTreeFeedback {
      * same character on a line of their own.
      */
     public static List<Block> blocks(String markdown) {
-        return blocks(markdown, DecisionTreeText::isTagged);
+        // a model block states the tree too; a rendering, model=…, states nothing to read
+        return blocks(markdown, info -> (DecisionTreeText.isTagged(info) || GraphletModelText.isTagged(info))
+                && GraphletModelText.modelReference(info).isEmpty());
     }
 
     /** The fenced blocks of a Markdown text whose info string a tag test accepts. */
@@ -135,8 +137,18 @@ public final class DecisionTreeFeedback {
      */
     public static List<String> problems(Block block, DecisionTerms terms, Identities ids, Map<String, TreeStatements.Kind> anfKinds,
                                         Map<String, String> treeBodies) {
+        return problems(block, terms, ids, anfKinds, treeBodies, StatementMeasures.none());
+    }
+
+    /**
+     * What is wrong with one block whose parameters may read the reply's {@code anf} fences by
+     * name; a statement the reply does not give is passed over, with what its absence leaves
+     * not determinable, since its block may be in an earlier reply or the document.
+     */
+    public static List<String> problems(Block block, DecisionTerms terms, Identities ids, Map<String, TreeStatements.Kind> anfKinds,
+                                        Map<String, String> treeBodies, StatementMeasures statements) {
         Set<String> problems = new LinkedHashSet<>();
-        DecisionTreeText.Parsed parsed = DecisionTreeText.parse(block.body(), terms, ids);
+        DecisionTreeText.Parsed parsed = DecisionTreeText.parse(block.body(), terms, ids, ExternalQuantities.none(), statements);
         for (ProfileFinding finding : parsed.findings()) {
             if (!informs(finding)) {
                 problems.add(finding.message());
@@ -146,24 +158,92 @@ public final class DecisionTreeFeedback {
             return new ArrayList<>(problems);
         }
         DecisionTree tree = parsed.tree().get();
+        // a vertex waiting for a statement stated elsewhere has no bounds and no semantic by that fact alone
+        java.util.Set<Integer> waiting = parsed.waiting();
         for (ProfileFinding finding : tree.check()) {
-            problems.add(describe(tree, ids, finding));
+            if (!waiting.contains(finding.vertexIndex())) {
+                problems.add(describe(tree, ids, finding));
+            }
         }
         problems.addAll(TreeStatements.findings(tree, ids, parsed, name -> Optional.ofNullable(anfKinds.get(name)), false));
         double price = DecisionTreeText.healthPrice(block.info()).orElse(DecisionTreeText.DEFAULT_HEALTH_PRICE);
         ValuationCoordinate coordinate = ValuationCoordinate.pricingHealthAt(Bounds.point(price),
                 semantic(tree, MoneyCost.class, terms.moneySemantic()),
                 semantic(tree, HealthCost.class, terms.healthSemantic()));
-        Rollback rollback = Rollback.of(tree, coordinate, LinkedTrees.of(treeBodies, terms, ids, ExternalQuantities.none()));
-        // a tree folded in from an earlier reply is not here to roll back, and what it leaves open cascades to
-        // the root: the person sees it on the card, so it is not sent back
-        boolean foldsInElsewhere = rollback.findings().anySatisfy(f -> f.message().equals(Rollback.FOLDS_IN_NOTHING));
+        Rollback rollback = Rollback.of(tree, coordinate, LinkedTrees.of(treeBodies, terms, ids, ExternalQuantities.none(), statements));
+        // a tree folded in from an earlier reply, or a statement stated elsewhere, is not here to roll back, and
+        // what it leaves open cascades to the root: the person sees it on the card, so it is not sent back
+        boolean foldsInElsewhere = rollback.findings().anySatisfy(f -> f.message().equals(Rollback.FOLDS_IN_NOTHING))
+                || !parsed.missingStatements().isEmpty();
         for (ProfileFinding finding : rollback.findings()) {
             if (!foldsInElsewhere) {
                 problems.add(describe(tree, ids, finding));
             }
         }
         return new ArrayList<>(problems);
+    }
+
+    /**
+     * What the reply's {@code anf} fences state, as a model's parameters read them, store-free:
+     * the {@code result::} line's interval as the range, its scale by its written label, a
+     * fraction read as the share at a node and any other scale as one identity per label local
+     * to the reply, and the {@code topic::} label, with the group of {@code subject_of_information::}
+     * for a share, as the name. A fence with no bounded result states no measure.
+     */
+    public static StatementMeasures statementMeasures(String reply, Identities ids, DecisionTerms terms) {
+        Map<String, StatementMeasures.Stated> stated = new java.util.HashMap<>();
+        for (Block fence : blocks(reply, TreeStatements::isAnfFence)) {
+            String id = network.ike.komet.claude.anf.element.ElementText.attributes(fence.info()).get("id");
+            if (id == null || id.isBlank()) {
+                continue;
+            }
+            String topic = "", group = "", result = null;
+            for (String line : fence.body().split("\n")) {
+                String[] parts = line.split("::", 2);
+                if (parts.length < 2) {
+                    continue;
+                }
+                String field = parts[0].strip();
+                String value = parts[1].strip();
+                switch (field) {
+                    case "topic" -> topic = writtenLabel(value);
+                    case "subject_of_information" -> group = writtenLabel(value);
+                    case "result" -> result = value;
+                    default -> { }
+                }
+            }
+            if (result == null) {
+                continue;
+            }
+            Optional<network.ike.komet.claude.block.Tokens.IntervalPrefix> interval = network.ike.komet.claude.block.Tokens.intervalPrefix(result);
+            if (interval.isEmpty()) {
+                continue;
+            }
+            network.ike.komet.claude.block.Tokens.Interval i = interval.get().interval();
+            Bounds range = new Bounds(i.lower() == null ? Double.NEGATIVE_INFINITY : i.lower(),
+                    i.upper() == null ? Double.POSITIVE_INFINITY : i.upper(), !i.includeLower(), !i.includeUpper());
+            String scale = writtenLabel(interval.get().rest().strip());
+            boolean share = isFraction(scale);
+            long semantic = share ? terms.shareAtNode()
+                    : scale.isBlank() ? 0 : ids.local(DecisionTreeText.CANDIDATE_SCALE + scale, scale).orElse(0L);
+            String label = share ? (group.isBlank() ? topic : topic + " among " + group)
+                    : scale.isBlank() ? topic : topic + " (" + scale + ")";
+            stated.put(id, new StatementMeasures.Stated(range, semantic, label.isBlank() ? id : label));
+        }
+        return name -> Optional.ofNullable(stated.get(name));
+    }
+
+    /** The label a field's value writes: a k: token's or a candidate's bracketed label, else the text as written. */
+    private static String writtenLabel(String value) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?:k:[\\w.-]*|candidate)\\[([^\\]]*)]").matcher(value);
+        return m.find() ? m.group(1).strip() : value;
+    }
+
+    /** Whether a scale's name says the number is a fraction, as the surface reads a statement's scale. */
+    static boolean isFraction(String label) {
+        String lower = label == null ? "" : label.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("fraction") || lower.contains("share") || lower.contains("proportion")
+                || lower.contains("probabilit") || lower.contains("percent");
     }
 
     /**
@@ -174,10 +254,11 @@ public final class DecisionTreeFeedback {
         List<Block> blocks = blocks(reply);
         Map<String, TreeStatements.Kind> anfKinds = TreeStatements.fenceKinds(reply);
         Map<String, String> treeBodies = treeBodies(blocks, terms, ids);
+        StatementMeasures statements = statementMeasures(reply, ids, terms);
         List<List<String>> problems = new ArrayList<>();
         boolean any = false;
         for (Block block : blocks) {
-            List<String> found = problems(block, terms, ids, anfKinds, treeBodies);
+            List<String> found = problems(block, terms, ids, anfKinds, treeBodies, statements);
             problems.add(found);
             any |= !found.isEmpty();
         }

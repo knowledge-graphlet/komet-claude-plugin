@@ -36,6 +36,8 @@ import network.ike.komet.claude.anf.element.ElementLevel;
 import network.ike.komet.claude.calculator.Calculator;
 import network.ike.komet.claude.complexconcept.ComplexConceptText;
 import network.ike.komet.claude.decision.ExternalQuantities;
+import network.ike.komet.claude.decision.GraphletModel;
+import network.ike.komet.claude.decision.StatementMeasures;
 import network.ike.komet.claude.decision.ViewIdentities;
 
 /**
@@ -268,6 +270,53 @@ public final class BlockContext {
     /** Every tree block of the document, by its root's identifier. */
     public synchronized Map<String, String> trees() {
         return Map.copyOf(trees);
+    }
+
+    /** By id: the document's graphlet models, which its decision-tree and tornado blocks render. */
+    private final Map<String, GraphletModel> models = new java.util.LinkedHashMap<>();
+    /** By model id: the order of the block that holds the model, the latest to define it. */
+    private final Map<String, Long> modelOrders = new HashMap<>();
+
+    /**
+     * A graphlet-model block has read: the model is known by its id, so the renderings that name
+     * it draw it, and write a value into it through its writer. Listeners hear only when the
+     * model's text changed. As with trees, the latest block to restate a model under an id holds
+     * it.
+     */
+    public synchronized void defineModel(GraphletModel model, long order) {
+        if (model == null || model.id() == null || model.id().isBlank()) {
+            return;
+        }
+        Long holder = modelOrders.get(model.id());
+        if (holder != null && holder > order) {
+            return;
+        }
+        modelOrders.put(model.id(), order);
+        GraphletModel was = models.put(model.id(), model);
+        if (was == null || !was.body().equals(model.body()) || !was.info().equals(model.info())) {
+            notifyListeners();
+        }
+    }
+
+    /** The model a rendering names, when a block of this document defines it. */
+    public synchronized Optional<GraphletModel> model(String id) {
+        return id == null ? Optional.empty() : Optional.ofNullable(models.get(id));
+    }
+
+    /** Every model of the document, by id. */
+    public synchronized Map<String, GraphletModel> models() {
+        return Map.copyOf(models);
+    }
+
+    /**
+     * The measures the document's statements state, as a model's parameters read them by name:
+     * the range a statement's result gives, its scale read on the tree's terms, and its name.
+     *
+     * @param ids   the identities the model is read under, which give a candidate scale its identity
+     * @param terms the profile's terms, for the share at a node
+     */
+    public StatementMeasures statementMeasures(Identities ids, network.ike.komet.claude.decision.DecisionTerms terms) {
+        return name -> statement(name).flatMap(statement -> DocumentStatementMeasures.of(statement, ids, terms));
     }
 
     /** The node that draws the tree whose root has an identifier, when a block draws it. */

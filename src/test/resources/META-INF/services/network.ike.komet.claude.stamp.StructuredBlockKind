@@ -1,6 +1,8 @@
 # Test-classpath registration of the document's structured block kinds, which the module declaration
 # provides for the module run (ike-lab-documents topic dev-decision-document).
 network.ike.komet.claude.ui.DocumentBlockKinds$DecisionTree
+network.ike.komet.claude.ui.DocumentBlockKinds$GraphletModel
+network.ike.komet.claude.ui.DocumentBlockKinds$Tornado
 network.ike.komet.claude.ui.DocumentBlockKinds$ComplexConcept
 network.ike.komet.claude.ui.DocumentBlockKinds$Anf
 network.ike.komet.claude.ui.DocumentBlockKinds$Calculator

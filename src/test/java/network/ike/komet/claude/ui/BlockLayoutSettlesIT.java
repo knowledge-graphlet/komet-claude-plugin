@@ -140,13 +140,13 @@ class BlockLayoutSettlesIT {
         PrimitiveData.start();
         new LoadEntitiesFromProtobufFile(PB_STARTER_DATA).compute();
         view = Calculators.View.Default();
-        sweepsBefore = DecisionTreeBlockRenderer.sweepExecutor;
-        DecisionTreeBlockRenderer.sweepExecutor = Runnable::run;
+        sweepsBefore = TornadoBlockRenderer.sweepExecutor;
+        TornadoBlockRenderer.sweepExecutor = Runnable::run;
     }
 
     @AfterAll
     void stop() {
-        DecisionTreeBlockRenderer.sweepExecutor = sweepsBefore;
+        TornadoBlockRenderer.sweepExecutor = sweepsBefore;
         PrimitiveData.stop();
     }
 

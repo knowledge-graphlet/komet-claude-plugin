@@ -17,7 +17,7 @@ The label in `k:Key[label]` is the concept's fully qualified name: it must stand
 
 ## The block
 
-One line per vertex, two spaces of indentation per level; the concept tokens are the decision-tree block's, `k:Key[label] @id=<identity>`.
+One line per vertex, two spaces of indentation per level; the concept tokens are the graphlet-model block's, `k:Key[label] @id=<identity>`.
 
 ```complex-concept
 concept: k:SurveillanceDecision[Surveillance imaging decision after aneurysm seal] @id=rda-surveillance-decision
@@ -55,7 +55,7 @@ concept: k:Perrla[PERRLA panel] @id=perrla
 
 ### Tokens and identities
 
-As in the decision-tree block: a concept the knowledge base holds carries the exact identifier a tool returned; one it lacks carries a short symbolic identity of your own, the same symbol wherever it recurs in the answer, and Komet reads it as a concept local to the document. The complex concept itself is usually new, so its `@id` is a symbol. A decision tree in the same answer names the complex concept by that symbol, and its chip then says what the concept is.
+As in the graphlet-model block: a concept the knowledge base holds carries the exact identifier a tool returned; one it lacks carries a short symbolic identity of your own, the same symbol wherever it recurs in the answer, and Komet reads it as a concept local to the document. The complex concept itself is usually new, so its `@id` is a symbol. A decision tree in the same answer names the complex concept by that symbol, and its chip then says what the concept is.
 
 ## Answering
 

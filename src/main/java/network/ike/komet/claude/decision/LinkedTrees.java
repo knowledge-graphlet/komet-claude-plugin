@@ -46,13 +46,19 @@ public interface LinkedTrees {
      * @param bodies the blocks' bodies, by their root lines' identifiers
      */
     static LinkedTrees of(Map<String, String> bodies, DecisionTerms terms, Identities ids, ExternalQuantities externals) {
+        return of(bodies, terms, ids, externals, StatementMeasures.none());
+    }
+
+    /** The trees of blocks, whose parameters may read the document's statements by name. */
+    static LinkedTrees of(Map<String, String> bodies, DecisionTerms terms, Identities ids, ExternalQuantities externals,
+                          StatementMeasures statements) {
         if (bodies.isEmpty()) {
             return none();
         }
         Map<Long, Optional<DecisionTree>> read = new HashMap<>();
         return nid -> read.computeIfAbsent(nid, n -> ids.identifier(n)
                 .map(bodies::get)
-                .flatMap(body -> DecisionTreeText.parse(body, terms, ids, externals).tree()));
+                .flatMap(body -> DecisionTreeText.parse(body, terms, ids, externals, statements).tree()));
     }
 
     /** The identifier a tree's root line names, the key another tree folds it in by; empty when the root names none. */

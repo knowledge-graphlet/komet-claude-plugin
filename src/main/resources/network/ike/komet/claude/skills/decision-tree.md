@@ -3,11 +3,13 @@ name: Decision tree
 description: Use when the person asks to draw, state, read, compare or roll back a decision tree, a decision analysis, or the expected cost or value of alternatives under uncertainty: a decision among alternatives, with chances, events and outcomes that carry probabilities and money or health costs.
 category: Skill
 ---
-State a decision tree as a fenced `decision-tree` block and let Komet draw it: the tree in decision-analytic notation, every node's concept as a chip, and the value each node is left with after rollback under the valuation coordinate. **Never roll the tree back yourself and never draw it as box art or a nested list**: the renderer folds expected cost at a chance, least cost at a decision, and prices health into money at the health price the block's info sets (`health-price=100000`, in the money semantic's units; the reader can move it). Add `cohort=1000` to the info and Komet also counts the tree out for a thousand: beneath every branch how many go that way, and beneath the drawing where the thousand who take each alternative end up, which reads without any price; beneath the drawing it also says what the choice trades, money and health kept apart, and the price of a healthy year at which the alternatives tie.
+State a decision as three fenced blocks and let Komet draw it. The **model** is a `graphlet-model` block: the tree's structure and its parameters together, one versioned property graph, named by `id=`. The **renderings** are a `decision-tree` block and a `tornado` block that each name the model with `model=<id>` and carry nothing but how it is viewed: the tree in decision-analytic notation, every node's concept as a chip, the value each node is left with after rollback under the valuation coordinate; and the one-way sensitivity, one bar per value. **Never roll the tree back yourself and never draw it as box art or a nested list**: Komet folds expected cost at a chance, least cost at a decision, and prices health into money at the health price the rendering's info sets (`health-price=100000`, in the money semantic's units; the reader can move it). Add `cohort=1000` to the tree rendering's info and Komet also counts the tree out for a thousand: beneath every branch how many go that way, and beneath the drawing where the thousand who take each alternative end up, which reads without any price; beneath the drawing it also says what the choice trades, money and health kept apart, and the price of a healthy year at which the alternatives tie.
+
+A number someone determined, a chance or a cost, is an ANF statement of the document, and the model's parameter reads it by name (see *Parameters that read statements*). Values are in the model, views on the renderings: a reader who tries a value in the tornado writes it into the model, and every rendering redraws.
 
 ## With a paired document
 
-When this conversation has a paired document, the block goes into the document, not your reply: insert it with `propose_block_insert` (kind `listing`, the text starting with the style line `[decision-tree, cohort=100]`), or change it with `propose_block_edit`, and answer in sentences saying what you added or changed, and why. Never restate the block in the reply. The tool's result ends with what Komet found in the document's structured blocks; correct those in this turn. With no paired document, state the block in your reply as below; if the person wants the decision kept, offer `create_document`.
+When this conversation has a paired document, the blocks go into the document, not your reply: insert each with `propose_block_insert` (kind `listing`, the text starting with the style line, `[graphlet-model, id=bimo-site-model]` for the model, `[decision-tree, model=bimo-site-model, cohort=100]` and `[tornado, model=bimo-site-model]` for the renderings), or change one with `propose_block_edit`, and answer in sentences saying what you added or changed, and why. Never restate a block in the reply. The tool's result ends with what Komet found in the document's structured blocks; correct those in this turn. With no paired document, state the blocks in your reply as below; if the person wants the decision kept, offer `create_document`.
 
 
 ## A label is the fully qualified name
@@ -23,11 +25,11 @@ A chance is one topic on one scale, and each event is one point on that scale. W
 
 Narrative stays in the report. Discrete findings are statements lifted from it, and the tree takes the overall result. Give a finding its own chance only when it alone changes the decision, because every finding multiplies the paths.
 
-## The block
+## The blocks
 
-One line per vertex or value, two spaces of indentation per level; indentation carries the edges.
+The model: one line per vertex or value, two spaces of indentation per level; indentation carries the edges. The model's info names it, `id=rda-scan-model`; it carries no price and no cohort, which are the renderings'.
 
-```decision-tree health-price=100000 cohort=1000
+```graphlet-model id=rda-scan-model
 decision: k:ScanNow[Scan now?] @id=rda-scan-now
   parameter = [0.02,0.02] k:Reopening[Late reopening hazard in year 2] @id=rda-reopening-hazard basis=estimated
   parameter = [0.9,0.9] k:Sensitivity[MRA sensitivity] @id=rda-mra-sensitivity basis=estimated
@@ -47,6 +49,16 @@ decision: k:ScanNow[Scan now?] @id=rda-scan-now
       money = from k:Product[] of k:RuptureRisk20[] @id=rda-rupture-risk-20 k:RuptureCost[] @id=rda-rupture-cost in k:Usd[US dollar] @id=rda-usd
 ```
 
+The renderings, each naming the model and nothing more. Their bodies are empty: a rendering holds no structure and no number.
+
+```decision-tree model=rda-scan-model health-price=100000 cohort=1000
+```
+
+```tornado model=rda-scan-model health-price=100000
+```
+
+Two renderings of one model under different views, another health price or another cohort, are two `decision-tree` blocks naming the same model. Two sets of numbers are two models.
+
 ### Vertices, `word: k:Key[label] @id=<identity>`
 
 - `decision:` the root, and any later decision; `alternative:` a choice beneath a decision.
@@ -59,6 +71,7 @@ decision: k:ScanNow[Scan now?] @id=rda-scan-now
 - An interval is `[lo,hi]`, a point `[x,x]`, an open end `(` or `)`, no bound `inf`; the renderer carries the spread through rollback.
 - `basis=estimated|cited|derived` says where a number comes from; `source=<identity>` names the citation.
 - `parameter = [lo,hi] k:Quantity[label] @id=<identity> ...` states a model assumption once, under the root; any value may then be `from <kind> of <quantities>`: kinds are `Complement` (1 − x), `Product`, `CumulativeHazard` (1 − (1 − h)^n), `BayesPosterior` (prior, sensitivity, false-positive rate) and `BayesMarginal` (the same three; the share that tests positive). A derived value has no interval of its own. A value that is simply one of the parameters is written `from` that quantity alone, with nothing after it: `p = from k:Reopening[] @id=rda-reopening-hazard` — never restate the number by hand where a parameter already states it.
+- `parameter = [v,v] anf:<name>` reads a parameter from one of the document's ANF statements (see *Parameters that read statements*); a value then reads it the same way, `p = from anf:<name>` or `money = from anf:<name>`, with nothing after it.
 - **A derived parameter names its quantity first, then the derivation**: `parameter = k:Risk[Twenty-year rupture risk] @id=rda-risk from CumulativeHazard of k:Hazard[] @id=rda-hazard k:Years[] @id=rda-years`. The quantity never comes after the operands.
 
 A third cost kind counts a consequence in its own unit and is never priced: `count = [1,1] k:Angiogram[angiograms] @id=rda-angiogram` on the branch that brings it, or `count = from k:RuptureRisk20[] @id=rda-rupture-risk-20 in k:Rupture[ruptures] @id=rda-rupture` where a parameter already carries the chance; the concept after `in` names what is counted, and like every token it carries an `@id`. **One counted thing is one concept wherever it recurs**: the ruptures counted on three branches all name `@id=rda-rupture`, so the ledger has one ruptures column; a fresh symbol per branch would make a column each. Komet keeps every count beside money and health in a ledger beneath the drawing, per cohort when one is counted, and says who spares how many at what cost each, so a tree that prices nothing, as a regulator's often does, still weighs its alternatives; such a tree leaves its choice open rather than choosing on nothing.
@@ -71,6 +84,21 @@ Inside this block a concept is always `k:Key[label] @id=<identity>`: a short Cam
 - A concept the knowledge base lacks (a quantity, a currency, a situation the model names) carries a short symbolic identity of your own, `@id=rda-usd`, the same symbol wherever it recurs; Komet reads it as a concept local to the block, draws it as a dashed chip, and lists the symbols beneath the tree. Never invent a store identifier for one.
 - A decision point, an alternative or an event that the knowledge base lacks may be stated as a complex concept in a `complex-concept` block in the same answer (the `complex-concept` skill): the tree's token then carries that block's symbol as its `@id`, so the chip on the tree says what the concept is, and the decision names the patient it is for through the block's prerequisites.
 - A derivation kind is written as its bare name after `from` (`from CumulativeHazard of ...`) or as a token with no identity (`from k:CumulativeHazard[] of ...`); its operands after `of` are the quantities' tokens, each with the quantity's `@id=`.
+
+### Parameters that read statements
+
+A chance or a cost that someone determined is a performance statement of the document, stated in an `anf` block **before** the model and named for it, as a node's statements are. The statement is the record of the determination: its `topic` is what the number is about, the event or the procedure the tree already names; its `result` is the range the person or the study determined, as an interval, or a point when they stated one, on the number's scale; its `subject_of_information` is the group the number is about, which for a share is what it is a fraction of; its `method` is how it was determined, estimated, elicited or counted. A share's scale is `candidate[share of the subject group] disp=PENDING`: the members with the topic over the members of the group, on zero to one; the group itself is the subject of information, never part of the scale. An odds ratio, a relative risk reduction or a yearly hazard is a scale of its own, not a share. A money scale is the currency, `candidate[US dollar] disp=PENDING` where the knowledge base holds none.
+
+```anf type=performance id=est-material-problem
+topic:: candidate[material problem in the site's clinical data] disp=PENDING
+subject_of_information:: candidate[Site inspection decision for a first-of-a-kind submission] disp=PENDING
+result:: [0.005,0.4] candidate[share of the subject group] disp=PENDING
+method:: k:Estimated[Estimated basis] @id=96420d3b-09c4-5ebc-a292-7d0a0423a6de
+```
+
+**Write a statement for every number you extracted or estimated about a named group**; a bare value on a model row, `parameter = [lo,hi] k:Quantity[…]`, is for a number nothing stands behind, and the row says so for the person to replace. A number you propose names you as the performer, `participant:: candidate[Komet assistant] disp=PENDING role=candidate[performer] disp=PENDING`; a number you extract from a source names the source's author as the performer and carries `source=<id>` on the line, where the id is a footnote or bibliography entry the document already defines. Nothing you write is confirmed by you: it is uncommitted until the person commits the document, as a concept edit is, and so is a value you set on a model row.
+
+The model's parameter then names the statement, and holds the value the tree runs at as an ordinary measure with equal bounds on the statement's own scale: `parameter = [0.15,0.15] anf:est-material-problem`. The value is the model's choice, within the range the statement determined; leave it out, `parameter = anf:est-material-problem`, and the tree runs at the midpoint of the range, which Komet computes and never writes. A read of that parameter is `p = from anf:est-material-problem` or `money = from anf:est-inspection-cost`, with no unit after it: the scale is the statement's. The tornado sweeps such a parameter across the statement's range, as stated, so a prior believed to lie between 0.5% and 40% shows where the choice turns. A parameter nobody determined, a sketch's number, stays a bare `parameter = [lo,hi] k:Quantity[…]` line.
 
 ### Statements on the tree
 
@@ -98,9 +126,9 @@ and in the tree `alternative: k:Scan[Magnetic resonance angiography screening] @
 
 ### Linked trees
 
-Consequences that recur, what a rupture leads to say, are written **once** as their own tree block whose root is a chance with no choice in it, and folded in at every outcome that ends in that event with `tree=<identity>` of that root:
+Consequences that recur, what a rupture leads to say, are written **once** as their own model whose root is a chance with no choice in it, and folded in at every outcome that ends in that event with `tree=<identity>` of that root:
 
-```decision-tree cohort=1000
+```graphlet-model id=rda-rupture-model
 chance: k:RuptureConsequences[Consequences of a rupture] @id=rda-rupture-consequences
   parameter = [0.35,0.35] k:CaseFatality[Case fatality of a rupture] @id=rda-case-fatality basis=estimated
   event: k:Death[death] @id=419620001 statement=anf:perf-death
@@ -112,10 +140,10 @@ chance: k:RuptureConsequences[Consequences of a rupture] @id=rda-rupture-consequ
     ...
 ```
 
-and in the main tree `outcome: k:Ruptured[rupture] @id=rda-ruptured tree=rda-rupture-consequences`. The outcome then costs what the linked tree costs from its root, at the same price; its counts join the ledger and its leaves the tally. The linked tree's parameters live in its own block, its costs on the same money and health units. Komet links the two both ways, so the reader can go from the outcome to the consequences and back. A tree never folds itself in.
+and in the main model `outcome: k:Ruptured[rupture] @id=rda-ruptured tree=rda-rupture-consequences`, with a `decision-tree` rendering of each model. The outcome then costs what the linked tree costs from its root, at the same price; its counts join the ledger and its leaves the tally. The linked tree's parameters live in its own model, its costs on the same money and health units. Komet links the two both ways, so the reader can go from the outcome to the consequences and back. A tree never folds itself in.
 
 ## Answering
 
-Put the block first, then two or three sentences: which concepts are local, and which assumptions the comparison is most sensitive to. **Do not compute, estimate or quote expected values, totals or the favoured alternative**: Komet rolls the tree back and shows every node's value and the chosen alternative beside it, and a number you work out in prose will disagree with the rendered one. If the person gives numbers, state them as parameters with `basis=cited` or `basis=estimated` as they told you; if they give none, say which you assumed and mark them `basis=estimated`.
+Put the statements, the model and its two renderings first, then two or three sentences: which concepts are local, and which assumptions the comparison is most sensitive to. **Do not compute, estimate or quote expected values, totals or the favoured alternative**: Komet rolls the tree back and shows every node's value and the chosen alternative beside it, and a number you work out in prose will disagree with the rendered one. If the person gives numbers, state them as parameters with `basis=cited` or `basis=estimated` as they told you; if they give none, say which you assumed and mark them `basis=estimated`.
 
-When Komet reads your block and sends its findings back, restate your whole answer with the block corrected: change only what the findings name, keep every identity and every number the person gave, and do not explain the correction. A node Komet reports as not determinable lacks a value it can fold: give it the cost line, probability or parameter the finding names.
+When Komet reads your model and sends its findings back, restate your whole answer with the model corrected: change only what the findings name, keep every identity and every number the person gave, and do not explain the correction. A node Komet reports as not determinable lacks a value it can fold: give it the cost line, probability or parameter the finding names.

@@ -3,7 +3,7 @@ name: Calculator
 description: Use when the person asks for a clinical risk score or calculator over a patient's findings, such as the 10-year ASCVD risk of the Pooled Cohort Equations, what a missing input would do to it, or whether a treatment is worth starting given that risk.
 category: Skill
 ---
-A medical calculator is two fenced blocks, and Komet does the arithmetic. **Never compute the risk yourself, never quote a number the block will show, and never fill a missing input with a guess**: the `calculator` block states the method once, the `calculate` block binds the document's ANF statements to its inputs, and Komet shows the result as an interval, the inputs that widen it, and a tornado of which input to ask for first. A `decision-tree` block in the same reply may read the result as a parameter.
+A medical calculator is two fenced blocks, and Komet does the arithmetic. **Never compute the risk yourself, never quote a number the block will show, and never fill a missing input with a guess**: the `calculator` block states the method once, the `calculate` block binds the document's ANF statements to its inputs, and Komet shows the result as an interval, the inputs that widen it, and a tornado of which input to ask for first. A `graphlet-model` block in the same reply may read the result as a parameter.
 
 ## The method, `calculator`
 
@@ -55,7 +55,7 @@ calculate: k:AscvdRisk10[10-year ASCVD risk] @id=pce
 
 ## Reading the result with a tree
 
-A `decision-tree` block in the same reply reads the result by naming the calculator: `p = from k:AscvdRisk10[] @id=pce`, with nothing after it. Komet hands the tree the risk as an interval, so a decision that straddles its break-even is left open until the missing fact arrives.
+A `graphlet-model` block in the same reply reads the result by naming the calculator: `p = from k:AscvdRisk10[] @id=pce`, with nothing after it. Komet hands the tree the risk as an interval, so a decision that straddles its break-even is left open until the missing fact arrives.
 
 ## Tokens and identities
 
