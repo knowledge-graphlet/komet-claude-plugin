@@ -46,6 +46,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.function.Function;
 
 /**
  * Writes the decision tree a block states as a version of its tree semantic, uncommitted
@@ -63,6 +64,15 @@ import java.util.Set;
  * derives from its root concept: one decision has one tree, and a tree that differs from one this
  * block did not state is held for the person rather than written over it. Nothing is committed:
  * the versions are kept or cancelled with the person's other changes.
+ *
+ * <p>A graphlet model's parameter that reads one of the document's statements
+ * ({@code dev-decision-point-knowledge}, settled with KEC 2026-11-06) is stored as a parameter
+ * vertex with no concept reference: under the Statement key it holds the statement the anf block
+ * writes, by the identity {@link network.ike.komet.claude.anf.AddAnfStatement} derives for it,
+ * its value under the interval keys and its scale under the unit-of-measure key; a measure that
+ * reads the parameter is derived from the same statement. No concept is minted for a statement.
+ * The model, and the concepts its block mints, are written in the block's module, never the
+ * edit's default, as a statement about a stored document's block is.
  */
 public final class DecisionTreeWrites {
 
@@ -74,6 +84,23 @@ public final class DecisionTreeWrites {
         static Written refused(String message) {
             return new Written(Optional.empty(), message);
         }
+    }
+
+    /**
+     * The document a model block is read against: the measures its statements state, read under
+     * the identities the block is read under; the statement each name resolves to, the one the
+     * anf block of that name wrote or will write; and the module the document's blocks are written
+     * in. {@link #NONE} is a block with no document, whose parameters read no statements.
+     *
+     * @param measures   the statements' measures, by name, under the identities a parse uses
+     * @param statements the statement an anf block's name resolves to, by its derived identity
+     * @param module     the module the block is written in; empty for the edit's default
+     */
+    public record Document(Function<Identities, StatementMeasures> measures, Function<String, Optional<PublicId>> statements,
+                           OptionalLong module) {
+
+        /** No document: a block on its own, whose parameters read no statements. */
+        public static final Document NONE = new Document(ids -> StatementMeasures.none(), name -> Optional.empty(), OptionalLong.empty());
     }
 
     /** The public id of the tree semantic about a root concept: one tree per decision, as its name is one concept. */
@@ -106,24 +133,62 @@ public final class DecisionTreeWrites {
      *         tree that this block did not state is held for the person
      */
     public static Written write(String info, String body, ViewCalculator view, EditCoordinate edit, LocalConcepts.Context context) {
+        return write(info, body, view, edit, context, Document.NONE);
+    }
+
+    /**
+     * Writes the tree or model a block states, against its document.
+     *
+     * @param info     the block's info string
+     * @param body     the block's text
+     * @param view     the view the block's identifiers are read under
+     * @param edit     whose change it is and on which path; the module is the document's
+     * @param context  how the block stands to its document
+     * @param document the document's statements and module
+     * @return what was written, or why nothing was; a model whose parameters read a statement the
+     *         document has not stated is held until it is
+     */
+    public static Written write(String info, String body, ViewCalculator view, EditCoordinate edit, LocalConcepts.Context context,
+                                Document document) {
+        String what = GraphletModelText.isTagged(info) ? "model" : "tree";
+        String notWritten = "The " + what + " was not written: ";
         DecisionTerms terms = DecisionTerms.fromBindings();
         BlockIdentities read = new BlockIdentities(new ViewIdentities(view));
-        DecisionTreeText.Parsed first = DecisionTreeText.parse(body, terms, read);
+        DecisionTreeText.Parsed first = DecisionTreeText.parse(body, terms, read, ExternalQuantities.none(), document.measures().apply(read));
         if (first.tree().isEmpty()) {
             return Written.refused("The block states no tree, so none was written.");
         }
+        List<String> missingStatements = first.missingStatements();
+        if (!missingStatements.isEmpty()) {
+            return Written.refused(notWritten + "it reads " + (missingStatements.size() == 1 ? "a statement" : "statements")
+                    + " the document does not state, " + String.join(", ", missingStatements.stream().map(name -> DecisionTreeText.ANF_REFERENCE + name).toList())
+                    + "; it is written once the document states " + (missingStatements.size() == 1 ? "it" : "them") + ".");
+        }
         List<String> problems = problems(first);
         if (!problems.isEmpty()) {
-            return Written.refused("The tree was not written: " + problems.getFirst()
+            return Written.refused(notWritten + problems.getFirst()
                     + (problems.size() > 1 ? ", and " + (problems.size() - 1) + " more." : "."));
         }
         ConceptFacade author = ConceptFacade.make(edit.getAuthorNidForChanges());
         ConceptFacade path = ConceptFacade.make(edit.getDefaultPathNid());
-        // every name the store lacks becomes a concept, under the identity its name derives, once
+        ConceptFacade module = ConceptFacade.make(document.module().orElse(edit.getDefaultModuleNid()));
+        // every name the store lacks becomes a concept, under the identity its name derives, once;
+        // a statement's name resolves to the statement its anf block writes, and is never a concept
         Map<String, PublicId> concepts = new LinkedHashMap<>();
         Map<PublicId, String> missing = new LinkedHashMap<>();
         Map<PublicId, List<String>> others = new LinkedHashMap<>();
+        Set<Long> statements = new java.util.HashSet<>();
         for (String identifier : read.localIdentifiers()) {
+            if (identifier.startsWith(DecisionTreeText.ANF_REFERENCE)) {
+                String name = identifier.substring(DecisionTreeText.ANF_REFERENCE.length());
+                Optional<PublicId> statement = document.statements().apply(name);
+                if (statement.isEmpty()) {
+                    return Written.refused(notWritten + "the document has no anf block named " + identifier + ".");
+                }
+                concepts.put(identifier, statement.get());
+                statements.add(PrimitiveData.nid(statement.get()));
+                continue;
+            }
             String fqn = context.names().fqn(identifier, read.label(read.nid(identifier).orElseThrow()));
             PublicId concept = LocalConcepts.identity(fqn, view);
             concepts.put(identifier, concept);
@@ -133,14 +198,14 @@ public final class DecisionTreeWrites {
             }
         }
         BlockConcepts writer = new BlockConcepts("Decision tree block: " + first.tree().get().root().map(DecisionElement::concept).orElse(OptionalLong.empty()), view, author,
-                ConceptFacade.make(edit.getDefaultModuleNid()), path);
+                module, path);
         try {
             missing.forEach((concept, fqn) -> writer.concept(concept, fqn, others.get(concept)));
-            DecisionTree tree = storedTree(body, concepts, view, terms).orElseThrow();
+            DecisionTree tree = storedTree(body, concepts, statements, document, view, terms).orElseThrow();
             OptionalLong root = tree.root().map(DecisionElement::concept).orElse(OptionalLong.empty());
             if (root.isEmpty()) {
                 writer.rollback();
-                return Written.refused("The tree was not written: its root names no concept.");
+                return Written.refused(notWritten + "its root names no concept.");
             }
             String name = new ViewIdentities(view).label(root.getAsLong());
             PublicId semantic = treeId(PrimitiveData.publicId(root.getAsLong()));
@@ -148,51 +213,53 @@ public final class DecisionTreeWrites {
                     + (missing.size() == 1 ? " concept" : " concepts") + " the knowledge base lacked";
             if (!SemanticVersions.exists(semantic, view)) {
                 writer.semantic(semantic, IkePattern.DECISION_TREE_PATTERN, EntityFacade.make(root.getAsLong()), tree.source());
-                return new Written(Optional.of(semantic), "Wrote the tree of " + name + " as its first version"
+                return new Written(Optional.of(semantic), "Wrote the " + what + " of " + name + " as its first version"
                         + wrote + "; uncommitted, commit to keep it.");
             }
             long nid = PrimitiveData.nid(semantic);
             Object head = view.latest(nid).isPresent() ? ((SemanticEntityVersion) view.latest(nid).get()).fieldValues().get(0) : null;
             if (tree.source().equals(head)) {
-                return new Written(Optional.of(semantic), "The tree of " + name + " is already in the knowledge base as this block states it; nothing was written.");
+                return new Written(Optional.of(semantic), "The " + what + " of " + name + " is already in the knowledge base as this block states it; nothing was written.");
             }
             boolean revises = context.previous().flatMap(previous -> {
                 try {
-                    return storedTree(previous, concepts, view, terms);
+                    return storedTree(previous, concepts, statements, document, view, terms);
                 } catch (RuntimeException differentSymbols) {
                     return Optional.empty();
                 }
             }).map(before -> before.source().equals(head)).orElse(false);
             if (!revises) {
                 writer.rollback();
-                return Written.refused(held(name));
+                return Written.refused(held(what, name));
             }
             Versioned versioned = SemanticVersions.version(nid, IkePattern.DECISION_TREE_PATTERN.nid(),
-                    Lists.immutable.of(tree.source()), view, edit, "tree", context.shared());
+                    Lists.immutable.of(tree.source()), view, edit, what, context.shared());
             if (versioned.refusal().isPresent()) {
                 writer.rollback();
                 return Written.refused(versioned.refusal().get());
             }
             return new Written(Optional.of(semantic), (versioned.replacedPending()
-                    ? "Rewrote the tree of " + name + " in its uncommitted version"
-                    : "Wrote a new version of the tree of " + name) + wrote + "; uncommitted, commit to keep it.");
+                    ? "Rewrote the " + what + " of " + name + " in its uncommitted version"
+                    : "Wrote a new version of the " + what + " of " + name) + wrote + "; uncommitted, commit to keep it.");
         } catch (RuntimeException e) {
             writer.rollback();
-            return Written.refused("The tree was not written: " + e.getMessage());
+            return Written.refused(notWritten + e.getMessage());
         }
     }
 
     /** The question a held tree asks: the same name with different field values. */
-    static String held(String name) {
-        return "The tree was not written: \u201c" + name + "\u201d already has a different tree in the knowledge base, and this block "
+    static String held(String what, String name) {
+        return "The " + what + " was not written: \u201c" + name + "\u201d already has a different tree in the knowledge base, and this block "
                 + "did not state it. Ask the person whether they are the same decision. If they are, keep one tree; if not, give this "
                 + "decision a more specific name, since its label is its fully qualified name.";
     }
 
-    /** A block's tree over the concepts its symbols name, in its stored form. */
-    private static Optional<DecisionTree> storedTree(String body, Map<String, PublicId> concepts, ViewCalculator view, DecisionTerms terms) {
-        Optional<DecisionTree> tree = DecisionTreeText.parse(body, terms, new WrittenIdentities(new ViewIdentities(view), concepts)).tree();
-        tree.ifPresent(parsed -> stored(parsed.source(), terms));
+    /** A block's tree over the concepts its symbols name and the statements its parameters read, in its stored form. */
+    private static Optional<DecisionTree> storedTree(String body, Map<String, PublicId> concepts, Set<Long> statements,
+                                                     Document document, ViewCalculator view, DecisionTerms terms) {
+        WrittenIdentities ids = new WrittenIdentities(new ViewIdentities(view), concepts);
+        Optional<DecisionTree> tree = DecisionTreeText.parse(body, terms, ids, ExternalQuantities.none(), document.measures().apply(ids)).tree();
+        tree.ifPresent(parsed -> stored(parsed.source(), terms, statements));
         return tree;
     }
 
@@ -203,13 +270,32 @@ public final class DecisionTreeWrites {
      * reads back the same through its adaptor.
      */
     static DiTreeEntity stored(DiTreeEntity tree, DecisionTerms terms) {
+        return stored(tree, terms, Set.of());
+    }
+
+    /**
+     * The tree in its stored form, in place, with a parameter that reads a statement holding the
+     * statement under the Statement key and no concept reference: the block reads such a
+     * parameter under an identity local to it, which the write resolves to the statement.
+     *
+     * @param tree       the tree as the block was read, with its symbols resolved
+     * @param terms      the profile's terms
+     * @param statements the nids of the statements its parameters read
+     */
+    static DiTreeEntity stored(DiTreeEntity tree, DecisionTerms terms, Set<Long> statements) {
         Set<Long> components = Set.of(terms.conceptReference(), terms.unitOfMeasure(), terms.statement(),
                 terms.derivedFrom(), terms.operands(), terms.measureBasis(), terms.basisSource(), terms.treeReference(),
                 terms.inputKind());
         for (EntityVertex vertex : tree.vertexMap()) {
             MutableLongObjectMap<Object> properties = LongObjectMaps.mutable.empty();
-            vertex.properties().forEachKeyValue((key, value) ->
-                    properties.put(key, components.contains(key) ? storedComponent(value) : storedValue(value)));
+            vertex.properties().forEachKeyValue((key, value) -> {
+                if (key == terms.conceptReference() && vertex.getMeaningNid() == terms.parameterMeasure()
+                        && value instanceof Long nid && statements.contains(nid)) {
+                    properties.put(terms.statement(), storedComponent(value));
+                    return;
+                }
+                properties.put(key, components.contains(key) ? storedComponent(value) : storedValue(value));
+            });
             vertex.setProperties(properties);
         }
         return tree;

@@ -175,6 +175,35 @@ public final class StructuredBlocks {
     }
 
     /**
+     * The document a block's element semantic belongs to, as the store holds it with pending edits.
+     *
+     * @param block the nid of the block's element semantic
+     * @return the document, when the block is one of a stored document's
+     */
+    public static Optional<StoredDocument> documentOf(long block) {
+        if (!(EntityHandle.get(block).orNull() instanceof SemanticEntity<?> element)) {
+            return Optional.empty();
+        }
+        return GitDocumentMaterializer.load(PrimitiveData.publicId(element.referencedComponentNid()), true);
+    }
+
+    /**
+     * The module a block is written in: the module of its element semantic's latest version in a
+     * view, which is the module a statement about the block, or a model it states, is written in.
+     *
+     * @param block the nid of the block's element semantic
+     * @param view  the view
+     * @return the module's nid, when a version of the block is visible
+     */
+    public static java.util.OptionalLong moduleOf(long block, dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator view) {
+        if (!(EntityHandle.get(block).orNull() instanceof SemanticEntity<?> element)) {
+            return java.util.OptionalLong.empty();
+        }
+        var latest = view.latest(element.nid());
+        return latest.isPresent() ? java.util.OptionalLong.of(latest.get().stamp().moduleNid()) : java.util.OptionalLong.empty();
+    }
+
+    /**
      * @param document a document
      * @return what its structured blocks call their concepts
      */

@@ -15,6 +15,9 @@
  */
 package network.ike.komet.claude.decision;
 
+import dev.ikm.tinkar.common.id.PublicId;
+import dev.ikm.tinkar.common.id.PublicIds;
+import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.terms.KernelConcept;
 import network.ike.foundation.ike.bindings.IkeConcept;
 
@@ -29,7 +32,9 @@ import java.util.OptionalLong;
  * interval-role keys the tree reuses. {@link #fromBindings()} resolves them through the store
  * once; {@link #synthetic()} numbers them arbitrarily, so the profile and its rollback are
  * testable with no store at all, since nothing in either depends on what a nid is beyond its
- * identity.
+ * identity. The one term the starter set declares after the bindings this build reads,
+ * {@code Share of the subject group}, is resolved by the identity its name derives there, and is
+ * zero on a store that predates it.
  */
 public record DecisionTerms(
         long decisionNode, long alternativeNode, long chanceNode, long eventNode, long outcomeNode,
@@ -40,7 +45,17 @@ public record DecisionTerms(
         long estimatedBasis, long citedBasis, long derivedBasis,
         long complement, long product, long cumulativeHazard, long bayesPosterior, long bayesMarginal,
         long conceptReference, long intervalLowerBound, long intervalUpperBound,
-        long lowerBoundOpen, long upperBoundOpen, long unitOfMeasure) {
+        long lowerBoundOpen, long upperBoundOpen, long unitOfMeasure,
+        long shareOfSubjectGroup) {
+
+    /**
+     * The public id of {@code Share of the subject group (IkeFoundation)}, the measure semantic of a
+     * share a statement determined ({@code dev-decision-point-knowledge}, "Terminology"): the type-5
+     * identity the starter set derives from that name in its own namespace, so a store holding the
+     * term is read by identity before the bindings carry it, and a store without it reads the scale
+     * by its candidate's name.
+     */
+    public static final PublicId SHARE_OF_SUBJECT_GROUP = PublicIds.of("8db579c1-8a4a-527c-ab16-b7a3001c59e3");
 
     /** The terms as the running store numbers them. */
     public static DecisionTerms fromBindings() {
@@ -59,19 +74,20 @@ public record DecisionTerms(
                 IkeConcept.BAYES_MARGINAL_DERIVATION.nid(),
                 KernelConcept.CONCEPT_REFERENCE.nid(), KernelConcept.INTERVAL_LOWER_BOUND.nid(),
                 KernelConcept.INTERVAL_UPPER_BOUND.nid(), KernelConcept.LOWER_BOUND_OPEN.nid(),
-                KernelConcept.UPPER_BOUND_OPEN.nid(), KernelConcept.UNIT_OF_MEASURE.nid());
+                KernelConcept.UPPER_BOUND_OPEN.nid(), KernelConcept.UNIT_OF_MEASURE.nid(),
+                PrimitiveData.get().hasPublicId(SHARE_OF_SUBJECT_GROUP) ? PrimitiveData.nid(SHARE_OF_SUBJECT_GROUP) : 0L);
     }
 
     /** Distinct arbitrary nids, for a profile read with no store. */
     public static DecisionTerms synthetic() {
-        long[] nid = new long[35];
+        long[] nid = new long[36];
         for (int i = 0; i < nid.length; i++) {
             nid[i] = -1_000 - i;
         }
         return new DecisionTerms(nid[0], nid[1], nid[2], nid[3], nid[4], nid[5], nid[6], nid[7], nid[8], nid[9],
                 nid[10], nid[11], nid[12], nid[13], nid[14], nid[15], nid[16], nid[17], nid[18], nid[19], nid[20],
                 nid[21], nid[22], nid[23], nid[24], nid[25], nid[26], nid[27], nid[28], nid[29], nid[30], nid[31],
-                nid[32], nid[33], nid[34]);
+                nid[32], nid[33], nid[34], nid[35]);
     }
 
     /** Whether a nid names one of the derivation kinds with a native implementation. */

@@ -174,7 +174,8 @@ public final class DocumentBlockKinds {
                 return Optional.empty();
             }
             return Optional.of(network.ike.komet.claude.decision.DecisionTreeWrites
-                    .write(info(source.parameters()), source.content(), view, edit, StructuredBlocks.context(block, content(previous))).message());
+                    .write(info(source.parameters()), source.content(), view, edit, StructuredBlocks.context(block, content(previous)),
+                            ModelDocument.of(block, view)).message());
         }
     }
 
@@ -215,20 +216,16 @@ public final class DocumentBlockKinds {
         }
 
         /**
-         * The model, as a version of its graph in the document's module. A model whose parameters
-         * read the document's statements is held: the identity such a parameter takes in the
-         * store is not settled, and the text, which is the canonical form, is saved regardless.
+         * The model, as a version of its graph in the document's module, one version per value the
+         * person commits: a parameter that reads one of the document's statements holds the
+         * statement the anf block of that name writes ({@link ModelDocument}), its value and its
+         * scale. The text, which is the canonical form, is saved regardless.
          */
         @Override
         public Optional<String> write(Source source, long block, Optional<String> previous, ViewCalculator view, dev.ikm.tinkar.coordinate.edit.EditCoordinate edit) {
-            String info = info(source.parameters());
-            if (source.content().lines().anyMatch(line -> line.contains(" " + DecisionTreeText.ANF_REFERENCE)
-                    && line.strip().matches("^(parameter|p|probability|money|health|count)\\s*=.*"))) {
-                return Optional.of("The model's text is saved. It was not written to the knowledge base as a graph: its parameters read"
-                        + " the document's statements, and the identity such a parameter takes in the store is not settled yet.");
-            }
             return Optional.of(network.ike.komet.claude.decision.DecisionTreeWrites
-                    .write(info, source.content(), view, edit, StructuredBlocks.context(block, content(previous))).message());
+                    .write(info(source.parameters()), source.content(), view, edit, StructuredBlocks.context(block, content(previous)),
+                            ModelDocument.of(block, view)).message());
         }
     }
 

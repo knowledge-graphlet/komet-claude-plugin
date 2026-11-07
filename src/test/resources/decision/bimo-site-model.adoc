@@ -1,3 +1,51 @@
+[anf,type=performance,id=est-material-problem]
+--
+topic::   candidate[material problem in the site's clinical data] disp=PENDING
+subject_of_information:: candidate[Site inspection decision for a first-of-a-kind submission with a conduct concern from an inexperienced applicant] disp=PENDING
+result::  [0.005,0.4] candidate[share of the subject group] disp=PENDING
+method::  k:Estimated[Estimated basis] @id=96420d3b-09c4-5ebc-a292-7d0a0423a6de
+--
+
+[anf,type=performance,id=est-inspection-sensitivity]
+--
+topic::   candidate[material finding on clinical site inspection] disp=PENDING
+subject_of_information:: candidate[clinical sites with a material problem in their data] disp=PENDING
+result::  [0.8,0.8] candidate[share of the subject group] disp=PENDING
+method::  k:Estimated[Estimated basis] @id=96420d3b-09c4-5ebc-a292-7d0a0423a6de
+--
+
+[anf,type=performance,id=est-inspection-false-alarm]
+--
+topic::   candidate[material finding on clinical site inspection] disp=PENDING
+subject_of_information:: candidate[clinical sites with sound data] disp=PENDING
+result::  [0.05,0.05] candidate[share of the subject group] disp=PENDING
+method::  k:Estimated[Estimated basis] @id=96420d3b-09c4-5ebc-a292-7d0a0423a6de
+--
+
+[anf,type=performance,id=est-inspection-cost]
+--
+topic::   candidate[clinical site inspection] disp=PENDING
+subject_of_information:: candidate[Site inspection decision for a first-of-a-kind submission with a conduct concern from an inexperienced applicant] disp=PENDING
+result::  [60000,60000] candidate[US dollar] disp=PENDING
+method::  k:Estimated[Estimated basis] @id=96420d3b-09c4-5ebc-a292-7d0a0423a6de
+--
+
+[anf,type=performance,id=est-reanalysis-cost]
+--
+topic::   candidate[exclusion of the site's data and re-analysis] disp=PENDING
+subject_of_information:: candidate[Site inspection decision for a first-of-a-kind submission with a conduct concern from an inexperienced applicant] disp=PENDING
+result::  [250000,250000] candidate[US dollar] disp=PENDING
+method::  k:Estimated[Estimated basis] @id=96420d3b-09c4-5ebc-a292-7d0a0423a6de
+--
+
+[anf,type=performance,id=est-bad-approval-cost]
+--
+topic::   candidate[approval on unreliable data] disp=PENDING
+subject_of_information:: candidate[Site inspection decision for a first-of-a-kind submission with a conduct concern from an inexperienced applicant] disp=PENDING
+result::  [5000000,5000000] candidate[US dollar] disp=PENDING
+method::  k:Estimated[Estimated basis] @id=96420d3b-09c4-5ebc-a292-7d0a0423a6de
+--
+
 [graphlet-model, id=bimo-site-model]
 ----
 decision: k:SiteInspectionDecision[Inspect the site?] @id=bimo-site-decision

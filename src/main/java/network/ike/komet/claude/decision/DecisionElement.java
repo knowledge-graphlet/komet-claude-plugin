@@ -156,9 +156,31 @@ public sealed interface DecisionElement
             return tree.measure(vertexIndex);
         }
 
-        /** The quantity the parameter measures: its concept. */
+        /**
+         * The quantity the parameter measures: its concept, or the statement it reads when it names
+         * no concept, as a parameter that reads one of a document's statements is stored
+         * ({@code dev-decision-point-knowledge}, settled 2026-11-06): the statement under the
+         * Statement key, no concept reference, so a derivation that reads the parameter finds it by
+         * the same identity in the store as in the block.
+         */
         public OptionalLong quantity() {
-            return concept();
+            OptionalLong concept = concept();
+            if (concept.isPresent()) {
+                return concept;
+            }
+            org.eclipse.collections.api.list.primitive.ImmutableLongList statements =
+                    tree().componentsProperty(vertexIndex(), tree().terms().statement());
+            return statements.size() == 1 ? OptionalLong.of(statements.get(0)) : OptionalLong.empty();
+        }
+
+        /** The statement the parameter reads, when it reads one of a document's statements rather than naming a concept. */
+        public OptionalLong statement() {
+            if (concept().isPresent()) {
+                return OptionalLong.empty();
+            }
+            org.eclipse.collections.api.list.primitive.ImmutableLongList statements =
+                    tree().componentsProperty(vertexIndex(), tree().terms().statement());
+            return statements.size() == 1 ? OptionalLong.of(statements.get(0)) : OptionalLong.empty();
         }
     }
 }

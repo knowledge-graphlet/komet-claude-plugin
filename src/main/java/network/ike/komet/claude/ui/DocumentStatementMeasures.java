@@ -35,9 +35,12 @@ import java.util.OptionalLong;
  * subject group, members with the topic over members of the group on zero to one: the semantic
  * names the kind of frame, a group, and the statement's subject of information supplies the
  * particular group, never the semantic. The tree reads such a share as the share at the node
- * that carries it, which is where the condition is checked. Any other scale, a currency say, is the statement's own, by its concept in the
- * store or by its candidate's label, one identity per label local to the document. The
- * parameter is named by the statement's topic and, when it names one, the group it is about.
+ * that carries it, which is where the condition is checked. The share's semantic is read by its
+ * identity when the store holds the term, and by its name, share, fraction, proportion,
+ * probability or percent, on a store that predates it or in a candidate. Any other scale, a
+ * currency say, is the statement's own, by its concept in the store or by its candidate's label,
+ * one identity per label local to the document. The parameter is named by the statement's topic
+ * and, when it names one, the group it is about.
  */
 final class DocumentStatementMeasures {
 
@@ -61,15 +64,20 @@ final class DocumentStatementMeasures {
         return Optional.of(new StatementMeasures.Stated(range, semantic, name(statement, semantic, ids, terms)));
     }
 
-    /** The scale a result is on, as the tree reads it: a fraction is the share at a node; anything else is its own concept. */
+    /** The scale a result is on, as the tree reads it: a share is the share at a node; anything else is its own concept. */
     private static long scale(AnfValue semantic, Identities ids, DecisionTerms terms) {
         return switch (semantic) {
-            case AnfValue.Grounded g -> g.nid() == terms.shareAtNode() || isFraction(g.label()) || isFraction(ids.label(g.nid()))
+            case AnfValue.Grounded g -> isShare(g.nid(), terms) || isFraction(g.label()) || isFraction(ids.label(g.nid()))
                     ? terms.shareAtNode() : g.nid();
             case AnfValue.Candidate c -> isFraction(c.provisionalLabel()) ? terms.shareAtNode()
                     : ids.local(DecisionTreeText.CANDIDATE_SCALE + c.provisionalLabel(), c.provisionalLabel()).orElse(0L);
             case AnfValue.Clarify c -> 0L;
         };
+    }
+
+    /** Whether a concept is a share's semantic: the share at a node, or the share of the subject group when the store holds the term. */
+    static boolean isShare(long nid, DecisionTerms terms) {
+        return nid == terms.shareAtNode() || terms.shareOfSubjectGroup() != 0 && nid == terms.shareOfSubjectGroup();
     }
 
     /** Whether a scale's name says the number is a share of its group: a share, a fraction, a proportion, a probability, a percentage. */
