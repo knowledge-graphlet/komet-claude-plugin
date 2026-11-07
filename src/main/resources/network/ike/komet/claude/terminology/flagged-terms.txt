@@ -1,0 +1,18 @@
+# Terms the assistant's reply must not use for IKE's own things (knowledge-graphlet/komet-claude-plugin#2).
+#
+# Format, fields separated by "||":
+#   forms || external|internal || replacement, replacement, ... || note
+#
+#   forms        word forms separated by "|", used directly in a \b(?:...)\b pattern
+#   external     the word is right for an external system, so the assistant may keep it for that
+#   internal     the word never names an IKE thing correctly, so it is always rewritten
+#   replacements the IKE terms to use instead
+#   note         a short reason (optional)
+#
+# Matching is case-insensitive at word boundaries, so an identifier such as ontologyView does not
+# match. Code spans and fenced blocks are not scanned. Lines starting with # are comments.
+
+ontology|ontologies|ontological || external || knowledge graph, terminology, naming convention, Complex Concepts || IKE describes a knowledge graph, not an ontology
+facet|facets || internal || dimension, field, attribute || a coordinate's constituents are dimensions; a pattern's parts are fields
+slot|slots|filler|fillers || internal || field, attribute, search control || frame-system lingo; Tinkar says field, an ANF structural definition says attribute
+post-coordinate|post-coordinated|post-coordination|post-coordinating || internal || pre-coordinate (one concept per field), propose a Candidate concept || IKE pre-coordinates

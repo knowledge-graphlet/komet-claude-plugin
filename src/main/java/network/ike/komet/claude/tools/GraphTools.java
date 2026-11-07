@@ -121,7 +121,8 @@ public final class GraphTools {
     public List<AnthropicTool> tools() {
         return List.of(concept(), children(), parents(), descendants(),
                 ancestors(), isA(), axioms(), search(), viewInfo(), debugConcept(),
-                conceptSemantics(), semanticInfo(), referencingSemantics(), pattern(), fieldDataTypes());
+                conceptSemantics(), semanticInfo(), referencingSemantics(), pattern(), fieldDataTypes(),
+                changeHistory());
     }
 
     // ── Tools ───────────────────────────────────────────────────────────
@@ -528,6 +529,46 @@ public final class GraphTools {
                         return sb.toString();
                     } catch (Exception e) {
                         return "Error retrieving semantic: " + e.getMessage();
+                    }
+                });
+    }
+
+    /**
+     * How a component changed over time, version by version, newest first: the reads the other
+     * tools cannot give, since they show only the latest version under the view
+     * (knowledge-graphlet/komet-claude-plugin#1).
+     */
+    private AnthropicTool changeHistory() {
+        return tool("change_history",
+                """
+                        Show how a concept, pattern or semantic changed over time: each version, newest \
+                        first, with when it was made and by whom, and each field that changed from the \
+                        version before (before ➞ after). A change to a logical definition is shown as the \
+                        edits to its tree. Call this to answer how, when or by whom something changed, or \
+                        what it said before; the other tools show only the latest version.
+                        """,
+                objectSchema(Map.of("id", strProp("the UUID or SCTID of the concept, pattern or semantic")),
+                        List.of("id")),
+                in -> {
+                    ViewCalculator v = view();
+                    if (v == null) {
+                        return NO_VIEW;
+                    }
+                    if (GrpcSearchService.isActive()) {
+                        return "Change history is read from a local knowledge base, and this view reads "
+                                + "through the gRPC service, which does not serve a component's versions.";
+                    }
+                    Component component;
+                    try {
+                        component = component(str(in, "id"), v);
+                    } catch (IllegalArgumentException e) {
+                        return e.getMessage();
+                    }
+                    try {
+                        return v.stampCalculator().changeChronology(component.entity()).toString(v, true);
+                    } catch (RuntimeException e) {
+                        return "Could not read the change history of " + component.kind().word() + " "
+                                + component.name() + ": " + e.getMessage();
                     }
                 });
     }

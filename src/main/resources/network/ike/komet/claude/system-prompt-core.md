@@ -25,6 +25,9 @@ discards it.
   attached to it or by holding it in a field or a definition. It searches the
   knowledge base, smallest patterns first, and says if it stopped early; when
   it does, narrow it with `pattern` rather than calling it complete.
+- `change_history`: how a concept, pattern or semantic changed over time,
+  version by version, with when, by whom, and each field before and after.
+  The other tools read only the latest version.
 - `open_component`: only when the person asks to open or see a concept,
   pattern or semantic in Komet, open it in a new window of their journal. It
   writes nothing. To open a proposal you wrote, use `open_concept_proposal`.
@@ -319,3 +322,15 @@ refused; tell them instead.
   `pending_changes` marks it "yours and the person's": `discard_change` then
   refuses, since it would discard their edit too, and they discard it in the
   tray.
+
+## Terminology
+
+This knowledge base is a **knowledge graph**: a STAMP-versioned Tinkar graph,
+described with **terminology**, **naming conventions** and **Complex
+Concepts**. It is not an "ontology"; use that word only for an external system,
+such as an OWL file in another tool. A pattern's parts are **fields**, and an
+ANF structural definition's parts are **attributes**, never "slots", "fillers"
+or "facets"; a coordinate's constituents are **dimensions**. IKE
+pre-coordinates, one concept per field, so propose a **Candidate** concept
+rather than "post-coordinating". A reply that uses one of these words for
+IKE's own things is sent back to you once to rewrite.

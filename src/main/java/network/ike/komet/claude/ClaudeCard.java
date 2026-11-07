@@ -106,6 +106,7 @@ import network.ike.komet.claude.doc.DocumentSurfaceArea;
 import network.ike.komet.claude.doc.JournalStore;
 import network.ike.komet.claude.help.PluginHelp;
 import network.ike.komet.claude.json.Json;
+import network.ike.komet.claude.terminology.TerminologyGuard;
 import network.ike.komet.claude.tools.GraphTools;
 import jfx.incubator.scene.control.richtext.RichTextArea;
 import jfx.incubator.scene.control.richtext.TextPos;
@@ -224,6 +225,8 @@ public final class ClaudeCard extends AbstractHostCard {
     private String promptCore;
     private String systemPrompt;
     private List<AnthropicTool> tools;
+    /** Catches terms in a reply that misname IKE's own things, such as "ontology". */
+    private final TerminologyGuard terminologyGuard = TerminologyGuard.fromDefaultResource();
     private final ExecutorService worker =
             Executors.newFixedThreadPool(4, r -> {
                 Thread t = new Thread(r, "komet-claude-ask");
@@ -1535,7 +1538,14 @@ public final class ClaudeCard extends AbstractHostCard {
         Button newButton = new Button("+ New");
         newButton.setTooltip(new Tooltip("Start a new conversation"));
         newButton.setOnAction(e -> newConversation());
-        HBox railHeader = new HBox(6, railTitle, railSpacer, newButton);
+        // The same Move to Trash as the conversation's context menu, where it was the only way
+        // to take a conversation out of the rail (knowledge-graphlet/komet-claude-plugin#3).
+        Button removeButton = new Button("− Remove");
+        removeButton.setId("assistantRemoveConversation");
+        removeButton.setTooltip(new Tooltip(
+                "Move this conversation to the Trash; Put Back in the Trash returns it"));
+        removeButton.setOnAction(e -> moveActiveToTrash());
+        HBox railHeader = new HBox(6, railTitle, railSpacer, removeButton, newButton);
         railHeader.setAlignment(Pos.CENTER_LEFT);
         railHeader.setPadding(new Insets(6));
 
@@ -1643,6 +1653,7 @@ public final class ClaudeCard extends AbstractHostCard {
         MenuItem trashItem = new MenuItem("Move to Trash");
         trashItem.setOnAction(e -> moveActiveToTrash());
         conversationList.setContextMenu(new ContextMenu(renameItem, trashItem));
+        removeButton.disableProperty().bind(conversationList.getSelectionModel().selectedItemProperty().isNull());
 
         // The tile is the overarching scope, so its selector sits ABOVE the conversations
         // header (KEC 2026-08-17); "+ New" creates within THIS tile only, so it disables while
@@ -2303,10 +2314,13 @@ public final class ClaudeCard extends AbstractHostCard {
                             + " answer again, more briefly: every block first, complete, then at most three sentences.)";
                     continue;
                 }
-                lastReply = reply;
-                journalExchange(conv, message, reply);
+                // a reply that misnames IKE's own things is rewritten once before it stands; a cut one stands as it is
+                String answer = cut ? reply
+                        : rewriteFlaggedTerms(conv, client, system, context, message, reply, listener, stopped);
+                lastReply = answer;
+                journalExchange(conv, message, answer);
                 context.add(Map.of("role", "user", "content", message));
-                context.add(Map.of("role", "assistant", "content", reply));
+                context.add(Map.of("role", "assistant", "content", answer));
                 boolean correcting = rounds > 0;
                 String sent = message;
                 Platform.runLater(() -> {
@@ -2318,14 +2332,14 @@ public final class ClaudeCard extends AbstractHostCard {
                     if (correcting) {
                         renderFeedback(conv, sent);
                     }
-                    renderAssistant(conv, reply);
+                    renderAssistant(conv, answer);
                     conv.apiMessages.add(Map.of("role", "user", "content", sent));
-                    conv.apiMessages.add(Map.of("role", "assistant", "content", reply));
+                    conv.apiMessages.add(Map.of("role", "assistant", "content", answer));
                     saveConversation(conv);
                 });
                 // findings on a block cut off mid-way would ask for the wrong correction: a cut reply stands as it is
                 Optional<String> feedback = rounds < DecisionTreeFeedback.MAX_ROUNDS && !cut
-                        ? decisionTreeFeedback(reply) : Optional.empty();
+                        ? decisionTreeFeedback(answer) : Optional.empty();
                 if (cut) {
                     errorMessage = "the reply was cut off at the output limit";
                 }
@@ -2510,6 +2524,51 @@ public final class ClaudeCard extends AbstractHostCard {
             refreshMatchesIfFinding();
             refreshPreviewIfOpen();
         }
+    }
+
+    /**
+     * Rewrites a reply once when it uses a term that misnames something in this knowledge base,
+     * such as "ontology" (knowledge-graphlet/komet-claude-plugin#2). The model is asked again with
+     * the flagged reply in its context and no tools, so the rewrite cannot repeat a proposal. Only
+     * the rewrite reaches the transcript and the journal. The original reply stands when it is
+     * clean, or when the rewrite fails, comes back empty, or is cut off at the output limit.
+     *
+     * @param conv     the conversation, for its activity line
+     * @param client   the client the reply came from
+     * @param system   the system prompt the reply was asked with
+     * @param context  the messages before this exchange
+     * @param message  the user message the reply answers
+     * @param reply    the reply to check
+     * @param listener the exchange's listener
+     * @param stopped  why the last request stopped, which the listener sets
+     * @return the rewritten reply, or {@code reply} itself
+     */
+    private String rewriteFlaggedTerms(Conversation conv, AnthropicClient client, String system,
+                                       List<Map<String, Object>> context, String message, String reply,
+                                       AskListener listener,
+                                       java.util.concurrent.atomic.AtomicReference<String> stopped) {
+        List<TerminologyGuard.Hit> hits = terminologyGuard.scan(reply);
+        if (hits.isEmpty()) {
+            return reply;
+        }
+        LOG.info("Assistant reply uses {}; asking for a rewrite",
+                hits.stream().map(TerminologyGuard.Hit::matched).distinct().toList());
+        setActivity(conv, "Rewriting a misnamed term…");
+        List<Map<String, Object>> rewriteContext = new ArrayList<>(context);
+        rewriteContext.add(Map.of("role", "user", "content", message));
+        rewriteContext.add(Map.of("role", "assistant", "content", reply));
+        try {
+            String rewritten = client.ask(system, List.of(), rewriteContext,
+                    TerminologyGuard.correctionInstruction(hits), listener);
+            if (rewritten != null && !rewritten.isBlank() && !stopped.get().startsWith("max_tokens")) {
+                return rewritten;
+            }
+            LOG.warn("Terminology rewrite came back {}; keeping the reply as written",
+                    rewritten == null || rewritten.isBlank() ? "empty" : "cut off");
+        } catch (Throwable rewriteFailure) {
+            LOG.warn("Terminology rewrite failed; keeping the reply as written", rewriteFailure);
+        }
+        return reply;
     }
 
     /** Sets the live activity for {@code conv} (off-thread safe) and refreshes the strip if it is active. */
