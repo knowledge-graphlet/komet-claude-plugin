@@ -115,6 +115,27 @@ class TypstCompilerTest {
     }
 
     @Test
+    void aPrintSavesThePdfAloneWhereItWasAsked(@TempDir Path folder) throws IOException {
+        assumeTrue(TypstCompiler.locate().isPresent(), "typst is not installed");
+        Path target = folder.resolve("chosen name.pdf");
+        Files.writeString(target, "an earlier print");
+        DocumentModel model = new DocumentModel("Saved", List.of(new DocumentModel.Paragraph("A paragraph.")));
+        TypstPdf.Printed printed = TypstPdf.printTo(model, PrintSettings.DEFAULT, "ignored", target);
+        assertTrue(printed.ok(), printed.report());
+        assertEquals("%PDF", new String(Files.readAllBytes(target), 0, 4, java.nio.charset.StandardCharsets.ISO_8859_1));
+        try (var left = Files.list(folder)) {
+            assertEquals(List.of(target), left.toList());
+        }
+    }
+
+    @Test
+    void aChosenNameEndsInPdf() {
+        assertEquals(Path.of("/a/report.pdf"), TypstPdf.withPdfExtension(Path.of("/a/report")));
+        assertEquals(Path.of("/a/report.PDF"), TypstPdf.withPdfExtension(Path.of("/a/report.PDF")));
+        assertEquals(Path.of("/a/v1.2.pdf"), TypstPdf.withPdfExtension(Path.of("/a/v1.2")));
+    }
+
+    @Test
     void aBrokenSourceReportsTypstsOwnWords(@TempDir Path folder) throws IOException {
         assumeTrue(TypstCompiler.locate().isPresent(), "typst is not installed");
         Path source = folder.resolve("broken.typ");

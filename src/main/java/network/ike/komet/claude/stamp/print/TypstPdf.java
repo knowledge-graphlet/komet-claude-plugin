@@ -23,6 +23,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -31,8 +32,9 @@ import java.util.Set;
 /**
  * Print to PDF for a stamped document: the document's model written as Typst under the
  * surface's {@link PrintSettings}, into a folder of its own beside the system's temporary
- * files, and compiled there with {@code typst compile --root}. The {@code .typ} stays beside
- * the PDF, so what typst was given can be read when it complains.
+ * files, and compiled there with {@code typst compile --root}. The {@code .typ} stays in that
+ * folder, so what typst was given can be read when it complains; {@link #printTo} then copies
+ * the PDF alone to where the person asked for it.
  */
 public final class TypstPdf {
 
@@ -126,6 +128,32 @@ public final class TypstPdf {
     public static Printed print(DocumentModel model, PrintSettings settings, String name) throws IOException {
         Path folder = Files.createTempDirectory("stamped-document-");
         return print(model, settings, folder, name);
+    }
+
+    /**
+     * Writes and compiles as {@link #print(DocumentModel, PrintSettings, String)} does, then saves
+     * the PDF at a chosen path, replacing what is there. Nothing is saved when typst fails, so a
+     * good earlier PDF at that path survives.
+     *
+     * @param model    the document
+     * @param settings the page settings
+     * @param name     the file name stem, cleaned of path separators
+     * @param target   where the PDF goes
+     * @return what was produced
+     * @throws IOException if the output folder, the source or the target cannot be written
+     */
+    public static Printed printTo(DocumentModel model, PrintSettings settings, String name, Path target) throws IOException {
+        Printed printed = print(model, settings, name);
+        if (printed.ok()) {
+            Files.copy(printed.pdf(), target, StandardCopyOption.REPLACE_EXISTING);
+        }
+        return printed;
+    }
+
+    /** A chosen path ending in {@code .pdf}: a save dialog may return the name as it was typed. */
+    public static Path withPdfExtension(Path chosen) {
+        String name = chosen.getFileName().toString();
+        return name.toLowerCase(Locale.ROOT).endsWith(".pdf") ? chosen : chosen.resolveSibling(name + ".pdf");
     }
 
     /**

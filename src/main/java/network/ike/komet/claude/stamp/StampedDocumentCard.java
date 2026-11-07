@@ -148,6 +148,9 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
 
     private static final Logger LOG = LoggerFactory.getLogger(StampedDocumentCard.class);
 
+    /** The folder the last PDF went to, where the next save dialog opens. */
+    private static File lastPdfFolder;
+
     static final String CARD_NAME = "STAMPed Document";
 
     private static final String PREF_DOCUMENT = "network.ike.komet.claude.stamp.document";
@@ -632,7 +635,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
                 item("Open file…", "stampedDocumentOpenFile", "Choose an .adoc file; it is materialized if the store lacks it, and one with no commit yet is offered a repository and a first commit", this::chooseFile),
                 item("Refresh", "stampedDocumentRefresh", "Re-read the documents the store holds, and the one shown", this::refresh),
                 item("Export…", "stampedDocumentExport", "Write the document from the store back into a repository's working tree at its recorded path, and compare it with HEAD", this::chooseExportTarget),
-                item("Print to PDF…", "stampedDocumentPrintPdf", "Write the document, with the documents it includes, as Typst from the store's blocks and compile it with your installed typst", () -> printToPdf()),
+                item("Print to PDF…", "stampedDocumentPrintPdf", "Save the document, with the documents it includes, as a PDF where you choose, compiled by your installed typst, and open it", this::chooseAndPrint),
                 new SeparatorMenuItem(),
                 item("Materialize", "stampedDocumentMaterialize", "Write the commits of this file the knowledge base lacks", () -> materialize(false)),
                 item("Materialize All", "stampedDocumentMaterializeAll", "Write this file and every file it includes, each as its own document", () -> materialize(true)),
@@ -1680,15 +1683,37 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         }
     }
 
+    /** Print to PDF from the menu: asks where the PDF goes, then prints and opens it there. */
+    private void chooseAndPrint() {
+        if (model().isEmpty()) {
+            statusLine.setText("Choose a document first.");
+            return;
+        }
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Save the document as a PDF");
+        chooser.setInitialFileName(TypstPdf.stem(shownPath != null ? shownPath : documents.getValue()) + ".pdf");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("PDF", "*.pdf"));
+        if (lastPdfFolder != null && lastPdfFolder.isDirectory()) {
+            chooser.setInitialDirectory(lastPdfFolder);
+        }
+        File chosen = chooser.showSaveDialog(window());
+        if (chosen != null) {
+            lastPdfFolder = chosen.getParentFile();
+            printToPdf(TypstPdf.withPdfExtension(chosen.toPath()));
+        }
+    }
+
     /**
      * Print to PDF: writes the shown document, with its children, as Typst from the store's
-     * blocks under the surface's print settings, and compiles it with the installed typst. The
-     * PDF's path, or typst's own error, goes on the status line. Public so automation can print
-     * without the menu; must be called on the JavaFX application thread.
+     * blocks under the surface's print settings, compiles it with the installed typst, saves the
+     * PDF where it was asked to go and opens it in the system's PDF reader. typst's own error goes
+     * on the status line. Public so automation can print without the menu's dialog; must be called
+     * on the JavaFX application thread.
      *
+     * @param target where the PDF goes
      * @return the print once it has run; completes with {@code null} when no document is shown
      */
-    public CompletableFuture<TypstPdf.Printed> printToPdf() {
+    public CompletableFuture<TypstPdf.Printed> printToPdf(Path target) {
         Optional<DocumentModel> model = model();
         if (model.isEmpty()) {
             statusLine.setText("Choose a document first.");
@@ -1699,7 +1724,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         statusLine.setText("Writing " + TypstPdf.stem(name) + ".typ and compiling it with typst …");
         return CompletableFuture.supplyAsync(() -> {
             try {
-                return TypstPdf.print(model.get(), settings, name);
+                return TypstPdf.printTo(model.get(), settings, name, target);
             } catch (IOException e) {
                 throw new java.io.UncheckedIOException(e);
             }
@@ -1710,11 +1735,26 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
                 LOG.warn("Print to PDF failed", cause);
                 return;
             }
-            statusLine.setText(printed.report());
             if (!printed.ok()) {
+                statusLine.setText(printed.report());
                 LOG.warn("typst compile failed for {}: {}", printed.source(), printed.result().output());
+                return;
             }
+            statusLine.setText("Saved " + target);
+            openInReader(target);
         }));
+    }
+
+    /** Opens a saved PDF in the system's reader, off the JavaFX thread; the PDF stays saved if it cannot. */
+    private void openInReader(Path pdf) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                java.awt.Desktop.getDesktop().open(pdf.toFile());
+            } catch (IOException | RuntimeException e) {
+                LOG.warn("Could not open {}", pdf, e);
+                Platform.runLater(() -> statusLine.setText("Saved " + pdf + ". It could not be opened: " + e.getMessage()));
+            }
+        });
     }
 
     // ── opening a file ────────────────────────────────────────────────────────
