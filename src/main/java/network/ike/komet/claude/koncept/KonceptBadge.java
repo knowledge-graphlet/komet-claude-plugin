@@ -243,7 +243,13 @@ public final class KonceptBadge {
         final Font labelFont = labelFont(inactive);
         final Font sigilFont = new Font(Font.SANS_SERIF, Font.BOLD,
                 (int) Math.round(SPEC.labelSizePx() * 15.0 / 12.0) * SCALE);
-        final String sigilGlyph = resolved.hasLetterGlyph() ? resolved.glyph() : null;
+        KonceptStatus resolvedStatus = (status == null) ? KonceptStatus.NONE : status;
+        // A status that is a letter (C, no stated definition) is set as a kind sigil is: the
+        // bundled glyph face holds no letters, so the cluster below would degrade it to bare.
+        final boolean letterStatus = resolved == KonceptKind.CONCEPT && resolvedStatus.isLetter();
+        final String sigilGlyph = resolved.hasLetterGlyph() ? resolved.glyph()
+                : letterStatus ? resolvedStatus.glyph() : null;
+        final String sigilColor = letterStatus ? resolvedStatus.colorHex() : resolved.colorHex();
         // The status cluster is Koncept-only (one leading mark, never beside a sigil). Degrade to
         // bare if the platform sans font cannot display the DL glyphs — never tofu.
         // The bundled glyph face (ike-issues#953): the cluster never resolves through platform
@@ -253,8 +259,7 @@ public final class KonceptBadge {
                 ? GLYPH_BASE.deriveFont((float) (SPEC.labelSizePx() * 10.0 / 12.0 * SCALE))
                 : new Font(Font.SANS_SERIF, Font.PLAIN,
                         (int) Math.round(SPEC.labelSizePx() * 10.0 / 12.0) * SCALE);
-        KonceptStatus resolvedStatus = (status == null) ? KonceptStatus.NONE : status;
-        String cluster = resolved == KonceptKind.CONCEPT
+        String cluster = resolved == KonceptKind.CONCEPT && !letterStatus
                 ? resolvedStatus.cluster(multiParent) : "";
         if (!cluster.isEmpty() && statusFont.canDisplayUpTo(cluster) != -1) {
             cluster = "";
@@ -303,7 +308,7 @@ public final class KonceptBadge {
 
         int x = padLeft;
         if (sigilGlyph != null) {
-            g.setColor(Color.decode(resolved.colorHex()));
+            g.setColor(Color.decode(sigilColor));
             g.setFont(sigilFont);
             FontMetrics sfm = g.getFontMetrics();
             g.drawString(sigilGlyph, x, (h - (sfm.getAscent() + sfm.getDescent())) / 2 + sfm.getAscent());

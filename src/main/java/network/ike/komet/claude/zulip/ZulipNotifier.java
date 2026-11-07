@@ -227,9 +227,10 @@ public final class ZulipNotifier {
     }
 
     /**
-     * The Koncept's leading logical-status cluster as markdown text ({@code ⊑⋎ } etc. —
-     * ike-issues#742 amendment, #862): Zulip markdown carries the glyph, not its colour —
-     * the data channel, matching the adoc renderer's FO/Prawn convention.
+     * The Koncept's leading logical-status cluster as markdown text ({@code ⊑⋎ }, or {@code C }
+     * for a concept with no stated definition — ike-issues#742 amendment, #862): Zulip markdown
+     * carries the glyph, not its colour — the data channel, matching the adoc renderer's
+     * FO/Prawn convention.
      */
     private static String statusPrefix(long nid, ViewCalculator view) {
         String cluster = KonceptStatusMark.clusterText(KonceptStatusMark.resolve(nid, view));

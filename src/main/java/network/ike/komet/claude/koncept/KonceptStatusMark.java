@@ -28,7 +28,7 @@ import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
  *
  * <p>Classification is the framework's ({@link KonceptBadge#computeStatus}); the glyph and
  * colour vocabulary is the single-sourced koncept-core enum reached via
- * {@link KonceptStatus#core()}, so every medium renders the same cluster by construction.
+ * {@link KonceptStatus}, so every medium renders the same cluster by construction.
  */
 public final class KonceptStatusMark {
 
@@ -56,7 +56,7 @@ public final class KonceptStatusMark {
     }
 
     /**
-     * The cluster's plain-text form ({@code ≡}, {@code ⊑⋎}, {@code ⊤}, …) — the data channel
+     * The cluster's plain-text form ({@code ≡}, {@code ⊑⋎}, {@code ⊤}, {@code C}, …) — the data channel
      * for media that carry the glyph but not necessarily its colour (Zulip markdown, matching
      * the FO/Prawn convention in the adoc renderer).
      *
@@ -64,6 +64,9 @@ public final class KonceptStatusMark {
      * @return the cluster text, or the empty string for {@link KonceptStatus#NONE}
      */
     public static String clusterText(KonceptStatus status) {
-        return status.core().cluster(status.isMultiParent());
+        if (!status.hasGlyph()) {
+            return "";
+        }
+        return status.isMultiParent() ? status.glyph() + KonceptStatus.MULTI_PARENT_GLYPH : status.glyph();
     }
 }

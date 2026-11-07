@@ -150,11 +150,21 @@ public final class HtmlKonceptRenderer {
     /**
      * The Koncept's leading logical-status cluster (ike-issues#742 amendment, #863): the copula
      * from its stated definition — {@code ≡}/{@code ⊑}/{@code ⊤} — with the {@code ⋎} fork
-     * appended for multi-parent, each glyph in its single-sourced colour, always visible; the
-     * {@code title} only explains the mark. Inline styles only — email clients drop stylesheets.
+     * appended for multi-parent, or a bold {@code C} for a concept with no stated definition,
+     * each glyph in its single-sourced colour, always visible; the {@code title} only explains
+     * the mark. Inline styles only — email clients drop stylesheets.
      */
     private String statusCluster(long nid) {
-        KonceptStatus status = KonceptStatusMark.resolve(nid, view);
+        return statusClusterHtml(KonceptStatusMark.resolve(nid, view));
+    }
+
+    /**
+     * The cluster markup for a resolved status.
+     *
+     * @param status the resolved status
+     * @return the cluster span followed by a space, or the empty string for a status with no glyph
+     */
+    static String statusClusterHtml(KonceptStatus status) {
         if (!status.hasGlyph()) {
             return "";
         }
@@ -163,8 +173,9 @@ public final class HtmlKonceptRenderer {
                         + ";\">" + KonceptStatus.MULTI_PARENT_GLYPH + "</span>"
                 : "";
         return "<span title=\"" + escape(status.accessibleText())
-                + "\" style=\"font-size:0.85em;vertical-align:middle;white-space:nowrap;\">"
-                + "<span style=\"color:" + status.core().colorHex() + ";\">" + status.glyph() + "</span>"
+                + "\" style=\"font-size:0.85em;vertical-align:middle;white-space:nowrap;"
+                + (status.isLetter() ? "font-weight:bold;" : "") + "\">"
+                + "<span style=\"color:" + status.colorHex() + ";\">" + status.glyph() + "</span>"
                 + fork + "</span> ";
     }
 

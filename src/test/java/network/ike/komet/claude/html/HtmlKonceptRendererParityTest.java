@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.html;
 
+import dev.ikm.komet.framework.controls.KonceptStatus;
 import network.ike.docs.konceptcore.KonceptAppearance;
 import org.junit.jupiter.api.Test;
 
@@ -58,5 +59,31 @@ class HtmlKonceptRendererParityTest {
         assertTrue(HtmlKonceptRenderer.LABEL_INACTIVE.contains(
                 "color:" + SPEC.labelColorInactiveHex()));
         assertTrue(HtmlKonceptRenderer.LABEL_INACTIVE.contains("text-decoration:line-through"));
+    }
+
+    @Test
+    void aConceptWithNoStatedDefinitionLeadsWithABoldC() {
+        String html = HtmlKonceptRenderer.statusClusterHtml(KonceptStatus.UNDEFINED);
+
+        assertTrue(html.contains(">C</span>"), "the letter is drawn:\n" + html);
+        assertTrue(html.contains("color:" + KonceptStatus.UNDEFINED.colorHex()),
+                "in its single-sourced colour, not a null one:\n" + html);
+        assertTrue(html.contains("font-weight:bold"), "set bold, as a kind sigil is:\n" + html);
+        assertTrue(html.contains(KonceptStatus.UNDEFINED.accessibleText()),
+                "with the accessible name as the title:\n" + html);
+    }
+
+    @Test
+    void aStatusWithNoGlyphDrawsNothing() {
+        assertTrue(HtmlKonceptRenderer.statusClusterHtml(KonceptStatus.NONE).isEmpty());
+    }
+
+    @Test
+    void aCopulaStaysInItsRegularWeightWithTheForkAppended() {
+        String html = HtmlKonceptRenderer.statusClusterHtml(KonceptStatus.PRIMITIVE_MULTIPARENT);
+
+        assertTrue(html.contains(KonceptStatus.PRIMITIVE.glyph()), html);
+        assertTrue(html.contains(KonceptStatus.MULTI_PARENT_GLYPH), html);
+        assertFalse(html.contains("font-weight"), "the glyph face has no bold:\n" + html);
     }
 }

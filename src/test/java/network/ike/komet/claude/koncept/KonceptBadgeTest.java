@@ -29,6 +29,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -133,6 +134,32 @@ class KonceptBadgeTest {
                 "the ⊑ copula renders in the primitive grey (ike-issues#742 amendment, #862)");
         assertTrue(primitive.getWidth() > bare.getWidth(),
                 "the leading cluster widens the pill");
+    }
+
+    @Test
+    void aConceptWithNoStatedDefinitionLeadsWithAC() {
+        BufferedImage bare = decode(KonceptBadge.png(
+                dummyIdenticon(), "Heart Failure", KonceptKind.CONCEPT));
+        BufferedImage undefined = decode(KonceptBadge.png(
+                dummyIdenticon(), "Heart Failure", KonceptKind.CONCEPT,
+                KonceptStatus.UNDEFINED, false));
+        BufferedImage forked = decode(KonceptBadge.png(
+                dummyIdenticon(), "Heart Failure", KonceptKind.CONCEPT,
+                KonceptStatus.UNDEFINED, true));
+
+        assertTrue(undefined.getWidth() > bare.getWidth(),
+                "the C widens the pill: the glyph face holds no letters, so it must not be dropped");
+        assertEquals(undefined.getWidth(), forked.getWidth(), "the letter takes no fork");
+    }
+
+    @Test
+    void aSigilStillWinsOverAnUndefinedStatus() {
+        BufferedImage sigil = decode(KonceptBadge.png(
+                dummyIdenticon(), "Pattern", KonceptKind.PATTERN));
+        BufferedImage strayStatus = decode(KonceptBadge.png(
+                dummyIdenticon(), "Pattern", KonceptKind.PATTERN, KonceptStatus.UNDEFINED, false));
+
+        assertEquals(sigil.getWidth(), strayStatus.getWidth(), "the kind's sigil holds the slot");
     }
 
     @Test
