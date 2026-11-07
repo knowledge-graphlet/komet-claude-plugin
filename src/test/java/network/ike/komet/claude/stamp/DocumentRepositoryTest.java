@@ -148,4 +148,145 @@ class DocumentRepositoryTest {
         assertTrue(placed.report().contains("not committed"), placed.report());
         assertTrue(Files.exists(repository.resolve("doc.adoc")));
     }
+
+    @Test
+    void aStoredDocumentsTextGetsARepositoryWithNoFileToStartFrom() throws Exception {
+        Path library = root.resolve("komet/docs");
+
+        DocumentRepository.Placed placed = DocumentRepository.placeCopy("doc.adoc", "= A Document\n", library);
+
+        assertTrue(placed.ok(), placed.report());
+        assertEquals(library, placed.root());
+        assertEquals("= A Document\n", Files.readString(library.resolve("doc.adoc")));
+        assertTrue(GitOperations.committed(library, Path.of("doc.adoc")));
+
+        DocumentRepository.Placed second = DocumentRepository.placeCopy("other.adoc", "= Another\n", library);
+
+        assertTrue(second.ok(), second.report());
+        assertTrue(second.report().startsWith("Used the repository"), "the library is one repository");
+    }
+
+    @Test
+    void aCopyNeverOverwritesADocumentOfThatName() throws Exception {
+        Path taken = document("documents/doc.adoc");
+        Path library = taken.getParent();
+
+        assertTrue(DocumentRepository.copyRefusal("doc.adoc", library).orElseThrow().contains("already exists"));
+        assertFalse(DocumentRepository.placeCopy("doc.adoc", "Mine.\n", library).ok());
+        assertEquals("= A Document\n\nIts first paragraph.\n", Files.readString(taken));
+        assertTrue(DocumentRepository.copyRefusal("free.adoc", library).isEmpty());
+    }
+
+    @Test
+    void theFolderChosenDecidesWhatHappens() throws Exception {
+        Path holding = root.resolve("holding");
+        assertTrue(GitOperations.init(holding).ok());
+        document("holding/topics/doc.adoc");
+        Path other = root.resolve("other");
+        assertTrue(GitOperations.init(other).ok());
+        Path plain = document("plain/note.adoc").getParent();
+        Path missing = root.resolve("komet/docs");
+
+        assertEquals(DocumentRepository.Placement.USE, DocumentRepository.plan(holding, "topics/doc.adoc", true).placement());
+        DocumentRepository.Plan inside = DocumentRepository.plan(holding.resolve("topics"), "topics/doc.adoc", true);
+        assertEquals(DocumentRepository.Placement.USE, inside.placement(), "anywhere in the repository that holds it is that repository");
+        assertEquals(holding, inside.folder());
+        assertEquals(DocumentRepository.Placement.COPY, DocumentRepository.plan(other, "topics/doc.adoc", true).placement());
+        assertEquals(DocumentRepository.Placement.CREATE, DocumentRepository.plan(plain, "topics/doc.adoc", true).placement());
+        DocumentRepository.Plan toCome = DocumentRepository.plan(missing, "topics/doc.adoc", true);
+        assertEquals(DocumentRepository.Placement.CREATE, toCome.placement());
+        assertTrue(toCome.note().contains("does not exist yet"));
+        assertFalse(Files.exists(missing), "planning makes nothing");
+    }
+
+    @Test
+    void aFileInNoRepositoryIsPlacedAsTheFolderSays() throws Exception {
+        Path file = document("downloads/doc.adoc");
+        Path repository = root.resolve("repository");
+        assertTrue(GitOperations.init(repository).ok());
+        Path library = root.resolve("komet/docs");
+
+        DocumentRepository.Plan own = DocumentRepository.placing(file, file.getParent());
+        assertEquals(DocumentRepository.Placement.CREATE, own.placement());
+        assertTrue(own.note().contains("stays where it is"), own.note());
+        assertEquals(DocumentRepository.Placement.COPY, DocumentRepository.placing(file, repository).placement());
+        DocumentRepository.Plan toCome = DocumentRepository.placing(file, library);
+        assertEquals(DocumentRepository.Placement.CREATE, toCome.placement());
+        assertTrue(toCome.note().contains("does not exist yet"), toCome.note());
+        assertFalse(Files.exists(library), "planning makes nothing");
+    }
+
+    @Test
+    void aFolderThatCannotTakeTheFileIsRefusedAsPlaceRefusesIt() throws Exception {
+        Path file = document("downloads/doc.adoc");
+        Path taken = document("documents/doc.adoc").getParent();
+        Files.createDirectories(root.resolve("synced/.stfolder"));
+
+        DocumentRepository.Plan name = DocumentRepository.placing(file, taken);
+        assertEquals(DocumentRepository.Placement.REFUSED, name.placement());
+        assertTrue(name.note().contains("already exists"), name.note());
+        assertEquals(DocumentRepository.Placement.REFUSED, DocumentRepository.placing(file, root.resolve("synced/notes")).placement());
+        assertEquals(DocumentRepository.Placement.REFUSED, DocumentRepository.placing(file, taken.resolve("doc.adoc")).placement());
+        assertFalse(DocumentRepository.place(file, taken).ok(), "the plan and the placing agree");
+    }
+
+    @Test
+    void aNewRepositoryGoesInAFolderNoRepositoryHolds() throws Exception {
+        Path existing = root.resolve("repository");
+        assertTrue(GitOperations.init(existing).ok());
+        Path plain = document("plain/note.adoc").getParent();
+        Path missing = root.resolve("komet/docs");
+
+        assertEquals(DocumentRepository.Placement.CREATE, DocumentRepository.making(plain).placement());
+        DocumentRepository.Plan toCome = DocumentRepository.making(missing);
+        assertEquals(DocumentRepository.Placement.CREATE, toCome.placement());
+        assertTrue(toCome.note().contains("does not exist yet"), toCome.note());
+        assertFalse(Files.exists(missing), "planning makes nothing");
+        assertEquals(DocumentRepository.Placement.REFUSED, DocumentRepository.making(existing).placement());
+        assertEquals(DocumentRepository.Placement.REFUSED, DocumentRepository.making(existing.resolve("topics")).placement());
+        assertEquals(DocumentRepository.Placement.REFUSED, DocumentRepository.making(Path.of(System.getProperty("user.home"))).placement());
+    }
+
+    @Test
+    void aFolderThatCannotTakeTheCopyIsRefusedWithItsReason() throws Exception {
+        Path taken = document("documents/doc.adoc").getParent();
+        Path other = root.resolve("other");
+        assertTrue(GitOperations.init(other).ok());
+
+        DocumentRepository.Plan name = DocumentRepository.plan(taken, "topics/doc.adoc", true);
+        assertEquals(DocumentRepository.Placement.REFUSED, name.placement());
+        assertTrue(name.note().contains("already exists"));
+        DocumentRepository.Plan home = DocumentRepository.plan(Path.of(System.getProperty("user.home")), "topics/doc.adoc", true);
+        assertEquals(DocumentRepository.Placement.REFUSED, home.placement(), home.note());
+        assertEquals(DocumentRepository.Placement.REFUSED, DocumentRepository.plan(taken.resolve("doc.adoc"), "topics/doc.adoc", true).placement());
+    }
+
+    @Test
+    void whenACopyIsNoAnswerOnlyTheRepositoryThatHoldsTheFileWillDo() throws Exception {
+        Path holding = root.resolve("holding");
+        assertTrue(GitOperations.init(holding).ok());
+        document("holding/doc.adoc");
+        Path other = root.resolve("other");
+        assertTrue(GitOperations.init(other).ok());
+
+        assertEquals(DocumentRepository.Placement.USE, DocumentRepository.plan(holding, "doc.adoc", false).placement());
+        DocumentRepository.Plan refused = DocumentRepository.plan(other, "doc.adoc", false);
+        assertEquals(DocumentRepository.Placement.REFUSED, refused.placement());
+        assertTrue(refused.note().contains("does not hold"));
+    }
+
+    @Test
+    void theWorkingTreeIsTheTopOfTheRepositoryThatHoldsTheFile() throws Exception {
+        Path repository = root.resolve("repository");
+        assertTrue(GitOperations.init(repository).ok());
+        document("repository/topics/doc.adoc");
+        Path outside = document("elsewhere/doc.adoc").getParent();
+
+        assertTrue(DocumentRepository.workingTreeRefusal(repository, "topics/doc.adoc").isEmpty());
+        assertTrue(DocumentRepository.workingTreeRefusal(repository, "doc.adoc").orElseThrow().contains("does not hold"));
+        assertTrue(DocumentRepository.workingTreeRefusal(repository.resolve("topics"), "doc.adoc").orElseThrow().contains("inside the repository"));
+        assertTrue(DocumentRepository.workingTreeRefusal(outside, "doc.adoc").orElseThrow().contains("not in a git repository"));
+        assertTrue(DocumentRepository.workingTreeRefusal(root.resolve("missing"), "doc.adoc").orElseThrow().contains("does not exist"));
+        assertTrue(DocumentRepository.workingTreeRefusal(outside.resolve("doc.adoc"), "doc.adoc").orElseThrow().contains("not a folder"));
+    }
 }

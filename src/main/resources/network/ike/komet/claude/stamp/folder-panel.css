@@ -1,0 +1,340 @@
+/*
+ * The folder panel, after the Mac's open panel: the platform's window, its font and its accent; a
+ * quiet side list, white columns, one accent selection, thin scrollbars, plain buttons.
+ * ".dialog-pane.folder-panel" outweighs kview.css's ".dialog-pane", whose inset card and padding
+ * belong to Komet's own dialogs.
+ */
+
+.dialog-pane.folder-panel {
+    -panel-accent: #007aff;
+    -panel-line: #d9d9dd;
+    -panel-side: #eeedf0;
+    -panel-soft: #f6f6f8;
+    -panel-ink: #1d1d1f;
+    -panel-quiet: #6e6e73;
+    -fx-background-color: -panel-soft;
+    -fx-background-insets: 0;
+    -fx-background-radius: 0;
+    -fx-border-width: 0;
+    -fx-border-insets: 0;
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+    -fx-effect: null;
+}
+
+.folder-panel .label,
+.folder-panel .button,
+.folder-panel .menu-button,
+.folder-panel .text-field,
+.folder-panel .list-cell {
+    -fx-font-family: "System";
+    -fx-font-size: 13px;
+}
+
+.folder-panel > .content {
+    -fx-padding: 0;
+}
+
+/* the toolbar, in the title bar */
+
+.folder-panel-top {
+    -fx-background-color: -panel-soft;
+}
+
+.folder-panel-toolbar {
+    -fx-background-color: transparent;
+    -fx-min-height: 46;
+    -fx-pref-height: 46;
+    -fx-padding: 0 12 0 8;
+    -fx-alignment: center;
+}
+
+.folder-panel-history {
+    -fx-spacing: 2;
+}
+
+.folder-panel-toolbar .button {
+    -fx-background-color: transparent;
+    -fx-background-radius: 6;
+    -fx-background-insets: 0;
+    -fx-border-width: 0;
+    -fx-padding: 4 6 4 6;
+    -fx-effect: null;
+    -fx-focus-color: transparent;
+    -fx-faint-focus-color: transparent;
+}
+
+.folder-panel-toolbar .button:hover {
+    -fx-background-color: rgba(0, 0, 0, 0.07);
+}
+
+.folder-panel-toolbar .button .ikonli-font-icon {
+    -fx-icon-color: #3a3a3c;
+}
+
+.folder-panel-toolbar .button:disabled .ikonli-font-icon {
+    -fx-icon-color: #b5b5ba;
+}
+
+.folder-panel-toolbar .button:disabled {
+    -fx-opacity: 1;
+}
+
+#folderPanelLocation {
+    -fx-background-color: white;
+    -fx-background-radius: 7;
+    -fx-background-insets: 0;
+    -fx-border-color: -panel-line;
+    -fx-border-radius: 7;
+    -fx-border-width: 1;
+    -fx-padding: 3 6 3 8;
+    -fx-effect: null;
+    -fx-focus-color: transparent;
+    -fx-faint-focus-color: transparent;
+}
+
+#folderPanelLocation > .label {
+    -fx-text-fill: -panel-ink;
+    -fx-graphic-text-gap: 6;
+}
+
+#folderPanelLocation .ikonli-font-icon {
+    -fx-icon-color: #5aa9f0;
+}
+
+#folderPanelPath {
+    -fx-background-color: white;
+    -fx-background-radius: 7;
+    -fx-background-insets: 0;
+    -fx-border-color: -panel-line;
+    -fx-border-radius: 7;
+    -fx-border-width: 1;
+    -fx-padding: 4 8 4 8;
+    -fx-prompt-text-fill: #a1a1a6;
+    -fx-effect: null;
+    -fx-focus-color: transparent;
+    -fx-faint-focus-color: transparent;
+}
+
+#folderPanelPath:focused {
+    -fx-border-color: -panel-accent;
+}
+
+.folder-panel-message {
+    -fx-padding: 0 16 8 16;
+    -fx-font-size: 12px;
+    -fx-text-fill: -panel-quiet;
+    -fx-text-alignment: center;
+    -fx-border-color: transparent transparent -panel-line transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+/* the places */
+
+#folderPanelSidebar {
+    -fx-background-color: -panel-side;
+    -fx-background-insets: 0;
+    -fx-padding: 4 8 4 8;
+    -fx-border-color: transparent -panel-line transparent transparent;
+    -fx-border-width: 0 1 0 0;
+}
+
+#folderPanelSidebar .list-cell {
+    -fx-background-color: transparent;
+    -fx-background-radius: 6;
+    -fx-text-fill: -panel-ink;
+    -fx-padding: 3 8 3 8;
+    -fx-graphic-text-gap: 8;
+}
+
+#folderPanelSidebar .list-cell:heading {
+    -fx-opacity: 1;
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: #8e8e93;
+    -fx-padding: 10 8 3 6;
+}
+
+#folderPanelSidebar .list-cell:selected {
+    -fx-background-color: rgba(0, 0, 0, 0.09);
+    -fx-text-fill: -panel-accent;
+}
+
+#folderPanelSidebar .ikonli-font-icon {
+    -fx-icon-color: -panel-accent;
+}
+
+/* the columns */
+
+.folder-panel-scroller,
+.folder-panel-scroller > .viewport {
+    -fx-background-color: white;
+    -fx-background-insets: 0;
+    -fx-border-width: 0;
+    -fx-padding: 0;
+}
+
+.folder-column {
+    -fx-background-color: white;
+    -fx-background-insets: 0;
+    -fx-padding: 4 5 4 5;
+    -fx-border-color: transparent -panel-line transparent transparent;
+    -fx-border-width: 0 1 0 0;
+}
+
+.folder-column .list-cell {
+    -fx-background-color: transparent;
+    -fx-background-radius: 5;
+    -fx-padding: 2 8 2 8;
+}
+
+.folder-column .list-cell .label {
+    -fx-text-fill: -panel-ink;
+}
+
+.folder-column .list-cell:disabled {
+    -fx-opacity: 1;
+}
+
+.folder-column .list-cell:disabled .label {
+    -fx-text-fill: #a1a1a6;
+}
+
+.folder-column .list-cell:disabled .ikonli-font-icon {
+    -fx-icon-color: #c0c0c5;
+}
+
+.folder-column .list-cell:selected {
+    -fx-background-color: -panel-accent;
+}
+
+.folder-column .list-cell:selected .label {
+    -fx-text-fill: white;
+}
+
+.folder-column .list-cell:selected .ikonli-font-icon {
+    -fx-icon-color: white;
+}
+
+.folder-column:trail .list-cell:selected {
+    -fx-background-color: #dcdce1;
+}
+
+.folder-column:trail .list-cell:selected .label {
+    -fx-text-fill: -panel-ink;
+}
+
+.folder-column:trail .list-cell:selected .ikonli-font-icon {
+    -fx-icon-color: #5aa9f0;
+}
+
+.folder-column:trail .list-cell:selected .folder-chevron {
+    -fx-icon-color: #8e8e93;
+}
+
+.folder-column .ikonli-font-icon {
+    -fx-icon-color: #5aa9f0;
+}
+
+.folder-column .folder-chevron {
+    -fx-icon-color: #b5b5ba;
+    -fx-icon-size: 13;
+}
+
+/* the note, and the action below it */
+
+.folder-panel-note {
+    -fx-background-color: -panel-soft;
+    -fx-border-color: -panel-line transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+    -fx-padding: 7 16 0 16;
+    -fx-font-size: 12px;
+    -fx-text-fill: -panel-quiet;
+}
+
+.folder-panel-note:refused {
+    -fx-text-fill: #c4281c;
+}
+
+.folder-panel > .button-bar {
+    -fx-background-color: -panel-soft;
+    -fx-padding: 9 16 13 16;
+}
+
+.folder-panel > .button-bar .button {
+    -fx-background-color: #e6e6eb;
+    -fx-background-radius: 7;
+    -fx-background-insets: 0;
+    -fx-border-width: 0;
+    -fx-text-fill: -panel-ink;
+    -fx-padding: 4 14 4 14;
+    -fx-min-width: 76;
+    -fx-effect: null;
+    -fx-focus-color: transparent;
+    -fx-faint-focus-color: transparent;
+}
+
+.folder-panel > .button-bar .button:hover {
+    -fx-background-color: #dcdce2;
+}
+
+.folder-panel > .button-bar .button:armed {
+    -fx-background-color: #d0d0d7;
+}
+
+.folder-panel > .button-bar .button:default {
+    -fx-background-color: -panel-accent;
+    -fx-text-fill: white;
+}
+
+.folder-panel > .button-bar .button:default:hover {
+    -fx-background-color: derive(-panel-accent, -6%);
+}
+
+.folder-panel > .button-bar .button:default:disabled {
+    -fx-opacity: 1;
+    -fx-background-color: #e6e6eb;
+    -fx-text-fill: #a1a1a6;
+}
+
+/* thin scrollbars, without arrows */
+
+.folder-panel .scroll-bar {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
+.folder-panel .scroll-bar:vertical {
+    -fx-pref-width: 9;
+}
+
+.folder-panel .scroll-bar:horizontal {
+    -fx-pref-height: 9;
+}
+
+.folder-panel .scroll-bar .track,
+.folder-panel .scroll-bar .track-background {
+    -fx-background-color: transparent;
+    -fx-border-width: 0;
+}
+
+.folder-panel .scroll-bar .thumb {
+    -fx-background-color: rgba(0, 0, 0, 0.26);
+    -fx-background-insets: 2;
+    -fx-background-radius: 4;
+}
+
+.folder-panel .scroll-bar .increment-button,
+.folder-panel .scroll-bar .decrement-button {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+    -fx-pref-width: 0;
+    -fx-pref-height: 0;
+}
+
+.folder-panel .scroll-bar .increment-arrow,
+.folder-panel .scroll-bar .decrement-arrow {
+    -fx-shape: null;
+    -fx-padding: 0;
+}

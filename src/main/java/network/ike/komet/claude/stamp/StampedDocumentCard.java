@@ -1794,14 +1794,15 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     /** Asks where a file in no repository should live, with its own folder offered, and places it there. */
     private void offerRepository(Path file) {
         Path source = file.toAbsolutePath().normalize();
-        askFolder("Give the Document a Repository", "stampedDocumentRepositoryDialog",
-                source.getFileName() + " is not in a git repository.",
-                "A document is stored from its git history, so this file needs a repository and a first commit. "
-                        + "Only this file is committed, locally, and nothing is pushed. A folder already in a repository "
-                        + "takes the file there; a folder that does not hold the file gets a copy, and the original stays. "
-                        + DocumentLibrary.shownRoot() + " is where documents live.",
-                DocumentLibrary.root(), location -> DocumentRepository.refusal(source, location))
+        FolderPanel.show(window(), "Choose a Repository",
+                        source.getFileName() + " is in no git repository, and a document is stored from its git history. Choose a folder for it.",
+                        DocumentLibrary.root(), panelPlaces(source.getParent()), location -> DocumentRepository.placing(source, location))
                 .ifPresent(location -> openInRepository(source, location));
+    }
+
+    /** The folder panel's side list, with a folder that matters to this choice among them. */
+    private static List<FolderPanel.Place> panelPlaces(Path known) {
+        return FolderPanel.places(Path.of(System.getProperty("user.home")), DocumentLibrary.root(), known, Path.of("/Volumes"));
     }
 
     /**
@@ -1867,79 +1868,6 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
                     repositoryReport = "First commit " + committed.sha().substring(0, 7) + ", nothing pushed.";
                     open(root.resolve(relative));
                 }));
-    }
-
-    /**
-     * Asks for a folder, saying as the person types why one will not do.
-     *
-     * @param title       the dialog's title
-     * @param id          the dialog pane's id
-     * @param header      what the dialog is about
-     * @param explanation what choosing a folder will do
-     * @param initial     the folder offered, or {@code null} for none
-     * @param refusal     why a folder will not do, or empty when it will
-     * @return the folder chosen, or empty when the person cancelled
-     */
-    private Optional<Path> askFolder(String title, String id, String header, String explanation, Path initial,
-                                     java.util.function.Function<Path, Optional<String>> refusal) {
-        Dialog<ButtonType> dialog = new Dialog<>();
-        dialog.setTitle(title);
-        dialog.getDialogPane().setId(id);
-        dialog.setHeaderText(header);
-        javafx.scene.control.TextField folder = new javafx.scene.control.TextField(initial == null ? "" : initial.toString());
-        folder.setId("stampedDocumentRepositoryFolder");
-        folder.setPromptText("The folder, as a full path");
-        Button browse = new Button("Browse…");
-        browse.setOnAction(e -> {
-            DirectoryChooser chooser = new DirectoryChooser();
-            chooser.setTitle(title);
-            if (initial != null && Files.isDirectory(initial)) {
-                chooser.setInitialDirectory(initial.toFile());
-            }
-            File chosen = chooser.showDialog(window());
-            if (chosen != null) {
-                folder.setText(chosen.toString());
-            }
-        });
-        HBox folderRow = new HBox(6, folder, browse);
-        HBox.setHgrow(folder, javafx.scene.layout.Priority.ALWAYS);
-        Label about = new Label(explanation);
-        about.setWrapText(true);
-        Label refused = new Label();
-        refused.setId("stampedDocumentRepositoryRefusal");
-        refused.setWrapText(true);
-        refused.setStyle("-fx-text-fill: #b3261e;");
-        VBox content = new VBox(8, about, new Label("Folder"), folderRow, refused);
-        content.setPrefWidth(560);
-        dialog.getDialogPane().setContent(content);
-        ButtonType use = new ButtonType("Use This Folder");
-        dialog.getDialogPane().getButtonTypes().setAll(use, ButtonType.CANCEL);
-        Runnable check = () -> {
-            Optional<Path> chosen = folderOf(folder.getText());
-            Optional<String> reason = chosen.isEmpty()
-                    ? Optional.of(folder.getText().isBlank() ? "" : "Give the folder as a full path.")
-                    : refusal.apply(chosen.get());
-            refused.setText(reason.orElse(""));
-            dialog.getDialogPane().lookupButton(use).setDisable(reason.isPresent());
-        };
-        folder.textProperty().addListener((obs, was, is) -> check.run());
-        check.run();
-        dialog.initOwner(window());
-        return dialog.showAndWait().filter(b -> b == use).flatMap(b -> folderOf(folder.getText()));
-    }
-
-    /** The folder typed, with a leading {@code ~} read as the home folder; only a full path is one. */
-    private static Optional<Path> folderOf(String text) {
-        String typed = text.strip();
-        if (typed.equals("~") || typed.startsWith("~/")) {
-            typed = System.getProperty("user.home") + typed.substring(1);
-        }
-        try {
-            Path path = Path.of(typed);
-            return typed.isEmpty() || !path.isAbsolute() ? Optional.empty() : Optional.of(path);
-        } catch (java.nio.file.InvalidPathException e) {
-            return Optional.empty();
-        }
     }
 
     /** Materializes the shown document's file, or asks for a file when no working tree holds it. */
@@ -2431,7 +2359,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
             return;
         }
         if (repoRoot == null || loaded == null || loaded.path() == null || !Files.isRegularFile(repoRoot.resolve(loaded.path()))) {
-            Optional<Path> chosen = workingTree(loaded == null ? shownPath : loaded.path());
+            Optional<Path> chosen = annotationTree(kind, member.document().anchor(), loaded == null ? shownPath : loaded.path());
             if (chosen.isEmpty()) {
                 return;
             }
@@ -2865,10 +2793,9 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
             statusLine.setText("An edit is pending: Commit… or Discard edit before changing the working tree.");
             return;
         }
-        askFolder("Create a Repository", "stampedDocumentNewRepositoryDialog",
-                "Create a repository, through your own git.",
-                "It stays on this machine until you add a remote and push. Nothing is committed yet.",
-                Files.exists(DocumentLibrary.root().resolve(".git")) ? null : DocumentLibrary.root(), GitOperations::initRefusal)
+        Path library = DocumentLibrary.root();
+        FolderPanel.show(window(), "Create a Repository", "Choose a folder for a new repository, or make one with New Folder.",
+                        Files.exists(library.resolve(".git")) ? library.getParent() : library, panelPlaces(repoRoot), DocumentRepository::making)
                 .ifPresent(this::createRepository);
     }
 
@@ -3216,10 +3143,10 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     /**
      * The working tree to commit into: the one known; else the one tree beside it that holds the
      * file, for a child included from another repository ({@link WorkingTrees}); else one the
-     * person chooses.
+     * person locates.
      */
     private Optional<Path> workingTree(String path) {
-        if (repoRoot != null && path != null && Files.isRegularFile(repoRoot.resolve(path))) {
+        if (holdsFile(path)) {
             return Optional.of(repoRoot);
         }
         if (repoRoot != null && path != null) {
@@ -3228,17 +3155,97 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
                 return Optional.of(beside.getFirst());
             }
         }
-        DirectoryChooser chooser = new DirectoryChooser();
-        chooser.setTitle("Working tree that holds " + path);
-        File chosen = chooser.showDialog(window());
-        if (chosen == null) {
+        return locateWorkingTree(path);
+    }
+
+    /**
+     * The working tree to annotate in: the one known, or, when none holds the file, what the
+     * person chooses in the folder panel. Choosing the repository that holds the file carries
+     * on; choosing any other folder takes a copy. The copy is a new document with a history of
+     * its own, so nothing is annotated yet and the person selects its lines again. An assembly
+     * can only be located, since a copy would lose its includes.
+     *
+     * @param kind   the annotation's kind
+     * @param anchor the document's anchor
+     * @param path   the file's repository-relative path, or {@code null} when none is recorded
+     * @return the working tree, or empty when the person cancelled or the copy is under way
+     */
+    private Optional<Path> annotationTree(AnnotationKind kind, PublicId anchor, String path) {
+        if (holdsFile(path)) {
+            return Optional.of(repoRoot);
+        }
+        if (path == null) {
+            return locateWorkingTree(path);
+        }
+        boolean copy = members.size() <= 1;
+        String name = Path.of(path).getFileName().toString();
+        Optional<DocumentRepository.Plan> plan = choosePlan("Your " + displayName(kind).toLowerCase() + " is recorded as a git commit. Choose the repository that holds "
+                + name + (copy ? ", or a folder for a copy." : "."), path, copy ? anchor : null);
+        if (plan.isEmpty()) {
             return Optional.empty();
         }
-        repoRoot = chosen.toPath();
-        DocumentNarratives.workingTreeOpened(repoRoot);
-        preferences().put(PREF_WORKING_TREE, repoRoot.toString());
-        syncPreferences();
-        return Optional.of(repoRoot);
+        if (plan.get().placement() == DocumentRepository.Placement.USE) {
+            useWorkingTree(plan.get().folder());
+            return Optional.of(repoRoot);
+        }
+        copyInto(anchor, name, plan.get().folder());
+        return Optional.empty();
+    }
+
+    /**
+     * Shows the folder panel, starting at the working tree known or the document library.
+     *
+     * @param asked  what the panel asks
+     * @param path   the file's repository-relative path
+     * @param copied the document a folder may take a copy of, or {@code null} when only the repository holding it will do
+     * @return the plan for the folder chosen, or empty when the person cancelled
+     */
+    private Optional<DocumentRepository.Plan> choosePlan(String asked, String path, PublicId copied) {
+        return FolderPanel.show(window(), "Choose a Repository", asked, repoRoot != null ? repoRoot : DocumentLibrary.root(), panelPlaces(repoRoot),
+                        folder -> plan(folder, path, copied))
+                .map(folder -> plan(folder, path, copied));
+    }
+
+    /**
+     * What choosing a folder would do. A document's identity is its repository folder's name and
+     * its path, not where the folder is, so a copy in a same-named repository at the same path
+     * would be read as the document itself, its unrelated history over the original's: refused.
+     */
+    private static DocumentRepository.Plan plan(Path folder, String path, PublicId copied) {
+        DocumentRepository.Plan plan = DocumentRepository.plan(folder, path, copied != null);
+        if (plan.placement() == DocumentRepository.Placement.COPY || plan.placement() == DocumentRepository.Placement.CREATE) {
+            Path root = GitRepo.findRoot(plan.folder()).orElse(plan.folder());
+            String relative = root.relativize(plan.folder().resolve(Path.of(path).getFileName())).toString();
+            if (GitDocumentMaterializer.documentAnchor(root, relative).equals(copied)) {
+                return DocumentRepository.refused(plan.folder(), "Komet would read a copy here as this same document, because the repository's folder name and the "
+                        + "file's path match it. Choose a folder with another name.");
+            }
+        }
+        return plan;
+    }
+
+    /** Whether the known working tree holds a repository-relative path. */
+    private boolean holdsFile(String path) {
+        return repoRoot != null && path != null && Files.isRegularFile(repoRoot.resolve(path));
+    }
+
+    /** Asks for the repository that holds a file, saying why and refusing a folder that does not. */
+    private Optional<Path> locateWorkingTree(String path) {
+        if (path == null) {
+            statusLine.setText("The document records no file in a repository; Open file… names one.");
+            return Optional.empty();
+        }
+        return choosePlan("This is recorded as a git commit. Choose the repository that holds " + path + ".", path, null).map(plan -> {
+            useWorkingTree(plan.folder());
+            return repoRoot;
+        });
+    }
+
+    /** Copies the document's committed text into a folder, making its repository when needed, and opens the copy. */
+    private void copyInto(PublicId anchor, String name, Path folder) {
+        statusLine.setText("Copying " + name + " into " + folder + " …");
+        openPlaced(name, folder, " Select the lines again to annotate them.", () -> DocumentRepository.placeCopy(name,
+                GitDocumentExporter.export(anchor).orElseThrow(() -> new IOException("the store holds no text for " + name)).text(), folder));
     }
 
     /**
