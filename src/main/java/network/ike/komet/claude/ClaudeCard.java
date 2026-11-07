@@ -562,7 +562,7 @@ public final class ClaudeCard extends AbstractHostCard {
     private void openBeside(PublicId anchor) {
         var showing = network.ike.komet.claude.stamp.StampedDocumentCard.showing(anchor);
         if (showing != null) {
-            showing.fxObject().toFront();
+            dev.ikm.komet.layout_engine.window.RevealWindowEvent.reveal(showing.fxObject());
             return;
         }
         UUID journalTopic = getJournalTopic();

@@ -18,9 +18,11 @@ package network.ike.komet.claude.stamp;
 import design.knowledge.stamp.adoc.git.GitRepo;
 import dev.ikm.komet.layout.tray.KlSidebarTray;
 import dev.ikm.komet.layout_engine.host.MakeCardWindowEvent;
+import dev.ikm.komet.layout_engine.window.RevealWindowEvent;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.events.EvtBusFactory;
+import javafx.animation.PauseTransition;
 import javafx.application.Platform;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
@@ -44,6 +46,7 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import javafx.util.Duration;
 import network.ike.komet.claude.doc.ReadingMeasure;
 import network.ike.komet.claude.ui.MarkdownEditPane;
 import network.ike.komet.claude.ui.MarkdownRichText;
@@ -421,11 +424,15 @@ final class DocumentNavigatorTray implements KlSidebarTray {
         selected().filter(DocumentLibrary::isDocument).ifPresent(this::open);
     }
 
-    /** Brings a card showing the file forward, or opens one in this journal. */
+    /**
+     * Shows the card already showing the file, or opens one in this journal. Either way the
+     * journal scrolls to the card and flashes it, so the person sees where the document is.
+     */
     private void open(Path file) {
         StampedDocumentCard showing = StampedDocumentCard.showingFile(file);
         if (showing != null) {
-            showing.fxObject().toFront();
+            RevealWindowEvent.reveal(showing.fxObject());
+            flashStatus(file.getFileName() + " is already open: shown on its card.");
             return;
         }
         status.setText("Opening " + file.getFileName() + " …");
@@ -435,7 +442,20 @@ final class DocumentNavigatorTray implements KlSidebarTray {
                 card -> Platform.runLater(() -> {
                     status.setText("");
                     ((StampedDocumentCard) card).openReading(file);
+                    RevealWindowEvent.reveal(card.fxObject());
                 })));
+    }
+
+    /** Shows a message on the status line for a few seconds, unless another replaces it first. */
+    private void flashStatus(String message) {
+        status.setText(message);
+        PauseTransition clear = new PauseTransition(Duration.seconds(4));
+        clear.setOnFinished(_ -> {
+            if (message.equals(status.getText())) {
+                status.setText("");
+            }
+        });
+        clear.play();
     }
 
     /**
