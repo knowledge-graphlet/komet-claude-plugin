@@ -39,6 +39,7 @@ import dev.ikm.tinkar.entity.transaction.Transaction;
 import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.State;
 import network.ike.foundation.ike.bindings.IkePattern;
+import network.ike.komet.claude.HeadlessFx;
 import network.ike.komet.claude.anf.AddAnfStatement;
 import network.ike.komet.claude.anf.AnfAdoc;
 import network.ike.komet.claude.anf.AnfProjection;
@@ -115,6 +116,7 @@ class GraphletModelWritesIT {
         PrimitiveData.selectControllerByName("Load Memory-Only 64-bit Store");
         PrimitiveData.start();
         try {
+            HeadlessFx.select();
             javafx.application.Platform.startup(() -> { });
         } catch (IllegalStateException alreadyStarted) {
             // the toolkit outlives a test class

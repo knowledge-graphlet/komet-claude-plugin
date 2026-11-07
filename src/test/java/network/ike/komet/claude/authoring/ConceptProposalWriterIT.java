@@ -37,6 +37,7 @@ import dev.ikm.komet.framework.observable.ObservableSemantic;
 import dev.ikm.komet.framework.observable.ObservableSemanticVersion;
 import dev.ikm.tinkar.terms.EntityProxy;
 import dev.ikm.tinkar.terms.State;
+import network.ike.komet.claude.HeadlessFx;
 import network.ike.komet.claude.authoring.ConceptProposalWriter.Draft;
 import network.ike.komet.claude.authoring.ConceptProposalWriter.Edit;
 import network.ike.komet.claude.authoring.ConceptProposalWriter.Edited;
@@ -88,6 +89,7 @@ class ConceptProposalWriterIT {
     @BeforeAll
     void setup() {
         try {
+            HeadlessFx.select();
             Platform.startup(() -> { });
         } catch (IllegalStateException alreadyStarted) {
             // Started by another test class in this JVM.

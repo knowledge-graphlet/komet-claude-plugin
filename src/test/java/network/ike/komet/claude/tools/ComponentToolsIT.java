@@ -40,6 +40,7 @@ import dev.ikm.tinkar.terms.KernelPattern;
 import javafx.application.Platform;
 import javafx.scene.Node;
 import javafx.scene.image.ImageView;
+import network.ike.komet.claude.HeadlessFx;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.authoring.ConceptProposalTools;
 import network.ike.komet.claude.koncept.ComponentText;
@@ -101,6 +102,7 @@ class ComponentToolsIT {
     @BeforeAll
     void setup() {
         try {
+            HeadlessFx.select();
             Platform.startup(() -> { });
         } catch (IllegalStateException alreadyStarted) {
             // Started by another test class in this JVM.

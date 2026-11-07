@@ -37,6 +37,7 @@ import dev.ikm.tinkar.terms.KernelConcept;
 import dev.ikm.tinkar.terms.KernelPattern;
 import dev.ikm.tinkar.terms.PatternFacade;
 import javafx.application.Platform;
+import network.ike.komet.claude.HeadlessFx;
 import network.ike.komet.claude.authoring.PatternProposalWriter.Field;
 import network.ike.komet.claude.authoring.SemanticProposalWriter.Draft;
 import network.ike.komet.claude.authoring.SemanticProposalWriter.Status;
@@ -82,6 +83,7 @@ class SemanticProposalWriterIT {
     @BeforeAll
     void setup() {
         try {
+            HeadlessFx.select();
             Platform.startup(() -> { });
         } catch (IllegalStateException alreadyStarted) {
             // Started by another test class in this JVM.

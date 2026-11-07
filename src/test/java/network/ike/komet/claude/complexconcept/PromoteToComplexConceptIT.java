@@ -46,6 +46,7 @@ import dev.ikm.tinkar.terms.State;
 import javafx.application.Platform;
 import network.ike.foundation.ike.bindings.IkeConcept;
 import network.ike.foundation.ike.bindings.IkePattern;
+import network.ike.komet.claude.HeadlessFx;
 import network.ike.komet.claude.anf.model.AnfExpression;
 import network.ike.komet.claude.anf.model.AnfExpressionBuilder;
 import network.ike.komet.claude.anf.model.AnfSemantic;
@@ -91,6 +92,7 @@ class PromoteToComplexConceptIT {
     @BeforeAll
     void startStore() {
         try {
+            HeadlessFx.select();
             Platform.startup(() -> { });
         } catch (IllegalStateException alreadyStarted) {
             // Started by another test class in this JVM.

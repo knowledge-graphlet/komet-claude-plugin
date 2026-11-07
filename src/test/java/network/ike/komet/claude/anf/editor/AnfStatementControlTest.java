@@ -32,6 +32,7 @@ import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.layout.StackPane;
 import network.ike.foundation.ike.bindings.IkeConcept;
+import network.ike.komet.claude.HeadlessFx;
 import network.ike.komet.claude.anf.model.AnfExpression;
 import network.ike.komet.claude.anf.model.AnfExpressionBuilder;
 import network.ike.komet.claude.anf.model.AnfSemantic;
@@ -80,6 +81,7 @@ class AnfStatementControlTest {
     @BeforeAll
     static void start() {
         try {
+            HeadlessFx.select();
             Platform.startup(() -> { });
         } catch (IllegalStateException alreadyStarted) {
             // Started by another test class in this JVM.

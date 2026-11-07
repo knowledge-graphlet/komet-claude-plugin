@@ -24,6 +24,7 @@ import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.KernelPattern;
 import javafx.application.Platform;
+import network.ike.komet.claude.HeadlessFx;
 import network.ike.komet.claude.authoring.ConceptProposalTools;
 import network.ike.komet.claude.koncept.ComponentText;
 import org.junit.jupiter.api.AfterAll;
@@ -56,6 +57,7 @@ class PatternGraphRestoreIT {
     @BeforeAll
     void setup() {
         try {
+            HeadlessFx.select();
             Platform.startup(() -> { });
         } catch (IllegalStateException alreadyStarted) {
             // Started by another test class in this JVM.

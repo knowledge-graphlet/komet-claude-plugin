@@ -27,6 +27,7 @@ import dev.ikm.tinkar.entity.boundary.CommitBoundary;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.terms.KernelPattern;
 import javafx.application.Platform;
+import network.ike.komet.claude.HeadlessFx;
 import network.ike.komet.claude.stamp.VertexMaterializer;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
@@ -57,6 +58,7 @@ class JournalPatternSeedingIT {
     @BeforeAll
     void setupDatabase() {
         try {
+            HeadlessFx.select();
             Platform.startup(() -> { });
         } catch (IllegalStateException alreadyStarted) {
             // Started by another test class in this JVM.

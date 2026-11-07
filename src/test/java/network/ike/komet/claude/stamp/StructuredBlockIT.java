@@ -29,6 +29,7 @@ import javafx.scene.Parent;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextArea;
+import network.ike.komet.claude.HeadlessFx;
 import network.ike.komet.claude.doc.BlockFactory;
 import network.ike.komet.claude.doc.DocumentSurface;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredBlock;
@@ -127,6 +128,7 @@ class StructuredBlockIT {
     void setup() {
         assertTrue(PB_STARTER_DATA.exists(), "Starter data must be present at " + PB_STARTER_DATA.getAbsolutePath());
         try {
+            HeadlessFx.select();
             Platform.startup(() -> { });
         } catch (IllegalStateException alreadyStarted) {
             // Started by another test class in this JVM.

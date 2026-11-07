@@ -46,6 +46,7 @@ import dev.ikm.tinkar.terms.KernelConcept;
 import dev.ikm.tinkar.terms.KernelPattern;
 import dev.ikm.tinkar.terms.State;
 import javafx.application.Platform;
+import network.ike.komet.claude.HeadlessFx;
 import network.ike.komet.claude.authoring.ConceptChangeWriter.Change;
 import network.ike.komet.claude.authoring.ConceptChangeWriter.DefinitionEdited;
 import network.ike.komet.claude.authoring.ConceptChangeWriter.DescriptionsEdited;
@@ -125,6 +126,7 @@ class ConceptChangeWriterIT {
     @BeforeAll
     void setup() {
         try {
+            HeadlessFx.select();
             Platform.startup(() -> { });
         } catch (IllegalStateException alreadyStarted) {
             // Started by another test class in this JVM.

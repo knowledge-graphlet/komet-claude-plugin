@@ -23,6 +23,7 @@ import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import network.ike.foundation.ike.bindings.IkePattern;
+import network.ike.komet.claude.HeadlessFx;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.decision.DecisionTreeWrites;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredDocument;
@@ -102,6 +103,7 @@ class PairedDocumentIT {
         PrimitiveData.selectControllerByName("Load Memory-Only 64-bit Store");
         PrimitiveData.start();
         try {
+            HeadlessFx.select();
             javafx.application.Platform.startup(() -> { });
         } catch (IllegalStateException alreadyStarted) {
             // the toolkit outlives a test class

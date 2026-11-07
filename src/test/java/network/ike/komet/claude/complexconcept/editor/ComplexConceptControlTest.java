@@ -27,6 +27,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.layout.StackPane;
 import network.ike.foundation.ike.bindings.IkeConcept;
+import network.ike.komet.claude.HeadlessFx;
 import network.ike.komet.claude.anf.editor.AnfStatementControl;
 import network.ike.komet.claude.anf.model.AnfExpression;
 import network.ike.komet.claude.anf.model.AnfExpressionBuilder;
@@ -79,6 +80,7 @@ class ComplexConceptControlTest {
     @BeforeAll
     static void start() {
         try {
+            HeadlessFx.select();
             Platform.startup(() -> { });
         } catch (IllegalStateException alreadyStarted) {
             // Started by another test class in this JVM.

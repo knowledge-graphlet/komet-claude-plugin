@@ -34,6 +34,7 @@ import dev.ikm.tinkar.entity.transaction.Transaction;
 import dev.ikm.tinkar.terms.KernelConcept;
 import dev.ikm.tinkar.terms.KernelPattern;
 import javafx.application.Platform;
+import network.ike.komet.claude.HeadlessFx;
 import network.ike.komet.claude.authoring.ConceptProposalWriter.Synonym;
 import network.ike.komet.claude.authoring.PatternProposalWriter.Draft;
 import network.ike.komet.claude.authoring.PatternProposalWriter.Field;
@@ -75,6 +76,7 @@ class PatternProposalWriterIT {
     @BeforeAll
     void setup() {
         try {
+            HeadlessFx.select();
             Platform.startup(() -> { });
         } catch (IllegalStateException alreadyStarted) {
             // Started by another test class in this JVM.

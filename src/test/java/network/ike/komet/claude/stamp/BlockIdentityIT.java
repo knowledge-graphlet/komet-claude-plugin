@@ -31,6 +31,7 @@ import dev.ikm.tinkar.entity.transaction.Transaction;
 import dev.ikm.tinkar.terms.KernelPattern;
 import network.ike.foundation.ike.bindings.IkeConcept;
 import network.ike.foundation.ike.bindings.IkePattern;
+import network.ike.komet.claude.HeadlessFx;
 import network.ike.komet.claude.block.LocalConcepts;
 import network.ike.komet.claude.complexconcept.ComplexConceptWrites;
 import network.ike.komet.claude.decision.DecisionTreeWrites;
@@ -93,6 +94,7 @@ class BlockIdentityIT {
         PrimitiveData.selectControllerByName("Load Memory-Only 64-bit Store");
         PrimitiveData.start();
         try {
+            HeadlessFx.select();
             javafx.application.Platform.startup(() -> { });
         } catch (IllegalStateException alreadyStarted) {
             // the toolkit outlives a test class

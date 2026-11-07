@@ -34,6 +34,7 @@ import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.terms.EntityProxy;
 import network.ike.foundation.ike.bindings.IkeConcept;
 import network.ike.foundation.ike.bindings.IkePattern;
+import network.ike.komet.claude.HeadlessFx;
 import org.eclipse.collections.api.factory.Lists;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -95,6 +96,7 @@ class DocumentEditingIT {
         PrimitiveData.selectControllerByName("Load Memory-Only 64-bit Store");
         PrimitiveData.start();
         try {
+            HeadlessFx.select();
             javafx.application.Platform.startup(() -> { });
         } catch (IllegalStateException alreadyStarted) {
             // the toolkit outlives a test class

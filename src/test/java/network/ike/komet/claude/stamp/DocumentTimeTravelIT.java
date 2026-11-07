@@ -24,6 +24,7 @@ import dev.ikm.tinkar.coordinate.Coordinates;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import javafx.application.Platform;
+import network.ike.komet.claude.HeadlessFx;
 import network.ike.komet.claude.doc.BlockFactory;
 import network.ike.komet.claude.doc.DocumentSurface;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredBlock;
@@ -94,6 +95,7 @@ class DocumentTimeTravelIT {
     void setup() {
         assertTrue(PB_STARTER_DATA.exists(), "Starter data must be present at " + PB_STARTER_DATA.getAbsolutePath());
         try {
+            HeadlessFx.select();
             Platform.startup(() -> { });
         } catch (IllegalStateException alreadyStarted) {
             // Started by another test class in this JVM.
