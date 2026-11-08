@@ -138,6 +138,31 @@ public final class BlockConcepts {
         });
     }
 
+    /**
+     * Joins the unpublished change that writes components what follows depends on without
+     * writing them, so that change and what follows publish together and nothing publishes a
+     * reference to a component that is not published
+     * ({@link ObservableComposer#continuePendingWorkOf}). Call before writing.
+     *
+     * @param components the components what follows depends on
+     * @return true when none of them is left unpublished in another change; false, with nothing
+     *         changed, when one is held by a change this writer cannot join
+     */
+    public boolean continuePendingWorkOf(EntityFacade... components) {
+        return ConceptProposalTools.onFxThread(() -> composer().continuePendingWorkOf(components));
+    }
+
+    /**
+     * Takes back the version of one semantic written here, leaving the rest of the change: what a
+     * failed write undoes once it has joined another change, whose work is not its own to discard
+     * ({@link ObservableComposer#withdraw}).
+     *
+     * @param semantic the semantic whose version written here is taken back
+     */
+    public void withdraw(long semantic) {
+        ConceptProposalTools.onFxThread(() -> composer != null && composer.withdraw(semantic));
+    }
+
     /** Takes back everything written, when the block turns out not to be writable. */
     public void rollback() {
         ConceptProposalTools.onFxThread(() -> {

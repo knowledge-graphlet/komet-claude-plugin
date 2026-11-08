@@ -41,6 +41,7 @@ import dev.ikm.tinkar.entity.transaction.StampedWriter;
 import dev.ikm.tinkar.entity.transaction.Transaction;
 import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityProxy;
+import dev.ikm.tinkar.terms.KernelConcept;
 import dev.ikm.tinkar.terms.KernelPattern;
 import dev.ikm.tinkar.terms.State;
 import javafx.application.Platform;
@@ -263,6 +264,46 @@ class PromoteToComplexConceptIT {
         assertEquals(concept, promotedTopic(second).nid(), "the name means one concept, its case and spacing aside");
         assertEquals(1, semantics(concept, IkePattern.COMPLEX_CONCEPT_PATTERN.nid()).size(), "one specification");
         assertEquals(1, semantics(concept, KernelPattern.EL_PLUS_PLUS_STATED_AXIOMS_PATTERN.nid()).size(), "one stated definition");
+    }
+
+    @Test
+    void aSecondPromotionBeforePublishingPublishesWithTheConceptItNames() {
+        long first = committedStatement("first, unpublished", composedTopic());
+        long second = committedStatement("second, before the first is published", composedTopic());
+        KometAction promote = KometActions.expect(KometConcept.PROMOTE_TO_COMPLEX_CONCEPT);
+        assertTrue(promote.perform(PromoteToComplexConcept.input(first, "Upright systolic pressure"), view, edit).completed());
+
+        KometActionResult secondResult = promote.perform(PromoteToComplexConcept.input(second, "Upright systolic pressure"),
+                view, edit);
+
+        assertTrue(secondResult.completed(), secondResult.message());
+        long concept = promotedTopic(second).nid();
+        assertFalse(EntityHandle.get(concept).expectEntity().committed(), "the concept is still unpublished");
+        Transaction secondChange = Transaction.forVersion(view.latest(second).get()).orElseThrow();
+        secondChange.commit();
+        assertTrue(EntityHandle.get(second).expectEntity().committed(), "publishing the second promotion publishes its statement");
+        assertTrue(EntityHandle.get(concept).expectEntity().committed(),
+                "and the concept the statement names, never the statement before the concept");
+        assertTrue(EntityHandle.get(first).expectEntity().committed(), "the first promotion is part of the same change");
+    }
+
+    @Test
+    void aConceptUnpublishedInAnotherAuthorsChangeIsRefused() {
+        long first = committedStatement("another author's", composedTopic());
+        long second = committedStatement("mine, after another author's", composedTopic());
+        KometAction promote = KometActions.expect(KometConcept.PROMOTE_TO_COMPLEX_CONCEPT);
+        EditCoordinateRecord otherAuthor = EditCoordinateRecord.make(KernelConcept.KOMET_USER.nid(),
+                edit.getDefaultModuleNid(), edit.getDefaultPathNid());
+        KometActionResult firstResult = promote.perform(PromoteToComplexConcept.input(first, "Reclining systolic pressure"),
+                view, otherAuthor);
+        assertTrue(firstResult.completed(), firstResult.message());
+
+        KometActionResult refused = promote.perform(PromoteToComplexConcept.input(second, "Reclining systolic pressure"),
+                view, edit);
+
+        assertEquals(KometConcept.ACTION_REFUSED.nid(), refused.outcome().nid(), refused.message());
+        assertTrue(refused.message().contains("publish or discard it first"), refused.message());
+        assertEquals(1, ((SemanticEntity<?>) EntityHandle.get(second).orNull()).versions().size(), "nothing was written");
     }
 
     @Test

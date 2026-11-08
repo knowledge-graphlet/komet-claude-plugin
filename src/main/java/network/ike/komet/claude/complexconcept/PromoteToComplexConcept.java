@@ -21,6 +21,7 @@ import dev.ikm.komet.actions.KometActionResult;
 import dev.ikm.komet.terms.KometConcept;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
+import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.edit.EditCoordinate;
 import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
@@ -48,6 +49,7 @@ import network.ike.komet.claude.complexconcept.model.ComplexConceptExpression;
 import network.ike.komet.claude.stamp.SemanticVersions;
 import org.eclipse.collections.api.factory.Lists;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -73,15 +75,20 @@ import java.util.OptionalLong;
  *     concept editor finishes with the prerequisites the composition implies;</li>
  *     <li>a new version of the statement, in its own module, whose topic is the concept.</li>
  * </ol>
+ * When the concept or its specification is itself unpublished, written by an earlier promotion
+ * under the same name, this promotion joins that change instead of starting its own
+ * ({@link BlockConcepts#continuePendingWorkOf}), so one commit publishes the concept with every
+ * statement that names it, and no statement can be published before the concept it names.
  * The result takes the {@code Version change result pattern}: the STAMP of the statement's new
  * version, and a message naming the concept's public id.
  *
  * <p>Refused, with nothing written: a subject that is not an ANF statement, a blank name, a
  * statement with no topic, a topic that is already a single concept, a composition that names no
  * parent concept to focus the expansion on, a statement with an edit pending, since the promotion
- * is one change and does not stack on another, and a name whose concept already specifies another
+ * is one change and does not stack on another, a name whose concept already specifies another
  * composition, since the same name with a different definition is the person's question, usually
- * answered with a better name.
+ * answered with a better name, and a name whose concept is unpublished in a change the promotion
+ * cannot join (another author's, module's or path's), which must be published or discarded first.
  */
 public final class PromoteToComplexConcept implements KometAction {
 
@@ -158,6 +165,17 @@ public final class PromoteToComplexConcept implements KometAction {
         ConceptFacade promotedConcept = EntityProxy.Concept.make(name, complexConcept);
         BlockConcepts writer = new BlockConcepts(concept().description() + ": " + name, view, author,
                 IkeConcept.COMPLEX_CONCEPTS_MODULE, path);
+        List<EntityFacade> dependencies = new ArrayList<>();
+        if (!lacking) {
+            dependencies.add(promotedConcept);
+        }
+        specified.ifPresent(specification -> dependencies.add(EntityProxy.make(specification)));
+        boolean joined = dependencies.stream().anyMatch(dependency -> EntityHandle.get(dependency.nid()).expectEntity().uncommitted());
+        if (joined && !writer.continuePendingWorkOf(dependencies.toArray(EntityFacade[]::new))) {
+            return KometActionResult.refused(input, "“" + name + "” is unpublished in a change this promotion"
+                    + " cannot join (another author's, module's or path's, or more than one); publish or discard it"
+                    + " first, so the statement never publishes before the concept it names.");
+        }
         try {
             if (lacking) {
                 writer.concept(complexConcept, name, List.of(), primitiveBelow(parent.get()));
@@ -180,10 +198,24 @@ public final class PromoteToComplexConcept implements KometAction {
                     + name + ", " + complexConcept.idString() + (specified.isPresent()
                     ? ", which already specifies this composition;"
                     : ", whose focused expansion on " + parent.get().description()
-                    + " is finished in the complex concept editor;") + " uncommitted, commit to keep it.");
+                    + " is finished in the complex concept editor;") + " uncommitted, commit to keep it"
+                    + (joined ? ", in the unpublished change that writes the concept, so one commit publishes both." : "."));
         } catch (RuntimeException e) {
-            writer.rollback();
+            if (joined) {
+                // The change is the earlier promotion's too: take back only what this one wrote.
+                withdrawWritten(writer, ComplexConceptWrites.specificationId(complexConcept), specified.isEmpty());
+                withdrawWritten(writer, record.publicId(), true);
+            } else {
+                writer.rollback();
+            }
             return KometActionResult.failed(input, "Could not promote the topic: " + e.getMessage());
+        }
+    }
+
+    /** Takes back a semantic's version written by this promotion, when it wrote one. */
+    private static void withdrawWritten(BlockConcepts writer, PublicId semantic, boolean written) {
+        if (written && PrimitiveData.get().hasPublicId(semantic)) {
+            writer.withdraw(PrimitiveData.nid(semantic));
         }
     }
 
