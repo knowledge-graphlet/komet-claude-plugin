@@ -728,8 +728,9 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         OPEN.add(new WeakReference<>(this));
         // The Document surface (#808) as a KlArea (#839), on a stable child preferences node, as the
         // Claude card hosts it: the area owns the print settings and the expand-to-paged-preview
-        // affordance; the view stacks the document's blocks on the area's surface.
-        documentArea = DocumentSurfaceArea.restore(preferences().node(DocumentSurfaceArea.class));
+        // affordance; the view stacks the document's blocks on the area's surface. Named by the class's simple
+        // name: node(Class) is the class's package path, one absolute node every card shared.
+        documentArea = DocumentSurfaceArea.restore(preferences().node(DocumentSurfaceArea.class.getSimpleName()));
         // The pages' running head: the document's title, as the Reading view's header and the PDF name it; the
         // store's name for the document before a title is known.
         documentArea.setRunningHeadSupplier(() -> shown != null && !shown.attributes().isEmpty() && !shown.attributes().getFirst().isBlank()

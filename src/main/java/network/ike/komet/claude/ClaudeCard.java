@@ -1436,8 +1436,9 @@ public final class ClaudeCard extends AbstractHostCard {
         // (KlExpandable), whose full-surface view is the paged print layout with the preferences
         // toggle. The card keeps the conversation and drives the surface through the area.
         // A STABLE child node (deterministic by class), so print settings persist across sessions —
-        // the create factory would mint a fresh sequentially-unique node each launch.
-        documentArea = DocumentSurfaceArea.restore(preferences().node(DocumentSurfaceArea.class));
+        // the create factory would mint a fresh sequentially-unique node each launch. Named by the class's
+        // simple name: node(Class) is the class's package path, one absolute node every card shared.
+        documentArea = DocumentSurfaceArea.restore(preferences().node(DocumentSurfaceArea.class.getSimpleName()));
         documentArea.setRunningHeadSupplier(() -> active == null || active.name == null ? "" : active.name);
         documentArea.restoreSettings();
         surface = documentArea.surface();
