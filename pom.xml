@@ -72,6 +72,12 @@
         <!-- stamp-adoc-core (ike-issues#468); komet-desktop stages the same version into plugins/. -->
         <stamp-adoc-core.version>1.2.0-SNAPSHOT</stamp-adoc-core.version>
         <test.excludedGroups>external</test.excludedGroups>
+        <!-- How many test JVMs run at once, unit tests and integration tests alike; each test class
+             still gets a fresh JVM (reuseForks=false from ike-parent). No class depends on another:
+             each starts its own ephemeral store and writes under its own names. This plugin's tests
+             are the tail of the working-set build, so they decide its length (ike-issues#1351).
+             -Dtests.forkCount=1 runs them one at a time. -->
+        <tests.forkCount>0.5C</tests.forkCount>
         <!-- The unit tests' JVM options, which ike-parent's surefire argLine takes in: JavaFX logs
              through JUL, which goes to stderr unless log4j's JUL manager takes it, as it does in
              the integration tests; the core adapter honors the JUnit provider's setLevel call. -->
@@ -306,6 +312,7 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <excludedGroups>${test.excludedGroups}</excludedGroups>
+                    <forkCount>${tests.forkCount}</forkCount>
                 </configuration>
             </plugin>
             <!-- Evrete annotated rules bind facts to rule-method parameters by name,
@@ -386,6 +393,7 @@
                             <goal>verify</goal>
                         </goals>
                         <configuration>
+                            <forkCount>${tests.forkCount}</forkCount>
                             <includes>
                                 <include>**/*IT.java</include>
                             </includes>
