@@ -48,7 +48,8 @@ public final class NarratorIdentity {
     /** Fixed namespace for the narrator's deterministic (UUID5) identity ids. */
     private static final UUID NAMESPACE = UUID.fromString("a7d3e8f0-2b14-4c96-9e5a-1f0c8b2d6e34");
 
-    private static final String NARRATOR_AUTHOR_NAME = "Komet Narrator (Claude)";
+    /** The narrator author's name, as its concept's description and as a git annotation names it. */
+    public static final String NARRATOR_AUTHOR_NAME = "Komet Narrator (Claude)";
     private static final String NARRATION_MODULE_NAME = "Narration";
 
     /** The author concept under which the narrator commits its comments. */

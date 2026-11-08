@@ -17,6 +17,9 @@ package network.ike.komet.claude.narrator;
 
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.entity.transaction.StampedWriter;
+import dev.ikm.tinkar.common.id.PublicId;
+import dev.ikm.tinkar.common.service.PrimitiveData;
+import dev.ikm.tinkar.common.util.uuid.UuidT5Generator;
 import dev.ikm.tinkar.terms.EntityProxy;
 import dev.ikm.tinkar.terms.KernelPattern;
 import dev.ikm.tinkar.terms.State;
@@ -36,13 +39,35 @@ import dev.ikm.tinkar.terms.State;
 public final class CommentWriter {
 
     /**
+     * The identity of the narration of one component's change under a STAMP: derived, so narrating the
+     * same change again lands on the same component and never adds a second (IKE-Network/ike-issues#1355).
+     *
+     * @param stamp     the narrated commit's STAMP
+     * @param component the component narrated, or {@code null} for a roll-up of the whole commit
+     * @return the narration's identity
+     */
+    public static PublicId narrationId(PublicId stamp, PublicId component) {
+        return PublicIds.of(UuidT5Generator.get(stamp.asUuidArray()[0],
+                component == null ? "narration" : "narration:" + component.asUuidArray()[0]));
+    }
+
+    /**
+     * @param id a narration's identity
+     * @return whether the store already contains it
+     */
+    public static boolean narrated(PublicId id) {
+        return PrimitiveData.get().hasPublicId(id);
+    }
+
+    /**
      * Writes one comment referencing {@code targetStampNid}, authored by the narrator identity.
      * No-op if the narrative is blank.
      *
+     * @param id             the narration's identity ({@link #narrationId})
      * @param targetStampNid the STAMP nid the comment is about (the commit being narrated)
      * @param narrative      the comment text
      */
-    public void writeComment(long targetStampNid, String narrative) {
+    public void writeComment(PublicId id, long targetStampNid, String narrative) {
         if (narrative == null || narrative.isBlank()) {
             return;
         }
@@ -54,7 +79,7 @@ public final class CommentWriter {
                 NarratorIdentity.NARRATOR_AUTHOR,
                 NarratorIdentity.NARRATION_MODULE,
                 NarratorIdentity.NARRATION_PATH)) {
-            writer.semantic(PublicIds.newRandom(), KernelPattern.COMMENT_PATTERN.publicId(),
+            writer.semantic(id, KernelPattern.COMMENT_PATTERN.publicId(),
                     EntityProxy.make(targetStampNid), narrative);
             writer.commit();
         }

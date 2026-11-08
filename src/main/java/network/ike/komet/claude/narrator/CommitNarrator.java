@@ -15,6 +15,15 @@
  */
 package network.ike.komet.claude.narrator;
 
+import dev.ikm.tinkar.common.id.PublicId;
+import design.knowledge.stamp.adoc.git.AnnotationCommit;
+import design.knowledge.stamp.adoc.identity.GitIdentityAdapter;
+import design.knowledge.stamp.adoc.model.Annotation;
+import design.knowledge.stamp.adoc.model.AnnotationKind;
+import design.knowledge.stamp.adoc.model.AnnotationTarget;
+import design.knowledge.stamp.adoc.model.KonceptRef;
+import network.ike.komet.document.DocumentCommits;
+import network.ike.komet.document.GitDocumentMaterializer;
 import dev.ikm.komet.preferences.PreferencesService;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
@@ -37,10 +46,13 @@ import network.ike.komet.claude.tools.GraphTools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 
 /**
  * Listens for graph commits and, for each worthy commit, narrates the change with Claude and
@@ -55,11 +67,15 @@ import java.util.concurrent.Executors;
  * recognizes and skips it (by author/module) <em>before</em> any work is scheduled, so the
  * synchronous bus cannot recurse.
  * <p>
- * Only knowledge commits are narrated. A commit under an ephemeral module, such as a stamped
- * document materialized from git, is contained in its git repository, not in the shared change
- * sets, so a knowledge comment on it would refer to ephemeral data, which the commit boundary
- * refuses (IKE-Network/ike-issues#1355). Its narration belongs in the document's git repository,
- * under the document's module; until it is written there, such a commit is not narrated.
+ * Store commits are narrated only when knowledge. A commit under an ephemeral module, such as a
+ * stamped document rebuilt from git, is not narrated from the store at all: a rebuild is transparent
+ * (IKE-Network/ike-issues#1355). A stamped document a person commits to git through Komet is narrated
+ * from that commit instead ({@link DocumentCommits}): the narration is written to the document's git
+ * repository as a comment on the commit's STAMP, authored by the narrator, and comes into the store,
+ * under the document's module, with every rebuild.
+ * <p>
+ * Every narration's identity is derived from the STAMP it narrates ({@link CommentWriter#narrationId}),
+ * so a change is narrated once: one already in the store is not asked of Claude again.
  */
 public final class CommitNarrator {
 
@@ -90,6 +106,7 @@ public final class CommitNarrator {
     });
     private final EvtBus bus = EvtBusFactory.getDefaultEvtBus();
     private final Subscriber<CommitEvent> subscriber = this::onCommit;
+    private final Consumer<DocumentCommits.Committed> documentCommits = this::onDocumentCommit;
     private final GraphTools graphTools = new GraphTools(Calculators.View::Default);
     private final CommentWriter commentWriter = new CommentWriter();
 
@@ -110,11 +127,13 @@ public final class CommitNarrator {
     /** Subscribes the narrator to commit events. */
     public void subscribe() {
         bus.subscribe(FrameworkTopics.COMMIT_TOPIC, CommitEvent.class, subscriber);
+        DocumentCommits.listen(documentCommits);
     }
 
     /** Unsubscribes and stops the worker thread. */
     public void shutdown() {
         bus.unsubscribe(FrameworkTopics.COMMIT_TOPIC, CommitEvent.class, subscriber);
+        DocumentCommits.stopListening(documentCommits);
         worker.shutdownNow();
     }
 
@@ -208,11 +227,15 @@ public final class CommitNarrator {
         if (!narratable(stampNid)) {
             return;
         }
+        PublicId id = CommentWriter.narrationId(Entity.getStamp(stampNid).publicId(), optEntity.get().publicId());
+        if (CommentWriter.narrated(id)) {
+            return;                                      // narrated once already: not asked again
+        }
         String context = componentContext(componentNid, versions, view);
         String narrative = client.ask(SYSTEM_PROMPT, graphTools.tools(),
                 "A curator just committed a change.\n" + context
                         + "\n\nWrite a short, SME-readable note about what changed.");
-        commentWriter.writeComment(stampNid, narrative);
+        commentWriter.writeComment(id, stampNid, narrative);
     }
 
     private void narrateBulk(CommitEvent evt, AnthropicClient client, ViewCalculator view, long[] components) {
@@ -226,6 +249,10 @@ public final class CommitNarrator {
         if (rollUpStamp == 0) {
             return;
         }
+        PublicId id = CommentWriter.narrationId(Entity.getStamp(rollUpStamp).publicId(), null);
+        if (CommentWriter.narrated(id)) {
+            return;
+        }
         StringBuilder sb = new StringBuilder();
         sb.append(components.length).append(" components changed in transaction '")
                 .append(evt.transactionName()).append("'. Examples: ");
@@ -236,7 +263,62 @@ public final class CommitNarrator {
         String narrative = client.ask(SYSTEM_PROMPT, graphTools.tools(),
                 "A bulk change was just committed.\n" + sb
                         + "\n\nWrite a single short roll-up note summarizing the change.");
-        commentWriter.writeComment(rollUpStamp, narrative);
+        commentWriter.writeComment(id, rollUpStamp, narrative);
+    }
+
+    // Runs on the thread that committed the document: stay cheap, then offload.
+    private void onDocumentCommit(DocumentCommits.Committed committed) {
+        String key = apiKey();
+        if (key.isBlank()) {
+            return;
+        }
+        String model = model();
+        worker.submit(() -> {
+            try {
+                narrateDocumentCommit(committed, key, model);
+            } catch (Throwable t) {
+                LOG.error("Narration failed for the commit of {} at {}", committed.file(), committed.sha(), t);
+            }
+        });
+    }
+
+    /**
+     * Narrates a stamped document a person committed to git (IKE-Network/ike-issues#1355): the narration is a
+     * comment on the commit's STAMP, written to the document's repository as an annotation commit authored by
+     * the narrator, then brought into the store by rebuilding the document, under the document's module. Its
+     * identity is derived from the commit's STAMP, so it is written once, and every rebuild recreates it.
+     */
+    private void narrateDocumentCommit(DocumentCommits.Committed committed, String key, String model) throws Exception {
+        PublicId anchor = GitDocumentMaterializer.documentAnchor(committed.root(), committed.file());
+        Optional<StampEntity<?>> stamp = GitDocumentMaterializer.commitStamp(anchor, committed.sha());
+        if (stamp.isEmpty()) {
+            LOG.warn("Not narrated: the store does not contain the STAMP of {} at {}", committed.file(), committed.sha());
+            return;
+        }
+        PublicId id = CommentWriter.narrationId(stamp.get().publicId(), null);
+        if (CommentWriter.narrated(id)) {
+            return;
+        }
+        String change = DocumentChange.of(committed.root(), committed.file(), committed.sha());
+        AnthropicClient client = new AnthropicClient(key, model, MAX_TOKENS).effort(ClaudeCard.configuredEffort());
+        String narrative = client.ask(SYSTEM_PROMPT, graphTools.tools(),
+                "A curator just committed a change to the stamped document " + committed.file() + ".\n" + change
+                        + "\n\nWrite a short, SME-readable note about what changed.");
+        if (narrative == null || narrative.isBlank()) {
+            return;
+        }
+        GitIdentityAdapter adapter = GitIdentityAdapter.fromMailmap(committed.root());
+        Annotation comment = new Annotation(AnnotationKind.COMMENT.ref(),
+                new AnnotationTarget.ChangeSet(new KonceptRef(adapter.stamp(committed.sha()).uuid(), committed.sha().substring(0, 7))),
+                new KonceptRef(NarratorIdentity.NARRATOR_AUTHOR.publicId().asUuidArray()[0], NarratorIdentity.NARRATOR_AUTHOR_NAME),
+                Instant.now(), id.asUuidArray()[0]);
+        AnnotationCommit.Result written = AnnotationCommit.write(committed.root(), List.of(comment), narrative.strip(), false);
+        if (!written.ok()) {
+            LOG.warn("Not narrated: the narration of {} at {} could not be committed: {}", committed.file(),
+                    committed.sha(), written.output());
+            return;
+        }
+        GitDocumentMaterializer.materialize(committed.root(), committed.root().resolve(committed.file()), true);
     }
 
     /**
