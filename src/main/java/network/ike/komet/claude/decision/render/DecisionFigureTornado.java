@@ -145,7 +145,7 @@ public final class DecisionFigureTornado {
             double overLeft = 0;
             double overRight = 0;
             for (Bar bar : tornado.bars()) {
-                Ends ends = ends(bar, trial, captionSize);
+                Ends ends = ends(bar, trial, captionSize, tornado.net() ? trial.x(0) : Double.NaN);
                 overLeft = Math.max(overLeft, (barLeft - leftRoom) - ends.left());
                 overRight = Math.max(overRight, ends.right() - (barLeft + barWidth + rightRoom));
             }
@@ -234,7 +234,7 @@ public final class DecisionFigureTornado {
             }
             // the measure's own values at the bar's ends, and beyond them each root flip's threshold
             double captionTop = barTop + (barHeight - lineHeight) / 2 + 1;
-            for (Placed placed : placed(bar, axis, captionSize)) {
+            for (Placed placed : placed(bar, axis, captionSize, tornado.net() ? axis.x(0) : Double.NaN)) {
                 marks.add(new Text(placed.x(), captionTop, placed.text(), captionSize, placed.threshold(), false,
                         placed.threshold() ? DecisionFigureText.HOT : DecisionFigureText.CAPTION,
                         placed.threshold() ? "threshold" : "caption"));
@@ -323,7 +323,7 @@ public final class DecisionFigureTornado {
      * and beyond the caption on the bar's wider side each root flip's threshold, clear of the bar
      * itself.
      */
-    private static List<Placed> placed(Bar bar, Axis axis, double captionSize) {
+    private static List<Placed> placed(Bar bar, Axis axis, double captionSize, double zeroX) {
         boolean rising = bar.atHigh() >= bar.atLow();
         String leftCaption = rising ? bar.lowCaption() : bar.highCaption();
         String rightCaption = rising ? bar.highCaption() : bar.lowCaption();
@@ -331,11 +331,13 @@ public final class DecisionFigureTornado {
         double right = axis.x(bar.greatest());
         double leftWidth = DecisionFigureText.width(leftCaption, captionSize, false);
         double rightWidth = DecisionFigureText.width(rightCaption, captionSize, false);
+        double leftX = clearOfLine(left - 4 - leftWidth, leftWidth, zeroX, true);
+        double rightX = clearOfLine(right + 4, rightWidth, zeroX, false);
         List<Placed> placed = new ArrayList<>();
-        placed.add(new Placed(left - 4 - leftWidth, leftCaption, false));
-        placed.add(new Placed(right + 4, rightCaption, false));
-        double afterRight = right + 4 + rightWidth + 8;
-        double beforeLeft = left - 4 - leftWidth - 8;
+        placed.add(new Placed(leftX, leftCaption, false));
+        placed.add(new Placed(rightX, rightCaption, false));
+        double afterRight = rightX + rightWidth + 8;
+        double beforeLeft = leftX - 8;
         for (Tick tick : bar.ticks()) {
             if (!tick.atRoot()) {
                 continue;
@@ -354,10 +356,29 @@ public final class DecisionFigureTornado {
         return placed;
     }
 
-    private static Ends ends(Bar bar, Axis axis, double captionSize) {
+    /**
+     * Where a caption goes so that a vertical line, the zero line of a net-value axis, does not
+     * run through it: a caption the line would cross moves to the line's far side, as far from it
+     * as a caption keeps from its bar. On a short bar that starts just past zero the caption
+     * beside it would otherwise be struck through.
+     *
+     * @param x        the caption's left edge, beside its bar
+     * @param width    the caption's width
+     * @param lineX    where the line is, or {@link Double#NaN} for no line
+     * @param leftward whether the caption stands left of its bar, and so moves left of the line
+     * @return the caption's left edge, clear of the line
+     */
+    public static double clearOfLine(double x, double width, double lineX, boolean leftward) {
+        if (Double.isNaN(lineX) || lineX <= x - 1 || lineX >= x + width + 1) {
+            return x;
+        }
+        return leftward ? lineX - 4 - width : lineX + 4;
+    }
+
+    private static Ends ends(Bar bar, Axis axis, double captionSize, double zeroX) {
         double left = Double.POSITIVE_INFINITY;
         double right = Double.NEGATIVE_INFINITY;
-        for (Placed placed : placed(bar, axis, captionSize)) {
+        for (Placed placed : placed(bar, axis, captionSize, zeroX)) {
             left = Math.min(left, placed.x());
             right = Math.max(right, placed.x() + DecisionFigureText.width(placed.text(), captionSize, placed.threshold()));
         }

@@ -567,11 +567,17 @@ final class TornadoChart extends Region {
         Label rightCaption = rising ? row.highCaption : row.lowCaption;
         double left = x(net ? row.swing.leastNet() : row.swing.least());
         double right = x(net ? row.swing.greatestNet() : row.swing.greatest());
+        // a caption the zero line would cross moves to the line's far side, as the document's figure does
+        double zeroX = net ? x(0) : Double.NaN;
+        double leftWidth = leftCaption.prefWidth(-1);
+        double rightWidth = rightCaption.prefWidth(-1);
+        double leftX = DecisionFigureTornado.clearOfLine(left - 4 - leftWidth, leftWidth, zeroX, true);
+        double rightX = DecisionFigureTornado.clearOfLine(right + 4, rightWidth, zeroX, false);
         List<Placed> placed = new ArrayList<>();
-        placed.add(new Placed(leftCaption, left - 4 - leftCaption.prefWidth(-1)));
-        placed.add(new Placed(rightCaption, right + 4));
-        double afterRight = right + 4 + rightCaption.prefWidth(-1) + 8;
-        double beforeLeft = left - 4 - leftCaption.prefWidth(-1) - 8;
+        placed.add(new Placed(leftCaption, leftX));
+        placed.add(new Placed(rightCaption, rightX));
+        double afterRight = rightX + rightWidth + 8;
+        double beforeLeft = leftX - 8;
         int shown = 0;
         for (Flip flip : row.swing.flips()) {
             if (flip.decisionVertex() != sweep.tree().rootIndex()) {
