@@ -17,7 +17,7 @@ package network.ike.komet.claude.benefitrisk;
 
 import network.ike.komet.claude.benefitrisk.EffectsReading.Row;
 import network.ike.komet.claude.benefitrisk.EffectsReading.Verdict;
-import network.ike.komet.claude.stamp.DecisionFigure;
+import network.ike.komet.document.DecisionFigure;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

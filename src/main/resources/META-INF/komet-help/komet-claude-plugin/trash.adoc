@@ -20,4 +20,4 @@ With it off, the Trash keeps its contents until you empty it.
 
 Conversations that an earlier version of Komet only hid when they were deleted are in the Trash too, so they are deleted when it is next emptied.
 
-See xref:kinds-of-data.adoc[Kinds of data] for what instance data is.
+See _Kinds of data_, in the help of the stamped document, for what instance data is.

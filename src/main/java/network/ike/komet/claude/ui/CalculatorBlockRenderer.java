@@ -15,9 +15,9 @@
  */
 package network.ike.komet.claude.ui;
 
-import network.ike.komet.claude.stamp.KonceptChips;
+import network.ike.komet.document.KonceptChips;
 
-import network.ike.komet.claude.stamp.BlockRewriter;
+import network.ike.komet.document.BlockRewriter;
 
 import dev.ikm.komet.framework.controls.KonceptBadge;
 import dev.ikm.komet.framework.controls.KonceptLabelTypography;
@@ -69,7 +69,7 @@ import network.ike.komet.claude.calculator.Evaluation;
 import network.ike.komet.claude.calculator.StoreStatements;
 import network.ike.komet.claude.decision.Bounds;
 import network.ike.komet.claude.decision.ExternalQuantities;
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.ComponentText;
 
 /**
  * The live rendering of the calculator profile's two blocks on the assistant surface
@@ -87,7 +87,7 @@ import network.ike.komet.claude.stamp.ComponentText;
  * <p>The block declines when there is no view to resolve against, or when it is not this
  * profile's, so the text renders preformatted as any other unrendered block does.
  */
-final class CalculatorBlockRenderer implements network.ike.komet.claude.stamp.StructuredBlockKind.FenceRenderer {
+final class CalculatorBlockRenderer implements network.ike.komet.document.StructuredBlockKind.FenceRenderer {
 
     private final ViewCalculator viewCalc;
     private final ViewProperties viewProperties;

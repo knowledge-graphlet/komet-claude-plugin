@@ -25,7 +25,7 @@ import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.terms.EntityFacade;
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.ComponentText;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;

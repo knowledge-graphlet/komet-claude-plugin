@@ -61,12 +61,12 @@ class DocumentBlockKindsTest {
     /** Every kind the module provides offers Insert a skeleton, and the skeleton is one block of the kind's style (dev-document-edit-menu). */
     @Test
     void everyProvidedKindOffersASkeletonThatParsesAsOneBlockOfItsStyle() {
-        List<network.ike.komet.claude.stamp.StructuredBlockKind> kinds = network.ike.komet.claude.stamp.StructuredBlocks.kinds();
-        assertTrue(kinds.size() >= 15, "the provided kinds: " + kinds.stream().map(network.ike.komet.claude.stamp.StructuredBlockKind::style).toList());
-        network.ike.komet.claude.stamp.StructuredBlockKind.Context context = new network.ike.komet.claude.stamp.StructuredBlockKind.Context(null);
+        List<network.ike.komet.document.StructuredBlockKind> kinds = network.ike.komet.document.StructuredBlocks.kinds();
+        assertTrue(kinds.size() >= 15, "the provided kinds: " + kinds.stream().map(network.ike.komet.document.StructuredBlockKind::style).toList());
+        network.ike.komet.document.StructuredBlockKind.Context context = new network.ike.komet.document.StructuredBlockKind.Context(null);
         java.util.Set<String> ids = new java.util.HashSet<>();
-        for (network.ike.komet.claude.stamp.StructuredBlockKind kind : kinds) {
-            network.ike.komet.claude.stamp.DocumentInserts.Insertion insertion = network.ike.komet.claude.stamp.DocumentInserts.of(kind, context)
+        for (network.ike.komet.document.StructuredBlockKind kind : kinds) {
+            network.ike.komet.document.DocumentInserts.Insertion insertion = network.ike.komet.document.DocumentInserts.of(kind, context)
                     .orElseThrow(() -> new AssertionError(kind.style() + " offers Insert no skeleton"));
             assertTrue(ids.add(insertion.id()), "ids are distinct: " + insertion.id());
             List<String> lines = new java.util.ArrayList<>(List.of("= Title", "", "Lead.", ""));
@@ -83,11 +83,11 @@ class DocumentBlockKindsTest {
     /** A rendering names the model the document has, and draws at once; with no model it is a tree of its own, opened for editing. */
     @Test
     void aTreeOrTornadoNamesTheDocumentsModelWhenItHasOne() {
-        network.ike.komet.claude.stamp.StructuredBlockKind.Context none = new network.ike.komet.claude.stamp.StructuredBlockKind.Context(null);
-        network.ike.komet.claude.stamp.StructuredBlockKind.Skeleton tree = new DocumentBlockKinds.DecisionTree().skeleton(none).orElseThrow();
+        network.ike.komet.document.StructuredBlockKind.Context none = new network.ike.komet.document.StructuredBlockKind.Context(null);
+        network.ike.komet.document.StructuredBlockKind.Skeleton tree = new DocumentBlockKinds.DecisionTree().skeleton(none).orElseThrow();
         assertTrue(tree.opensForEditing());
         assertTrue(tree.text().contains("decision: k:Choice"));
-        network.ike.komet.claude.stamp.StructuredBlockKind.Skeleton tornado = new DocumentBlockKinds.Tornado().skeleton(none).orElseThrow();
+        network.ike.komet.document.StructuredBlockKind.Skeleton tornado = new DocumentBlockKinds.Tornado().skeleton(none).orElseThrow();
         assertTrue(tornado.opensForEditing(), "with no model to name, the person has to name one");
         assertTrue(tornado.text().startsWith("[tornado, model=model-id]"));
     }

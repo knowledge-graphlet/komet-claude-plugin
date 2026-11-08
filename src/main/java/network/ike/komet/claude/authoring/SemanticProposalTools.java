@@ -34,7 +34,7 @@ import dev.ikm.tinkar.terms.EntityProxy;
 import dev.ikm.tinkar.terms.PatternFacade;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.authoring.SemanticProposalWriter.Draft;
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.ComponentText;
 import network.ike.komet.claude.semantic.FieldFamily;
 import org.eclipse.collections.api.list.ImmutableList;
 

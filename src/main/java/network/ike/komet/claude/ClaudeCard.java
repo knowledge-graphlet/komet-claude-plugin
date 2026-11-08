@@ -15,7 +15,7 @@
  */
 package network.ike.komet.claude;
 
-import network.ike.komet.claude.stamp.KonceptChipGestures;
+import network.ike.komet.document.KonceptChipGestures;
 import dev.ikm.komet.framework.controls.KonceptLabelTypography;
 import dev.ikm.komet.framework.graphics.Icon;
 import dev.ikm.komet.framework.view.ObservableView;
@@ -100,10 +100,10 @@ import network.ike.komet.claude.decision.DecisionTerms;
 import network.ike.komet.claude.decision.DecisionTreeFeedback;
 import network.ike.komet.claude.decision.ViewIdentities;
 import javafx.util.Duration;
-import network.ike.komet.claude.doc.BlockFactory;
-import network.ike.komet.claude.doc.DocumentSurface;
-import network.ike.komet.claude.doc.DocumentSurfaceArea;
-import network.ike.komet.claude.doc.JournalStore;
+import network.ike.komet.document.surface.BlockFactory;
+import network.ike.komet.document.surface.DocumentSurface;
+import network.ike.komet.document.surface.DocumentSurfaceArea;
+import network.ike.komet.document.surface.JournalStore;
 import network.ike.komet.claude.help.PluginHelp;
 import network.ike.komet.claude.json.Json;
 import network.ike.komet.claude.terminology.TerminologyGuard;
@@ -112,11 +112,11 @@ import jfx.incubator.scene.control.richtext.RichTextArea;
 import jfx.incubator.scene.control.richtext.TextPos;
 import dev.ikm.komet.markdown.richtext.ConceptChipTextModel;
 import dev.ikm.komet.markdown.richtext.TableColumnWidths;
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.ComponentText;
 import network.ike.komet.claude.ui.ComposeChips;
-import network.ike.komet.claude.stamp.KonceptTokens;
-import network.ike.komet.claude.stamp.MarkdownEditPane;
-import network.ike.komet.claude.doc.MarkdownRichText;
+import network.ike.komet.document.KonceptTokens;
+import network.ike.komet.document.MarkdownEditPane;
+import network.ike.komet.document.surface.MarkdownRichText;
 
 import java.io.File;
 import java.io.IOException;
@@ -498,11 +498,11 @@ public final class ClaudeCard extends AbstractHostCard {
         // Provenance tools (ike-issues#468): who introduced or affirmed a committed file's lines, and a
         // concurrence prepared for the person to sign in the Stamped Document card — never signed here.
         all.addAll(network.ike.komet.claude.documenttools.StampTools.tools(
-                network.ike.komet.claude.stamp.StampedDocumentCard::mostRecent));
+                network.ike.komet.document.StampedDocumentCard::mostRecent));
         // The document graph (KEC 2026-10-20): read a STAMPed document's blocks, lines and provenance from the store,
         // with no working tree, and propose a block's new text as the assistant's own uncommitted edit.
         all.addAll(network.ike.komet.claude.documenttools.DocumentGraphTools.tools(
-                network.ike.komet.claude.stamp.StampedDocumentCard::mostRecent, safeView, pairing));
+                network.ike.komet.document.StampedDocumentCard::mostRecent, safeView, pairing));
         // Authoring hand-off (ike-issues#1292): a proposed concept written uncommitted and opened in a KL
         // window of this journal for the person to publish — never committed here.
         all.addAll(new network.ike.komet.claude.authoring.ConceptProposalTools(
@@ -556,15 +556,15 @@ public final class ClaudeCard extends AbstractHostCard {
     /** Pairs a conversation with a document, by its anchor, and notes what the document says now. */
     private void pairDocument(Conversation conv, PublicId anchor) {
         conv.pairedDocument = anchor;
-        network.ike.komet.claude.stamp.DocumentPairing.pair(conv.id, anchor);
-        network.ike.komet.claude.stamp.GitDocumentMaterializer.load(anchor, true)
-                .ifPresent(document -> conv.documentSeen = network.ike.komet.claude.stamp.DocumentChanges.snapshot(document));
+        network.ike.komet.document.DocumentPairing.pair(conv.id, anchor);
+        network.ike.komet.document.GitDocumentMaterializer.load(anchor, true)
+                .ifPresent(document -> conv.documentSeen = network.ike.komet.document.DocumentChanges.snapshot(document));
         saveConversation(conv);
     }
 
     /** Shows a document on the live card that holds it, or on a new card beside this one. */
     private void openBeside(PublicId anchor) {
-        var showing = network.ike.komet.claude.stamp.StampedDocumentCard.showing(anchor);
+        var showing = network.ike.komet.document.StampedDocumentCard.showing(anchor);
         if (showing != null) {
             dev.ikm.komet.layout_engine.window.RevealWindowEvent.reveal(showing.fxObject());
             return;
@@ -576,9 +576,9 @@ public final class ClaudeCard extends AbstractHostCard {
         }
         narrowForPair();
         EvtBusFactory.getDefaultEvtBus().publish(journalTopic, new MakeCardWindowEvent(this, MakeCardWindowEvent.CREATE_NEW,
-                network.ike.komet.claude.stamp.StampedDocumentCard.Factory.class.getName(), fxObject(),
-                network.ike.komet.claude.doc.ReadingMeasure.documentWindow(MarkdownRichText.DEFAULT_BASE), fxObject().getHeight(),
-                card -> Platform.runLater(() -> ((network.ike.komet.claude.stamp.StampedDocumentCard) card).openReading(anchor))));
+                network.ike.komet.document.StampedDocumentCard.Factory.class.getName(), fxObject(),
+                network.ike.komet.document.surface.ReadingMeasure.documentWindow(MarkdownRichText.DEFAULT_BASE), fxObject().getHeight(),
+                card -> Platform.runLater(() -> ((network.ike.komet.document.StampedDocumentCard) card).openReading(anchor))));
     }
 
     /**
@@ -591,7 +591,7 @@ public final class ClaudeCard extends AbstractHostCard {
             preferences().put(PREF_RAIL_VISIBLE, Boolean.FALSE.toString());
             showRail(false);
         }
-        double width = network.ike.komet.claude.doc.ReadingMeasure.assistantWindow(baseFontSize);
+        double width = network.ike.komet.document.surface.ReadingMeasure.assistantWindow(baseFontSize);
         if (fxObject().getWidth() > width) {
             fxObject().setPrefWidth(width);
             fxObject().resize(width, fxObject().getHeight());
@@ -613,7 +613,7 @@ public final class ClaudeCard extends AbstractHostCard {
             if (active != null) {
                 active.pairedDocument = null;
                 active.documentSeen = null;
-                network.ike.komet.claude.stamp.DocumentPairing.pair(active.id, null);
+                network.ike.komet.document.DocumentPairing.pair(active.id, null);
                 saveConversation(active);
             }
         });
@@ -629,7 +629,7 @@ public final class ClaudeCard extends AbstractHostCard {
         }
         Conversation conv = active;
         statusLabel.setText("Listing the store's documents …");
-        java.util.concurrent.CompletableFuture.supplyAsync(network.ike.komet.claude.stamp.GitDocumentMaterializer::storedDocuments, worker)
+        java.util.concurrent.CompletableFuture.supplyAsync(network.ike.komet.document.GitDocumentMaterializer::storedDocuments, worker)
                 .whenComplete((found, failure) -> Platform.runLater(() -> {
                     if (failure != null || found.isEmpty()) {
                         statusLabel.setText(failure != null ? "Could not list the documents: " + failure.getMessage()
@@ -667,11 +667,11 @@ public final class ClaudeCard extends AbstractHostCard {
             return systemPrompt;
         }
         try {
-            network.ike.komet.claude.stamp.DocumentPairing.pair(conv.id, anchor);
-            var document = network.ike.komet.claude.stamp.GitDocumentMaterializer.load(anchor, true);
+            network.ike.komet.document.DocumentPairing.pair(conv.id, anchor);
+            var document = network.ike.komet.document.GitDocumentMaterializer.load(anchor, true);
             List<String> changed = document.isPresent() && conv.documentSeen != null
-                    ? network.ike.komet.claude.stamp.DocumentChanges.since(conv.documentSeen, document.get()) : List.of();
-            String path = network.ike.komet.claude.stamp.GitDocumentMaterializer.recordedPath(anchor).orElse(anchor.toString());
+                    ? network.ike.komet.document.DocumentChanges.since(conv.documentSeen, document.get()) : List.of();
+            String path = network.ike.komet.document.GitDocumentMaterializer.recordedPath(anchor).orElse(anchor.toString());
             return pairedPrompt(systemPrompt, path, changed);
         } catch (RuntimeException e) {
             LOG.warn("Could not read the paired document {}", anchor, e);
@@ -704,8 +704,8 @@ public final class ClaudeCard extends AbstractHostCard {
             return;
         }
         try {
-            network.ike.komet.claude.stamp.GitDocumentMaterializer.load(anchor, true)
-                    .ifPresent(document -> conv.documentSeen = network.ike.komet.claude.stamp.DocumentChanges.snapshot(document));
+            network.ike.komet.document.GitDocumentMaterializer.load(anchor, true)
+                    .ifPresent(document -> conv.documentSeen = network.ike.komet.document.DocumentChanges.snapshot(document));
         } catch (RuntimeException e) {
             LOG.warn("Could not read the paired document {}", anchor, e);
         }
@@ -2791,7 +2791,7 @@ public final class ClaudeCard extends AbstractHostCard {
         if (toTrash.task != null) {
             toTrash.task.cancel(true);
         }
-        network.ike.komet.claude.stamp.DocumentPairing.pair(toTrash.id, null);
+        network.ike.komet.document.DocumentPairing.pair(toTrash.id, null);
         boolean trashed = trashConversation(toTrash);
         conversations.remove(toTrash);
         if (conversations.isEmpty()) {

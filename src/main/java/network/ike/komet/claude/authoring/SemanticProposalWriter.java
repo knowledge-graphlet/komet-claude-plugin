@@ -28,7 +28,7 @@ import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.KernelPattern;
 import dev.ikm.tinkar.terms.PatternFacade;
 import dev.ikm.tinkar.terms.State;
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.ComponentText;
 
 import java.util.List;
 

@@ -24,7 +24,7 @@ import javafx.scene.control.Tooltip;
 import javafx.scene.layout.Region;
 import javafx.scene.text.Font;
 import javafx.scene.transform.Scale;
-import network.ike.komet.claude.doc.DocumentSurface;
+import network.ike.komet.document.surface.DocumentSurface;
 
 import java.util.function.DoubleConsumer;
 

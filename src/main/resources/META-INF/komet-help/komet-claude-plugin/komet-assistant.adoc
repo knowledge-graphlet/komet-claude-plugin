@@ -55,7 +55,7 @@ Each assistant card keeps its own conversations, and reopens on the last one, wh
 The list at the top of the rail shows the other assistant cards in the journal; choose one to read its conversations, and send in one to carry it over to this card.
 
 Each exchange is also recorded in the knowledge base, as a conversation journal: instance data, which the store alone holds.
-See xref:kinds-of-data.adoc[Kinds of data].
+See _Kinds of data_ in the help of the stamped document.
 
 == Changes the assistant proposes
 
@@ -66,7 +66,7 @@ A change to an existing concept:: When you ask, the assistant changes a concept'
 An edit to a STAMPed document:: The assistant writes the edit uncommitted, under its own name, and the STAMPed Document card shows it as a pending edit. *Commit…* there records it in git as your commit; *Discard edit* drops it.
 An annotation:: The assistant prepares an affirmation, refutation or comment on document lines, and the STAMPed Document card asks you to confirm it as a git commit.
 
-See xref:stamped-document.adoc[The STAMPed Document card].
+See _The STAMPed Document card_ in the help of the stamped document.
 
 == Settings
 

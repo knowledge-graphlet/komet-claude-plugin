@@ -28,7 +28,7 @@ import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.terms.EntityFacade;
 import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.anthropic.AnthropicTool;
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.ComponentText;
 import network.ike.komet.claude.tools.GraphTools;
 
 import java.util.ArrayList;

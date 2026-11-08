@@ -15,9 +15,9 @@
  */
 package network.ike.komet.claude.ui;
 
-import network.ike.komet.claude.stamp.KonceptChips;
+import network.ike.komet.document.KonceptChips;
 
-import network.ike.komet.claude.stamp.BlockRewriter;
+import network.ike.komet.document.BlockRewriter;
 
 import dev.ikm.komet.framework.controls.KonceptBadge;
 import dev.ikm.komet.framework.controls.KonceptLabelTypography;
@@ -55,8 +55,8 @@ import network.ike.komet.claude.decision.GraphletModel;
 import network.ike.komet.claude.decision.GraphletModelText;
 import network.ike.komet.claude.decision.Measure;
 import network.ike.komet.claude.decision.StatementMeasures;
-import network.ike.komet.claude.stamp.DecisionFigureText;
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.DecisionFigureText;
+import network.ike.komet.document.ComponentText;
 import org.eclipse.collections.api.list.ImmutableList;
 
 import java.util.ArrayList;
@@ -81,7 +81,7 @@ import java.util.function.Consumer;
  * the surface's {@link BlockRewriter}: a committed value is a new version of the model. A surface
  * without a rewriter shows the model read-only.
  */
-final class GraphletModelBlockRenderer implements network.ike.komet.claude.stamp.StructuredBlockKind.FenceRenderer {
+final class GraphletModelBlockRenderer implements network.ike.komet.document.StructuredBlockKind.FenceRenderer {
 
     private final ViewCalculator viewCalc;
     private final ViewProperties viewProperties;

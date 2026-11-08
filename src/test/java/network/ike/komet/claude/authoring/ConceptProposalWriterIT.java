@@ -45,7 +45,7 @@ import network.ike.komet.claude.authoring.ConceptProposalWriter.Status;
 import network.ike.komet.claude.authoring.ConceptProposalWriter.Synonym;
 import network.ike.komet.claude.authoring.ConceptProposalWriter.SynonymChange;
 import network.ike.komet.claude.authoring.ProposedDefinition.Built;
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.ComponentText;
 import network.ike.komet.claude.koncept.ConceptDefinition;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;

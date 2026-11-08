@@ -26,7 +26,7 @@ import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
 import dev.ikm.tinkar.entity.PatternEntity;
 import dev.ikm.tinkar.entity.SemanticEntity;
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.ComponentText;
 
 import java.util.ArrayList;
 import java.util.List;

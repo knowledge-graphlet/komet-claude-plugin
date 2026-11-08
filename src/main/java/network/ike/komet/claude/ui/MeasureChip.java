@@ -30,7 +30,7 @@ import network.ike.komet.claude.block.Tokens;
 import network.ike.komet.claude.decision.Bounds;
 import network.ike.komet.claude.decision.DecisionTreeEdits;
 import network.ike.komet.claude.decision.Measure;
-import network.ike.komet.claude.stamp.DecisionFigureText;
+import network.ike.komet.document.DecisionFigureText;
 
 import java.util.ArrayList;
 import java.util.List;

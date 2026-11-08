@@ -15,7 +15,7 @@
  */
 package network.ike.komet.claude.decision.render;
 
-import network.ike.komet.claude.stamp.DecisionFigureText;
+import network.ike.komet.document.DecisionFigureText;
 
 import network.ike.komet.claude.block.BlockIdentities;
 import network.ike.komet.claude.decision.BlockSweep;

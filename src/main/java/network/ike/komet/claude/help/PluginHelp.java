@@ -28,9 +28,6 @@ public final class PluginHelp extends KlResourceHelpProvider {
     /** The book's identifier. */
     public static final String BOOK_ID = "komet-claude-plugin";
 
-    /** The STAMPed Document card's topic. */
-    public static final KlHelpTopic STAMPED_DOCUMENT = new KlHelpTopic(BOOK_ID, "stamped-document");
-
     /** The Komet Assistant card's topic. */
     public static final KlHelpTopic KOMET_ASSISTANT = new KlHelpTopic(BOOK_ID, "komet-assistant");
 

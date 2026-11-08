@@ -32,7 +32,7 @@ import network.ike.komet.claude.decision.DecisionTreeSensitivity;
 import network.ike.komet.claude.decision.DecisionTreeSensitivity.Flip;
 import network.ike.komet.claude.decision.DecisionTreeSensitivity.Swing;
 import network.ike.komet.claude.decision.DecisionTreeSensitivity.Unswept;
-import network.ike.komet.claude.stamp.DecisionFigureText;
+import network.ike.komet.document.DecisionFigureText;
 import network.ike.komet.claude.decision.render.DecisionFigureTornado;
 
 import java.util.ArrayList;

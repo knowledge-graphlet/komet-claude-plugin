@@ -31,7 +31,7 @@ import java.nio.file.Path;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
-import network.ike.komet.claude.stamp.print.TypstCompiler;
+import network.ike.komet.document.print.TypstCompiler;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;

@@ -47,7 +47,7 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import network.ike.komet.claude.anf.model.AnfExpression;
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.ComponentText;
 import network.ike.komet.claude.anf.model.AnfExpressionBuilder;
 import network.ike.komet.claude.anf.model.AnfProvisional;
 import network.ike.komet.claude.anf.model.AnfRefusal;

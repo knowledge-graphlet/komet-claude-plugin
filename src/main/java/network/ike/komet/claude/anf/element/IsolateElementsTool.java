@@ -15,7 +15,7 @@
  */
 package network.ike.komet.claude.anf.element;
 
-import network.ike.komet.claude.stamp.Span;
+import network.ike.komet.document.Span;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;

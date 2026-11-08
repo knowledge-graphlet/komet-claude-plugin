@@ -27,7 +27,7 @@ import network.ike.foundation.ike.bindings.IkeConcept;
 import network.ike.komet.claude.anf.model.AnfExpressionBuilder;
 import network.ike.komet.claude.complexconcept.model.ComplexConcept.Expansion;
 import network.ike.komet.claude.complexconcept.model.ComplexConceptBuilder;
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.ComponentText;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;

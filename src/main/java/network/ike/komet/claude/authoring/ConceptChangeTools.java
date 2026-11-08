@@ -36,7 +36,7 @@ import network.ike.komet.claude.authoring.ConceptChangeWriter.DefinitionEdited;
 import network.ike.komet.claude.authoring.ConceptChangeWriter.DescriptionsEdited;
 import network.ike.komet.claude.authoring.ConceptChangeWriter.Status;
 import network.ike.komet.claude.authoring.DefinitionOperation.SetSelector;
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.ComponentText;
 
 import java.util.ArrayList;
 import java.util.HashMap;

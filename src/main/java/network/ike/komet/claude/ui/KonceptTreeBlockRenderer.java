@@ -15,7 +15,7 @@
  */
 package network.ike.komet.claude.ui;
 
-import network.ike.komet.claude.stamp.KonceptChips;
+import network.ike.komet.document.KonceptChips;
 
 import dev.ikm.komet.framework.controls.KonceptBadge;
 import dev.ikm.komet.framework.controls.KonceptLabelTypography;
@@ -82,7 +82,7 @@ import java.util.regex.Pattern;
  * JavaFX application thread. A block whose tag is not {@code koncept-tree}, or whose body has no
  * well-formed token line, is declined (empty result) so the caller renders it as preformatted text.
  */
-final class KonceptTreeBlockRenderer implements network.ike.komet.claude.stamp.StructuredBlockKind.FenceRenderer {
+final class KonceptTreeBlockRenderer implements network.ike.komet.document.StructuredBlockKind.FenceRenderer {
 
     /** The fenced-block language tag this renderer answers to. */
     static final String TAG = "koncept-tree";

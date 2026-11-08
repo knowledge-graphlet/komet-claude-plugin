@@ -35,7 +35,7 @@ import dev.ikm.tinkar.terms.State;
 import javafx.application.Platform;
 import network.ike.komet.claude.HeadlessFx;
 import network.ike.komet.claude.anthropic.AnthropicTool;
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.ComponentText;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;

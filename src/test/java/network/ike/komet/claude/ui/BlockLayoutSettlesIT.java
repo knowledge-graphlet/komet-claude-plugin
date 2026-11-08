@@ -28,7 +28,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Control;
 import javafx.scene.layout.VBox;
-import network.ike.komet.claude.stamp.LocalConcepts;
+import network.ike.komet.document.LocalConcepts;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;

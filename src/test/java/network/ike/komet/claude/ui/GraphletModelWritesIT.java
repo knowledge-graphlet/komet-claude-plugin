@@ -45,7 +45,7 @@ import network.ike.komet.claude.anf.AnfAdoc;
 import network.ike.komet.claude.anf.AnfProjection;
 import network.ike.komet.claude.anf.AnfStatement;
 import network.ike.komet.claude.block.BlockIdentities;
-import network.ike.komet.claude.stamp.LocalConcepts;
+import network.ike.komet.document.LocalConcepts;
 import network.ike.komet.claude.decision.BlockSweep;
 import network.ike.komet.claude.decision.Bounds;
 import network.ike.komet.claude.decision.DecisionElement;

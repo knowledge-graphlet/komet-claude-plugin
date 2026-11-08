@@ -25,10 +25,10 @@ import network.ike.komet.claude.complexconcept.ComplexConceptFeedback;
 import network.ike.komet.claude.decision.DecisionTerms;
 import network.ike.komet.claude.decision.DecisionTreeFeedback;
 import network.ike.komet.claude.decision.ViewIdentities;
-import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredBlock;
-import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredDocument;
-import network.ike.komet.claude.stamp.StructuredBlockKind;
-import network.ike.komet.claude.stamp.StructuredBlocks;
+import network.ike.komet.document.GitDocumentMaterializer.StoredBlock;
+import network.ike.komet.document.GitDocumentMaterializer.StoredDocument;
+import network.ike.komet.document.StructuredBlockKind;
+import network.ike.komet.document.StructuredBlocks;
 
 import java.util.List;
 import java.util.Optional;

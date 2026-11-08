@@ -15,7 +15,7 @@
  */
 package network.ike.komet.claude.ui;
 
-import network.ike.komet.claude.stamp.ConceptChipInlineDecorator;
+import network.ike.komet.document.ConceptChipInlineDecorator;
 
 import dev.ikm.komet.markdown.richtext.InlinePiece;
 import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;

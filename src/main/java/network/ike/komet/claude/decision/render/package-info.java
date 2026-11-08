@@ -17,7 +17,7 @@
  * The decision-tree figures without a toolkit ({@code dev-decision-tree-blocks}): the tree on
  * its {@link network.ike.komet.claude.decision.DecisionTreeLayout} and the tornado from its
  * {@link network.ike.komet.claude.decision.DecisionTreeSensitivity}, each composed into a
- * {@link network.ike.komet.claude.stamp.DecisionFigure} of marks whose label widths
+ * {@link network.ike.komet.document.DecisionFigure} of marks whose label widths
  * are estimated rather than measured, and written as self-contained SVG for the documentation
  * build ({@link network.ike.komet.claude.decision.render.DecisionTreeSvg}) or as Typst for the
  * print pipeline ({@link network.ike.komet.claude.decision.render.DecisionTreeTypst}). The

@@ -28,14 +28,14 @@ import network.ike.foundation.ike.bindings.IkeConcept;
 import network.ike.foundation.ike.bindings.IkePattern;
 import network.ike.komet.claude.authoring.BlockConcepts;
 import network.ike.komet.claude.block.BlockIdentities;
-import network.ike.komet.claude.stamp.LocalConcepts;
+import network.ike.komet.document.LocalConcepts;
 import network.ike.komet.claude.complexconcept.ComplexConceptText.Parsed;
 import network.ike.komet.claude.complexconcept.ComplexConceptText.Ref;
 import network.ike.komet.claude.complexconcept.ComplexConceptText.Spec;
 import network.ike.komet.claude.complexconcept.model.ComplexConceptBuilder;
 import network.ike.komet.claude.complexconcept.model.ComplexConceptRefusal;
 import network.ike.komet.claude.decision.ViewIdentities;
-import network.ike.komet.claude.stamp.SemanticVersions;
+import network.ike.komet.document.SemanticVersions;
 import org.eclipse.collections.api.factory.Lists;
 
 import java.util.LinkedHashMap;

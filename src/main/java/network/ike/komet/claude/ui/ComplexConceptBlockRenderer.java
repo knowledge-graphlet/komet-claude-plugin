@@ -15,9 +15,9 @@
  */
 package network.ike.komet.claude.ui;
 
-import network.ike.komet.claude.stamp.KonceptChips;
+import network.ike.komet.document.KonceptChips;
 
-import network.ike.komet.claude.stamp.BlockRewriter;
+import network.ike.komet.document.BlockRewriter;
 
 import dev.ikm.komet.framework.Identicon;
 import dev.ikm.komet.framework.view.ViewProperties;
@@ -60,7 +60,7 @@ import network.ike.komet.claude.complexconcept.ComplexConceptText.Uniform;
 import network.ike.komet.claude.complexconcept.ComplexConceptWrites;
 import network.ike.komet.claude.complexconcept.editor.ComplexConceptControl;
 import network.ike.komet.claude.complexconcept.model.ComplexConceptBuilder;
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.ComponentText;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -88,7 +88,7 @@ import java.util.Optional;
  * declines, and renders as preformatted text. A block the builder refuses, or a surface with no
  * view, shows the prerequisites as a read-only table instead of the editor.
  */
-final class ComplexConceptBlockRenderer implements network.ike.komet.claude.stamp.StructuredBlockKind.FenceRenderer {
+final class ComplexConceptBlockRenderer implements network.ike.komet.document.StructuredBlockKind.FenceRenderer {
 
     private final ViewCalculator viewCalc;
     private final ViewProperties viewProperties;

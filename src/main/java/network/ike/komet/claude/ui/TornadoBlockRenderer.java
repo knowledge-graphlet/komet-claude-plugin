@@ -15,7 +15,7 @@
  */
 package network.ike.komet.claude.ui;
 
-import network.ike.komet.claude.stamp.BlockRewriter;
+import network.ike.komet.document.BlockRewriter;
 
 import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.komet.markdown.richtext.BlockPiece;
@@ -45,7 +45,7 @@ import network.ike.komet.claude.decision.GraphletModel;
 import network.ike.komet.claude.decision.GraphletModelText;
 import network.ike.komet.claude.decision.Rollback;
 import network.ike.komet.claude.decision.StatementMeasures;
-import network.ike.komet.claude.stamp.DecisionFigureText;
+import network.ike.komet.document.DecisionFigureText;
 import network.ike.komet.claude.decision.render.SweptQuantity;
 import org.eclipse.collections.api.list.ImmutableList;
 
@@ -70,7 +70,7 @@ import java.util.concurrent.Executors;
  * names the model redraws. The health price is a view attribute of this block,
  * {@code health-price=}, as it is of the tree block.
  */
-final class TornadoBlockRenderer implements network.ike.komet.claude.stamp.StructuredBlockKind.FenceRenderer {
+final class TornadoBlockRenderer implements network.ike.komet.document.StructuredBlockKind.FenceRenderer {
 
     /** The block's style and language tag. */
     static final String TAG = "tornado";

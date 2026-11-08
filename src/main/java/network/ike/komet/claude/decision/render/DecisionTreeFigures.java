@@ -15,11 +15,11 @@
  */
 package network.ike.komet.claude.decision.render;
 
-import network.ike.komet.claude.stamp.TextFigure;
+import network.ike.komet.document.TextFigure;
 
-import network.ike.komet.claude.stamp.DecisionFigureText;
+import network.ike.komet.document.DecisionFigureText;
 
-import network.ike.komet.claude.stamp.DecisionFigure;
+import network.ike.komet.document.DecisionFigure;
 
 import dev.ikm.tinkar.entity.graph.adaptor.profile.ProfileFinding;
 import network.ike.komet.claude.block.Identities;
@@ -51,13 +51,13 @@ import network.ike.komet.claude.decision.Ledger;
 import network.ike.komet.claude.decision.Measure;
 import network.ike.komet.claude.decision.Rollback;
 import network.ike.komet.claude.decision.Tradeoff;
-import network.ike.komet.claude.stamp.DecisionFigure.Circle;
-import network.ike.komet.claude.stamp.DecisionFigure.Mark;
-import network.ike.komet.claude.stamp.DecisionFigure.Polygon;
-import network.ike.komet.claude.stamp.DecisionFigure.Polyline;
-import network.ike.komet.claude.stamp.DecisionFigure.Rect;
-import network.ike.komet.claude.stamp.DecisionFigure.Stroke;
-import network.ike.komet.claude.stamp.DecisionFigure.Text;
+import network.ike.komet.document.DecisionFigure.Circle;
+import network.ike.komet.document.DecisionFigure.Mark;
+import network.ike.komet.document.DecisionFigure.Polygon;
+import network.ike.komet.document.DecisionFigure.Polyline;
+import network.ike.komet.document.DecisionFigure.Rect;
+import network.ike.komet.document.DecisionFigure.Stroke;
+import network.ike.komet.document.DecisionFigure.Text;
 import network.ike.komet.claude.decision.render.DecisionFigureTornado.Bar;
 import network.ike.komet.claude.decision.render.DecisionFigureTornado.Choice;
 import network.ike.komet.claude.decision.render.DecisionFigureTornado.Segment;

@@ -29,6 +29,9 @@
 module komet.claude {
     // Knowledge-layout SPI: KlToolArea / KlSupplementalArea + SupplementalAreaBlueprint,
     // KlArea, AreaGridSettings, KlPreferencesFactory, the area lifecycle/context base.
+    // The stamped document, its block surface and the structured block kinds the assistant's
+    // profiles provide (IKE-Network/ike-issues#1351).
+    requires komet.stamped.document;
     requires dev.ikm.komet.layout;
     // ViewProperties (the journal view the host injects into the tool area).
     requires dev.ikm.komet.framework;
@@ -118,7 +121,6 @@ module komet.claude {
     // the layout engine's SupplementalAreaRenderer uses (as for network.ike.komet.claude.anf).
     exports network.ike.komet.claude.semantic;
     // Git-derived STAMPs as Tinkar terms, for the Document surface and the assistant's tools.
-    exports network.ike.komet.claude.stamp;
     // What the open knowledge base is made of (#1304): the composition card and its reader.
     exports network.ike.komet.claude.composition;
 
@@ -130,7 +132,6 @@ module komet.claude {
     uses network.ike.komet.claude.json.Json.Deserializer;
     // Structured block kinds of the document surface (IKE-Network/ike-issues#1312): a listing block
     // whose style a kind names reads through the kind's control and edits in its editor.
-    uses network.ike.komet.claude.stamp.StructuredBlockKind;
 
     // The Komet Assistant is contributed as a first-class CARD (a KlCardProvider): the Journal
     // discovers it for the "+" menu and hosts it natively in a CardKlWindow — its own chrome and
@@ -139,7 +140,6 @@ module komet.claude {
     provides dev.ikm.komet.layout_engine.host.KlCardProvider
             with network.ike.komet.claude.ClaudeCard.Factory,
                  network.ike.komet.claude.instructions.InstructionEditorCard.Factory,
-                 network.ike.komet.claude.stamp.StampedDocumentCard.Factory,
                  network.ike.komet.claude.composition.KnowledgeBaseCompositionCard.Factory;
     // KlArea.Factory makes the embeddable areas available in the knowledge-layout editor palette.
     provides dev.ikm.komet.layout.KlArea.Factory
@@ -169,13 +169,9 @@ module komet.claude {
     // The plugin's Komet actions, found through PluggableService like Komet's own. Class-path
     // tests find them through META-INF/services, which lists the same classes.
     provides dev.ikm.komet.actions.KometAction
-            with network.ike.komet.claude.stamp.EditDocumentBlock,
-                 network.ike.komet.claude.anf.AddAnfStatement,
+            with network.ike.komet.claude.anf.AddAnfStatement,
                  network.ike.komet.claude.anf.EditAnfStatement,
-                 network.ike.komet.claude.complexconcept.PromoteToComplexConcept,
-                 network.ike.komet.claude.stamp.EditDocumentSentence,
-                 network.ike.komet.claude.stamp.AddDocumentBlock,
-                 network.ike.komet.claude.stamp.DeleteDocumentBlock;
+                 network.ike.komet.claude.complexconcept.PromoteToComplexConcept;
 
     // The plugin's help book (AsciiDoc in this jar, under META-INF/komet-help) and the viewer that
     // renders help in a card's help drawer, found by the card through PluggableService.
@@ -184,8 +180,6 @@ module komet.claude {
 
     provides dev.ikm.komet.layout.help.KlHelpProvider
             with network.ike.komet.claude.help.PluginHelp;
-    provides dev.ikm.komet.layout.help.KlHelpViewer.Factory
-            with network.ike.komet.claude.help.AsciiDocHelpViewerFactory;
 
     // Headless commit narrator: started once at app startup (after datastore load) by the
     // ServiceLifecycle machinery, regardless of whether the assistant UI is opened.
@@ -195,13 +189,11 @@ module komet.claude {
     // journal's Trash lists and Komet empties as it quits.
     provides dev.ikm.komet.layout.trash.KlTrashProvider
             with network.ike.komet.claude.trash.PluginTrashProvider;
-    provides dev.ikm.komet.layout.tray.KlSidebarTrayProvider
-            with network.ike.komet.claude.stamp.DocumentNavigatorTrayProvider;
 
     // The decision blocks as structured kinds of a stored document: a [decision-tree],
     // [complex-concept], [anf], [calculator] or [calculate] listing block draws on the stamped
     // surface through the transcript's renderers (ike-lab-documents dev-decision-document).
-    provides network.ike.komet.claude.stamp.StructuredBlockKind
+    provides network.ike.komet.document.StructuredBlockKind
             with network.ike.komet.claude.ui.DocumentBlockKinds.DecisionTree,
                     network.ike.komet.claude.ui.DocumentBlockKinds.GraphletModel,
                     network.ike.komet.claude.ui.DocumentBlockKinds.Tornado,
@@ -236,5 +228,4 @@ module komet.claude {
     // static @Decoder to restore print settings from the preferences byte array. That invoke
     // needs the package open (the exported AreaGridSettings gets this via `exports`; this
     // internal settings type uses `opens` so it stays off the public API surface).
-    opens network.ike.komet.claude.doc.print.settings;
 }

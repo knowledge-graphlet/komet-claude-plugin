@@ -36,8 +36,8 @@ import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import network.ike.komet.claude.composition.KnowledgeBaseComposition.Composition;
 import network.ike.komet.claude.help.PluginHelp;
-import network.ike.komet.claude.stamp.MarkdownEditPane;
-import network.ike.komet.claude.doc.MarkdownRichText;
+import network.ike.komet.document.MarkdownEditPane;
+import network.ike.komet.document.surface.MarkdownRichText;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

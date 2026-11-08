@@ -20,7 +20,7 @@ import dev.ikm.komet.preferences.PreferencesService;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
-import network.ike.komet.claude.stamp.DocumentScopes;
+import network.ike.komet.document.DocumentScopes;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

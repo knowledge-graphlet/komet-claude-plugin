@@ -16,8 +16,8 @@
 package network.ike.komet.claude.ui;
 
 import network.ike.komet.claude.decision.DecisionTreeFeedback;
-import network.ike.komet.claude.doc.MarkdownRichText.Entry;
-import network.ike.komet.claude.doc.MarkdownRichText.Role;
+import network.ike.komet.document.surface.MarkdownRichText.Entry;
+import network.ike.komet.document.surface.MarkdownRichText.Role;
 
 /** The turns of the assistant's conversation, as the transcript draws them. */
 public final class AssistantTurns {

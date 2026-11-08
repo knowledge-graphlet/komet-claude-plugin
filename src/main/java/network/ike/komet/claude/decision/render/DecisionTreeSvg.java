@@ -15,7 +15,7 @@
  */
 package network.ike.komet.claude.decision.render;
 
-import network.ike.komet.claude.stamp.DecisionFigureSvg;
+import network.ike.komet.document.DecisionFigureSvg;
 
 import network.ike.komet.claude.block.Identities;
 import network.ike.komet.claude.decision.DecisionTree;

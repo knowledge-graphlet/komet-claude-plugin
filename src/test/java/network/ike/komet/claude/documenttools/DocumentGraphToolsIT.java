@@ -15,9 +15,9 @@
  */
 package network.ike.komet.claude.documenttools;
 
-import network.ike.komet.claude.stamp.DocumentEditor;
-import network.ike.komet.claude.stamp.DocumentOutline;
-import network.ike.komet.claude.stamp.GitDocumentMaterializer;
+import network.ike.komet.document.DocumentEditor;
+import network.ike.komet.document.DocumentOutline;
+import network.ike.komet.document.GitDocumentMaterializer;
 
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.service.PrimitiveData;
@@ -53,7 +53,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class DocumentGraphToolsIT {
 
     private static final File PB_STARTER_DATA = new File("target/data/ike-starter-set-reasoned-pb.zip");
-    private static final Path LEASE = Path.of("src/test/resources/fidelity/corpus/dev-working-set-lease.adoc");
+    private static final Path LEASE = Path.of("src/test/resources/documents/dev-working-set-lease.adoc");
 
     @TempDir
     static Path root;

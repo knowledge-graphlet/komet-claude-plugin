@@ -15,11 +15,11 @@
  */
 package network.ike.komet.claude.ui;
 
-import network.ike.komet.claude.doc.MarkdownRichText;
+import network.ike.komet.document.surface.MarkdownRichText;
 
-import network.ike.komet.claude.stamp.KonceptChips;
+import network.ike.komet.document.KonceptChips;
 
-import network.ike.komet.claude.stamp.BlockRewriter;
+import network.ike.komet.document.BlockRewriter;
 
 import dev.ikm.komet.framework.controls.KonceptBadge;
 import dev.ikm.komet.framework.controls.KonceptLabelTypography;
@@ -64,8 +64,8 @@ import network.ike.komet.claude.anf.element.ClinicalElement;
 import network.ike.komet.claude.anf.element.ElementLevel;
 import network.ike.komet.claude.anf.element.ElementText;
 import network.ike.komet.claude.block.Tokens;
-import network.ike.komet.claude.stamp.ComponentText;
-import network.ike.komet.claude.stamp.SegmentedControl;
+import network.ike.komet.document.ComponentText;
+import network.ike.komet.document.SegmentedControl;
 import network.ike.komet.claude.tools.GraphTools;
 
 /**
@@ -83,7 +83,7 @@ import network.ike.komet.claude.tools.GraphTools;
  * {@code anf type=performance id=stmt-sbp}, and a {@code calculate} block binds to it by that name
  * through the shared {@link ProfileBlocks}.
  */
-final class AnfBlockRenderer implements network.ike.komet.claude.stamp.StructuredBlockKind.FenceRenderer {
+final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlockKind.FenceRenderer {
 
     private final ViewCalculator viewCalc;
     private final ViewProperties viewProperties;

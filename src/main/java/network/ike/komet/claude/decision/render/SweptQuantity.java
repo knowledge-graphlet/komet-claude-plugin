@@ -15,7 +15,7 @@
  */
 package network.ike.komet.claude.decision.render;
 
-import network.ike.komet.claude.stamp.DecisionFigureText;
+import network.ike.komet.document.DecisionFigureText;
 
 import network.ike.komet.claude.block.Identities;
 import network.ike.komet.claude.decision.Bounds;
@@ -28,7 +28,7 @@ import network.ike.komet.claude.decision.DecisionTree;
 import network.ike.komet.claude.decision.DecisionTreeSensitivity;
 import network.ike.komet.claude.decision.Measure;
 import network.ike.komet.claude.decision.ValuationCoordinate;
-import network.ike.komet.claude.stamp.DecisionFigureText.Unit;
+import network.ike.komet.document.DecisionFigureText.Unit;
 
 import java.util.Optional;
 import java.util.OptionalInt;

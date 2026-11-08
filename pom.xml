@@ -80,6 +80,8 @@
              Matches ike-komet-wsr on main. -->
         <komet-bom.version>3.0.12-SNAPSHOT</komet-bom.version>
         <!-- komet-bom does not manage the gRPC plugin; the property lets a release retarget it. -->
+        <!-- The stamped document the assistant reads and edits (IKE-Network/ike-issues#1351). -->
+        <komet-stamped-document-plugin.version>1-SNAPSHOT</komet-stamped-document-plugin.version>
         <komet-grpc-plugin.version>6-SNAPSHOT</komet-grpc-plugin.version>
         <!-- The IKE starter set the tests load, from starter-data-ws, which builds after this repository. -->
         <ike-starter-set.version>1-SNAPSHOT</ike-starter-set.version>
@@ -217,6 +219,13 @@
             <groupId>network.ike.foundation</groupId>
             <artifactId>ike-bindings</artifactId>
             <version>${ike-starter-set.version}</version>
+        </dependency>
+        <!-- The stamped document, its block surface and the structured block kinds the assistant's
+             profiles provide; Komet stages it into plugins/ beside this jar. -->
+        <dependency>
+            <groupId>network.ike.komet</groupId>
+            <artifactId>komet-stamped-document-plugin</artifactId>
+            <version>${komet-stamped-document-plugin.version}</version>
         </dependency>
         <dependency>
             <groupId>network.ike.komet</groupId>

@@ -15,7 +15,7 @@
  */
 package network.ike.komet.claude.ui;
 
-import network.ike.komet.claude.stamp.ConceptChipInlineDecorator;
+import network.ike.komet.document.ConceptChipInlineDecorator;
 
 import dev.ikm.komet.markdown.richtext.InlinePiece;
 import dev.ikm.tinkar.common.id.PublicId;
@@ -26,7 +26,7 @@ import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.terms.KernelConcept;
 import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.ComponentText;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;

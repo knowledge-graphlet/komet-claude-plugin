@@ -15,9 +15,9 @@
  */
 package network.ike.komet.claude.anf.element;
 
-import network.ike.komet.claude.stamp.SegmentNarrative;
+import network.ike.komet.document.SegmentNarrative;
 
-import network.ike.komet.claude.stamp.Span;
+import network.ike.komet.document.Span;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;

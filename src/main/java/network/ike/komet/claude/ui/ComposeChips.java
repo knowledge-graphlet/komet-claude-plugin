@@ -15,7 +15,7 @@
  */
 package network.ike.komet.claude.ui;
 
-import network.ike.komet.claude.stamp.KonceptChips;
+import network.ike.komet.document.KonceptChips;
 
 import dev.ikm.komet.framework.controls.KonceptLabelTypography;
 import dev.ikm.komet.framework.view.ViewProperties;

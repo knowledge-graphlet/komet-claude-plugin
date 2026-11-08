@@ -70,7 +70,7 @@ import network.ike.komet.claude.authoring.DefinitionShape.RoleNode;
 import network.ike.komet.claude.authoring.DefinitionShape.SetNode;
 import network.ike.komet.claude.authoring.DefinitionShape.Supertype;
 import network.ike.komet.claude.anthropic.AnthropicTool;
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.ComponentText;
 import network.ike.komet.claude.tools.GraphTools;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;

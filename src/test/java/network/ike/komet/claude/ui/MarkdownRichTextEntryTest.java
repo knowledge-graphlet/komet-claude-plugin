@@ -15,7 +15,7 @@
  */
 package network.ike.komet.claude.ui;
 
-import network.ike.komet.claude.doc.MarkdownRichText;
+import network.ike.komet.document.surface.MarkdownRichText;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

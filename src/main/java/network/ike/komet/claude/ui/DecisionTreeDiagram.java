@@ -58,7 +58,7 @@ import network.ike.komet.claude.decision.DecisionTreeLayout.Run;
 import network.ike.komet.claude.decision.Derivations;
 import network.ike.komet.claude.decision.Measure;
 import network.ike.komet.claude.decision.Rollback;
-import network.ike.komet.claude.stamp.DecisionFigureText;
+import network.ike.komet.document.DecisionFigureText;
 
 import java.util.ArrayList;
 import java.util.HashMap;

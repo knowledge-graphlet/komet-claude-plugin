@@ -15,9 +15,9 @@
  */
 package network.ike.komet.claude.ui;
 
-import network.ike.komet.claude.stamp.KonceptTokens;
+import network.ike.komet.document.KonceptTokens;
 
-import network.ike.komet.claude.stamp.ConceptChipInlineDecorator;
+import network.ike.komet.document.ConceptChipInlineDecorator;
 
 import org.junit.jupiter.api.Test;
 

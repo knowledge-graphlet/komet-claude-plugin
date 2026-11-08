@@ -26,8 +26,8 @@ import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.StampEntity;
 import dev.ikm.tinkar.terms.KernelPattern;
-import network.ike.komet.claude.doc.DocumentVocabulary;
-import network.ike.komet.claude.stamp.StampNames;
+import network.ike.komet.document.surface.DocumentVocabulary;
+import network.ike.komet.document.StampNames;
 
 import java.text.NumberFormat;
 import java.time.Instant;

@@ -30,7 +30,7 @@ import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.entity.transaction.Transaction;
 import network.ike.foundation.ike.bindings.IkePattern;
 import network.ike.komet.claude.HeadlessFx;
-import network.ike.komet.claude.stamp.LocalConcepts;
+import network.ike.komet.document.LocalConcepts;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;

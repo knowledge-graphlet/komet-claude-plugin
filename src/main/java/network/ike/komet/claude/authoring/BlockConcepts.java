@@ -27,7 +27,7 @@ import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.PatternFacade;
 import network.ike.komet.claude.authoring.ConceptProposalWriter.Synonym;
-import network.ike.komet.claude.stamp.LocalConcepts;
+import network.ike.komet.document.LocalConcepts;
 
 import java.util.ArrayList;
 import java.util.Collection;

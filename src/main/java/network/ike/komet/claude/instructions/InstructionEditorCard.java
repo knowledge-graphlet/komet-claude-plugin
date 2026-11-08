@@ -61,8 +61,8 @@ import network.ike.komet.claude.instructions.InstructionSets.Frontmatter;
 import network.ike.komet.claude.instructions.InstructionSets.InstructionSet;
 import network.ike.komet.claude.trash.PluginTrash;
 import network.ike.komet.claude.ui.MarkdownDiff;
-import network.ike.komet.claude.stamp.MarkdownEditPane;
-import network.ike.komet.claude.doc.MarkdownRichText;
+import network.ike.komet.document.MarkdownEditPane;
+import network.ike.komet.document.surface.MarkdownRichText;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

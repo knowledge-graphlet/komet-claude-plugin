@@ -30,10 +30,10 @@ import network.ike.komet.claude.decision.LinkedTrees;
 import network.ike.komet.claude.decision.Rollback;
 import network.ike.komet.claude.decision.StatementMeasures;
 import network.ike.komet.claude.decision.ValuationCoordinate;
-import network.ike.komet.claude.stamp.DecisionFigure;
-import network.ike.komet.claude.stamp.DecisionFigureText;
+import network.ike.komet.document.DecisionFigure;
+import network.ike.komet.document.DecisionFigureText;
 import network.ike.komet.claude.decision.render.DecisionTreeFigures;
-import network.ike.komet.claude.stamp.TextFigure;
+import network.ike.komet.document.TextFigure;
 
 import java.util.ArrayList;
 import java.util.List;

@@ -15,11 +15,11 @@
  */
 package network.ike.komet.claude.documenttools;
 
-import network.ike.komet.claude.stamp.DocumentOutline;
-import network.ike.komet.claude.stamp.GitDocumentMaterializer;
-import network.ike.komet.claude.stamp.GitStampBridge;
-import network.ike.komet.claude.stamp.GitStampTerms;
-import network.ike.komet.claude.stamp.StampedDocumentCard;
+import network.ike.komet.document.DocumentOutline;
+import network.ike.komet.document.GitDocumentMaterializer;
+import network.ike.komet.document.GitStampBridge;
+import network.ike.komet.document.GitStampTerms;
+import network.ike.komet.document.StampedDocumentCard;
 
 import design.knowledge.stamp.adoc.git.AnnotationCommit;
 import design.knowledge.stamp.adoc.git.GitRepo;

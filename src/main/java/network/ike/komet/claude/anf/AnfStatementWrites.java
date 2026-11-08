@@ -24,8 +24,8 @@ import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import network.ike.foundation.ike.bindings.IkePattern;
 import network.ike.komet.claude.anf.model.AnfExpressionBuilder;
-import network.ike.komet.claude.stamp.GitDocumentMaterializer;
-import network.ike.komet.claude.stamp.VertexReader;
+import network.ike.komet.document.GitDocumentMaterializer;
+import network.ike.komet.document.VertexReader;
 
 import java.util.List;
 import java.util.Optional;

@@ -48,7 +48,7 @@ import dev.ikm.tinkar.terms.KernelPattern;
 import dev.ikm.tinkar.terms.State;
 import network.ike.komet.claude.anf.AnfValue;
 import network.ike.komet.claude.anthropic.AnthropicTool;
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.ComponentText;
 import network.ike.komet.claude.koncept.DefinitionText;
 
 import java.time.Duration;
@@ -1455,7 +1455,7 @@ public final class GraphTools {
      * @return the concept nid (the nid itself when it is already a concept or cannot be resolved)
      */
     private static long toConceptNid(long nid) {
-        return network.ike.komet.claude.stamp.LocalConcepts.conceptNid(nid);
+        return network.ike.komet.document.LocalConcepts.conceptNid(nid);
     }
 
     /**
@@ -1573,7 +1573,7 @@ public final class GraphTools {
      * @return the concept's nid, empty when no active concept has that name
      */
     public static java.util.OptionalLong conceptNamedNid(String fqn, ViewCalculator v) {
-        return network.ike.komet.claude.stamp.LocalConcepts.conceptNamedNid(fqn, v);
+        return network.ike.komet.document.LocalConcepts.conceptNamedNid(fqn, v);
     }
 
     /** {@link #conceptNamedNid} as an optional. */

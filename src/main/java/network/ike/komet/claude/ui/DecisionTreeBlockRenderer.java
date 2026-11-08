@@ -15,9 +15,9 @@
  */
 package network.ike.komet.claude.ui;
 
-import network.ike.komet.claude.stamp.KonceptChips;
+import network.ike.komet.document.KonceptChips;
 
-import network.ike.komet.claude.stamp.BlockRewriter;
+import network.ike.komet.document.BlockRewriter;
 
 import dev.ikm.komet.framework.controls.KonceptBadge;
 import dev.ikm.komet.framework.controls.KonceptLabelTypography;
@@ -77,9 +77,9 @@ import network.ike.komet.claude.anf.AnfStatement;
 import network.ike.komet.claude.anf.Circumstance;
 import network.ike.komet.claude.decision.ValuationCoordinate;
 import network.ike.komet.claude.decision.ViewIdentities;
-import network.ike.komet.claude.stamp.DecisionFigureText;
+import network.ike.komet.document.DecisionFigureText;
 import network.ike.komet.claude.decision.render.DecisionTreeFigures;
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.ComponentText;
 import org.eclipse.collections.api.list.ImmutableList;
 
 import java.util.ArrayList;
@@ -121,7 +121,7 @@ import java.util.Set;
  * as any other unrendered block does. The block's info may set the price: {@code decision-tree
  * health-price=100000}; the default is $100,000, the regulatory topics' central value.
  */
-final class DecisionTreeBlockRenderer implements network.ike.komet.claude.stamp.StructuredBlockKind.FenceRenderer {
+final class DecisionTreeBlockRenderer implements network.ike.komet.document.StructuredBlockKind.FenceRenderer {
 
     private final ViewCalculator viewCalc;
     private final ViewProperties viewProperties;

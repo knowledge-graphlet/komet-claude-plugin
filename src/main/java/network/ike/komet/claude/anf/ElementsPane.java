@@ -46,7 +46,7 @@ import network.ike.komet.claude.anf.element.ElementColours;
 import network.ike.komet.claude.anf.element.ElementSet;
 import network.ike.komet.claude.anf.element.ElementState;
 import network.ike.komet.claude.anf.element.NoteSection;
-import network.ike.komet.claude.stamp.Span;
+import network.ike.komet.document.Span;
 
 /**
  * Step one of the two-step lift on the lift region ({@code dev-anf-element-isolation}), as a tree

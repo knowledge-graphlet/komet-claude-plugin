@@ -1,8 +1,4 @@
 * xref:komet-assistant.adoc[]
 * xref:instruction-editor.adoc[]
-* xref:stamped-document.adoc[]
-** xref:opening-a-document.adoc[]
 * xref:knowledge-base-composition.adoc[]
 * xref:trash.adoc[]
-* xref:kinds-of-data.adoc[]
-* xref:stores.adoc[]

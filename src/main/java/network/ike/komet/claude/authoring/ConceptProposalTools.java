@@ -28,7 +28,7 @@ import network.ike.komet.claude.authoring.ConceptProposalWriter.Synonym;
 import network.ike.komet.claude.authoring.ConceptProposalWriter.SynonymChange;
 import network.ike.komet.claude.authoring.ProposedDefinition.Built;
 import network.ike.komet.claude.authoring.ProposedDefinition.Proposal;
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.ComponentText;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;

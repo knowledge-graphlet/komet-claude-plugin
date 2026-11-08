@@ -24,13 +24,13 @@ import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import network.ike.foundation.ike.bindings.IkePattern;
 import network.ike.komet.claude.anf.AnfAdoc;
 import network.ike.komet.claude.anf.AnfStatement;
-import network.ike.komet.claude.stamp.LocalConcepts;
+import network.ike.komet.document.LocalConcepts;
 import network.ike.komet.claude.decision.DecisionTerms;
 import network.ike.komet.claude.decision.DecisionTreeWrites;
-import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredBlock;
-import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredDocument;
-import network.ike.komet.claude.stamp.StructuredBlockKind;
-import network.ike.komet.claude.stamp.StructuredBlocks;
+import network.ike.komet.document.GitDocumentMaterializer.StoredBlock;
+import network.ike.komet.document.GitDocumentMaterializer.StoredDocument;
+import network.ike.komet.document.StructuredBlockKind;
+import network.ike.komet.document.StructuredBlocks;
 import network.ike.komet.claude.tools.GraphTools;
 
 import java.util.LinkedHashMap;

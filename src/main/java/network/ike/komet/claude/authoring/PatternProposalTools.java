@@ -29,7 +29,7 @@ import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.authoring.ConceptProposalWriter.Synonym;
 import network.ike.komet.claude.authoring.PatternProposalWriter.Draft;
 import network.ike.komet.claude.authoring.PatternProposalWriter.Field;
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.ComponentText;
 
 import java.util.ArrayList;
 import java.util.List;

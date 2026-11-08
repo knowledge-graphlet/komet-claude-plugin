@@ -15,15 +15,15 @@
  */
 package network.ike.komet.claude.decision.render;
 
-import network.ike.komet.claude.stamp.DecisionFigureText;
+import network.ike.komet.document.DecisionFigureText;
 
-import network.ike.komet.claude.stamp.DecisionFigure;
+import network.ike.komet.document.DecisionFigure;
 
-import network.ike.komet.claude.stamp.DecisionFigure.Mark;
-import network.ike.komet.claude.stamp.DecisionFigure.Polyline;
-import network.ike.komet.claude.stamp.DecisionFigure.Rect;
-import network.ike.komet.claude.stamp.DecisionFigure.Stroke;
-import network.ike.komet.claude.stamp.DecisionFigure.Text;
+import network.ike.komet.document.DecisionFigure.Mark;
+import network.ike.komet.document.DecisionFigure.Polyline;
+import network.ike.komet.document.DecisionFigure.Rect;
+import network.ike.komet.document.DecisionFigure.Stroke;
+import network.ike.komet.document.DecisionFigure.Text;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;

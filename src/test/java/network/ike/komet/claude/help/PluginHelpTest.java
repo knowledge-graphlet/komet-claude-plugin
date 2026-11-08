@@ -15,7 +15,7 @@
  */
 package network.ike.komet.claude.help;
 
-import network.ike.komet.claude.stamp.AsciiDocMarkdown;
+import network.ike.komet.document.AsciiDocMarkdown;
 
 import dev.ikm.komet.layout.help.KlHelpProvider;
 import dev.ikm.komet.markdown.richtext.InlineDecorator;
@@ -55,7 +55,7 @@ class PluginHelpTest {
             assertFalse(entry.title().equals(entry.topicId()), "topic " + entry.topicId() + " has a title");
         }
         Set<String> ids = topicIds();
-        assertTrue(ids.contains(PluginHelp.STAMPED_DOCUMENT.topicId()), "the STAMPed Document card's topic is in the contents");
+        assertTrue(ids.contains(PluginHelp.KOMET_ASSISTANT.topicId()), "the Komet Assistant card's topic is in the contents");
     }
 
     @Test
@@ -82,16 +82,6 @@ class PluginHelpTest {
             assertTrue(text.length() > 200, id + " renders to text");
             assertFalse(text.contains("xref:"), id + " shows no raw cross reference");
             assertFalse(text.contains("::"), id + " shows no raw description-list markup");
-        }
-    }
-
-    @Test
-    void theOpeningWalkthroughExplainsTheKindsOfData() {
-        String opening = AsciiDocMarkdown.markdown(book.source("opening-a-document").orElseThrow());
-        assertTrue(opening.contains("Open file"), opening);
-        String kinds = AsciiDocMarkdown.markdown(book.source("kinds-of-data").orElseThrow());
-        for (String kind : List.of("## Knowledge", "## Instance", "## Ephemeral")) {
-            assertTrue(kinds.contains(kind), kind);
         }
     }
 

@@ -39,7 +39,7 @@ import network.ike.komet.claude.authoring.DefinitionShape.Role;
 import network.ike.komet.claude.authoring.DefinitionShape.RoleNode;
 import network.ike.komet.claude.authoring.DefinitionShape.SetNode;
 import network.ike.komet.claude.authoring.DefinitionShape.Supertype;
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.ComponentText;
 
 import java.util.ArrayList;
 import java.util.HashMap;

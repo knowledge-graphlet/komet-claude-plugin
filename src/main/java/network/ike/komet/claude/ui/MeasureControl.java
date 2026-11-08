@@ -28,7 +28,7 @@ import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import network.ike.komet.claude.decision.Bounds;
 import network.ike.komet.claude.decision.DecisionTreeEdits;
-import network.ike.komet.claude.stamp.DecisionFigureText;
+import network.ike.komet.document.DecisionFigureText;
 
 import java.util.Optional;
 

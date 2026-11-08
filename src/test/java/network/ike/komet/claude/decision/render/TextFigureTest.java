@@ -15,11 +15,11 @@
  */
 package network.ike.komet.claude.decision.render;
 
-import network.ike.komet.claude.stamp.TextFigure;
+import network.ike.komet.document.TextFigure;
 
-import network.ike.komet.claude.stamp.DecisionFigureText;
+import network.ike.komet.document.DecisionFigureText;
 
-import network.ike.komet.claude.stamp.DecisionFigure;
+import network.ike.komet.document.DecisionFigure;
 
 import org.junit.jupiter.api.Test;
 

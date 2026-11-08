@@ -15,7 +15,7 @@
  */
 package network.ike.komet.claude.koncept;
 
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.ComponentText;
 
 import dev.ikm.tinkar.terms.KernelConcept;
 import dev.ikm.komet.terms.KometConcept;

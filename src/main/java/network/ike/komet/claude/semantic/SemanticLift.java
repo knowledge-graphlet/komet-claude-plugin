@@ -21,7 +21,7 @@ import dev.ikm.tinkar.entity.PatternEntityVersion;
 import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.anthropic.AskListener;
-import network.ike.komet.claude.stamp.ComponentText;
+import network.ike.komet.document.ComponentText;
 import network.ike.komet.claude.tools.GraphTools;
 
 import java.util.ArrayList;

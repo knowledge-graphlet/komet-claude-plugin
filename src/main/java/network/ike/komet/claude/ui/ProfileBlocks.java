@@ -16,7 +16,7 @@
 package network.ike.komet.claude.ui;
 
 import java.lang.ref.WeakReference;
-import network.ike.komet.claude.stamp.BlockContext;
+import network.ike.komet.document.BlockContext;
 import javafx.scene.Node;
 
 import java.util.ArrayList;

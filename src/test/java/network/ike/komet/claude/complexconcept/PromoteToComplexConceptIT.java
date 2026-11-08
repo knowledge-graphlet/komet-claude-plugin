@@ -53,7 +53,7 @@ import network.ike.komet.claude.anf.model.AnfExpressionBuilder;
 import network.ike.komet.claude.anf.model.AnfSemantic;
 import network.ike.komet.claude.anf.model.AnfStatement;
 import network.ike.komet.claude.complexconcept.model.ComplexConcept;
-import network.ike.komet.claude.stamp.LocalConcepts;
+import network.ike.komet.document.LocalConcepts;
 import network.ike.komet.claude.complexconcept.model.ComplexConceptExpression;
 import network.ike.komet.claude.koncept.ConceptDefinition;
 import org.junit.jupiter.api.AfterAll;

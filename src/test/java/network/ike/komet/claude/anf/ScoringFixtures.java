@@ -18,7 +18,7 @@ package network.ike.komet.claude.anf;
 import network.ike.komet.claude.anf.element.ClinicalElement;
 import network.ike.komet.claude.anf.element.ElementSet;
 import network.ike.komet.claude.anf.element.LiftScore;
-import network.ike.komet.claude.stamp.Span;
+import network.ike.komet.document.Span;
 
 import java.io.IOException;
 import java.io.InputStream;

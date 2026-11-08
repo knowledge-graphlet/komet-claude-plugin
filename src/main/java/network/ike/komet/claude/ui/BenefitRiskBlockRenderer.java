@@ -15,7 +15,7 @@
  */
 package network.ike.komet.claude.ui;
 
-import network.ike.komet.claude.stamp.KonceptChips;
+import network.ike.komet.document.KonceptChips;
 
 import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.komet.markdown.richtext.BlockPiece;
@@ -53,9 +53,9 @@ import network.ike.komet.claude.benefitrisk.ValueTree.Kind;
 import network.ike.komet.claude.benefitrisk.ValueTree.Part;
 import network.ike.komet.claude.benefitrisk.ValueTreeFigure;
 import network.ike.komet.claude.block.Tokens;
-import network.ike.komet.claude.stamp.DecisionFigure;
-import network.ike.komet.claude.stamp.TextFigure;
-import network.ike.komet.claude.stamp.print.FigureNode;
+import network.ike.komet.document.DecisionFigure;
+import network.ike.komet.document.TextFigure;
+import network.ike.komet.document.print.FigureNode;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -74,7 +74,7 @@ import java.util.Optional;
  * <p>Each block publishes its text on the document's {@link ProfileBlocks} and rebuilds when a block
  * it names lands, so the table and the plot follow the tree whichever is drawn first.
  */
-final class BenefitRiskBlockRenderer implements network.ike.komet.claude.stamp.StructuredBlockKind.FenceRenderer {
+final class BenefitRiskBlockRenderer implements network.ike.komet.document.StructuredBlockKind.FenceRenderer {
 
     /** Which of the three views a block is. */
     enum View { TREE, TABLE, FOREST, DEVICE, FINDINGS, LOOKUP }
@@ -457,7 +457,7 @@ final class BenefitRiskBlockRenderer implements network.ike.komet.claude.stamp.S
     private List<Node> lookup(String info, DeviceRecord record) {
         Findings held = findings(info, context);
         int year = context.evidenceYear();
-        network.ike.komet.claude.stamp.SegmentedControl<Integer> years = new network.ike.komet.claude.stamp.SegmentedControl<>(
+        network.ike.komet.document.SegmentedControl<Integer> years = new network.ike.komet.document.SegmentedControl<>(
                 List.of(firstYear(info), NOW), BenefitRiskBlockRenderer::yearWords, y -> "Read every view of this document " + yearWords(y).toLowerCase(java.util.Locale.ROOT),
                 y -> y >= NOW ? "evidence-known-now" : "evidence-in-print");
         years.light(base * 0.85);

@@ -15,7 +15,7 @@
  */
 package network.ike.komet.claude.ui;
 
-import network.ike.komet.claude.stamp.BlockRewriter;
+import network.ike.komet.document.BlockRewriter;
 
 import dev.ikm.komet.markdown.richtext.BlockPiece;
 import dev.ikm.komet.markdown.richtext.BlockRenderer;
@@ -26,8 +26,8 @@ import network.ike.komet.claude.calculator.CalculatorText;
 import network.ike.komet.claude.complexconcept.ComplexConceptText;
 import network.ike.komet.claude.decision.DecisionTreeText;
 import network.ike.komet.claude.decision.GraphletModelText;
-import network.ike.komet.claude.stamp.StructuredBlocks;
-import network.ike.komet.claude.stamp.StructuredBlockKind;
+import network.ike.komet.document.StructuredBlocks;
+import network.ike.komet.document.StructuredBlockKind;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -149,7 +149,7 @@ public final class DocumentBlockKinds {
 
     /** What a block's previous text says between its fences. */
     private static Optional<String> content(Optional<String> previous) {
-        return previous.map(text -> network.ike.komet.claude.stamp.StructuredBlockKind.Source.of(text).content());
+        return previous.map(text -> network.ike.komet.document.StructuredBlockKind.Source.of(text).content());
     }
 
     /** The first model the document's blocks have published, which a new rendering names. */
@@ -183,7 +183,7 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        public List<network.ike.komet.claude.stamp.DecisionFigure> figures(Source source, Context context) {
+        public List<network.ike.komet.document.DecisionFigure> figures(Source source, Context context) {
             String info = info(source.parameters());
             Optional<String> body = modelBody(info, source, context);
             return body.map(text -> BlockPrint.tree(info, text, context.view(), ProfileBlocks.of(context.blocks()))).orElse(List.of());
@@ -239,7 +239,7 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        public List<network.ike.komet.claude.stamp.DecisionFigure> figures(Source source, Context context) {
+        public List<network.ike.komet.document.DecisionFigure> figures(Source source, Context context) {
             String content = source.content();
             String body = content.endsWith("\n") ? content : content + "\n";
             String info = info(source.parameters());
@@ -294,7 +294,7 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        public List<network.ike.komet.claude.stamp.DecisionFigure> figures(Source source, Context context) {
+        public List<network.ike.komet.document.DecisionFigure> figures(Source source, Context context) {
             String info = info(source.parameters());
             Optional<String> body = modelBody(info, source, context);
             return body.map(text -> BlockPrint.tornado(info, text, context.view(), ProfileBlocks.of(context.blocks()))).orElse(List.of());
@@ -322,7 +322,7 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        public List<network.ike.komet.claude.stamp.DecisionFigure> figures(Source source, Context context) {
+        public List<network.ike.komet.document.DecisionFigure> figures(Source source, Context context) {
             return BlockPrint.complexConcept(source.content(), context.view(), ProfileBlocks.of(context.blocks()));
         }
 
@@ -366,7 +366,7 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        public List<network.ike.komet.claude.stamp.DecisionFigure> figures(Source source, Context context) {
+        public List<network.ike.komet.document.DecisionFigure> figures(Source source, Context context) {
             AnfBlockRenderer.publish(info(source.parameters()), source.content(), context.view(), ProfileBlocks.of(context.blocks()));
             return BlockPrint.fields(name(), List.of(source.content().split("\n", -1)));
         }
@@ -420,7 +420,7 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        public List<network.ike.komet.claude.stamp.DecisionFigure> figures(Source source, Context context) {
+        public List<network.ike.komet.document.DecisionFigure> figures(Source source, Context context) {
             return BlockPrint.fields(name(), List.of(source.content().split("\n", -1)));
         }
     }
@@ -449,7 +449,7 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        public List<network.ike.komet.claude.stamp.DecisionFigure> figures(Source source, Context context) {
+        public List<network.ike.komet.document.DecisionFigure> figures(Source source, Context context) {
             return BlockPrint.fields(name(), List.of(source.content().split("\n", -1)));
         }
     }
@@ -479,7 +479,7 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        public List<network.ike.komet.claude.stamp.DecisionFigure> figures(Source source, Context context) {
+        public List<network.ike.komet.document.DecisionFigure> figures(Source source, Context context) {
             return BenefitRiskBlockRenderer.figures(view, info(source.parameters()), source.content(), ProfileBlocks.of(context.blocks()));
         }
     }
