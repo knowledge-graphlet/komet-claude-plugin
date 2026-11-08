@@ -27,7 +27,7 @@ import network.ike.komet.claude.stamp.print.DocumentModel.Heading;
 import network.ike.komet.claude.stamp.print.DocumentModel.ListBlock;
 import network.ike.komet.claude.stamp.print.DocumentModel.Table;
 import org.junit.jupiter.api.Test;
-import network.ike.komet.claude.decision.render.DecisionFigure;
+import network.ike.komet.claude.stamp.DecisionFigure;
 
 import java.util.List;
 import java.util.Map;

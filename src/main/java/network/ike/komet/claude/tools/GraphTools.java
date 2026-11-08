@@ -48,7 +48,7 @@ import dev.ikm.tinkar.terms.KernelPattern;
 import dev.ikm.tinkar.terms.State;
 import network.ike.komet.claude.anf.AnfValue;
 import network.ike.komet.claude.anthropic.AnthropicTool;
-import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.stamp.ComponentText;
 import network.ike.komet.claude.koncept.DefinitionText;
 
 import java.time.Duration;
@@ -1455,15 +1455,7 @@ public final class GraphTools {
      * @return the concept nid (the nid itself when it is already a concept or cannot be resolved)
      */
     private static long toConceptNid(long nid) {
-        try {
-            Entity<?> entity = EntityHandle.getEntityOrThrow(nid);
-            if (entity instanceof SemanticEntity<?> semantic) {
-                return semantic.topEnclosingComponentNid();
-            }
-        } catch (RuntimeException ignored) {
-            // not resolvable as an entity; fall back to the nid as given
-        }
-        return nid;
+        return network.ike.komet.claude.stamp.LocalConcepts.conceptNid(nid);
     }
 
     /**
@@ -1581,37 +1573,7 @@ public final class GraphTools {
      * @return the concept's nid, empty when no active concept has that name
      */
     public static java.util.OptionalLong conceptNamedNid(String fqn, ViewCalculator v) {
-        if (v == null || fqn == null || fqn.isBlank()) {
-            return java.util.OptionalLong.empty();
-        }
-        String wanted = network.ike.komet.claude.block.LocalConcepts.normal(fqn);
-        Searcher searcher = null;
-        try {
-            searcher = new Searcher();
-            for (PrimitiveDataSearchResult hit : searcher.search("\"" + fqn.replace("\"", " ").strip() + "\"", 50)) {
-                if (EntityHandle.getEntityOrThrow(hit.nid()) instanceof SemanticEntity<?> description
-                        && description.patternNid() == dev.ikm.tinkar.terms.KernelPattern.DESCRIPTION_PATTERN.nid()) {
-                    dev.ikm.tinkar.coordinate.stamp.calculator.Latest<dev.ikm.tinkar.entity.SemanticEntityVersion> latest = v.latest(hit.nid());
-                    if (latest.isPresent() && latest.get().active() && latest.get().fieldValues().size() > 3
-                            && wanted.equals(network.ike.komet.claude.block.LocalConcepts.normal(String.valueOf(latest.get().fieldValues().get(1))))
-                            && latest.get().fieldValues().get(3) instanceof dev.ikm.tinkar.terms.EntityFacade type
-                            && type.nid() == dev.ikm.tinkar.terms.KernelConcept.FULLY_QUALIFIED_NAME_DESCRIPTION_TYPE.nid()) {
-                        return java.util.OptionalLong.of(toConceptNid(hit.nid()));
-                    }
-                }
-            }
-        } catch (Exception unavailable) {
-            // no index, as a store still loading: a concept yet to be written, under its derived identity
-        } finally {
-            if (searcher != null) {
-                try {
-                    searcher.close();
-                } catch (Exception ignored) {
-                    // best-effort close of the Lucene reader
-                }
-            }
-        }
-        return java.util.OptionalLong.empty();
+        return network.ike.komet.claude.stamp.LocalConcepts.conceptNamedNid(fqn, v);
     }
 
     /** {@link #conceptNamedNid} as an optional. */

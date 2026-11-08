@@ -22,7 +22,7 @@ import java.util.Optional;
 import network.ike.komet.claude.anf.element.ClinicalElement;
 import network.ike.komet.claude.anf.element.ElementSet;
 import network.ike.komet.claude.anf.element.ElementText;
-import network.ike.komet.claude.anf.element.Span;
+import network.ike.komet.claude.stamp.Span;
 import org.junit.jupiter.api.Test;
 
 /** The lift history's file body, split back into the blocks it was written from. */

@@ -15,6 +15,8 @@
  */
 package network.ike.komet.claude.stamp;
 
+import network.ike.komet.claude.documenttools.DocumentGraphTools;
+
 import design.knowledge.stamp.adoc.dialect.Block;
 import design.knowledge.stamp.adoc.model.AnnotationKind;
 import dev.ikm.tinkar.common.id.PublicIds;

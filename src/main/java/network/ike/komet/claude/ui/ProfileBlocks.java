@@ -16,6 +16,7 @@
 package network.ike.komet.claude.ui;
 
 import java.lang.ref.WeakReference;
+import network.ike.komet.claude.stamp.BlockContext;
 import javafx.scene.Node;
 
 import java.util.ArrayList;
@@ -49,7 +50,38 @@ import network.ike.komet.claude.decision.ViewIdentities;
  * calculator it reads redraws when the calculator lands. One context per surface; the references
  * point from a reader to a quantity, never from a calculator to its readers.
  */
-public final class BlockContext {
+public final class ProfileBlocks {
+
+    /** Where a document's {@link BlockContext} keeps the profile blocks' state. */
+    private static final BlockContext.Key<ProfileBlocks> KEY = BlockContext.Key.of("profile-blocks", ProfileBlocks::new);
+
+    private final BlockContext shared;
+
+    /** The profile blocks' state in a fresh context of its own, for a surface or test that makes one. */
+    public ProfileBlocks() {
+        this.shared = new BlockContext();
+        shared.putIfAbsent(KEY, this);
+    }
+
+    private ProfileBlocks(BlockContext shared) {
+        this.shared = shared;
+    }
+
+    /**
+     * The profile blocks' state in a document's context, made on first use.
+     *
+     * @param shared the document's context
+     * @return the state
+     */
+    public static ProfileBlocks of(BlockContext shared) {
+        return shared.get(KEY);
+    }
+
+    /** @return the document's context this state lives in, to hand to a block kind */
+    public BlockContext shared() {
+        return shared;
+    }
+
 
         private final Map<Long, Calculator> calculators = new HashMap<>();
     private final Map<String, AnfStatement> statements = new HashMap<>();

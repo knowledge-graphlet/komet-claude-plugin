@@ -15,7 +15,7 @@
  */
 package network.ike.komet.claude;
 
-import network.ike.komet.claude.ui.KonceptChipGestures;
+import network.ike.komet.claude.stamp.KonceptChipGestures;
 import dev.ikm.komet.framework.controls.KonceptLabelTypography;
 import dev.ikm.komet.framework.graphics.Icon;
 import dev.ikm.komet.framework.view.ObservableView;
@@ -112,11 +112,11 @@ import jfx.incubator.scene.control.richtext.RichTextArea;
 import jfx.incubator.scene.control.richtext.TextPos;
 import dev.ikm.komet.markdown.richtext.ConceptChipTextModel;
 import dev.ikm.komet.markdown.richtext.TableColumnWidths;
-import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.stamp.ComponentText;
 import network.ike.komet.claude.ui.ComposeChips;
-import network.ike.komet.claude.ui.KonceptTokens;
-import network.ike.komet.claude.ui.MarkdownEditPane;
-import network.ike.komet.claude.ui.MarkdownRichText;
+import network.ike.komet.claude.stamp.KonceptTokens;
+import network.ike.komet.claude.stamp.MarkdownEditPane;
+import network.ike.komet.claude.doc.MarkdownRichText;
 
 import java.io.File;
 import java.io.IOException;
@@ -483,11 +483,11 @@ public final class ClaudeCard extends AbstractHostCard {
             java.util.function.Supplier<ViewCalculator> safeView, java.util.function.Supplier<ViewProperties> viewProperties,
             java.util.function.Supplier<java.util.UUID> journalTopic,
             java.util.function.Supplier<java.util.List<network.ike.komet.claude.instructions.AssistantSkills.Skill>> skills) {
-        return assistantTools(network.ike.komet.claude.stamp.DocumentGraphTools.Pairing.NONE, view, safeView, viewProperties, journalTopic, skills);
+        return assistantTools(network.ike.komet.claude.documenttools.DocumentGraphTools.Pairing.NONE, view, safeView, viewProperties, journalTopic, skills);
     }
 
     /** The tools, with the document tools acting on the document a conversation is paired with. */
-    private static java.util.List<AnthropicTool> assistantTools(network.ike.komet.claude.stamp.DocumentGraphTools.Pairing pairing,
+    private static java.util.List<AnthropicTool> assistantTools(network.ike.komet.claude.documenttools.DocumentGraphTools.Pairing pairing,
             java.util.function.Supplier<ViewCalculator> view,
             java.util.function.Supplier<ViewCalculator> safeView, java.util.function.Supplier<ViewProperties> viewProperties,
             java.util.function.Supplier<java.util.UUID> journalTopic,
@@ -497,11 +497,11 @@ public final class ClaudeCard extends AbstractHostCard {
         all.addAll(new network.ike.komet.claude.tools.ComponentWindowTools(viewProperties, journalTopic).tools());
         // Provenance tools (ike-issues#468): who introduced or affirmed a committed file's lines, and a
         // concurrence prepared for the person to sign in the Stamped Document card — never signed here.
-        all.addAll(network.ike.komet.claude.stamp.StampTools.tools(
+        all.addAll(network.ike.komet.claude.documenttools.StampTools.tools(
                 network.ike.komet.claude.stamp.StampedDocumentCard::mostRecent));
         // The document graph (KEC 2026-10-20): read a STAMPed document's blocks, lines and provenance from the store,
         // with no working tree, and propose a block's new text as the assistant's own uncommitted edit.
-        all.addAll(network.ike.komet.claude.stamp.DocumentGraphTools.tools(
+        all.addAll(network.ike.komet.claude.documenttools.DocumentGraphTools.tools(
                 network.ike.komet.claude.stamp.StampedDocumentCard::mostRecent, safeView, pairing));
         // Authoring hand-off (ike-issues#1292): a proposed concept written uncommitted and opened in a KL
         // window of this journal for the person to publish — never committed here.
@@ -534,8 +534,8 @@ public final class ClaudeCard extends AbstractHostCard {
     }
 
     /** The pairing the document tools read and create_document makes, for the conversation answering. */
-    private final network.ike.komet.claude.stamp.DocumentGraphTools.Pairing documentPairing =
-            new network.ike.komet.claude.stamp.DocumentGraphTools.Pairing() {
+    private final network.ike.komet.claude.documenttools.DocumentGraphTools.Pairing documentPairing =
+            new network.ike.komet.claude.documenttools.DocumentGraphTools.Pairing() {
                 @Override
                 public Optional<PublicId> document() {
                     Conversation conv = requestConversation();
@@ -2448,7 +2448,7 @@ public final class ClaudeCard extends AbstractHostCard {
             return Optional.empty();
         }
         try {
-            return network.ike.komet.claude.ui.DocumentFindings.ofReply(reply, vp.calculator());
+            return network.ike.komet.claude.documenttools.DocumentFindings.ofReply(reply, vp.calculator());
         } catch (RuntimeException e) {
             LOG.warn("Could not read the reply's blocks for feedback", e);
             return Optional.empty();
@@ -3459,7 +3459,7 @@ public final class ClaudeCard extends AbstractHostCard {
             conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT, content, true));
             conv.markdown.append("**Komet Assistant:** ").append(content).append("\n\n");
         } else {
-            conv.entries.add(MarkdownRichText.Entry.user(content));
+            conv.entries.add(network.ike.komet.claude.ui.AssistantTurns.user(content));
             conv.markdown.append("**You:** ").append(content).append("\n\n");
         }
     }
@@ -3471,7 +3471,7 @@ public final class ClaudeCard extends AbstractHostCard {
     private void renderUser(Conversation conv, String text) {
         // The exchange begins at the turn this entry is about to occupy (the current end).
         conv.turnStartTurn = conv.entries.size();
-        MarkdownRichText.Entry entry = MarkdownRichText.Entry.user(text);
+        MarkdownRichText.Entry entry = network.ike.komet.claude.ui.AssistantTurns.user(text);
         conv.entries.add(entry);
         conv.markdown.append("**You:** ").append(text).append("\n\n");
         if (conv == active) {
@@ -3484,7 +3484,7 @@ public final class ClaudeCard extends AbstractHostCard {
 
     /** Komet's findings on the assistant's block, sent back for correction: a turn of Komet's own. */
     private void renderFeedback(Conversation conv, String text) {
-        MarkdownRichText.Entry entry = MarkdownRichText.Entry.user(text);
+        MarkdownRichText.Entry entry = network.ike.komet.claude.ui.AssistantTurns.user(text);
         conv.entries.add(entry);
         conv.markdown.append("**Komet:** ").append(text).append("\n\n");
         if (conv == active) {

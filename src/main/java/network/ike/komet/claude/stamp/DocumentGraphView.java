@@ -53,7 +53,7 @@ import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import javafx.stage.Popup;
 import javafx.util.Duration;
-import network.ike.komet.claude.koncept.KonceptIdenticon;
+import network.ike.komet.claude.stamp.KonceptIdenticon;
 import network.ike.komet.claude.stamp.DocumentGraph.Kind;
 import network.ike.komet.claude.stamp.DocumentSurfaceView.Layer;
 import network.ike.komet.claude.stamp.StoredNodeFacts.NodeFacts;

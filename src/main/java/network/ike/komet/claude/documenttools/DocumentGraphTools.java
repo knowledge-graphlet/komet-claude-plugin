@@ -13,7 +13,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package network.ike.komet.claude.stamp;
+package network.ike.komet.claude.documenttools;
+
+import network.ike.komet.claude.stamp.AddDocumentBlock;
+import network.ike.komet.claude.stamp.CommitSummaries;
+import network.ike.komet.claude.stamp.DeleteDocumentBlock;
+import network.ike.komet.claude.stamp.DocumentAssembly;
+import network.ike.komet.claude.stamp.DocumentCommit;
+import network.ike.komet.claude.stamp.DocumentEditor;
+import network.ike.komet.claude.stamp.DocumentLibrary;
+import network.ike.komet.claude.stamp.DocumentNarratives;
+import network.ike.komet.claude.stamp.DocumentOutline;
+import network.ike.komet.claude.stamp.EditDocumentBlock;
+import network.ike.komet.claude.stamp.EditDocumentSentence;
+import network.ike.komet.claude.stamp.GitDocumentMaterializer;
+import network.ike.komet.claude.stamp.StampNames;
+import network.ike.komet.claude.stamp.StampedDocumentCard;
+import network.ike.komet.claude.stamp.StructuredBlockKind;
+import network.ike.komet.claude.stamp.StructuredBlocks;
 
 import dev.ikm.komet.actions.KometActionResult;
 import design.knowledge.stamp.adoc.dialect.Block;
@@ -29,7 +46,7 @@ import dev.ikm.tinkar.entity.StampEntity;
 import network.ike.foundation.ike.bindings.IkeConcept;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredDocument;
-import network.ike.komet.claude.ui.DocumentFindings;
+import network.ike.komet.claude.documenttools.DocumentFindings;
 
 import java.io.IOException;
 import java.nio.file.Files;

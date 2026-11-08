@@ -15,6 +15,8 @@
  */
 package network.ike.komet.claude.help;
 
+import network.ike.komet.claude.stamp.AsciiDocMarkdown;
+
 import dev.ikm.komet.layout.help.KlHelpProvider;
 import dev.ikm.komet.layout.help.KlHelpViewer;
 import dev.ikm.komet.markdown.richtext.InlineDecorator;
@@ -50,7 +52,7 @@ import jfx.incubator.scene.control.richtext.model.StyleAttribute;
 import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
 import jfx.incubator.scene.control.richtext.model.StyledSegment;
 import jfx.incubator.scene.control.richtext.model.StyledTextModel;
-import network.ike.komet.claude.ui.MarkdownEditPane;
+import network.ike.komet.claude.stamp.MarkdownEditPane;
 import org.kordamp.ikonli.javafx.FontIcon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

@@ -13,7 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package network.ike.komet.claude.anf.element;
+package network.ike.komet.claude.stamp;
+
+import network.ike.komet.claude.stamp.Anchoring;
 
 import java.util.ArrayList;
 import java.util.List;

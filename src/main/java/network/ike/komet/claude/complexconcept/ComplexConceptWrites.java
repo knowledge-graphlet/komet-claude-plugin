@@ -28,7 +28,7 @@ import network.ike.foundation.ike.bindings.IkeConcept;
 import network.ike.foundation.ike.bindings.IkePattern;
 import network.ike.komet.claude.authoring.BlockConcepts;
 import network.ike.komet.claude.block.BlockIdentities;
-import network.ike.komet.claude.block.LocalConcepts;
+import network.ike.komet.claude.stamp.LocalConcepts;
 import network.ike.komet.claude.complexconcept.ComplexConceptText.Parsed;
 import network.ike.komet.claude.complexconcept.ComplexConceptText.Ref;
 import network.ike.komet.claude.complexconcept.ComplexConceptText.Spec;

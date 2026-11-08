@@ -33,7 +33,7 @@ import javafx.scene.text.FontPosture;
 import javafx.scene.text.FontWeight;
 import javafx.scene.text.Text;
 import javafx.scene.transform.Scale;
-import network.ike.komet.claude.decision.render.DecisionFigure;
+import network.ike.komet.claude.stamp.DecisionFigure;
 
 /**
  * A {@link DecisionFigure} as a JavaFX node: the marks the Typst writer draws, at the same places,

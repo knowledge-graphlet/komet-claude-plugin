@@ -15,6 +15,8 @@
  */
 package network.ike.komet.claude.ui;
 
+import network.ike.komet.claude.stamp.BlockRewriter;
+
 import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.komet.markdown.richtext.BlockPiece;
 import dev.ikm.komet.markdown.richtext.BlockRenderer;
@@ -43,7 +45,7 @@ import network.ike.komet.claude.decision.GraphletModel;
 import network.ike.komet.claude.decision.GraphletModelText;
 import network.ike.komet.claude.decision.Rollback;
 import network.ike.komet.claude.decision.StatementMeasures;
-import network.ike.komet.claude.decision.render.DecisionFigureText;
+import network.ike.komet.claude.stamp.DecisionFigureText;
 import network.ike.komet.claude.decision.render.SweptQuantity;
 import org.eclipse.collections.api.list.ImmutableList;
 
@@ -59,7 +61,7 @@ import java.util.concurrent.Executors;
  * sensitivity, the {@link TornadoChart} that once hung beneath the tree block, now a block of
  * its own ({@code dev-decision-point-knowledge}, settled 2026-11-06). It holds no structure and
  * no number: it reads the model the document's {@code graphlet-model} block publishes on the
- * {@link BlockContext}, sweeps it off the application thread, and draws the bars. A parameter
+ * {@link ProfileBlocks}, sweeps it off the application thread, and draws the bars. A parameter
  * that reads a statement swings over the statement's range; the tree runs at the model's value.
  *
  * <p>Values are in the model, views on the rendering, trials in the view: a slider's preview is
@@ -68,7 +70,7 @@ import java.util.concurrent.Executors;
  * names the model redraws. The health price is a view attribute of this block,
  * {@code health-price=}, as it is of the tree block.
  */
-final class TornadoBlockRenderer implements BlockRenderer {
+final class TornadoBlockRenderer implements network.ike.komet.claude.stamp.StructuredBlockKind.FenceRenderer {
 
     /** The block's style and language tag. */
     static final String TAG = "tornado";
@@ -76,7 +78,7 @@ final class TornadoBlockRenderer implements BlockRenderer {
     private final ViewCalculator viewCalc;
     private final ViewProperties viewProperties;
     private final double base;
-    private final BlockContext context;
+    private final ProfileBlocks context;
     private BlockRewriter rewriter;
 
     /** Where a sweep runs: one thread behind the surface; a test may run it in place. */
@@ -89,27 +91,27 @@ final class TornadoBlockRenderer implements BlockRenderer {
     /** The narrowest the chart is laid out, in ems: narrower, its bars have no room between names and values, and it scales. */
     private static final double TORNADO_LEAST_EMS = 38;
 
-    TornadoBlockRenderer(ViewProperties viewProperties, double base, BlockContext context) {
+    TornadoBlockRenderer(ViewProperties viewProperties, double base, ProfileBlocks context) {
         this(viewProperties == null ? null : viewProperties.calculator(), viewProperties, base, context);
     }
 
-    TornadoBlockRenderer(ViewCalculator viewCalc, double base, BlockContext context) {
+    TornadoBlockRenderer(ViewCalculator viewCalc, double base, ProfileBlocks context) {
         this(viewCalc, null, base, context);
     }
 
-    TornadoBlockRenderer(ViewCalculator viewCalc, ViewProperties viewProperties, double base, BlockContext context) {
+    TornadoBlockRenderer(ViewCalculator viewCalc, ViewProperties viewProperties, double base, ProfileBlocks context) {
         this.viewCalc = viewCalc;
         this.viewProperties = viewProperties;
         this.base = base;
-        this.context = context == null ? new BlockContext() : context;
+        this.context = context == null ? new ProfileBlocks() : context;
     }
 
-    void setChipTypography(dev.ikm.komet.framework.controls.KonceptLabelTypography typography) {
+    public void setChipTypography(dev.ikm.komet.framework.controls.KonceptLabelTypography typography) {
         // the chart draws no chips
     }
 
     /** Where a changed view attribute goes when written back; the model is written through its own block. */
-    void setRewriter(BlockRewriter rewriter) {
+    public void setRewriter(BlockRewriter rewriter) {
         this.rewriter = rewriter;
     }
 

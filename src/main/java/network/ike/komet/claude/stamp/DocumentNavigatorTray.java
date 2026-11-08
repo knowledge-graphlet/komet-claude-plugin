@@ -48,8 +48,8 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.util.Duration;
 import network.ike.komet.claude.doc.ReadingMeasure;
-import network.ike.komet.claude.ui.MarkdownEditPane;
-import network.ike.komet.claude.ui.MarkdownRichText;
+import network.ike.komet.claude.stamp.MarkdownEditPane;
+import network.ike.komet.claude.doc.MarkdownRichText;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

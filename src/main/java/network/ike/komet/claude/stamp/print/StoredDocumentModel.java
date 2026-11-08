@@ -16,7 +16,7 @@
 package network.ike.komet.claude.stamp.print;
 
 import design.knowledge.stamp.adoc.dialect.Block;
-import network.ike.komet.claude.decision.render.DecisionFigure;
+import network.ike.komet.claude.stamp.DecisionFigure;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredBlock;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredDocument;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredLine;

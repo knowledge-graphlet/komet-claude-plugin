@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package network.ike.komet.claude.ui;
+package network.ike.komet.claude.stamp;
 
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -196,7 +196,7 @@ public final class MarkdownEditPane extends BorderPane {
 
     /**
      * The raw-editor half of the toggle — the seam for host-installed input behaviors such as
-     * the Koncept token drop ({@link KonceptTokenDrop}); the buffer stays managed by this pane.
+     * the Koncept token drop ({@code KonceptTokenDrop}); the buffer stays managed by this pane.
      *
      * @return the raw Markdown editor (never {@code null})
      */

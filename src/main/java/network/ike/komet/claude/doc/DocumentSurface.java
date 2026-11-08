@@ -33,8 +33,8 @@ import jfx.incubator.scene.control.richtext.RichTextArea;
 import jfx.incubator.scene.control.richtext.SelectionSegment;
 import jfx.incubator.scene.control.richtext.TextPos;
 import network.ike.komet.claude.doc.print.PrintSource;
-import network.ike.komet.claude.ui.MarkdownRichText;
-import network.ike.komet.claude.ui.RichTextViewpoint;
+import network.ike.komet.claude.doc.MarkdownRichText;
+import network.ike.komet.claude.stamp.RichTextViewpoint;
 
 import java.util.ArrayList;
 import java.util.List;

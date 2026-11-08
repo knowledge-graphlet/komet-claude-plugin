@@ -368,7 +368,7 @@ public final class TypstWriter {
                     out.append("#ike-figure(").append(points(w)).append(", ").append(points(h)).append(", [])\n\n");
                 } else {
                     out.append(indent).append("#ike-figure(").append(points(w)).append(", ").append(points(h)).append(", [\n")
-                            .append(network.ike.komet.claude.decision.render.DecisionFigureTypst.write(d.figure()))
+                            .append(network.ike.komet.claude.stamp.DecisionFigureTypst.write(d.figure()))
                             .append(indent).append("])\n\n");
                 }
             }

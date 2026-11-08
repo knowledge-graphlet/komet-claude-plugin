@@ -40,7 +40,7 @@ import dev.ikm.tinkar.terms.KernelConcept;
 import dev.ikm.tinkar.terms.KernelPattern;
 import dev.ikm.tinkar.terms.State;
 import network.ike.komet.claude.authoring.ProposedDefinition.Proposal;
-import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.stamp.ComponentText;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;

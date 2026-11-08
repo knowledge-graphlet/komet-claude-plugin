@@ -15,6 +15,8 @@
  */
 package network.ike.komet.claude.stamp;
 
+import network.ike.komet.claude.documenttools.DocumentGraphTools;
+
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
@@ -173,7 +175,7 @@ class PairedDocumentIT {
         assertTrue(result.contains("as its first version"), "what it states is written: " + result);
         assertTrue(result.contains("structured blocks clean"), "no findings on a sound tree: " + result);
         assertTrue(text(anchor).contains("[decision-tree,id=pdi-tree]"), text(anchor));
-        assertTrue(PrimitiveData.get().hasPublicId(DecisionTreeWrites.treeId(dev.ikm.tinkar.common.id.PublicIds.of(network.ike.komet.claude.block.LocalConcepts.uuid("Treat the aneurysm now?")))), "the tree semantic exists");
+        assertTrue(PrimitiveData.get().hasPublicId(DecisionTreeWrites.treeId(dev.ikm.tinkar.common.id.PublicIds.of(network.ike.komet.claude.stamp.LocalConcepts.uuid("Treat the aneurysm now?")))), "the tree semantic exists");
 
         // a statement goes in as an open block, and its statement is written on the block
         String statement = "[anf,type=request,id=pdi-second]\n--\ntopic::   candidate[a second look] disp=PENDING\n--\n";

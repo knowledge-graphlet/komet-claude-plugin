@@ -16,7 +16,7 @@
 package network.ike.komet.claude.stamp;
 
 import design.knowledge.stamp.adoc.git.GitRepo;
-import network.ike.komet.claude.help.AsciiDocMarkdown;
+import network.ike.komet.claude.stamp.AsciiDocMarkdown;
 
 import java.io.IOException;
 import java.nio.file.FileVisitResult;

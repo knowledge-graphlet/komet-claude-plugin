@@ -13,12 +13,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package network.ike.komet.claude.decision.render;
+package network.ike.komet.claude.stamp;
 
-import network.ike.komet.claude.decision.render.DecisionFigure.Mark;
-import network.ike.komet.claude.decision.render.DecisionFigure.Rect;
-import network.ike.komet.claude.decision.render.DecisionFigure.Stroke;
-import network.ike.komet.claude.decision.render.DecisionFigure.Text;
+import network.ike.komet.claude.stamp.DecisionFigure;
+
+import network.ike.komet.claude.stamp.DecisionFigure.Mark;
+import network.ike.komet.claude.stamp.DecisionFigure.Rect;
+import network.ike.komet.claude.stamp.DecisionFigure.Stroke;
+import network.ike.komet.claude.stamp.DecisionFigure.Text;
 
 import java.util.ArrayList;
 import java.util.Arrays;

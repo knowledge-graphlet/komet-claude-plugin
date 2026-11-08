@@ -15,6 +15,8 @@
  */
 package network.ike.komet.claude.ui;
 
+import network.ike.komet.claude.stamp.KonceptChips;
+
 import dev.ikm.komet.framework.controls.KonceptLabelTypography;
 import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.tinkar.common.id.PublicId;

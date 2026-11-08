@@ -20,7 +20,7 @@ import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.SemanticEntity;
-import network.ike.komet.claude.block.LocalConcepts;
+import network.ike.komet.claude.stamp.LocalConcepts;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredBlock;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredDocument;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredLine;
@@ -90,7 +90,7 @@ public final class StructuredBlocks {
      * @param parameters the block's attribute line, verbatim
      * @return the style, or empty when the line names none
      */
-    static Optional<String> style(String parameters) {
+    public static Optional<String> style(String parameters) {
         if (parameters == null) {
             return Optional.empty();
         }

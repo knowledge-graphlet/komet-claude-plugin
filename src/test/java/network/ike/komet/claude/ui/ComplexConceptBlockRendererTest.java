@@ -37,7 +37,7 @@ class ComplexConceptBlockRendererTest {
 
     @Test
     void onlyItsOwnTagIsRenderedAndNothingWithoutAView() {
-        ComplexConceptBlockRenderer viewless = new ComplexConceptBlockRenderer((ViewCalculator) null, 13, new BlockContext());
+        ComplexConceptBlockRenderer viewless = new ComplexConceptBlockRenderer((ViewCalculator) null, 13, new ProfileBlocks());
         assertTrue(viewless.render("complex-concept", BLOCK, StyleAttributeMap.EMPTY).isEmpty(),
                 "with no view to name concepts, the block falls through to preformatted text");
         assertTrue(viewless.render("decision-tree", BLOCK, StyleAttributeMap.EMPTY).isEmpty());

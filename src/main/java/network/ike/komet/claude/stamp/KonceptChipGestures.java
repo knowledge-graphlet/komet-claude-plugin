@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package network.ike.komet.claude.ui;
+package network.ike.komet.claude.stamp;
 
 import dev.ikm.komet.framework.controls.KonceptBadge;
 import javafx.event.EventTarget;

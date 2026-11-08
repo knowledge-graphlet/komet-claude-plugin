@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package network.ike.komet.claude.help;
+package network.ike.komet.claude.stamp;
 
 import design.knowledge.stamp.adoc.dialect.Block;
 import design.knowledge.stamp.adoc.dialect.Document;
@@ -43,7 +43,7 @@ import java.util.regex.Pattern;
 public final class AsciiDocMarkdown {
 
     /** The scheme of a cross reference's destination in the projected Markdown. */
-    static final String XREF = "xref:";
+    public static final String XREF = "xref:";
 
     private static final Pattern BLOCK_TITLE = Pattern.compile("^\\.[^\\s.].*$");
     private static final Pattern ATTRIBUTE_LINE = Pattern.compile("^\\[[^\\[].*]$");

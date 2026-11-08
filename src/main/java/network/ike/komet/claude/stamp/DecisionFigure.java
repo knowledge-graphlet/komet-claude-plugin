@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package network.ike.komet.claude.decision.render;
+package network.ike.komet.claude.stamp;
 
 import java.util.Collections;
 import java.util.List;
@@ -21,8 +21,8 @@ import java.util.List;
 /**
  * A decision-tree figure as marks on a page: rectangles, circles, polygons, polylines and text,
  * each at a place in the figure's own units, each with its paint and a role naming what it stands
- * for. A figure is the whole of what a writer needs: {@link DecisionFigureSvg} and
- * {@link DecisionFigureTypst} translate the marks and decide nothing, so the two media draw the
+ * for. A figure is the whole of what a writer needs: {@code DecisionFigureSvg} and
+ * {@code DecisionFigureTypst} translate the marks and decide nothing, so the two media draw the
  * same picture, and a test reads the roles back from the SVG.
  *
  * <p>This class, the text metrics, the writers and the tornado builder are kept word for word in

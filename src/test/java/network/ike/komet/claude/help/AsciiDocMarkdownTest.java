@@ -15,6 +15,8 @@
  */
 package network.ike.komet.claude.help;
 
+import network.ike.komet.claude.stamp.AsciiDocMarkdown;
+
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

@@ -25,7 +25,7 @@ import javafx.event.ActionEvent;
 import javafx.scene.control.Alert;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
-import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.stamp.ComponentText;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

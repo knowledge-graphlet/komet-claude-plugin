@@ -42,7 +42,7 @@ import network.ike.komet.claude.anf.model.AnfExpression;
 import network.ike.komet.claude.anf.model.AnfExpressionBuilder;
 import network.ike.komet.claude.anf.model.AnfStatement;
 import network.ike.komet.claude.authoring.BlockConcepts;
-import network.ike.komet.claude.block.LocalConcepts;
+import network.ike.komet.claude.stamp.LocalConcepts;
 import network.ike.komet.claude.complexconcept.model.ComplexConcept;
 import network.ike.komet.claude.complexconcept.model.ComplexConceptBuilder;
 import network.ike.komet.claude.complexconcept.model.ComplexConceptExpression;

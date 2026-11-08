@@ -13,7 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package network.ike.komet.claude.stamp;
+package network.ike.komet.claude.documenttools;
+
+import network.ike.komet.claude.stamp.DocumentEditor;
+import network.ike.komet.claude.stamp.DocumentOutline;
+import network.ike.komet.claude.stamp.GitDocumentMaterializer;
 
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.service.PrimitiveData;

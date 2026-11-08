@@ -52,14 +52,13 @@ import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
 import jfx.incubator.scene.control.richtext.model.StyledTextModel;
 import network.ike.komet.claude.doc.DocumentBlock;
 import network.ike.komet.claude.doc.DocumentSurface;
-import network.ike.komet.claude.koncept.KonceptIdenticon;
+import network.ike.komet.claude.stamp.KonceptIdenticon;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredBlock;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredDocument;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredLine;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredReference;
 import network.ike.komet.claude.stamp.LineRunModel.LineRun;
-import network.ike.komet.claude.ui.BlockContext;
-import network.ike.komet.claude.ui.MarkdownRichText;
+import network.ike.komet.claude.doc.MarkdownRichText;
 
 import java.io.ByteArrayInputStream;
 import java.time.Instant;
@@ -428,7 +427,7 @@ final class DocumentSurfaceView {
         /** A ledger chunk's line numbers in its member's file, 1-based, parallel to {@link #lines}. */
         int[] numbers;
         /** In the Page layout: what this area is drawn as, when it is drawn rather than set. */
-        network.ike.komet.claude.decision.render.DecisionFigure drawn;
+        network.ike.komet.claude.stamp.DecisionFigure drawn;
         /** In the Page layout: the node a drawn area's figure stands in. */
         javafx.scene.layout.Region drawing;
         /** In the Page layout: how tall a drawn area stands on its page, its baseline being its foot. */
@@ -726,10 +725,10 @@ final class DocumentSurfaceView {
         }
         if (print) {
             // a block with a print form is drawn, one area for each figure: the page has it from the model's Drawn blocks
-            List<network.ike.komet.claude.decision.render.DecisionFigure> drawn = printFigures(document, block);
+            List<network.ike.komet.claude.stamp.DecisionFigure> drawn = printFigures(document, block);
             if (!drawn.isEmpty()) {
                 List<StoredLine> all = StructuredBlocks.lines(document, block);
-                for (network.ike.komet.claude.decision.render.DecisionFigure figure : drawn) {
+                for (network.ike.komet.claude.stamp.DecisionFigure figure : drawn) {
                     if (nesting == 0) {
                         modelOrdinal++;
                     }
@@ -939,7 +938,7 @@ final class DocumentSurfaceView {
     }
 
     /** The figures of each block's source: the model and the page must draw the same ones, and a sweep is not free. */
-    private final Map<String, List<network.ike.komet.claude.decision.render.DecisionFigure>> printed = new HashMap<>();
+    private final Map<String, List<network.ike.komet.claude.stamp.DecisionFigure>> printed = new HashMap<>();
 
     /**
      * What a block is drawn as on a page, the model and the Page layout alike.
@@ -948,7 +947,7 @@ final class DocumentSurfaceView {
      * @param block    the block
      * @return its figures in order, none when it prints as text
      */
-    public List<network.ike.komet.claude.decision.render.DecisionFigure> printFigures(StoredDocument document, StoredBlock block) {
+    public List<network.ike.komet.claude.stamp.DecisionFigure> printFigures(StoredDocument document, StoredBlock block) {
         Optional<StructuredBlockKind> kind = StructuredBlocks.kindOf(block);
         if (kind.isEmpty()) {
             return List.of();
@@ -956,14 +955,14 @@ final class DocumentSurfaceView {
         StructuredBlockKind.Source source = StructuredBlocks.source(document, block);
         return printed.computeIfAbsent(source.parameters() + "\n" + source.content(), key -> {
             try {
-                List<network.ike.komet.claude.decision.render.DecisionFigure> figures = network.ike.komet.claude.decision.render.DecisionFigureText
+                List<network.ike.komet.claude.stamp.DecisionFigure> figures = network.ike.komet.claude.stamp.DecisionFigureText
                         .inSerif(() -> kind.get().figures(source, new StructuredBlockKind.Context(host.view(), blocks, st.base())));
                 if (figures.isEmpty() || block.title().isEmpty()) {
                     return figures;
                 }
-                List<network.ike.komet.claude.decision.render.DecisionFigure> titled = new ArrayList<>(figures);
-                titled.set(0, network.ike.komet.claude.decision.render.DecisionFigureText
-                        .inSerif(() -> network.ike.komet.claude.decision.render.TextFigure.titled(block.title(), figures.getFirst())));
+                List<network.ike.komet.claude.stamp.DecisionFigure> titled = new ArrayList<>(figures);
+                titled.set(0, network.ike.komet.claude.stamp.DecisionFigureText
+                        .inSerif(() -> network.ike.komet.claude.stamp.TextFigure.titled(block.title(), figures.getFirst())));
                 return titled;
             } catch (RuntimeException failure) {
                 host.status("The " + kind.get().name() + " block could not be drawn for the page; it prints as its text: " + failure.getMessage());

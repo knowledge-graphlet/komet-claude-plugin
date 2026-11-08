@@ -32,7 +32,7 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * A stored document as the assistant reads it ({@link DocumentGraphTools}): the block tree in
+ * A stored document as the assistant reads it ({@code DocumentGraphTools}): the block tree in
  * document order, each block addressed by its path ({@code §3.2} is the second block inside the
  * third block of the document), each line by its ordinal ({@code L45}, its place in the
  * document), every line with the STAMP that introduced it and its annotations. Paths and
@@ -208,7 +208,7 @@ public final class DocumentOutline {
     }
 
     /** One block: its header and, when asked, its lines; {@code full} adds every annotation's text and the references. */
-    void block(Node node, boolean withLines, boolean full, Describe describe, StringBuilder out) {
+    public void block(Node node, boolean withLines, boolean full, Describe describe, StringBuilder out) {
         StoredBlock b = node.block();
         String indent = "  ".repeat(node.depth());
         out.append(indent).append('§').append(node.path()).append(' ').append(b.kind());

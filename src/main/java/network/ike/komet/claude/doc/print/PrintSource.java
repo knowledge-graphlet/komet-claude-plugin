@@ -19,7 +19,7 @@ import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import network.ike.komet.claude.doc.BlockFactory;
 import network.ike.komet.claude.doc.DocumentBlock;
 import network.ike.komet.claude.doc.print.settings.DocumentTheme;
-import network.ike.komet.claude.ui.MarkdownRichText;
+import network.ike.komet.claude.doc.MarkdownRichText;
 
 import java.util.ArrayList;
 import java.util.List;

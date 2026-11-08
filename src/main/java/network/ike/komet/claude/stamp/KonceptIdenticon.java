@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package network.ike.komet.claude.koncept;
+package network.ike.komet.claude.stamp;
 
 import com.sparrowwallet.toucan.LifeHash;
 import com.sparrowwallet.toucan.LifeHashVersion;

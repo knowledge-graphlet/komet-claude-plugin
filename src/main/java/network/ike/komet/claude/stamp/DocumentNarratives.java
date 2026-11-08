@@ -39,8 +39,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import network.ike.foundation.ike.bindings.IkeConcept;
-import network.ike.komet.claude.anf.element.Span;
-import network.ike.komet.claude.anf.element.SegmentNarrative;
+import network.ike.komet.claude.stamp.Span;
+import network.ike.komet.claude.stamp.SegmentNarrative;
 
 /**
  * A stamped document's prose as the narrative a lift reads ({@code dev-anf-element-isolation}, "The

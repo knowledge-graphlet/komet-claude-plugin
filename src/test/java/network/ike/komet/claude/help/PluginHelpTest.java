@@ -15,6 +15,8 @@
  */
 package network.ike.komet.claude.help;
 
+import network.ike.komet.claude.stamp.AsciiDocMarkdown;
+
 import dev.ikm.komet.layout.help.KlHelpProvider;
 import dev.ikm.komet.markdown.richtext.InlineDecorator;
 import dev.ikm.komet.markdown.richtext.MarkdownRichTextRenderer;

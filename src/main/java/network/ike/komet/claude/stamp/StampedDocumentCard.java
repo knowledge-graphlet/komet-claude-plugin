@@ -73,7 +73,6 @@ import javafx.stage.FileChooser;
 import javafx.stage.Modality;
 import javafx.stage.Window;
 import network.ike.komet.claude.doc.DocumentSurfaceArea;
-import network.ike.komet.claude.help.PluginHelp;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredBlock;
 import network.ike.komet.claude.stamp.GitDocumentMaterializer.StoredDocument;
 import network.ike.komet.claude.stamp.print.DocumentFonts;
@@ -123,7 +122,7 @@ import java.util.stream.Collectors;
  * overflow menu are always there; Commit… and Discard edit appear with an "edited" badge while
  * an edit is pending, and Restore as pending while a cancelled edit can be restored. The acts
  * on a selection — Affirm, Refute, Comment, Edit block, Show history — are the context menu of
- * the selection, in {@link DocumentSurfaceView}. The assistant's {@link StampTools} default to
+ * the selection, in {@link DocumentSurfaceView}. The assistant's {@code StampTools} default to
  * the selection and hand their proposals to {@link #proposeAnnotation}.
  *
  * <p>A document opened from a repository (Open file… in the overflow) and one chosen from the
@@ -346,9 +345,15 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
         return CARD_NAME;
     }
 
+    /**
+     * The card's help: the stamped-document topic of the help book this plugin's jar carries
+     * (ike-help book {@code komet-claude-plugin}, the same topic {@code PluginHelp} names).
+     */
+    static final KlHelpTopic HELP_TOPIC = new KlHelpTopic("komet-claude-plugin", "stamped-document");
+
     @Override
     protected Optional<KlHelpTopic> helpTopic() {
-        return Optional.of(PluginHelp.STAMPED_DOCUMENT);
+        return Optional.of(HELP_TOPIC);
     }
 
     /** @return the name of the document shown, if one is */
@@ -2122,7 +2127,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     // ── annotating ────────────────────────────────────────────────────────────
 
     /** The annotation kinds' display names: "Comment" for the kind whose birth name only tells it apart in the graph. */
-    static String displayName(AnnotationKind kind) {
+    public static String displayName(AnnotationKind kind) {
         return kind == AnnotationKind.COMMENT ? "Comment" : kind.label();
     }
 
@@ -2136,7 +2141,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     }
 
     /**
-     * The assistant's hand-off of a retraction ({@link StampTools}): open the same confirmation
+     * The assistant's hand-off of a retraction ({@code StampTools}): open the same confirmation
      * the context menu's Retract… opens for the named annotation commit, with the reason prefilled
      * for the person to edit. The person's click is the retraction; nothing is written here.
      *
@@ -2269,7 +2274,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     }
 
     /**
-     * The assistant's hand-off ({@link StampTools}): select the lines of the given ranges and
+     * The assistant's hand-off ({@code StampTools}): select the lines of the given ranges and
      * open the same confirmation the context menu opens, with the text prefilled for the person
      * to edit. The person's click is the annotation; nothing is written here.
      *
@@ -2497,8 +2502,8 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     private javafx.scene.image.Image surfaceIdenticon(dev.ikm.tinkar.entity.StampEntity<?> stamp) {
         return historyBadges.computeIfAbsent(stamp.nid(), nid -> {
             UUID seed = stamp.publicId().asUuidArray()[0];
-            byte[] png = network.ike.komet.claude.koncept.KonceptIdenticon.png(dev.ikm.tinkar.common.id.PublicIds.of(seed).idString(),
-                    network.ike.komet.claude.koncept.KonceptIdenticon.DISPLAY_MODULE_SIZE);
+            byte[] png = network.ike.komet.claude.stamp.KonceptIdenticon.png(dev.ikm.tinkar.common.id.PublicIds.of(seed).idString(),
+                    network.ike.komet.claude.stamp.KonceptIdenticon.DISPLAY_MODULE_SIZE);
             return new javafx.scene.image.Image(new java.io.ByteArrayInputStream(png));
         });
     }
@@ -3189,7 +3194,7 @@ public final class StampedDocumentCard extends AbstractHostCard implements Docum
     }
 
     /** The card's edit coordinate, for the assistant's tools, which write under their own author on its module and path. */
-    EditCoordinateRecord editCoordinateForTools() {
+    public EditCoordinateRecord editCoordinateForTools() {
         return editCoordinate();
     }
 

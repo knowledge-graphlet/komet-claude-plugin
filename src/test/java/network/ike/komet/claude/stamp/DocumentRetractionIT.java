@@ -15,6 +15,8 @@
  */
 package network.ike.komet.claude.stamp;
 
+import network.ike.komet.claude.documenttools.StampTools;
+
 import design.knowledge.stamp.adoc.git.AnnotationCommit;
 import design.knowledge.stamp.adoc.model.Annotation;
 import design.knowledge.stamp.adoc.model.AnnotationKind;

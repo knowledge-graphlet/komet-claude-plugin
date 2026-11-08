@@ -29,7 +29,7 @@ import network.ike.foundation.ike.bindings.IkePattern;
 import network.ike.komet.claude.authoring.BlockConcepts;
 import network.ike.komet.claude.block.BlockIdentities;
 import network.ike.komet.claude.block.Identities;
-import network.ike.komet.claude.block.LocalConcepts;
+import network.ike.komet.claude.stamp.LocalConcepts;
 import network.ike.komet.claude.block.Tokens;
 import network.ike.komet.claude.stamp.SemanticVersions;
 import network.ike.komet.claude.stamp.SemanticVersions.Versioned;

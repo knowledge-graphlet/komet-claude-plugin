@@ -13,7 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package network.ike.komet.claude.ui;
+package network.ike.komet.claude.stamp;
+
+import network.ike.komet.claude.stamp.ConceptChipInlineDecorator;
 
 import dev.ikm.komet.framework.Identicon;
 import dev.ikm.komet.framework.controls.KonceptBadge;
@@ -34,7 +36,6 @@ import javafx.scene.layout.Region;
 import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import javafx.scene.text.Text;
-import network.ike.komet.claude.tools.GraphTools;
 
 import java.util.Locale;
 
@@ -50,10 +51,10 @@ import java.util.Locale;
  * deterministic functions of the {@link PublicId}, so the chip always faithfully names the
  * concept it stands for — it is never a re-derived picture.
  */
-final class KonceptChips {
+public final class KonceptChips {
 
     /** Adoc Koncept chip palette (koncept.css): soft pill, IKE-blue small-caps label. */
-    static final String CHIP_STYLE =
+    public static final String CHIP_STYLE =
             "-fx-background-color: #e9eff6; -fx-background-radius: 6; -fx-padding: 1 5 1 4;";
 
     private KonceptChips() {
@@ -70,7 +71,7 @@ final class KonceptChips {
      * @param base     the ambient body font size (px); the label and identicon scale from it
      * @return the chip node (never null)
      */
-    static Node chip(PublicId pid, String sctid, ViewCalculator viewCalc, double base) {
+    public static Node chip(PublicId pid, String sctid, ViewCalculator viewCalc, double base) {
         return chip(pid, sctid, viewCalc, null, base, KonceptLabelTypography.DEFAULT);
     }
 
@@ -84,7 +85,7 @@ final class KonceptChips {
      * @param typography the label typography; {@code null} renders the default small caps
      * @return the chip node (never null)
      */
-    static Node chip(PublicId pid, String sctid, ViewCalculator viewCalc, double base,
+    public static Node chip(PublicId pid, String sctid, ViewCalculator viewCalc, double base,
                      KonceptLabelTypography typography) {
         return chip(pid, sctid, viewCalc, null, base, typography);
     }
@@ -102,7 +103,7 @@ final class KonceptChips {
      * @param base           the ambient body font size (px)
      * @return the chip node (never null)
      */
-    static Node chip(PublicId pid, String sctid, ViewProperties viewProperties, double base) {
+    public static Node chip(PublicId pid, String sctid, ViewProperties viewProperties, double base) {
         return chip(pid, sctid, viewProperties == null ? null : viewProperties.calculator(),
                 viewProperties, base, KonceptLabelTypography.DEFAULT);
     }
@@ -117,7 +118,7 @@ final class KonceptChips {
      * @param typography     the label typography; {@code null} renders the default small caps
      * @return the chip node (never null)
      */
-    static Node chip(PublicId pid, String sctid, ViewProperties viewProperties, double base,
+    public static Node chip(PublicId pid, String sctid, ViewProperties viewProperties, double base,
                      KonceptLabelTypography typography) {
         return chip(pid, sctid, viewProperties == null ? null : viewProperties.calculator(),
                 viewProperties, base, typography);
@@ -130,7 +131,7 @@ final class KonceptChips {
             int iconPx = (int) Math.round(base * 0.92);
             ImageView icon = Identicon.generateIdenticon(pid, iconPx, iconPx);
             icon.setSmooth(false);
-            if (!GraphTools.held(pid)) {
+            if (!(dev.ikm.tinkar.provider.grpc.GrpcSearchService.isActive() || PrimitiveData.get().hasPublicId(pid))) {
                 return icon;
             }
             long nid = PrimitiveData.nid(pid);
@@ -195,7 +196,7 @@ final class KonceptChips {
      * @param typography     the label typography; {@code null} renders the default small caps
      * @return the chip node (never null)
      */
-    static Node blockConcept(String name, ViewProperties viewProperties, ViewCalculator viewCalc, double base,
+    public static Node blockConcept(String name, ViewProperties viewProperties, ViewCalculator viewCalc, double base,
                              KonceptLabelTypography typography) {
         ViewCalculator view = viewProperties != null ? viewProperties.calculator() : viewCalc;
         PublicId pid = identity(name, view);
@@ -220,14 +221,14 @@ final class KonceptChips {
     /** The concept a name names; a surface drawn with no store open has only the derived identity. */
     private static PublicId identity(String name, ViewCalculator view) {
         try {
-            return network.ike.komet.claude.block.LocalConcepts.identity(name, view);
+            return network.ike.komet.claude.stamp.LocalConcepts.identity(name, view);
         } catch (RuntimeException e) {
-            return dev.ikm.tinkar.common.id.PublicIds.of(network.ike.komet.claude.block.LocalConcepts.uuid(name));
+            return dev.ikm.tinkar.common.id.PublicIds.of(network.ike.komet.claude.stamp.LocalConcepts.uuid(name));
         }
     }
 
     /** Whether the store holds an id; a surface drawn with no store open holds nothing. */
-    private static boolean held(PublicId pid) {
+    public static boolean held(PublicId pid) {
         try {
             return dev.ikm.tinkar.common.service.PrimitiveData.get().hasPublicId(pid);
         } catch (RuntimeException e) {
@@ -245,7 +246,7 @@ final class KonceptChips {
      * @param maxWidthPx the widest the chip may be
      * @return the same chip
      */
-    static Node capped(Node chip, double maxWidthPx) {
+    public static Node capped(Node chip, double maxWidthPx) {
         return capped(chip, maxWidthPx, false);
     }
 
@@ -257,7 +258,7 @@ final class KonceptChips {
      * @param wrap       whether a long name wraps rather than ellipsises
      * @return the same chip
      */
-    static Node capped(Node chip, double maxWidthPx, boolean wrap) {
+    public static Node capped(Node chip, double maxWidthPx, boolean wrap) {
         if (chip instanceof KonceptBadge badge && naturalWidth(badge) > maxWidthPx) {
             if (wrap) {
                 badge.setMultiLineLabel(true);
@@ -280,7 +281,7 @@ final class KonceptChips {
      * @param chromePx  what the chip takes beside its name: its identicon, status and padding
      * @return the cap to wrap at
      */
-    static double balancedCap(double capPx, double naturalPx, String name, double chromePx) {
+    public static double balancedCap(double capPx, double naturalPx, String name, double chromePx) {
         if (name == null || name.isBlank()) {
             return capPx;
         }
@@ -299,7 +300,7 @@ final class KonceptChips {
      * @param font the font it is drawn in
      * @return the width, in pixels
      */
-    static double widestWord(String text, javafx.scene.text.Font font) {
+    public static double widestWord(String text, javafx.scene.text.Font font) {
         double widest = 0;
         for (String word : text.split("\\s+")) {
             javafx.scene.text.Text probe = new javafx.scene.text.Text(word);
@@ -320,7 +321,7 @@ final class KonceptChips {
      * @param node a chip, a label, or a row of them
      * @return the width, in pixels
      */
-    static double naturalWidth(Node node) {
+    public static double naturalWidth(Node node) {
         if (node == null || !node.isManaged()) {
             return 0;
         }
@@ -360,4 +361,5 @@ final class KonceptChips {
             return false;
         }
     }
+
 }

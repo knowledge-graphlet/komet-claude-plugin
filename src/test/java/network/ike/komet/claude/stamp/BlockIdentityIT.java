@@ -32,7 +32,7 @@ import dev.ikm.tinkar.terms.KernelPattern;
 import network.ike.foundation.ike.bindings.IkeConcept;
 import network.ike.foundation.ike.bindings.IkePattern;
 import network.ike.komet.claude.HeadlessFx;
-import network.ike.komet.claude.block.LocalConcepts;
+import network.ike.komet.claude.stamp.LocalConcepts;
 import network.ike.komet.claude.complexconcept.ComplexConceptWrites;
 import network.ike.komet.claude.decision.DecisionTreeWrites;
 import org.junit.jupiter.api.AfterAll;

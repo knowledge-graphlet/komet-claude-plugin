@@ -15,6 +15,8 @@
  */
 package network.ike.komet.claude.anf.element;
 
+import network.ike.komet.claude.stamp.Span;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;

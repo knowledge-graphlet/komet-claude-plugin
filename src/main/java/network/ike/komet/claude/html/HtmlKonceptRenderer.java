@@ -25,10 +25,10 @@ import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityVersion;
 import dev.ikm.tinkar.entity.StampEntity;
 import dev.ikm.komet.framework.controls.KonceptStatus;
-import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.stamp.ComponentText;
 import network.ike.komet.claude.koncept.ConceptDefinition;
 import network.ike.komet.claude.koncept.KompendiumUrls;
-import network.ike.komet.claude.koncept.KonceptIdenticon;
+import network.ike.komet.claude.stamp.KonceptIdenticon;
 import network.ike.komet.claude.koncept.KonceptStatusMark;
 
 import java.util.ArrayList;

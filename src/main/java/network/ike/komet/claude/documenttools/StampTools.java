@@ -13,7 +13,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package network.ike.komet.claude.stamp;
+package network.ike.komet.claude.documenttools;
+
+import network.ike.komet.claude.stamp.DocumentOutline;
+import network.ike.komet.claude.stamp.GitDocumentMaterializer;
+import network.ike.komet.claude.stamp.GitStampBridge;
+import network.ike.komet.claude.stamp.GitStampTerms;
+import network.ike.komet.claude.stamp.StampedDocumentCard;
 
 import design.knowledge.stamp.adoc.git.AnnotationCommit;
 import design.knowledge.stamp.adoc.git.GitRepo;
@@ -273,7 +279,7 @@ public final class StampTools {
     }
 
     /** The tool's kind word as an annotation kind. */
-    static AnnotationKind kind(String word) {
+    public static AnnotationKind kind(String word) {
         return switch (word == null ? "" : word.strip().toLowerCase(Locale.ROOT)) {
             case "affirm", "affirmation" -> AnnotationKind.AFFIRMATION;
             case "refute", "refutation" -> AnnotationKind.REFUTATION;

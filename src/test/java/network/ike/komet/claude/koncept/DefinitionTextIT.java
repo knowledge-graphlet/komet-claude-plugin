@@ -15,6 +15,8 @@
  */
 package network.ike.komet.claude.koncept;
 
+import network.ike.komet.claude.stamp.ComponentText;
+
 import dev.ikm.tinkar.terms.KernelConcept;
 import dev.ikm.komet.terms.KometConcept;
 import dev.ikm.tinkar.common.id.LongIds;

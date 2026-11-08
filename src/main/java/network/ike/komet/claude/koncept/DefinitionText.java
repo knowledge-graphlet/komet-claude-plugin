@@ -15,6 +15,8 @@
  */
 package network.ike.komet.claude.koncept;
 
+import network.ike.komet.claude.stamp.ComponentText;
+
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.entity.graph.DiTreeText;

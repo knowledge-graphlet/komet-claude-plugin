@@ -41,7 +41,7 @@ import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.EntityProxy;
 import dev.ikm.tinkar.terms.State;
 import network.ike.foundation.ike.bindings.IkePattern;
-import network.ike.komet.claude.block.LocalConcepts;
+import network.ike.komet.claude.stamp.LocalConcepts;
 import network.ike.komet.claude.stamp.VertexReader;
 import org.eclipse.collections.api.factory.Lists;
 

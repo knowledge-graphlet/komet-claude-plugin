@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package network.ike.komet.claude.koncept;
+package network.ike.komet.claude.stamp;
 
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.service.PrimitiveData;
@@ -31,7 +31,7 @@ import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.KernelConcept;
 import dev.ikm.tinkar.terms.KernelPattern;
-import network.ike.komet.claude.ui.KonceptTokens;
+import network.ike.komet.claude.stamp.KonceptTokens;
 
 import java.util.Optional;
 import java.util.UUID;

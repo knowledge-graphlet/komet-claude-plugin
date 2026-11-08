@@ -15,6 +15,10 @@
  */
 package network.ike.komet.claude.ui;
 
+import network.ike.komet.claude.stamp.KonceptChips;
+
+import network.ike.komet.claude.stamp.BlockRewriter;
+
 import dev.ikm.komet.framework.controls.KonceptBadge;
 import dev.ikm.komet.framework.controls.KonceptLabelTypography;
 import dev.ikm.komet.framework.view.ViewProperties;
@@ -51,8 +55,8 @@ import network.ike.komet.claude.decision.GraphletModel;
 import network.ike.komet.claude.decision.GraphletModelText;
 import network.ike.komet.claude.decision.Measure;
 import network.ike.komet.claude.decision.StatementMeasures;
-import network.ike.komet.claude.decision.render.DecisionFigureText;
-import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.stamp.DecisionFigureText;
+import network.ike.komet.claude.stamp.ComponentText;
 import org.eclipse.collections.api.list.ImmutableList;
 
 import java.util.ArrayList;
@@ -69,7 +73,7 @@ import java.util.function.Consumer;
  * its parameters, each with the statement it reads, the value the tree runs at and the range the
  * statement determined; and a sentence on the structure, which the document's
  * {@code [decision-tree, model=…]} rendering draws. It publishes the model on the document's
- * {@link BlockContext}, as an {@code anf} block publishes its statement, so the renderings that
+ * {@link ProfileBlocks}, as an {@code anf} block publishes its statement, so the renderings that
  * name it draw it and redraw when it moves.
  *
  * <p>A value edited here, or committed from a rendering with "Use this value", restates the one
@@ -77,39 +81,39 @@ import java.util.function.Consumer;
  * the surface's {@link BlockRewriter}: a committed value is a new version of the model. A surface
  * without a rewriter shows the model read-only.
  */
-final class GraphletModelBlockRenderer implements BlockRenderer {
+final class GraphletModelBlockRenderer implements network.ike.komet.claude.stamp.StructuredBlockKind.FenceRenderer {
 
     private final ViewCalculator viewCalc;
     private final ViewProperties viewProperties;
     private final double base;
-    private final BlockContext context;
+    private final ProfileBlocks context;
     private KonceptLabelTypography typography = KonceptLabelTypography.DEFAULT;
     private BlockRewriter rewriter;
 
     /** Gives each block its order among the blocks of every document. */
     private static final java.util.concurrent.atomic.AtomicLong ORDERS = new java.util.concurrent.atomic.AtomicLong();
 
-    GraphletModelBlockRenderer(ViewProperties viewProperties, double base, BlockContext context) {
+    GraphletModelBlockRenderer(ViewProperties viewProperties, double base, ProfileBlocks context) {
         this(viewProperties == null ? null : viewProperties.calculator(), viewProperties, base, context);
     }
 
-    GraphletModelBlockRenderer(ViewCalculator viewCalc, double base, BlockContext context) {
+    GraphletModelBlockRenderer(ViewCalculator viewCalc, double base, ProfileBlocks context) {
         this(viewCalc, null, base, context);
     }
 
-    GraphletModelBlockRenderer(ViewCalculator viewCalc, ViewProperties viewProperties, double base, BlockContext context) {
+    GraphletModelBlockRenderer(ViewCalculator viewCalc, ViewProperties viewProperties, double base, ProfileBlocks context) {
         this.viewCalc = viewCalc;
         this.viewProperties = viewProperties;
         this.base = base;
-        this.context = context == null ? new BlockContext() : context;
+        this.context = context == null ? new ProfileBlocks() : context;
     }
 
-    void setChipTypography(KonceptLabelTypography typography) {
+    public void setChipTypography(KonceptLabelTypography typography) {
         this.typography = typography == null ? KonceptLabelTypography.DEFAULT : typography;
     }
 
     /** Where the model's text goes when a value is committed; null shows the model read-only. */
-    void setRewriter(BlockRewriter rewriter) {
+    public void setRewriter(BlockRewriter rewriter) {
         this.rewriter = rewriter;
     }
 
@@ -139,7 +143,7 @@ final class GraphletModelBlockRenderer implements BlockRenderer {
      * Puts a model on the context at once, for the renderings that read it: a block's column is
      * built only when it is drawn, and a page never builds one.
      */
-    static void publish(String info, String body, BlockContext context, Consumer<String> writer) {
+    static void publish(String info, String body, ProfileBlocks context, Consumer<String> writer) {
         GraphletModelText.modelId(info, body).ifPresent(id ->
                 context.defineModel(new GraphletModel(id, info, body, Optional.ofNullable(writer)), ORDERS.incrementAndGet()));
     }

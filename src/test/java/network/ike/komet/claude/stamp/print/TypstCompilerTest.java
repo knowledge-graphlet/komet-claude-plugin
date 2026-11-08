@@ -17,7 +17,7 @@ package network.ike.komet.claude.stamp.print;
 
 import network.ike.komet.claude.doc.print.settings.PrintSettings;
 import org.junit.jupiter.api.Test;
-import network.ike.komet.claude.decision.render.TextFigure;
+import network.ike.komet.claude.stamp.TextFigure;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;

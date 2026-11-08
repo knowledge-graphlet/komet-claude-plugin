@@ -19,7 +19,7 @@ import dev.ikm.tinkar.component.FieldDataType;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.FieldDefinitionForEntity;
 import dev.ikm.tinkar.entity.PatternEntityVersion;
-import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.stamp.ComponentText;
 import org.eclipse.collections.api.list.ImmutableList;
 
 import java.util.ArrayList;

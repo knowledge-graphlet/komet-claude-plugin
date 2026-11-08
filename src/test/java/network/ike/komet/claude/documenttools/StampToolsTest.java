@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package network.ike.komet.claude.stamp;
+package network.ike.komet.claude.documenttools;
 
 import design.knowledge.stamp.adoc.git.GitRepo;
 import design.knowledge.stamp.adoc.model.Annotation;

@@ -15,6 +15,8 @@
  */
 package network.ike.komet.claude.ui;
 
+import network.ike.komet.claude.stamp.BlockRewriter;
+
 import dev.ikm.komet.markdown.richtext.BlockPiece;
 import dev.ikm.komet.markdown.richtext.BlockRenderer;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
@@ -36,7 +38,7 @@ import java.util.Optional;
  * {@code dev-decision-document}): a {@code [decision-tree]}, {@code [complex-concept]},
  * {@code [anf]}, {@code [calculator]} or {@code [calculate]} listing block in an AsciiDoc document
  * draws on the stamped surface as it draws in the assistant's transcript, through the same
- * renderer, over the document's {@link BlockContext}, so a tree folds in another tree of the same
+ * renderer, over the document's {@link ProfileBlocks}, so a tree folds in another tree of the same
  * document, finds the statements its nodes name and reads a calculator's value.
  *
  * <p>The block's attribute line becomes the renderer's info string, {@code [decision-tree,
@@ -59,7 +61,7 @@ public final class DocumentBlockKinds {
      * @param parameters the block's attribute line, verbatim
      * @return the info string
      */
-    static String info(String parameters) {
+    public static String info(String parameters) {
         String line = parameters == null ? "" : parameters.strip();
         if (line.startsWith("[") && line.endsWith("]")) {
             line = line.substring(1, line.length() - 1);
@@ -106,7 +108,7 @@ public final class DocumentBlockKinds {
         }
 
         /** The renderer, over the document's context, writing back through the rewriter when there is one. */
-        abstract BlockRenderer renderer(Context context, BlockRewriter rewriter);
+        abstract FenceRenderer renderer(Context context, BlockRewriter rewriter);
 
         @Override
         public final String style() {
@@ -137,6 +139,12 @@ public final class DocumentBlockKinds {
         public final Optional<Editor> editor(Source source, Context context) {
             return Optional.empty();
         }
+
+        /** The same renderer draws the kind's fences in a passage, writing back once the passage sets a rewriter. */
+        @Override
+        public final Optional<FenceRenderer> fenceRenderer(Context context) {
+            return Optional.of(renderer(context, null));
+        }
     }
 
     /** What a block's previous text says between its fences. */
@@ -146,7 +154,7 @@ public final class DocumentBlockKinds {
 
     /** The first model the document's blocks have published, which a new rendering names. */
     static Optional<String> firstModel(StructuredBlockKind.Context context) {
-        return context.blocks() == null ? Optional.empty() : context.blocks().models().keySet().stream().findFirst();
+        return context.blocks() == null ? Optional.empty() : ProfileBlocks.of(context.blocks()).models().keySet().stream().findFirst();
     }
 
     /** The skeleton of a new decision as the tree grammar states it: one choice, two alternatives, an outcome each. */
@@ -168,17 +176,17 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        BlockRenderer renderer(Context context, BlockRewriter rewriter) {
-            DecisionTreeBlockRenderer renderer = new DecisionTreeBlockRenderer(context.view(), context.viewProperties(), context.base(), context.blocks());
+        FenceRenderer renderer(Context context, BlockRewriter rewriter) {
+            DecisionTreeBlockRenderer renderer = new DecisionTreeBlockRenderer(context.view(), context.viewProperties(), context.base(), ProfileBlocks.of(context.blocks()));
             renderer.setRewriter(rewriter);
             return renderer;
         }
 
         @Override
-        public List<network.ike.komet.claude.decision.render.DecisionFigure> figures(Source source, Context context) {
+        public List<network.ike.komet.claude.stamp.DecisionFigure> figures(Source source, Context context) {
             String info = info(source.parameters());
             Optional<String> body = modelBody(info, source, context);
-            return body.map(text -> BlockPrint.tree(info, text, context.view(), context.blocks())).orElse(List.of());
+            return body.map(text -> BlockPrint.tree(info, text, context.view(), ProfileBlocks.of(context.blocks()))).orElse(List.of());
         }
 
         /** A rendering of the document's model when it has one, drawn at once; else a tree of its own, opened for editing. */
@@ -207,7 +215,7 @@ public final class DocumentBlockKinds {
     static Optional<String> modelBody(String info, StructuredBlockKind.Source source, StructuredBlockKind.Context context) {
         Optional<String> model = GraphletModelText.modelReference(info);
         if (model.isPresent()) {
-            return context.blocks().model(model.get()).map(network.ike.komet.claude.decision.GraphletModel::body);
+            return ProfileBlocks.of(context.blocks()).model(model.get()).map(network.ike.komet.claude.decision.GraphletModel::body);
         }
         String content = source.content();
         return Optional.of(content.endsWith("\n") ? content : content + "\n");
@@ -224,19 +232,19 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        BlockRenderer renderer(Context context, BlockRewriter rewriter) {
-            GraphletModelBlockRenderer renderer = new GraphletModelBlockRenderer(context.view(), context.viewProperties(), context.base(), context.blocks());
+        FenceRenderer renderer(Context context, BlockRewriter rewriter) {
+            GraphletModelBlockRenderer renderer = new GraphletModelBlockRenderer(context.view(), context.viewProperties(), context.base(), ProfileBlocks.of(context.blocks()));
             renderer.setRewriter(rewriter);
             return renderer;
         }
 
         @Override
-        public List<network.ike.komet.claude.decision.render.DecisionFigure> figures(Source source, Context context) {
+        public List<network.ike.komet.claude.stamp.DecisionFigure> figures(Source source, Context context) {
             String content = source.content();
             String body = content.endsWith("\n") ? content : content + "\n";
             String info = info(source.parameters());
-            GraphletModelBlockRenderer.publish(info, body, context.blocks(), null);
-            return BlockPrint.model(info, body, context.view(), context.blocks());
+            GraphletModelBlockRenderer.publish(info, body, ProfileBlocks.of(context.blocks()), null);
+            return BlockPrint.model(info, body, context.view(), ProfileBlocks.of(context.blocks()));
         }
 
         /** A model of a new decision: the tree with one chance, and the parameter the chance reads. */
@@ -279,17 +287,17 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        BlockRenderer renderer(Context context, BlockRewriter rewriter) {
-            TornadoBlockRenderer renderer = new TornadoBlockRenderer(context.view(), context.viewProperties(), context.base(), context.blocks());
+        FenceRenderer renderer(Context context, BlockRewriter rewriter) {
+            TornadoBlockRenderer renderer = new TornadoBlockRenderer(context.view(), context.viewProperties(), context.base(), ProfileBlocks.of(context.blocks()));
             renderer.setRewriter(rewriter);
             return renderer;
         }
 
         @Override
-        public List<network.ike.komet.claude.decision.render.DecisionFigure> figures(Source source, Context context) {
+        public List<network.ike.komet.claude.stamp.DecisionFigure> figures(Source source, Context context) {
             String info = info(source.parameters());
             Optional<String> body = modelBody(info, source, context);
-            return body.map(text -> BlockPrint.tornado(info, text, context.view(), context.blocks())).orElse(List.of());
+            return body.map(text -> BlockPrint.tornado(info, text, context.view(), ProfileBlocks.of(context.blocks()))).orElse(List.of());
         }
 
         /** The tornado of the document's model, drawn at once when the document has one. */
@@ -307,15 +315,15 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        BlockRenderer renderer(Context context, BlockRewriter rewriter) {
-            ComplexConceptBlockRenderer renderer = new ComplexConceptBlockRenderer(context.view(), context.viewProperties(), context.base(), context.blocks());
+        FenceRenderer renderer(Context context, BlockRewriter rewriter) {
+            ComplexConceptBlockRenderer renderer = new ComplexConceptBlockRenderer(context.view(), context.viewProperties(), context.base(), ProfileBlocks.of(context.blocks()));
             renderer.setRewriter(rewriter);
             return renderer;
         }
 
         @Override
-        public List<network.ike.komet.claude.decision.render.DecisionFigure> figures(Source source, Context context) {
-            return BlockPrint.complexConcept(source.content(), context.view(), context.blocks());
+        public List<network.ike.komet.claude.stamp.DecisionFigure> figures(Source source, Context context) {
+            return BlockPrint.complexConcept(source.content(), context.view(), ProfileBlocks.of(context.blocks()));
         }
 
         /** A concept named and not yet defined, opened in its editor. */
@@ -338,16 +346,28 @@ public final class DocumentBlockKinds {
             super("anf", "ANF statement");
         }
 
+        /** A note's clinical elements, drawn in a passage's prose beneath the concept chips. */
         @Override
-        BlockRenderer renderer(Context context, BlockRewriter rewriter) {
-            AnfBlockRenderer renderer = new AnfBlockRenderer(context.view(), context.viewProperties(), context.base(), context.blocks());
+        public dev.ikm.komet.markdown.richtext.InlineDecorator decorate(dev.ikm.komet.markdown.richtext.InlineDecorator next, Context context) {
+            return new ElementSpanDecorator(next, ProfileBlocks.of(context.blocks()).elementSpans());
+        }
+
+        /** Finds the element spans the passage's text holds. */
+        @Override
+        public void preparePassage(String markdown, Context context) {
+            ProfileBlocks.of(context.blocks()).elementSpans().prepare(markdown);
+        }
+
+        @Override
+        FenceRenderer renderer(Context context, BlockRewriter rewriter) {
+            AnfBlockRenderer renderer = new AnfBlockRenderer(context.view(), context.viewProperties(), context.base(), ProfileBlocks.of(context.blocks()));
             renderer.setRewriter(rewriter);
             return renderer;
         }
 
         @Override
-        public List<network.ike.komet.claude.decision.render.DecisionFigure> figures(Source source, Context context) {
-            AnfBlockRenderer.publish(info(source.parameters()), source.content(), context.view(), context.blocks());
+        public List<network.ike.komet.claude.stamp.DecisionFigure> figures(Source source, Context context) {
+            AnfBlockRenderer.publish(info(source.parameters()), source.content(), context.view(), ProfileBlocks.of(context.blocks()));
             return BlockPrint.fields(name(), List.of(source.content().split("\n", -1)));
         }
 
@@ -393,14 +413,14 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        BlockRenderer renderer(Context context, BlockRewriter rewriter) {
-            CalculatorBlockRenderer renderer = new CalculatorBlockRenderer(context.view(), context.viewProperties(), context.base(), context.blocks());
+        FenceRenderer renderer(Context context, BlockRewriter rewriter) {
+            CalculatorBlockRenderer renderer = new CalculatorBlockRenderer(context.view(), context.viewProperties(), context.base(), ProfileBlocks.of(context.blocks()));
             renderer.setRewriter(rewriter);
             return renderer;
         }
 
         @Override
-        public List<network.ike.komet.claude.decision.render.DecisionFigure> figures(Source source, Context context) {
+        public List<network.ike.komet.claude.stamp.DecisionFigure> figures(Source source, Context context) {
             return BlockPrint.fields(name(), List.of(source.content().split("\n", -1)));
         }
     }
@@ -422,14 +442,14 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        BlockRenderer renderer(Context context, BlockRewriter rewriter) {
-            CalculatorBlockRenderer renderer = new CalculatorBlockRenderer(context.view(), context.viewProperties(), context.base(), context.blocks());
+        FenceRenderer renderer(Context context, BlockRewriter rewriter) {
+            CalculatorBlockRenderer renderer = new CalculatorBlockRenderer(context.view(), context.viewProperties(), context.base(), ProfileBlocks.of(context.blocks()));
             renderer.setRewriter(rewriter);
             return renderer;
         }
 
         @Override
-        public List<network.ike.komet.claude.decision.render.DecisionFigure> figures(Source source, Context context) {
+        public List<network.ike.komet.claude.stamp.DecisionFigure> figures(Source source, Context context) {
             return BlockPrint.fields(name(), List.of(source.content().split("\n", -1)));
         }
     }
@@ -454,13 +474,13 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        BlockRenderer renderer(Context context, BlockRewriter rewriter) {
-            return new BenefitRiskBlockRenderer(view, context.view(), context.viewProperties(), context.base(), context.blocks());
+        FenceRenderer renderer(Context context, BlockRewriter rewriter) {
+            return new BenefitRiskBlockRenderer(view, context.view(), context.viewProperties(), context.base(), ProfileBlocks.of(context.blocks()));
         }
 
         @Override
-        public List<network.ike.komet.claude.decision.render.DecisionFigure> figures(Source source, Context context) {
-            return BenefitRiskBlockRenderer.figures(view, info(source.parameters()), source.content(), context.blocks());
+        public List<network.ike.komet.claude.stamp.DecisionFigure> figures(Source source, Context context) {
+            return BenefitRiskBlockRenderer.figures(view, info(source.parameters()), source.content(), ProfileBlocks.of(context.blocks()));
         }
     }
 
@@ -542,7 +562,7 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        BlockRenderer renderer(Context context, BlockRewriter rewriter) {
+        FenceRenderer renderer(Context context, BlockRewriter rewriter) {
             return context.viewProperties() == null
                     ? new KonceptTreeBlockRenderer(context.view(), context.base())
                     : new KonceptTreeBlockRenderer(context.viewProperties(), context.base());
@@ -562,7 +582,7 @@ public final class DocumentBlockKinds {
         }
 
         @Override
-        BlockRenderer renderer(Context context, BlockRewriter rewriter) {
+        FenceRenderer renderer(Context context, BlockRewriter rewriter) {
             return new KonceptDefinitionBlockRenderer(context.view(), context.base());
         }
 

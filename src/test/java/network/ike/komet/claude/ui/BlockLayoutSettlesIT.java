@@ -28,7 +28,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Control;
 import javafx.scene.layout.VBox;
-import network.ike.komet.claude.block.LocalConcepts;
+import network.ike.komet.claude.stamp.LocalConcepts;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -157,7 +157,7 @@ class BlockLayoutSettlesIT {
             String text = new String(in.readAllBytes(), StandardCharsets.UTF_8);
             body = text.substring(text.indexOf("----\n") + 5, text.lastIndexOf("----"));
         }
-        settles("decision tree", () -> List.of(only(new DecisionTreeBlockRenderer(view, BASE, new BlockContext())
+        settles("decision tree", () -> List.of(only(new DecisionTreeBlockRenderer(view, BASE, new ProfileBlocks())
                 .render("decision-tree health-price=100000", body, null))));
     }
 
@@ -165,7 +165,7 @@ class BlockLayoutSettlesIT {
     @Test
     void treesThatLinkToEachOtherComeToRest() throws Exception {
         settles("linked trees", () -> {
-            DecisionTreeBlockRenderer renderer = new DecisionTreeBlockRenderer(view, BASE, new BlockContext());
+            DecisionTreeBlockRenderer renderer = new DecisionTreeBlockRenderer(view, BASE, new ProfileBlocks());
             return List.of(only(renderer.render("decision-tree", CONSEQUENCES, null)),
                     only(renderer.render("decision-tree", FOLDING, null)));
         });
@@ -173,20 +173,20 @@ class BlockLayoutSettlesIT {
 
     @Test
     void aCalculatorComesToRest() throws Exception {
-        settles("calculator", () -> List.of(only(new CalculatorBlockRenderer(view, BASE, new BlockContext())
+        settles("calculator", () -> List.of(only(new CalculatorBlockRenderer(view, BASE, new ProfileBlocks())
                 .render("calculator", CALCULATOR, null))));
     }
 
     @Test
     void aComplexConceptComesToRest() throws Exception {
-        settles("complex concept", () -> List.of(only(new ComplexConceptBlockRenderer(view, BASE, new BlockContext())
+        settles("complex concept", () -> List.of(only(new ComplexConceptBlockRenderer(view, BASE, new ProfileBlocks())
                 .render("complex-concept", COMPLEX_CONCEPT, null))));
     }
 
     @Test
     void aComplexConceptBeingEditedComesToRest() throws Exception {
         settles("complex concept in its editor", () -> {
-            Node block = only(new ComplexConceptBlockRenderer(view, BASE, new BlockContext())
+            Node block = only(new ComplexConceptBlockRenderer(view, BASE, new ProfileBlocks())
                     .render("complex-concept", COMPLEX_CONCEPT, null));
             if (block.lookup("#complexConceptEdit") instanceof Button edit) {
                 edit.fire();
@@ -211,7 +211,7 @@ class BlockLayoutSettlesIT {
         UUID scale = LocalConcepts.uuid("unminted scale");
         UUID member = LocalConcepts.uuid("unminted member");
 
-        Node drawn = onFx(() -> only(new ComplexConceptBlockRenderer(view, BASE, new BlockContext())
+        Node drawn = onFx(() -> only(new ComplexConceptBlockRenderer(view, BASE, new ProfileBlocks())
                 .render("complex-concept", block, null)));
 
         assertFalse(PrimitiveData.get().hasUuid(scale), "drawing the block minted its scale");
@@ -230,7 +230,7 @@ class BlockLayoutSettlesIT {
 
     @Test
     void anAnfStatementComesToRest() throws Exception {
-        settles("ANF statement", () -> List.of(only(new AnfBlockRenderer(view, BASE, new BlockContext())
+        settles("ANF statement", () -> List.of(only(new AnfBlockRenderer(view, BASE, new ProfileBlocks())
                 .render("anf type=request id=settle-request", ANF, null))));
     }
 

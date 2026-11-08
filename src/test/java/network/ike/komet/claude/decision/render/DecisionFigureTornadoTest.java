@@ -15,8 +15,12 @@
  */
 package network.ike.komet.claude.decision.render;
 
-import network.ike.komet.claude.decision.render.DecisionFigure.Polyline;
-import network.ike.komet.claude.decision.render.DecisionFigure.Text;
+import network.ike.komet.claude.stamp.DecisionFigureText;
+
+import network.ike.komet.claude.stamp.DecisionFigure;
+
+import network.ike.komet.claude.stamp.DecisionFigure.Polyline;
+import network.ike.komet.claude.stamp.DecisionFigure.Text;
 import network.ike.komet.claude.decision.render.DecisionFigureTornado.Bar;
 import network.ike.komet.claude.decision.render.DecisionFigureTornado.Choice;
 import network.ike.komet.claude.decision.render.DecisionFigureTornado.Segment;

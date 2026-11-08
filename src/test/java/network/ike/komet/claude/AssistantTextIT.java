@@ -26,7 +26,7 @@ import dev.ikm.tinkar.entity.SemanticEntityVersion;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.terms.EntityFacade;
 import network.ike.komet.claude.anthropic.AnthropicTool;
-import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.stamp.ComponentText;
 import network.ike.komet.claude.koncept.NidFree;
 import network.ike.komet.claude.tools.GraphTools;
 import org.junit.jupiter.api.AfterAll;

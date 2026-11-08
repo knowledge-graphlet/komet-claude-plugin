@@ -372,7 +372,7 @@ public final class ComplexConceptText {
 
     /** The public id a local concept derives: from its name, its fully qualified name, wherever it is written. */
     public static UUID localPublicId(Ref ref) {
-        return network.ike.komet.claude.block.LocalConcepts.uuid(ref.label());
+        return network.ike.komet.claude.stamp.LocalConcepts.uuid(ref.label());
     }
 
     /**

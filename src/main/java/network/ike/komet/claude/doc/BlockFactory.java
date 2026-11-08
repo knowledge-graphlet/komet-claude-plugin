@@ -15,7 +15,7 @@
  */
 package network.ike.komet.claude.doc;
 
-import network.ike.komet.claude.ui.KonceptChipGestures;
+import network.ike.komet.claude.stamp.KonceptChipGestures;
 import dev.ikm.komet.layout.expand.KlExpandable;
 import dev.ikm.komet.markdown.richtext.DocumentSegment;
 import dev.ikm.komet.markdown.richtext.MarkdownStyledModel;
@@ -35,7 +35,7 @@ import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import javafx.scene.text.FontWeight;
 import jfx.incubator.scene.control.richtext.RichTextArea;
-import network.ike.komet.claude.ui.MarkdownRichText;
+import network.ike.komet.claude.doc.MarkdownRichText;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -157,7 +157,7 @@ public final class BlockFactory {
      * @param store the width store, or {@code null} to make column resizing session-local
      */
     /** Where a rendered block's what-if goes when the reader writes it back into the document. */
-    public void setBlockRewriter(network.ike.komet.claude.ui.BlockRewriter rewriter) {
+    public void setBlockRewriter(network.ike.komet.claude.stamp.BlockRewriter rewriter) {
         markdown.setBlockRewriter(rewriter);
     }
 

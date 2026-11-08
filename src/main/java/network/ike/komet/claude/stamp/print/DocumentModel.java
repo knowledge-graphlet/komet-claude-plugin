@@ -80,7 +80,7 @@ public record DocumentModel(String title, List<Block> blocks) {
      *
      * @param figure the figure
      */
-    public record Drawn(network.ike.komet.claude.decision.render.DecisionFigure figure) implements Block { }
+    public record Drawn(network.ike.komet.claude.stamp.DecisionFigure figure) implements Block { }
 
     /**
      * A list.

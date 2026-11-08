@@ -15,6 +15,8 @@
  */
 package network.ike.komet.claude.ui;
 
+import network.ike.komet.claude.stamp.KonceptChips;
+
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;

@@ -15,8 +15,8 @@
  */
 package network.ike.komet.claude.semantic;
 
-import network.ike.komet.claude.ui.KonceptChipGestures;
-import network.ike.komet.claude.ui.RichTextViewpoint;
+import network.ike.komet.claude.stamp.KonceptChipGestures;
+import network.ike.komet.claude.stamp.RichTextViewpoint;
 import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.komet.layout.KlArea;
 import dev.ikm.komet.layout.area.AreaGridSettings;
@@ -40,7 +40,7 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import jfx.incubator.scene.control.richtext.RichTextArea;
-import network.ike.komet.claude.ui.MarkdownRichText;
+import network.ike.komet.claude.doc.MarkdownRichText;
 
 import java.util.ArrayList;
 import java.util.HashMap;

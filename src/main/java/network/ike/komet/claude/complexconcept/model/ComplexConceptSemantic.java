@@ -18,7 +18,7 @@ package network.ike.komet.claude.complexconcept.model;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.terms.ConceptFacade;
 import network.ike.foundation.ike.bindings.IkeConcept;
-import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.stamp.ComponentText;
 
 import java.util.EnumMap;
 import java.util.Map;

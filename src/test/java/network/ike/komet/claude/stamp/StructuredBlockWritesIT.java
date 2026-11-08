@@ -168,7 +168,7 @@ class StructuredBlockWritesIT {
         String first = kind.write(StructuredBlockKind.Source.of(text), block.nid(), previous, view, edit).orElseThrow();
         assertTrue(first.startsWith("Proposed the complex concept Site decision for a first-of-a-kind device"), first);
         assertTrue(first.contains("with 3 concepts the knowledge base lacked"), first);
-        long concept = PrimitiveData.nid(dev.ikm.tinkar.common.id.PublicIds.of(network.ike.komet.claude.block.LocalConcepts.uuid("Site decision for a first-of-a-kind device")));
+        long concept = PrimitiveData.nid(dev.ikm.tinkar.common.id.PublicIds.of(network.ike.komet.claude.stamp.LocalConcepts.uuid("Site decision for a first-of-a-kind device")));
         List<Long> specifications = specifications(concept);
         assertEquals(1, specifications.size());
         long specification = specifications.getFirst();

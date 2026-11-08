@@ -15,6 +15,12 @@
  */
 package network.ike.komet.claude.ui;
 
+import network.ike.komet.claude.doc.MarkdownRichText;
+
+import network.ike.komet.claude.stamp.KonceptChips;
+
+import network.ike.komet.claude.stamp.BlockRewriter;
+
 import dev.ikm.komet.framework.controls.KonceptBadge;
 import dev.ikm.komet.framework.controls.KonceptLabelTypography;
 import dev.ikm.komet.framework.view.ViewProperties;
@@ -58,7 +64,7 @@ import network.ike.komet.claude.anf.element.ClinicalElement;
 import network.ike.komet.claude.anf.element.ElementLevel;
 import network.ike.komet.claude.anf.element.ElementText;
 import network.ike.komet.claude.block.Tokens;
-import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.stamp.ComponentText;
 import network.ike.komet.claude.stamp.SegmentedControl;
 import network.ike.komet.claude.tools.GraphTools;
 
@@ -75,38 +81,38 @@ import network.ike.komet.claude.tools.GraphTools;
  * written as the interval that says so, {@code [0,1]} on the Presence scale or an unbounded
  * measure, and renders as that, never as a guess. The fence names the statement for the document,
  * {@code anf type=performance id=stmt-sbp}, and a {@code calculate} block binds to it by that name
- * through the shared {@link BlockContext}.
+ * through the shared {@link ProfileBlocks}.
  */
-final class AnfBlockRenderer implements BlockRenderer {
+final class AnfBlockRenderer implements network.ike.komet.claude.stamp.StructuredBlockKind.FenceRenderer {
 
     private final ViewCalculator viewCalc;
     private final ViewProperties viewProperties;
     private final double base;
-    private final BlockContext context;
+    private final ProfileBlocks context;
     private KonceptLabelTypography typography = KonceptLabelTypography.DEFAULT;
     private BlockRewriter rewriter;
 
-    AnfBlockRenderer(ViewCalculator viewCalc, double base, BlockContext context) {
+    AnfBlockRenderer(ViewCalculator viewCalc, double base, ProfileBlocks context) {
         this(viewCalc, null, base, context);
     }
 
-    AnfBlockRenderer(ViewProperties viewProperties, double base, BlockContext context) {
+    AnfBlockRenderer(ViewProperties viewProperties, double base, ProfileBlocks context) {
         this(viewProperties == null ? null : viewProperties.calculator(), viewProperties, base, context);
     }
 
-    AnfBlockRenderer(ViewCalculator viewCalc, ViewProperties viewProperties, double base, BlockContext context) {
+    AnfBlockRenderer(ViewCalculator viewCalc, ViewProperties viewProperties, double base, ProfileBlocks context) {
         this.viewCalc = viewCalc;
         this.viewProperties = viewProperties;
         this.base = base;
         this.context = context;
     }
 
-    void setChipTypography(KonceptLabelTypography typography) {
+    public void setChipTypography(KonceptLabelTypography typography) {
         this.typography = typography == null ? KonceptLabelTypography.DEFAULT : typography;
     }
 
     /** Where an edit of the statement goes when it is written back to the document; null leaves the edit on the view. */
-    void setRewriter(BlockRewriter rewriter) {
+    public void setRewriter(BlockRewriter rewriter) {
         this.rewriter = rewriter;
     }
 
@@ -127,7 +133,7 @@ final class AnfBlockRenderer implements BlockRenderer {
      * Puts a named statement on the context at once, for the blocks that read it: a block's row is
      * built only when it is drawn, and a page never builds one.
      */
-    static void publish(String info, String body, ViewCalculator view, BlockContext context) {
+    static void publish(String info, String body, ViewCalculator view, ProfileBlocks context) {
         Optional<String> name = idOf(info);
         if (name.isEmpty() || body.isBlank()) {
             return;

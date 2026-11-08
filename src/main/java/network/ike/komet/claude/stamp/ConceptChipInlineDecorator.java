@@ -13,7 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package network.ike.komet.claude.ui;
+package network.ike.komet.claude.stamp;
+
+import network.ike.komet.claude.stamp.KonceptChips;
 
 import dev.ikm.komet.framework.controls.KonceptBadge;
 import dev.ikm.komet.framework.controls.KonceptLabelTypography;
@@ -54,7 +56,7 @@ import java.util.regex.Pattern;
  * set, a transcript written before a store was rebuilt — so a nid found in text would name a
  * different component or none ({@code IKE-Network/ike-issues#1170}).
  */
-final class ConceptChipInlineDecorator implements InlineDecorator {
+public final class ConceptChipInlineDecorator implements InlineDecorator {
 
     /**
      * Matches component identifiers in whatever shape the model reproduces them. Two families,
@@ -79,7 +81,7 @@ final class ConceptChipInlineDecorator implements InlineDecorator {
      * catastrophically. Permissive matching is safe because every candidate is existence-gated in
      * {@link #resolve}. Package-visible for the store-free grammar tests.
      */
-    static final Pattern TOKEN = Pattern.compile(
+    public static final Pattern TOKEN = Pattern.compile(
             "k:(?<kind>sctid|uuid|id)=(?<kid>[0-9a-fA-F-]+)(?:\\[(?<klabel>[^\\[\\]]*)])?"
                     + "|(?<legacy>k:nid=[0-9a-fA-F-]+(?:\\[[^\\[\\]]*])?|nid=-?\\d+)"
                     + "|(?<uuid>[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})"
@@ -94,12 +96,12 @@ final class ConceptChipInlineDecorator implements InlineDecorator {
     /** Label typography for the chips (ike-issues#1050); never null. */
     private KonceptLabelTypography typography = KonceptLabelTypography.DEFAULT;
 
-    ConceptChipInlineDecorator(ViewCalculator viewCalc, double base) {
+    public ConceptChipInlineDecorator(ViewCalculator viewCalc, double base) {
         this(viewCalc, null, base);
     }
 
     /** Interactive-surface form: chips compute their status cluster and carry the definition popout (#941). */
-    ConceptChipInlineDecorator(ViewProperties viewProperties, double base) {
+    public ConceptChipInlineDecorator(ViewProperties viewProperties, double base) {
         this(viewProperties == null ? null : viewProperties.calculator(), viewProperties, base);
     }
 
@@ -115,7 +117,7 @@ final class ConceptChipInlineDecorator implements InlineDecorator {
      *
      * @param typography the typography; {@code null} restores {@link KonceptLabelTypography#DEFAULT}
      */
-    void setChipTypography(KonceptLabelTypography typography) {
+    public void setChipTypography(KonceptLabelTypography typography) {
         this.typography = (typography == null) ? KonceptLabelTypography.DEFAULT : typography;
     }
 
@@ -198,7 +200,7 @@ final class ConceptChipInlineDecorator implements InlineDecorator {
      * @param pieces the pieces from {@link #decorate}
      * @return the pieces with node runs rewrapped (never null)
      */
-    static List<InlinePiece> multiLineForCells(List<InlinePiece> pieces) {
+    public static List<InlinePiece> multiLineForCells(List<InlinePiece> pieces) {
         List<InlinePiece> out = new ArrayList<>(pieces.size());
         for (InlinePiece piece : pieces) {
             if (piece instanceof InlinePiece.NodeRun nodeRun) {

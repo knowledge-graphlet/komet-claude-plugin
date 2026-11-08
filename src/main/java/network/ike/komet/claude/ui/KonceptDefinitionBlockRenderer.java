@@ -35,7 +35,7 @@ import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
 import network.ike.komet.claude.authoring.ProposedDefinition;
 import network.ike.komet.claude.authoring.ProposedDefinition.Built;
 import network.ike.komet.claude.authoring.ProposedDefinition.Proposal;
-import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.stamp.ComponentText;
 
 import java.util.List;
 
@@ -55,7 +55,7 @@ import java.util.List;
  * resolution, the tree and the control are built lazily by the {@link BlockPiece} supplier on the
  * JavaFX application thread.
  */
-final class KonceptDefinitionBlockRenderer implements BlockRenderer {
+final class KonceptDefinitionBlockRenderer implements network.ike.komet.claude.stamp.StructuredBlockKind.FenceRenderer {
 
     /** The view used to resolve names and peeked definitions; null declines every block. */
     private final ViewCalculator viewCalc;

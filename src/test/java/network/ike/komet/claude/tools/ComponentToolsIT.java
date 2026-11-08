@@ -43,7 +43,7 @@ import javafx.scene.image.ImageView;
 import network.ike.komet.claude.HeadlessFx;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.authoring.ConceptProposalTools;
-import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.stamp.ComponentText;
 import network.ike.komet.claude.koncept.NidFree;
 import network.ike.komet.claude.ui.ComposeChips;
 import org.junit.jupiter.api.AfterAll;

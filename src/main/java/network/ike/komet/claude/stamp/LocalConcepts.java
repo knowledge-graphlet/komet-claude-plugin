@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package network.ike.komet.claude.block;
+package network.ike.komet.claude.stamp;
 
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
@@ -21,7 +21,6 @@ import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.util.uuid.UuidT5Generator;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import network.ike.komet.claude.stamp.SemanticVersions;
-import network.ike.komet.claude.tools.GraphTools;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -100,7 +99,7 @@ public final class LocalConcepts {
         if (SemanticVersions.exists(derived, view)) {
             return derived;
         }
-        return GraphTools.conceptNamed(fqn, view).<PublicId>map(PrimitiveData::publicId).orElse(derived);
+        return conceptNamed(fqn, view).<PublicId>map(PrimitiveData::publicId).orElse(derived);
     }
 
     /**
@@ -191,5 +190,79 @@ public final class LocalConcepts {
 
         /** A block on its own: Propose from a transcript, whose text holds all it says. */
         public static final Context ALONE = new Context(false, Names.NONE, Optional.empty());
+    }
+
+    /**
+     * The concept the store holds under exactly a fully qualified name, letter case and runs of
+     * white space aside: a block's label is its concept's name, so a concept already held under it
+     * is that concept.
+     *
+     * @param fqn the fully qualified name
+     * @param v   the view the descriptions are read under
+     * @return the concept's nid, empty when no active concept has that name
+     */
+    public static java.util.OptionalLong conceptNamedNid(String fqn, ViewCalculator v) {
+        if (v == null || fqn == null || fqn.isBlank()) {
+            return java.util.OptionalLong.empty();
+        }
+        String wanted = normal(fqn);
+        dev.ikm.tinkar.provider.search.Searcher searcher = null;
+        try {
+            searcher = new dev.ikm.tinkar.provider.search.Searcher();
+            for (dev.ikm.tinkar.common.service.PrimitiveDataSearchResult hit : searcher.search("\"" + fqn.replace("\"", " ").strip() + "\"", 50)) {
+                if (dev.ikm.tinkar.entity.EntityHandle.getEntityOrThrow(hit.nid()) instanceof dev.ikm.tinkar.entity.SemanticEntity<?> description
+                        && description.patternNid() == dev.ikm.tinkar.terms.KernelPattern.DESCRIPTION_PATTERN.nid()) {
+                    dev.ikm.tinkar.coordinate.stamp.calculator.Latest<dev.ikm.tinkar.entity.SemanticEntityVersion> latest = v.latest(hit.nid());
+                    if (latest.isPresent() && latest.get().active() && latest.get().fieldValues().size() > 3
+                            && wanted.equals(normal(String.valueOf(latest.get().fieldValues().get(1))))
+                            && latest.get().fieldValues().get(3) instanceof dev.ikm.tinkar.terms.EntityFacade type
+                            && type.nid() == dev.ikm.tinkar.terms.KernelConcept.FULLY_QUALIFIED_NAME_DESCRIPTION_TYPE.nid()) {
+                        return java.util.OptionalLong.of(conceptNid(hit.nid()));
+                    }
+                }
+            }
+        } catch (Exception unavailable) {
+            // no index, as a store still loading: a concept yet to be written, under its derived identity
+        } finally {
+            if (searcher != null) {
+                try {
+                    searcher.close();
+                } catch (Exception ignored) {
+                    // best-effort close of the Lucene reader
+                }
+            }
+        }
+        return java.util.OptionalLong.empty();
+    }
+
+    /**
+     * The concept a component belongs to: a semantic's top enclosing component, else the
+     * component itself, as when it is not resolvable as an entity.
+     *
+     * @param nid the component
+     * @return the concept's nid
+     */
+    public static long conceptNid(long nid) {
+        try {
+            dev.ikm.tinkar.entity.Entity<?> entity = dev.ikm.tinkar.entity.EntityHandle.getEntityOrThrow(nid);
+            if (entity instanceof dev.ikm.tinkar.entity.SemanticEntity<?> semantic) {
+                return semantic.topEnclosingComponentNid();
+            }
+        } catch (RuntimeException ignored) {
+            // not resolvable as an entity; fall back to the nid as given
+        }
+        return nid;
+    }
+
+    /**
+     * {@link #conceptNamedNid} as an optional.
+     *
+     * @param fqn the fully qualified name
+     * @param v   the view
+     * @return the concept's nid
+     */
+    public static Optional<Long> conceptNamed(String fqn, ViewCalculator v) {
+        java.util.OptionalLong nid = conceptNamedNid(fqn, v);
+        return nid.isPresent() ? Optional.of(nid.getAsLong()) : Optional.empty();
     }
 }

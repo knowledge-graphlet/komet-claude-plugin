@@ -13,7 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package network.ike.komet.claude.anf.element;
+package network.ike.komet.claude.stamp;
+
+import network.ike.komet.claude.stamp.SegmentNarrative;
+
+import network.ike.komet.claude.stamp.Span;
 
 import java.util.List;
 import java.util.Optional;

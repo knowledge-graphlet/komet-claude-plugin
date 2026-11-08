@@ -15,6 +15,8 @@
  */
 package network.ike.komet.claude.ui;
 
+import network.ike.komet.claude.stamp.KonceptChips;
+
 import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.komet.markdown.richtext.BlockPiece;
 import dev.ikm.komet.markdown.richtext.BlockRenderer;
@@ -51,8 +53,8 @@ import network.ike.komet.claude.benefitrisk.ValueTree.Kind;
 import network.ike.komet.claude.benefitrisk.ValueTree.Part;
 import network.ike.komet.claude.benefitrisk.ValueTreeFigure;
 import network.ike.komet.claude.block.Tokens;
-import network.ike.komet.claude.decision.render.DecisionFigure;
-import network.ike.komet.claude.decision.render.TextFigure;
+import network.ike.komet.claude.stamp.DecisionFigure;
+import network.ike.komet.claude.stamp.TextFigure;
 import network.ike.komet.claude.stamp.print.FigureNode;
 
 import java.util.ArrayList;
@@ -69,10 +71,10 @@ import java.util.Optional;
  * of the addition to the Device Extension proposed in topic {@code rda-dex-findings}: the lookup
  * shows which findings reach the device, and its choice of year moves every view of the document.
  *
- * <p>Each block publishes its text on the document's {@link BlockContext} and rebuilds when a block
+ * <p>Each block publishes its text on the document's {@link ProfileBlocks} and rebuilds when a block
  * it names lands, so the table and the plot follow the tree whichever is drawn first.
  */
-final class BenefitRiskBlockRenderer implements BlockRenderer {
+final class BenefitRiskBlockRenderer implements network.ike.komet.claude.stamp.StructuredBlockKind.FenceRenderer {
 
     /** Which of the three views a block is. */
     enum View { TREE, TABLE, FOREST, DEVICE, FINDINGS, LOOKUP }
@@ -95,14 +97,14 @@ final class BenefitRiskBlockRenderer implements BlockRenderer {
     private final ViewCalculator viewCalc;
     private final ViewProperties viewProperties;
     private final double base;
-    private final BlockContext context;
+    private final ProfileBlocks context;
 
-    BenefitRiskBlockRenderer(View view, ViewCalculator viewCalc, ViewProperties viewProperties, double base, BlockContext context) {
+    BenefitRiskBlockRenderer(View view, ViewCalculator viewCalc, ViewProperties viewProperties, double base, ProfileBlocks context) {
         this.view = view;
         this.viewCalc = viewCalc;
         this.viewProperties = viewProperties;
         this.base = base;
-        this.context = context == null ? new BlockContext() : context;
+        this.context = context == null ? new ProfileBlocks() : context;
     }
 
     @Override
@@ -113,7 +115,7 @@ final class BenefitRiskBlockRenderer implements BlockRenderer {
     }
 
     /** Puts a tree or table on the context, for the blocks that name it. */
-    static void publish(String info, String body, BlockContext context) {
+    static void publish(String info, String body, ProfileBlocks context) {
         attribute(info, "id").ifPresent(id -> context.defineEvidenceBlock(id, info, body));
     }
 
@@ -128,19 +130,19 @@ final class BenefitRiskBlockRenderer implements BlockRenderer {
     }
 
     /** The effects table of a block's text, read against the tree it names; empty until that tree has landed. */
-    private static Optional<EffectsReading> reading(String tableInfo, String tableBody, BlockContext context) {
+    private static Optional<EffectsReading> reading(String tableInfo, String tableBody, ProfileBlocks context) {
         return attribute(tableInfo, "tree").flatMap(context::evidenceBlock)
                 .flatMap(tree -> EffectsReading.of(ValueTree.parse(tree.body()), EffectsTable.parse(tableBody), findings(tableInfo, context),
                         context.evidenceYear()));
     }
 
     /** The findings a block's {@code findings=} attribute names, none when it names none or they have not landed. */
-    private static Findings findings(String info, BlockContext context) {
+    private static Findings findings(String info, ProfileBlocks context) {
         return attribute(info, "findings").flatMap(context::evidenceBlock).map(block -> Findings.parse(block.body(), context::statement))
                 .orElse(new Findings(List.of(), List.of()));
     }
 
-    private static Optional<DeviceRecord> device(String info, BlockContext context) {
+    private static Optional<DeviceRecord> device(String info, ProfileBlocks context) {
         return attribute(info, "device").flatMap(context::evidenceBlock).map(block -> DeviceRecord.parse(block.body()));
     }
 
@@ -174,13 +176,13 @@ final class BenefitRiskBlockRenderer implements BlockRenderer {
     }
 
     /** What the plot draws: the table a {@code table=} attribute names, read. */
-    private static Optional<EffectsReading> reading(String forestInfo, BlockContext context) {
+    private static Optional<EffectsReading> reading(String forestInfo, ProfileBlocks context) {
         return attribute(forestInfo, "table").flatMap(context::evidenceBlock)
                 .flatMap(table -> reading(table.info(), table.body(), context));
     }
 
     /** What a block is on a page. */
-    static List<DecisionFigure> figures(View view, String info, String body, BlockContext context) {
+    static List<DecisionFigure> figures(View view, String info, String body, ProfileBlocks context) {
         publish(info, body, context);
         return switch (view) {
             case TREE -> ValueTree.parse(body).goal()
@@ -222,7 +224,7 @@ final class BenefitRiskBlockRenderer implements BlockRenderer {
     }
 
     /** A lookup opens the document on its first year, once: after that the reader's choice stands. */
-    private static void settleYear(String info, BlockContext context) {
+    private static void settleYear(String info, ProfileBlocks context) {
         if (context.evidenceYear() == Integer.MAX_VALUE) {
             context.setEvidenceYear(firstYear(info));
         }

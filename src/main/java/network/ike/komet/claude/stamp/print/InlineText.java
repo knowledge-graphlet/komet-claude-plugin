@@ -17,7 +17,7 @@ package network.ike.komet.claude.stamp.print;
 
 import design.knowledge.stamp.adoc.dialect.InlineMarkup;
 import design.knowledge.stamp.adoc.dialect.InlineMarkup.Span;
-import network.ike.komet.claude.help.AsciiDocMarkdown;
+import network.ike.komet.claude.stamp.AsciiDocMarkdown;
 
 import java.util.ArrayList;
 import java.util.HashMap;

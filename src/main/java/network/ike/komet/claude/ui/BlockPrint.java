@@ -30,10 +30,10 @@ import network.ike.komet.claude.decision.LinkedTrees;
 import network.ike.komet.claude.decision.Rollback;
 import network.ike.komet.claude.decision.StatementMeasures;
 import network.ike.komet.claude.decision.ValuationCoordinate;
-import network.ike.komet.claude.decision.render.DecisionFigure;
-import network.ike.komet.claude.decision.render.DecisionFigureText;
+import network.ike.komet.claude.stamp.DecisionFigure;
+import network.ike.komet.claude.stamp.DecisionFigureText;
 import network.ike.komet.claude.decision.render.DecisionTreeFigures;
-import network.ike.komet.claude.decision.render.TextFigure;
+import network.ike.komet.claude.stamp.TextFigure;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -60,7 +60,7 @@ final class BlockPrint {
     }
 
     /** A decision tree block, as {@link DecisionTreeBlockRenderer} reads it: the tree, its ledger and sentences, no tornado. */
-    static List<DecisionFigure> tree(String info, String body, ViewCalculator view, BlockContext blocks) {
+    static List<DecisionFigure> tree(String info, String body, ViewCalculator view, ProfileBlocks blocks) {
         DecisionTerms terms = DecisionTerms.fromBindings();
         Identities ids = blocks.identities(view);
         StatementMeasures statements = blocks.statementMeasures(ids, terms);
@@ -83,7 +83,7 @@ final class BlockPrint {
     }
 
     /** A tornado block, as {@link TornadoBlockRenderer} reads it: the model's one-way sensitivity, swept at the block's price. */
-    static List<DecisionFigure> tornado(String info, String body, ViewCalculator view, BlockContext blocks) {
+    static List<DecisionFigure> tornado(String info, String body, ViewCalculator view, ProfileBlocks blocks) {
         DecisionTerms terms = DecisionTerms.fromBindings();
         Identities ids = blocks.identities(view);
         StatementMeasures statements = blocks.statementMeasures(ids, terms);
@@ -107,7 +107,7 @@ final class BlockPrint {
      * that reads a statement, the range the statement determined; the structure is the tree
      * rendering's to draw.
      */
-    static List<DecisionFigure> model(String info, String body, ViewCalculator view, BlockContext blocks) {
+    static List<DecisionFigure> model(String info, String body, ViewCalculator view, ProfileBlocks blocks) {
         DecisionTerms terms = DecisionTerms.fromBindings();
         Identities ids = blocks.identities(view);
         StatementMeasures statements = blocks.statementMeasures(ids, terms);
@@ -147,7 +147,7 @@ final class BlockPrint {
     }
 
     /** A complex concept block: its name, the sentence that defines it, and what it is given. */
-    static List<DecisionFigure> complexConcept(String literal, ViewCalculator view, BlockContext blocks) {
+    static List<DecisionFigure> complexConcept(String literal, ViewCalculator view, ProfileBlocks blocks) {
         Optional<ComplexConceptText.Spec> spec = ComplexConceptText.parse(literal, blocks.identities(view)).spec();
         if (spec.isEmpty()) {
             return List.of();

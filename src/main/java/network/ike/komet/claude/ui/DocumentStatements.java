@@ -35,11 +35,11 @@ import network.ike.komet.claude.decision.Bounds;
  */
 final class DocumentStatements implements Calculation.StatementSource {
 
-    private final BlockContext context;
+    private final ProfileBlocks context;
     private final Identities ids;
     private final Calculation.StatementSource store;
 
-    DocumentStatements(BlockContext context, Identities ids, Calculation.StatementSource store) {
+    DocumentStatements(ProfileBlocks context, Identities ids, Calculation.StatementSource store) {
         this.context = context;
         this.ids = ids;
         this.store = store;

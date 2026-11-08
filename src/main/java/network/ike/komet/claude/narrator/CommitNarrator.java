@@ -30,7 +30,7 @@ import dev.ikm.tinkar.events.FrameworkTopics;
 import dev.ikm.tinkar.events.Subscriber;
 import network.ike.komet.claude.ClaudeCard;
 import network.ike.komet.claude.anthropic.AnthropicClient;
-import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.stamp.ComponentText;
 import network.ike.komet.claude.tools.GraphTools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

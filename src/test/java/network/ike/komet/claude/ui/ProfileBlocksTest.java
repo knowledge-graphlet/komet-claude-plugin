@@ -22,11 +22,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /** The document's tree registry, as the blocks of a conversation share it. */
-class BlockContextTest {
+class ProfileBlocksTest {
 
     @Test
     void theLatestBlockRestatingATreeHoldsItAndAnEarlierOneRebuildingDoesNotTakeItBack() {
-        BlockContext context = new BlockContext();
+        ProfileBlocks context = new ProfileBlocks();
         AtomicInteger rebuilds = new AtomicInteger();
         // two blocks of one conversation, the first answer and its correction, each defining the tree
         // again whenever the document changes, as a block that folds a tree in rebuilds
@@ -53,7 +53,7 @@ class BlockContextTest {
 
     @Test
     void aModelIsHeardWhenItsTextMovesAndWrittenThroughItsBlock() {
-        BlockContext context = new BlockContext();
+        ProfileBlocks context = new ProfileBlocks();
         AtomicInteger heard = new AtomicInteger();
         Runnable rendering = heard::incrementAndGet;
         context.listen(rendering);
@@ -74,7 +74,7 @@ class BlockContextTest {
     @Test
     void aBlockToldOfItsOwnPublicationIsNotThrownOff() {
         // the context tells every listener at once, the publishing block among them, before its own build is done
-        BlockContext context = new BlockContext();
+        ProfileBlocks context = new ProfileBlocks();
         java.util.concurrent.atomic.AtomicReference<Runnable> self = new java.util.concurrent.atomic.AtomicReference<>();
         AtomicInteger told = new AtomicInteger();
         Runnable listener = told::incrementAndGet;

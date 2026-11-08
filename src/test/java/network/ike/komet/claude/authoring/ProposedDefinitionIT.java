@@ -21,7 +21,7 @@ import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.KernelConcept;
-import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.stamp.ComponentText;
 import network.ike.komet.claude.koncept.ConceptDefinition;
 import network.ike.komet.claude.koncept.ConceptDefinition.Role;
 import network.ike.komet.claude.koncept.DefinitionText;

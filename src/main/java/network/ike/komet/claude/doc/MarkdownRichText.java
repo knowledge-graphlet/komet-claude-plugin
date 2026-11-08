@@ -13,25 +13,43 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package network.ike.komet.claude.ui;
+package network.ike.komet.claude.doc;
+
+
+
+
+
+
+
+
+
+
+
+import network.ike.komet.claude.stamp.ConceptChipInlineDecorator;
+
+import network.ike.komet.claude.stamp.BlockContext;
+import network.ike.komet.claude.stamp.BlockRewriter;
+import network.ike.komet.claude.stamp.StructuredBlockKind;
+import network.ike.komet.claude.stamp.StructuredBlocks;
 
 import dev.ikm.komet.framework.controls.KonceptLabelTypography;
 import dev.ikm.komet.markdown.richtext.BlockPiece;
 import dev.ikm.komet.markdown.richtext.BlockRenderer;
 import dev.ikm.komet.markdown.richtext.DocumentSegment;
+import dev.ikm.komet.markdown.richtext.InlineDecorator;
 import dev.ikm.komet.markdown.richtext.MarkdownRichTextRenderer;
 import dev.ikm.komet.markdown.richtext.MarkdownStyledModel;
 import dev.ikm.komet.markdown.richtext.TableColumnWidths;
 import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import javafx.scene.paint.Color;
-import network.ike.komet.claude.decision.DecisionTreeFeedback;
 import jfx.incubator.scene.control.richtext.model.RichParagraph;
 import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
 import jfx.incubator.scene.control.richtext.model.StyledTextModel;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Builds a view-only {@link StyledTextModel} for the assistant transcript: each {@link Entry}
@@ -43,10 +61,12 @@ import java.util.List;
  * identifier the assistant reports — an SCTID or a UUID — is followed by a
  * <em>concept chip</em> (LifeHash identicon + store-resolved name), existence-gated against
  * the live store and struck through when the component is inactive (#586). Block structure is
- * dispatched the same way: a {@code koncept-tree} fenced block routes to
- * {@link KonceptTreeBlockRenderer}, which builds a real interactive {@code TreeView} of Koncept
- * chips rather than ASCII box art (#801/#805). The renderer is the generic, reusable Markdown
- * engine; this class only composes the role-labelled transcript.
+ * dispatched through the {@link StructuredBlockKind}s: a fenced block goes to the kind whose
+ * {@linkplain StructuredBlockKind#fenceRenderer fence renderer} draws it, so a
+ * {@code koncept-tree} fence builds a real interactive {@code TreeView} of Koncept chips
+ * (#801/#805) and a {@code decision-tree} fence draws as the same block does in a stored document.
+ * This class names no kind. The renderer is the generic, reusable Markdown engine; this class
+ * only composes the role-labelled transcript.
  */
 public final class MarkdownRichText {
 
@@ -115,14 +135,11 @@ public final class MarkdownRichText {
          * renders in the prompt as it does in a reply.
          */
         public static Entry user(String content) {
-            if (DecisionTreeFeedback.isFeedback(content)) {
-                return new Entry(Role.KOMET, content, true);
-            }
             return new Entry(Role.USER, content, fenced(content));
         }
 
         /** Whether a text opens a fenced code block: a line beginning with three backticks. */
-        static boolean fenced(String content) {
+        public static boolean fenced(String content) {
             if (content == null) {
                 return false;
             }
@@ -136,16 +153,14 @@ public final class MarkdownRichText {
     private final MarkdownRichTextRenderer renderer;
     /** The inline chip decorator, held so chip typography can be forwarded (ike-issues#1050). */
     private final ConceptChipInlineDecorator decorator;
-    /** The koncept-tree block renderer, held so chip typography can be forwarded (ike-issues#1050). */
-    private final KonceptTreeBlockRenderer trees;
-    /** The decision-tree block renderer, held so chip typography can be forwarded. */
-        private final DecisionTreeBlockRenderer decisions;
-        private final GraphletModelBlockRenderer models;
-        private final TornadoBlockRenderer tornadoes;
-    private final ComplexConceptBlockRenderer concepts;
-        private final CalculatorBlockRenderer calculators;
-    private final AnfBlockRenderer statements;
+    /** What the blocks of this rendering make known to each other. */
     private final BlockContext context;
+    /** The context the kinds read, over this rendering's view and blocks, writing nothing. */
+    private final StructuredBlockKind.Context kindContext;
+    /** The kinds found when this rendering was made, in the order they were found. */
+    private final List<StructuredBlockKind> kinds;
+    /** Each kind's fence renderer, asked once, so a renderer's state lasts as long as this rendering. */
+    private final List<StructuredBlockKind.FenceRenderer> fences;
 
     /**
      * Equivalent to {@link #MarkdownRichText(ViewCalculator, double, String)} with the
@@ -181,20 +196,8 @@ public final class MarkdownRichText {
      * @param fontFamily     the base prose font family; {@code null} uses the platform default
      */
         public MarkdownRichText(ViewProperties viewProperties, double base, String fontFamily) {
-        this(base, fontFamily, new BlockContext(), viewProperties);
-    }
-
-    private MarkdownRichText(double base, String fontFamily, BlockContext context, ViewProperties viewProperties) {
-        this(base, fontFamily, context,
-                new ConceptChipInlineDecorator(viewProperties, base),
-                new KonceptTreeBlockRenderer(viewProperties, base),
-                new KonceptDefinitionBlockRenderer(viewProperties == null ? null : viewProperties.calculator(), base),
-                new ComplexConceptBlockRenderer(viewProperties, base, context),
-                                new DecisionTreeBlockRenderer(viewProperties, base, context),
-                new GraphletModelBlockRenderer(viewProperties, base, context),
-                new TornadoBlockRenderer(viewProperties, base, context),
-                new CalculatorBlockRenderer(viewProperties, base, context),
-                new AnfBlockRenderer(viewProperties, base, context));
+        this(base, fontFamily, new ConceptChipInlineDecorator(viewProperties, base),
+                viewProperties == null ? null : viewProperties.calculator(), viewProperties);
     }
 
     /**
@@ -205,87 +208,56 @@ public final class MarkdownRichText {
      *                   {@code null} uses the platform default. Code stays monospaced.
      */
         public MarkdownRichText(ViewCalculator viewCalc, double base, String fontFamily) {
-        this(base, fontFamily, new BlockContext(), viewCalc);
+        this(base, fontFamily, new ConceptChipInlineDecorator(viewCalc, base), viewCalc, null);
     }
 
-    private MarkdownRichText(double base, String fontFamily, BlockContext context, ViewCalculator viewCalc) {
-        this(base, fontFamily, context,
-                new ConceptChipInlineDecorator(viewCalc, base),
-                new KonceptTreeBlockRenderer(viewCalc, base),
-                new KonceptDefinitionBlockRenderer(viewCalc, base),
-                new ComplexConceptBlockRenderer(viewCalc, base, context),
-                                new DecisionTreeBlockRenderer(viewCalc, base, context),
-                new GraphletModelBlockRenderer(viewCalc, base, context),
-                new TornadoBlockRenderer(viewCalc, base, context),
-                new CalculatorBlockRenderer(viewCalc, base, context),
-                new AnfBlockRenderer(viewCalc, base, context));
-    }
-
-    private MarkdownRichText(double base, String fontFamily, BlockContext context, ConceptChipInlineDecorator decorator,
-                             KonceptTreeBlockRenderer trees, KonceptDefinitionBlockRenderer definitions,
-                             ComplexConceptBlockRenderer concepts,
-                                                          DecisionTreeBlockRenderer decisions, GraphletModelBlockRenderer models,
-                             TornadoBlockRenderer tornadoes, CalculatorBlockRenderer calculators,
-                             AnfBlockRenderer statements) {
+    private MarkdownRichText(double base, String fontFamily, ConceptChipInlineDecorator decorator,
+                             ViewCalculator view, ViewProperties viewProperties) {
         this.base = base;
-        this.context = context;
         this.decorator = decorator;
-        this.trees = trees;
-        this.decisions = decisions;
-        this.models = models;
-        this.tornadoes = tornadoes;
-        this.concepts = concepts;
-                this.calculators = calculators;
-        this.statements = statements;
+        this.context = new BlockContext();
+        this.kindContext = new StructuredBlockKind.Context(view, viewProperties, context, base, null);
+        this.kinds = StructuredBlocks.kinds();
+        this.fences = kinds.stream().map(kind -> kind.fenceRenderer(kindContext)).flatMap(Optional::stream).toList();
         // Each renderer answers only to its own tag and declines the rest, so the first that
         // renders a block wins (ike-issues#1292).
         BlockRenderer blocks = (info, literal, style) -> {
-            List<BlockPiece> pieces = trees.render(info, literal, style);
-            if (pieces.isEmpty()) {
-                pieces = definitions.render(info, literal, style);
+            for (StructuredBlockKind.FenceRenderer fence : fences) {
+                List<BlockPiece> pieces = fence.render(info, literal, style);
+                if (!pieces.isEmpty()) {
+                    return pieces;
+                }
             }
-            if (pieces.isEmpty()) {
-                pieces = concepts.render(info, literal, style);
-            }
-                        if (pieces.isEmpty()) {
-                pieces = decisions.render(info, literal, style);
-            }
-            if (pieces.isEmpty()) {
-                pieces = models.render(info, literal, style);
-            }
-            if (pieces.isEmpty()) {
-                pieces = tornadoes.render(info, literal, style);
-            }
-                        if (pieces.isEmpty()) {
-                pieces = calculators.render(info, literal, style);
-            }
-            return pieces.isEmpty() ? statements.render(info, literal, style) : pieces;
+            return List.of();
         };
-        // the note's element spans are drawn first, and each stretch then goes to the chip decorator
-        this.renderer = new MarkdownRichTextRenderer(base, fontFamily,
-                new ElementSpanDecorator(decorator, context.elementSpans()), blocks);
+        // the kinds that mark prose draw first, and each stretch then goes to the chip decorator
+        InlineDecorator inline = decorator;
+        for (StructuredBlockKind kind : kinds) {
+            inline = kind.decorate(inline, kindContext);
+        }
+        this.renderer = new MarkdownRichTextRenderer(base, fontFamily, inline, blocks);
     }
 
     /**
      * Sets the label typography every chip this renderer builds renders with — the inline chips
-     * and the koncept-tree rows together (ike-issues#1050). Applies to chips built after the
+     * and the chips the kinds' blocks draw (ike-issues#1050). Applies to chips built after the
      * call; a surface that changes the setting re-renders, so no stale chip survives.
      *
      * @param typography the typography; {@code null} restores the default small caps
      */
     public void setChipTypography(KonceptLabelTypography typography) {
         decorator.setChipTypography(typography);
-        trees.setChipTypography(typography);
-                decisions.setChipTypography(typography);
-        models.setChipTypography(typography);
-        tornadoes.setChipTypography(typography);
-                calculators.setChipTypography(typography);
-        statements.setChipTypography(typography);
+        fences.forEach(fence -> fence.setChipTypography(typography));
     }
 
-    /** What the blocks of this rendering know of each other: the calculators defined and the values computed. */
+    /** What the blocks of this rendering make known to each other. */
     public BlockContext blockContext() {
         return context;
+    }
+
+    /** Where a rendered block's write back goes, a decision tree's what-if among them; null offers the what-if alone. */
+    public void setBlockRewriter(BlockRewriter rewriter) {
+        fences.forEach(fence -> fence.setRewriter(rewriter));
     }
 
     /**
@@ -295,16 +267,6 @@ public final class MarkdownRichText {
      *
      * @param store the width store, or {@code null} to make column resizing session-local
      */
-    /** Where a rendered decision tree's what-if goes when the reader writes it back; null offers the what-if alone. */
-        public void setBlockRewriter(BlockRewriter rewriter) {
-                decisions.setRewriter(rewriter);
-        models.setRewriter(rewriter);
-        tornadoes.setRewriter(rewriter);
-        concepts.setRewriter(rewriter);
-        calculators.setRewriter(rewriter);
-        statements.setRewriter(rewriter);
-    }
-
     public void setTableColumnWidths(TableColumnWidths store) {
         renderer.setColumnWidths(store);
     }
@@ -329,7 +291,7 @@ public final class MarkdownRichText {
             }
 
             if (e.markdown()) {
-                context.elementSpans().prepare(e.content());
+                prepare(e.content());
                 renderer.render(e.content(), baseStyle(e.role()), paragraphs, plain);
             } else {
                 renderer.renderPlainText(e.content(), baseStyle(e.role()), paragraphs, plain);
@@ -356,7 +318,7 @@ public final class MarkdownRichText {
      */
     public List<DocumentSegment> toSegments(Entry entry) {
         if (entry.markdown()) {
-            context.elementSpans().prepare(entry.content());
+            prepare(entry.content());
             return renderer.renderSegments(entry.content(), baseStyle(entry.role()));
         }
         List<RichParagraph> paragraphs = new ArrayList<>();
@@ -377,13 +339,20 @@ public final class MarkdownRichText {
     public StyledTextModel renderMarkdown(String markdown) {
         List<RichParagraph> paragraphs = new ArrayList<>();
         List<String> plain = new ArrayList<>();
-        context.elementSpans().prepare(markdown);
+        prepare(markdown);
         renderer.render(markdown == null ? "" : markdown,
                 StyleAttributeMap.builder().setFontSize(base).build(), paragraphs, plain);
         if (paragraphs.isEmpty()) {
             return MarkdownStyledModel.empty();
         }
         return new MarkdownStyledModel(paragraphs, plain);
+    }
+
+    /** Readies the kinds for one passage's Markdown. */
+    private void prepare(String markdown) {
+        for (StructuredBlockKind kind : kinds) {
+            kind.preparePassage(markdown, kindContext);
+        }
     }
 
     private StyleAttributeMap baseStyle(Role role) {

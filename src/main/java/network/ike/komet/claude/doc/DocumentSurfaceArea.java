@@ -31,7 +31,7 @@ import javafx.scene.layout.Region;
 import network.ike.komet.claude.doc.print.PagedPreviewView;
 import network.ike.komet.claude.doc.print.settings.DocumentSurfaceSettingKeys;
 import network.ike.komet.claude.doc.print.settings.PrintSettings;
-import network.ike.komet.claude.ui.MarkdownRichText;
+import network.ike.komet.claude.doc.MarkdownRichText;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

@@ -26,7 +26,7 @@ import dev.ikm.tinkar.terms.KernelPattern;
 import javafx.application.Platform;
 import network.ike.komet.claude.HeadlessFx;
 import network.ike.komet.claude.authoring.ConceptProposalTools;
-import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.stamp.ComponentText;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;

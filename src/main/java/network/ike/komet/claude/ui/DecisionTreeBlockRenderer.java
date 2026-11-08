@@ -15,6 +15,10 @@
  */
 package network.ike.komet.claude.ui;
 
+import network.ike.komet.claude.stamp.KonceptChips;
+
+import network.ike.komet.claude.stamp.BlockRewriter;
+
 import dev.ikm.komet.framework.controls.KonceptBadge;
 import dev.ikm.komet.framework.controls.KonceptLabelTypography;
 import dev.ikm.komet.framework.view.ViewProperties;
@@ -73,9 +77,9 @@ import network.ike.komet.claude.anf.AnfStatement;
 import network.ike.komet.claude.anf.Circumstance;
 import network.ike.komet.claude.decision.ValuationCoordinate;
 import network.ike.komet.claude.decision.ViewIdentities;
-import network.ike.komet.claude.decision.render.DecisionFigureText;
+import network.ike.komet.claude.stamp.DecisionFigureText;
 import network.ike.komet.claude.decision.render.DecisionTreeFigures;
-import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.stamp.ComponentText;
 import org.eclipse.collections.api.list.ImmutableList;
 
 import java.util.ArrayList;
@@ -106,7 +110,7 @@ import java.util.Set;
  *
  * <p>Since 2026-11-06 the block is a rendering of a graphlet model ({@code dev-decision-point-knowledge}):
  * {@code [decision-tree, model=<id>]} draws the model the document's {@code graphlet-model} block
- * of that id publishes on the {@link BlockContext}, and holds no structure and no number of its
+ * of that id publishes on the {@link ProfileBlocks}, and holds no structure and no number of its
  * own, only how the model is viewed, the health price and the cohort. A value the reader moves on
  * such a rendering is written into the model, which every rendering that names it then redraws;
  * where the model cannot be written, the move stays a what-if of this rendering. A block with a
@@ -117,40 +121,40 @@ import java.util.Set;
  * as any other unrendered block does. The block's info may set the price: {@code decision-tree
  * health-price=100000}; the default is $100,000, the regulatory topics' central value.
  */
-final class DecisionTreeBlockRenderer implements BlockRenderer {
+final class DecisionTreeBlockRenderer implements network.ike.komet.claude.stamp.StructuredBlockKind.FenceRenderer {
 
     private final ViewCalculator viewCalc;
     private final ViewProperties viewProperties;
     private final double base;
     private KonceptLabelTypography typography = KonceptLabelTypography.DEFAULT;
         private BlockRewriter rewriter;
-    private final BlockContext context;
+    private final ProfileBlocks context;
 
     /** Gives each block its {@link Live#order}. */
     private static final java.util.concurrent.atomic.AtomicLong ORDERS = new java.util.concurrent.atomic.AtomicLong();
 
 
-        DecisionTreeBlockRenderer(ViewCalculator viewCalc, double base, BlockContext context) {
+        DecisionTreeBlockRenderer(ViewCalculator viewCalc, double base, ProfileBlocks context) {
         this(viewCalc, null, base, context);
     }
 
-    DecisionTreeBlockRenderer(ViewProperties viewProperties, double base, BlockContext context) {
+    DecisionTreeBlockRenderer(ViewProperties viewProperties, double base, ProfileBlocks context) {
         this(viewProperties == null ? null : viewProperties.calculator(), viewProperties, base, context);
     }
 
-    DecisionTreeBlockRenderer(ViewCalculator viewCalc, ViewProperties viewProperties, double base, BlockContext context) {
+    DecisionTreeBlockRenderer(ViewCalculator viewCalc, ViewProperties viewProperties, double base, ProfileBlocks context) {
         this.viewCalc = viewCalc;
         this.viewProperties = viewProperties;
         this.base = base;
-        this.context = context == null ? new BlockContext() : context;
+        this.context = context == null ? new ProfileBlocks() : context;
     }
 
-    void setChipTypography(KonceptLabelTypography typography) {
+    public void setChipTypography(KonceptLabelTypography typography) {
         this.typography = typography == null ? KonceptLabelTypography.DEFAULT : typography;
     }
 
     /** Where a what-if goes when the reader writes it back; null offers the what-if alone. */
-    void setRewriter(BlockRewriter rewriter) {
+    public void setRewriter(BlockRewriter rewriter) {
         this.rewriter = rewriter;
     }
 

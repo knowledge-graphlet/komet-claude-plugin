@@ -15,6 +15,10 @@
  */
 package network.ike.komet.claude.ui;
 
+import network.ike.komet.claude.stamp.KonceptChips;
+
+import network.ike.komet.claude.stamp.BlockRewriter;
+
 import dev.ikm.komet.framework.controls.KonceptBadge;
 import dev.ikm.komet.framework.controls.KonceptLabelTypography;
 import dev.ikm.komet.framework.view.ViewProperties;
@@ -65,13 +69,13 @@ import network.ike.komet.claude.calculator.Evaluation;
 import network.ike.komet.claude.calculator.StoreStatements;
 import network.ike.komet.claude.decision.Bounds;
 import network.ike.komet.claude.decision.ExternalQuantities;
-import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.stamp.ComponentText;
 
 /**
  * The live rendering of the calculator profile's two blocks on the assistant surface
  * ({@code dev-calculator-blocks}). A {@code [calculator]} block, the method, renders as a compact
  * card of what it is and what binds to it, and defines the calculator for the document through
- * the {@link BlockContext}. A {@code [calculate]} block, the record, binds the document's
+ * the {@link ProfileBlocks}. A {@code [calculate]} block, the record, binds the document's
  * statements to the method's inputs and shows the input rail with each binding and its status,
  * the result as an interval with its band and the disposition a recording would carry, the
  * findings, and the tornado of which inputs move the result; it publishes the result through the
@@ -83,35 +87,35 @@ import network.ike.komet.claude.koncept.ComponentText;
  * <p>The block declines when there is no view to resolve against, or when it is not this
  * profile's, so the text renders preformatted as any other unrendered block does.
  */
-final class CalculatorBlockRenderer implements BlockRenderer {
+final class CalculatorBlockRenderer implements network.ike.komet.claude.stamp.StructuredBlockKind.FenceRenderer {
 
     private final ViewCalculator viewCalc;
     private final ViewProperties viewProperties;
     private final double base;
-    private final BlockContext context;
+    private final ProfileBlocks context;
     private KonceptLabelTypography typography = KonceptLabelTypography.DEFAULT;
     private BlockRewriter rewriter;
 
-    CalculatorBlockRenderer(ViewCalculator viewCalc, double base, BlockContext context) {
+    CalculatorBlockRenderer(ViewCalculator viewCalc, double base, ProfileBlocks context) {
         this(viewCalc, null, base, context);
     }
 
-    CalculatorBlockRenderer(ViewProperties viewProperties, double base, BlockContext context) {
+    CalculatorBlockRenderer(ViewProperties viewProperties, double base, ProfileBlocks context) {
         this(viewProperties == null ? null : viewProperties.calculator(), viewProperties, base, context);
     }
 
-    CalculatorBlockRenderer(ViewCalculator viewCalc, ViewProperties viewProperties, double base, BlockContext context) {
+    CalculatorBlockRenderer(ViewCalculator viewCalc, ViewProperties viewProperties, double base, ProfileBlocks context) {
         this.viewCalc = viewCalc;
         this.viewProperties = viewProperties;
         this.base = base;
         this.context = context;
     }
 
-    void setChipTypography(KonceptLabelTypography typography) {
+    public void setChipTypography(KonceptLabelTypography typography) {
         this.typography = typography == null ? KonceptLabelTypography.DEFAULT : typography;
     }
 
-    void setRewriter(BlockRewriter rewriter) {
+    public void setRewriter(BlockRewriter rewriter) {
         this.rewriter = rewriter;
     }
 

@@ -15,6 +15,10 @@
  */
 package network.ike.komet.claude.ui;
 
+import network.ike.komet.claude.stamp.KonceptChips;
+
+import network.ike.komet.claude.stamp.BlockRewriter;
+
 import dev.ikm.komet.framework.Identicon;
 import dev.ikm.komet.framework.view.ViewProperties;
 import dev.ikm.komet.kview.controls.ComponentItem;
@@ -56,7 +60,7 @@ import network.ike.komet.claude.complexconcept.ComplexConceptText.Uniform;
 import network.ike.komet.claude.complexconcept.ComplexConceptWrites;
 import network.ike.komet.claude.complexconcept.editor.ComplexConceptControl;
 import network.ike.komet.claude.complexconcept.model.ComplexConceptBuilder;
-import network.ike.komet.claude.koncept.ComponentText;
+import network.ike.komet.claude.stamp.ComponentText;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -73,7 +77,7 @@ import java.util.Optional;
  * block</b> restates the block in the document, as the decision tree's what-if does. Beneath the
  * editor the card lists what the specification still lacks and the block's findings.
  *
- * <p>The block registers its concept and its card on the shared {@link BlockContext}, so a
+ * <p>The block registers its concept and its card on the shared {@link ProfileBlocks}, so a
  * decision-tree block of the same document whose token names the same symbol draws a chip that
  * says what the concept is and peeks at this card. A complete specification whose concept the
  * store lacks offers <b>Propose</b>, which writes the concept and its specification as one
@@ -84,32 +88,32 @@ import java.util.Optional;
  * declines, and renders as preformatted text. A block the builder refuses, or a surface with no
  * view, shows the prerequisites as a read-only table instead of the editor.
  */
-final class ComplexConceptBlockRenderer implements BlockRenderer {
+final class ComplexConceptBlockRenderer implements network.ike.komet.claude.stamp.StructuredBlockKind.FenceRenderer {
 
     private final ViewCalculator viewCalc;
     private final ViewProperties viewProperties;
     private final double base;
-    private final BlockContext context;
+    private final ProfileBlocks context;
     private BlockRewriter rewriter;
 
-    ComplexConceptBlockRenderer(ViewCalculator viewCalc, double base, BlockContext context) {
+    ComplexConceptBlockRenderer(ViewCalculator viewCalc, double base, ProfileBlocks context) {
         this(viewCalc, null, base, context);
     }
 
-    ComplexConceptBlockRenderer(ViewProperties viewProperties, double base, BlockContext context) {
+    ComplexConceptBlockRenderer(ViewProperties viewProperties, double base, ProfileBlocks context) {
         this(viewProperties == null ? null : viewProperties.calculator(), viewProperties, base, context);
     }
 
     ComplexConceptBlockRenderer(ViewCalculator viewCalc, ViewProperties viewProperties, double base,
-                                        BlockContext context) {
+                                        ProfileBlocks context) {
         this.viewCalc = viewCalc;
         this.viewProperties = viewProperties;
         this.base = base;
-        this.context = context == null ? new BlockContext() : context;
+        this.context = context == null ? new ProfileBlocks() : context;
     }
 
     /** Where an edited specification goes when the reader writes it back; null offers the edit alone. */
-    void setRewriter(BlockRewriter rewriter) {
+    public void setRewriter(BlockRewriter rewriter) {
         this.rewriter = rewriter;
     }
 

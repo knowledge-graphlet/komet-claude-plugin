@@ -15,6 +15,12 @@
  */
 package network.ike.komet.claude.anf.element;
 
+import network.ike.komet.claude.stamp.Anchoring;
+
+import network.ike.komet.claude.stamp.SegmentNarrative;
+
+import network.ike.komet.claude.stamp.Span;
+
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;

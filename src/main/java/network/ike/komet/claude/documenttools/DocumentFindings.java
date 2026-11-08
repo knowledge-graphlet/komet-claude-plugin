@@ -13,7 +13,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package network.ike.komet.claude.ui;
+package network.ike.komet.claude.documenttools;
+
+import network.ike.komet.claude.ui.DocumentBlockKinds;
 
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import network.ike.komet.claude.anf.AnfFeedback;

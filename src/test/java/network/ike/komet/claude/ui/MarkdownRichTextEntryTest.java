@@ -15,6 +15,8 @@
  */
 package network.ike.komet.claude.ui;
 
+import network.ike.komet.claude.doc.MarkdownRichText;
+
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -51,7 +53,7 @@ class MarkdownRichTextEntryTest {
     @Test
     @DisplayName("Komet's findings on a block are Komet's turn, not the person's, and read as Markdown")
     void feedbackIsKometsTurn() {
-        MarkdownRichText.Entry entry = MarkdownRichText.Entry.user(
+        MarkdownRichText.Entry entry = AssistantTurns.user(
                 "Komet read the decision tree block in your reply and found:\n- line 3: unknown value of a vertex: cost\n");
 
         assertEquals(MarkdownRichText.Role.KOMET, entry.role());

@@ -17,13 +17,13 @@ package network.ike.komet.claude.benefitrisk;
 
 import network.ike.komet.claude.benefitrisk.ValueTree.Kind;
 import network.ike.komet.claude.benefitrisk.ValueTree.Part;
-import network.ike.komet.claude.decision.render.DecisionFigure;
-import network.ike.komet.claude.decision.render.DecisionFigure.Mark;
-import network.ike.komet.claude.decision.render.DecisionFigure.Polyline;
-import network.ike.komet.claude.decision.render.DecisionFigure.Rect;
-import network.ike.komet.claude.decision.render.DecisionFigure.Stroke;
-import network.ike.komet.claude.decision.render.DecisionFigure.Text;
-import network.ike.komet.claude.decision.render.DecisionFigureText;
+import network.ike.komet.claude.stamp.DecisionFigure;
+import network.ike.komet.claude.stamp.DecisionFigure.Mark;
+import network.ike.komet.claude.stamp.DecisionFigure.Polyline;
+import network.ike.komet.claude.stamp.DecisionFigure.Rect;
+import network.ike.komet.claude.stamp.DecisionFigure.Stroke;
+import network.ike.komet.claude.stamp.DecisionFigure.Text;
+import network.ike.komet.claude.stamp.DecisionFigureText;
 
 import java.util.ArrayList;
 import java.util.List;

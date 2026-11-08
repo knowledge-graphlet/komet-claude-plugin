@@ -17,8 +17,7 @@ package network.ike.komet.claude.stamp;
 
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import javafx.scene.Node;
-import network.ike.komet.claude.decision.render.DecisionFigure;
-import network.ike.komet.claude.ui.BlockContext;
+import network.ike.komet.claude.stamp.DecisionFigure;
 
 import java.util.List;
 import java.util.Optional;
@@ -126,6 +125,63 @@ public interface StructuredBlockKind {
      */
     default Optional<Skeleton> skeleton(Context context) {
         return Optional.empty();
+    }
+
+    /**
+     * The renderer that draws a Markdown fence of this kind in a passage, as the assistant's
+     * transcript shows a {@code ```decision-tree} block: the same reading as {@link #view}, for a
+     * fence rather than a stored block. A passage renderer asks each kind once and keeps the
+     * renderer for its life, so state a renderer keeps in the context lasts across the passage's
+     * blocks. Empty when blocks of this kind are never written as a fence.
+     *
+     * @param context the passage's context, writing nothing
+     * @return the renderer
+     */
+    default Optional<FenceRenderer> fenceRenderer(Context context) {
+        return Optional.empty();
+    }
+
+    /**
+     * Marks a passage's prose for this kind, as the ANF kind draws a note's clinical elements in
+     * its text. Called once per passage renderer, in the order the kinds are found; each kind wraps
+     * the decorator the kinds before it made.
+     *
+     * @param next    the decorator beneath, which every stretch of prose still goes to
+     * @param context the passage's context
+     * @return the decorator to use; {@code next} when the kind marks no prose
+     */
+    default dev.ikm.komet.markdown.richtext.InlineDecorator decorate(dev.ikm.komet.markdown.richtext.InlineDecorator next, Context context) {
+        return next;
+    }
+
+    /**
+     * Readies this kind for one passage's Markdown, before it is drawn: the ANF kind finds the
+     * element spans the passage's text holds.
+     *
+     * @param markdown the passage's text
+     * @param context  the passage's context
+     */
+    default void preparePassage(String markdown, Context context) {
+    }
+
+    /** A renderer of fences of one kind, which a passage renderer forwards its settings to. */
+    interface FenceRenderer extends dev.ikm.komet.markdown.richtext.BlockRenderer {
+
+        /**
+         * Sets the label typography the renderer's concept chips render with.
+         *
+         * @param typography the typography; {@code null} restores the default
+         */
+        default void setChipTypography(dev.ikm.komet.framework.controls.KonceptLabelTypography typography) {
+        }
+
+        /**
+         * Sets where a block's write back goes, a decision tree's what-if among them.
+         *
+         * @param rewriter the rewriter; {@code null} offers no write back
+         */
+        default void setRewriter(BlockRewriter rewriter) {
+        }
     }
 
     /**

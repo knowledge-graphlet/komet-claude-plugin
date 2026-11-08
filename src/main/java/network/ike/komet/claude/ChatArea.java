@@ -15,7 +15,7 @@
  */
 package network.ike.komet.claude;
 
-import network.ike.komet.claude.ui.KonceptChipGestures;
+import network.ike.komet.claude.stamp.KonceptChipGestures;
 import dev.ikm.komet.layout.KlArea;
 import dev.ikm.komet.layout.area.AreaGridSettings;
 import dev.ikm.komet.layout.preferences.KlPreferencesFactory;
@@ -34,8 +34,8 @@ import jfx.incubator.scene.control.richtext.RichTextArea;
 import network.ike.komet.claude.anthropic.AnthropicClient;
 import network.ike.komet.claude.anthropic.AnthropicTool;
 import network.ike.komet.claude.tools.GraphTools;
-import network.ike.komet.claude.ui.MarkdownRichText;
-import network.ike.komet.claude.ui.RichTextViewpoint;
+import network.ike.komet.claude.doc.MarkdownRichText;
+import network.ike.komet.claude.stamp.RichTextViewpoint;
 
 import java.util.ArrayList;
 import java.util.List;

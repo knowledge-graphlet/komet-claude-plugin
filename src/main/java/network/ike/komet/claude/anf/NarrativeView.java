@@ -34,7 +34,7 @@ import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
 import network.ike.komet.claude.anf.element.ClinicalElement;
 import network.ike.komet.claude.anf.element.ElementColours;
 import network.ike.komet.claude.anf.element.ElementSet;
-import network.ike.komet.claude.anf.element.Span;
+import network.ike.komet.claude.stamp.Span;
 
 /**
  * The note being lifted, one editable text with its clinical elements drawn on it
