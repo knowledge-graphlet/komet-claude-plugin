@@ -23,6 +23,8 @@ import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityVersion;
 import dev.ikm.tinkar.entity.StampEntity;
 import dev.ikm.tinkar.entity.StampEntityVersion;
+import dev.ikm.tinkar.entity.boundary.DataKind;
+import dev.ikm.tinkar.entity.boundary.EntityBoundaries;
 import dev.ikm.tinkar.events.CommitEvent;
 import dev.ikm.tinkar.events.EvtBus;
 import dev.ikm.tinkar.events.EvtBusFactory;
@@ -52,6 +54,12 @@ import java.util.concurrent.Executors;
  * The narrator's own comment write is itself a commit; the {@link #isWorthy worthiness guard}
  * recognizes and skips it (by author/module) <em>before</em> any work is scheduled, so the
  * synchronous bus cannot recurse.
+ * <p>
+ * Only knowledge commits are narrated. A commit under an ephemeral module, such as a stamped
+ * document materialized from git, is contained in its git repository, not in the shared change
+ * sets, so a knowledge comment on it would refer to ephemeral data, which the commit boundary
+ * refuses (IKE-Network/ike-issues#1355). Its narration belongs in the document's git repository,
+ * under the document's module; until it is written there, such a commit is not narrated.
  */
 public final class CommitNarrator {
 
@@ -151,6 +159,16 @@ public final class CommitNarrator {
         if (allNarratorAuthored) {
             return false; // our own comment commit
         }
+        boolean anyKnowledge = false;
+        for (long stampNid : stampNids) {
+            if (narratable(stampNid)) {
+                anyKnowledge = true;
+                break;
+            }
+        }
+        if (!anyKnowledge) {
+            return false; // ephemeral or instance only: its narration is not a knowledge comment (#1355)
+        }
         long[] componentNids = evt.componentNids();
         return componentNids != null && componentNids.length > 0;
     }
@@ -187,6 +205,9 @@ public final class CommitNarrator {
         }
         versions.sort((a, b) -> Long.compare(b.stamp().time(), a.stamp().time()));
         long stampNid = versions.get(0).stampNid();
+        if (!narratable(stampNid)) {
+            return;
+        }
         String context = componentContext(componentNid, versions, view);
         String narrative = client.ask(SYSTEM_PROMPT, graphTools.tools(),
                 "A curator just committed a change.\n" + context
@@ -195,6 +216,16 @@ public final class CommitNarrator {
     }
 
     private void narrateBulk(CommitEvent evt, AnthropicClient client, ViewCalculator view, long[] components) {
+        long rollUpStamp = 0;
+        for (long stampNid : evt.stampNids()) {
+            if (narratable(stampNid)) {
+                rollUpStamp = stampNid;
+                break;
+            }
+        }
+        if (rollUpStamp == 0) {
+            return;
+        }
         StringBuilder sb = new StringBuilder();
         sb.append(components.length).append(" components changed in transaction '")
                 .append(evt.transactionName()).append("'. Examples: ");
@@ -205,7 +236,18 @@ public final class CommitNarrator {
         String narrative = client.ask(SYSTEM_PROMPT, graphTools.tools(),
                 "A bulk change was just committed.\n" + sb
                         + "\n\nWrite a single short roll-up note summarizing the change.");
-        commentWriter.writeComment(evt.stampNids()[0], narrative);
+        commentWriter.writeComment(rollUpStamp, narrative);
+    }
+
+    /**
+     * Whether a commit's STAMP may carry a knowledge comment: its module is knowledge
+     * (IKE-Network/ike-issues#1355).
+     *
+     * @param stampNid the STAMP
+     * @return {@code true} for a knowledge STAMP
+     */
+    static boolean narratable(long stampNid) {
+        return EntityBoundaries.stampKind(stampNid).kind() == DataKind.KNOWLEDGE;
     }
 
     private static String componentContext(long nid, List<EntityVersion> versionsNewestFirst, ViewCalculator view) {
