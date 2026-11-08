@@ -135,6 +135,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.prefs.BackingStoreException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -2472,7 +2473,8 @@ public final class ClaudeCard extends AbstractHostCard {
     private void requestExchangeTitleFor(Conversation conv, int ordinal,
                                          String question, String answer,
                                          String key, String model) {
-        if (ordinal < 0 || conv.turnTitles.containsKey(ordinal)) {
+        // A card being closed takes no new work (knowledgeLayoutUnbindOnClose); its exchange goes untitled.
+        if (ordinal < 0 || conv.turnTitles.containsKey(ordinal) || worker.isShutdown()) {
             return;
         }
         worker.submit(() -> {
@@ -3943,11 +3945,39 @@ public final class ClaudeCard extends AbstractHostCard {
      *  Lifecycle                                                                  *
      ******************************************************************************/
 
+    /**
+     * Closing the tile keeps its conversations, so a reply still on its way is let finish: the card takes
+     * no new work, and unbinds once what is running has rendered and saved its answer. Cancelling it, as
+     * deletion does, would throw away a reply already paid for. Until then the card stays bound, so the
+     * reply's remaining tool calls still read the card's view.
+     */
+    @Override
+    public void knowledgeLayoutUnbindOnClose() {
+        worker.shutdown();
+        if (worker.isTerminated()) {
+            knowledgeLayoutUnbind();
+            return;
+        }
+        Thread.ofVirtual().name("komet-claude-close").start(() -> {
+            try {
+                while (!worker.awaitTermination(1, TimeUnit.MINUTES)) {
+                    LOG.info("A closed Assistant card is still finishing a reply");
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+            // The answer's own render-and-save runs on the FX thread too, queued before this.
+            Platform.runLater(this::knowledgeLayoutUnbind);
+        });
+    }
+
     @Override
     public void knowledgeLayoutUnbind() {
-        super.knowledgeLayoutUnbind();
+        // The plugin Trash outlives every card, so its listeners go first: should the rest of the unbind fail,
+        // the card (and through its window, its journal) is still released.
         PluginTrash.stopListening(trashPutBack);
         PluginTrash.stopListening(trashChanged);
+        super.knowledgeLayoutUnbind();
         worker.shutdownNow();
         if (statusTimer != null) {
             statusTimer.stop();

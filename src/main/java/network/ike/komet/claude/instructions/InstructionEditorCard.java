@@ -742,9 +742,10 @@ public final class InstructionEditorCard extends AbstractHostCard {
 
     @Override
     public void knowledgeLayoutUnbind() {
-        super.knowledgeLayoutUnbind();
+        // The plugin Trash outlives every card: its listeners go first, so a failing unbind still releases the card.
         PluginTrash.stopListening(trashPutBack);
         PluginTrash.stopListening(trashChanged);
+        super.knowledgeLayoutUnbind();
     }
 
     /** Reloads the rail, keeping (or setting) the selection; empty swaps in the first-run state. */
