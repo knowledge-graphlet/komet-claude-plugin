@@ -488,12 +488,20 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
         }
 
         private String result(AnfStatement.Result r) {
-            String unit = r.measureSemantic() instanceof AnfValue.Grounded g ? g.label()
+            String unit = r.measureSemantic() instanceof AnfValue.Grounded g ? unitName(g)
                     : r.measureSemantic() instanceof AnfValue.Candidate c ? c.provisionalLabel() : "";
             boolean unbounded = r.lowerBound() == null && r.upperBound() == null;
             String interval = unbounded ? "indeterminate"
                     : Tokens.interval(r.lowerBound(), r.upperBound(), r.includeLowerBound(), r.includeUpperBound());
             return unit.isBlank() ? interval : interval + " " + unit;
+        }
+
+        /**
+         * A unit's name as the view gives it, the name its chip would show. A grounded value's own
+         * label is its fully qualified name, which the statement keeps and the row has no room for.
+         */
+        private String unitName(AnfValue.Grounded g) {
+            return viewCalc.getDescriptionText(g.nid()).filter(name -> !name.isBlank()).orElse(g.label());
         }
 
         private Node value(AnfValue v) {

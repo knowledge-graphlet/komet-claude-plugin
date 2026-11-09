@@ -345,9 +345,10 @@ final class ComplexConceptBlockRenderer implements network.ike.komet.document.St
             grid.setHgap(10);
             grid.setVgap(3);
             grid.setPadding(new Insets(2, 0, 0, 12));
+            // the value and the relation are short and stay whole; the topic takes what is left, its name wrapping
             grid.add(head("given"), 0, 0);
-            grid.add(head("value"), 1, 0);
-            grid.add(head("relation"), 2, 0);
+            grid.add(whole(head("value")), 1, 0);
+            grid.add(whole(head("relation")), 2, 0);
             int r = 1;
             for (Prerequisite prerequisite : focused.prerequisites()) {
                 grid.add(chip(prerequisite.topic()), 0, r);
@@ -356,11 +357,11 @@ final class ComplexConceptBlockRenderer implements network.ike.komet.document.St
                 if (prerequisite.value().isEmpty()) {
                     value.setStyle("-fx-text-fill: #a33;");
                 }
-                grid.add(value, 1, r);
+                grid.add(whole(value), 1, r);
                 Label relation = new Label(prerequisite.association());
                 relation.setFont(Font.font(null, FontPosture.ITALIC, base * 0.9));
                 relation.setStyle("-fx-text-fill: #666;");
-                grid.add(relation, 2, r);
+                grid.add(whole(relation), 2, r);
                 r++;
             }
             section.getChildren().add(grid);
@@ -377,12 +378,9 @@ final class ComplexConceptBlockRenderer implements network.ike.komet.document.St
                 return none;
             });
             section.getChildren().add(row(words, domain));
-            HBox members = new HBox(6);
+            WrappedRow members = new WrappedRow(6, 3);
             members.setPadding(new Insets(0, 0, 0, 12));
-            members.setAlignment(Pos.CENTER_LEFT);
-            for (Ref member : uniform.members()) {
-                members.getChildren().add(chip(member));
-            }
+            members.show(null, uniform.members().stream().map(ComplexConceptBlockRenderer.this::chip).toList());
             section.getChildren().add(members);
             return section;
         }
@@ -396,17 +394,24 @@ final class ComplexConceptBlockRenderer implements network.ike.komet.document.St
             badge.setStatus(KonceptStatus.COMPLEX);      // this is the card that mark opens, so a click has nothing further to show
             badge.setOnDisclose(() -> { });
         }
-        HBox row = new HBox(8, title, defined);
-        row.setAlignment(Pos.CENTER_LEFT);
+        // on one line a narrow card cut the title to "Complex con…" to make room for the name
+        WrappedRow row = new WrappedRow(8, 2);
+        row.show(null, List.of(title, defined));
         return row;
     }
 
     private Node row(String words, Node chip) {
         Label label = new Label(words);
         label.setFont(Font.font(null, FontPosture.ITALIC, base * 0.95));
-        HBox row = new HBox(6, label, chip);
-        row.setAlignment(Pos.CENTER_LEFT);
+        WrappedRow row = new WrappedRow(6, 2);
+        row.show(null, List.of(label, chip));
         return row;
+    }
+
+    /** Keeps a short label at its full width where its row or column is short of room. */
+    private static Label whole(Label label) {
+        label.setMinWidth(Region.USE_PREF_SIZE);
+        return label;
     }
 
     private Node list(String heading, List<String> entries) {
@@ -434,14 +439,21 @@ final class ComplexConceptBlockRenderer implements network.ike.komet.document.St
 
     // ── Chips ───────────────────────────────────────────────────────────
 
+    /** A concept's chip. Where its row or column is narrower than its name, the name wraps and is read whole. */
     private Node chip(Ref ref) {
         Optional<PublicId> pid = ref.local() ? Optional.empty() : ComponentText.publicId(ref.nid());
+        Node chip;
         if (pid.isEmpty()) {
-            return KonceptChips.capped(KonceptChips.blockConcept(ref.label(), viewProperties, viewCalc, base, null), base * 30);
+            chip = KonceptChips.blockConcept(ref.label(), viewProperties, viewCalc, base, null);
+        } else {
+            String sctid = ComponentText.sctid(viewCalc, ref.nid()).orElse(null);
+            chip = viewProperties != null
+                    ? KonceptChips.chip(pid.get(), sctid, viewProperties, base)
+                    : KonceptChips.chip(pid.get(), sctid, viewCalc, base);
         }
-        String sctid = ComponentText.sctid(viewCalc, ref.nid()).orElse(null);
-        return KonceptChips.capped(viewProperties != null
-                ? KonceptChips.chip(pid.get(), sctid, viewProperties, base)
-                : KonceptChips.chip(pid.get(), sctid, viewCalc, base), base * 30);
+        if (chip instanceof KonceptBadge badge) {
+            badge.setMultiLineLabel(true);
+        }
+        return chip;
     }
 }
