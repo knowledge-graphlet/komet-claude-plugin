@@ -46,6 +46,11 @@ import java.util.function.IntPredicate;
  * just past the widest label of its own branches, so siblings share the bend they hang from while
  * a short run is never stretched to match a long one elsewhere at the same depth, and nothing
  * overlaps whatever the labels say.
+ *
+ * <p>That drawing grows wider with every level, and a narrow surface would have to scale it until
+ * nothing in it can be read. The {@linkplain #outline outline} is the same tree for such a surface:
+ * every node takes a row of its own beneath the node it hangs from, a step to the right of it, so
+ * the drawing grows downward instead, and its width is the deepest step and the widest row.
  */
 public final class DecisionTreeLayout {
 
@@ -98,6 +103,31 @@ public final class DecisionTreeLayout {
 
         /** The width of the value drawn beside a node's glyph. */
         double nodeLabelWidth(int nodeVertex);
+
+        /** In an outline, how far right of the node it hangs from a node stands. */
+        default double indent() {
+            return glyph() * 2;
+        }
+
+        /**
+         * In an outline, the height of a glyph's row.
+         *
+         * @param glyphVertex  the vertex of the row's glyph
+         * @param branchVertex the branch that reaches it, or -1 for the root
+         */
+        default double rowHeight(int glyphVertex, int branchVertex) {
+            return rowHeight();
+        }
+
+        /** In an outline, how far beneath the top of its row a glyph's centre lies. */
+        default double runOffset(int glyphVertex, int branchVertex) {
+            return runOffset();
+        }
+
+        /** In an outline, the width of what a row says to the right of its glyph: the branch that reaches it and the node itself. */
+        default double rowWidth(int glyphVertex, int branchVertex) {
+            return (branchVertex < 0 ? 0 : branchLabelWidth(branchVertex)) + nodeLabelWidth(glyphVertex);
+        }
     }
 
     private static final double LABEL_PAD = 6;
@@ -135,6 +165,27 @@ public final class DecisionTreeLayout {
         return builder.build();
     }
 
+    /**
+     * Lays a tree out as an outline, for a surface too narrow for the drawing {@link #of} makes.
+     * Every glyph takes a row, in depth-first order, a node {@link Sizing#indent() one step} to the
+     * right of the node it hangs from. A branch drops from the foot of the node it leaves and
+     * turns right into the glyph it reaches, so a {@link Run} has no stub: {@code x0} and
+     * {@code xBend} are the leaving node's centre, and what the branch says goes to the right of
+     * the glyph at its end, on that glyph's row.
+     *
+     * @param tree      the tree, whose root takes the first row
+     * @param sizing    the surface's sizes
+     * @param collapsed which nodes the reader has folded: drawn as terminals, nothing beneath them
+     */
+    public static DecisionTreeLayout outline(DecisionTree tree, Sizing sizing, IntPredicate collapsed) {
+        Outline outline = new Outline(tree, sizing, collapsed);
+        Optional<DecisionElement> root = tree.root();
+        if (root.isPresent() && root.get() instanceof Node node) {
+            outline.place(node, 0, -1);
+        }
+        return outline.build();
+    }
+
     /** Every glyph, root first, in depth-first order. */
     public List<Placed> placed() {
         return placed;
@@ -163,7 +214,7 @@ public final class DecisionTreeLayout {
         return height;
     }
 
-    /** How many terminal rows the drawing has. */
+    /** How many rows the drawing has: one for each terminal, or in an outline one for each glyph. */
     public int rows() {
         return rows;
     }
@@ -287,6 +338,72 @@ public final class DecisionTreeLayout {
             double width = columns == 0 ? 2 * sizing.margin() : right + sizing.margin();
             double height = 2 * sizing.margin() + Math.max(rows, 0) * sizing.rowHeight();
             return new DecisionTreeLayout(placed, runs, width, height, rows, columns);
+        }
+    }
+
+    // ── The outline: a row for every glyph, a step right for every level ─────
+
+    private static final class Outline {
+        private final DecisionTree tree;
+        private final Sizing sizing;
+        private final IntPredicate collapsed;
+        private final List<Placed> placed = new ArrayList<>();
+        private final List<Run> runs = new ArrayList<>();
+        private double top;
+        private double right;
+        private int columns;
+
+        Outline(DecisionTree tree, Sizing sizing, IntPredicate collapsed) {
+            this.tree = tree;
+            this.sizing = sizing;
+            this.collapsed = collapsed;
+            this.top = sizing.margin();
+            this.right = sizing.margin();
+        }
+
+        /** Gives a glyph the next row, and answers where it stands. */
+        private Placed row(int vertex, Kind kind, boolean folded, int depth, int branchVertex) {
+            double x = sizing.margin() + sizing.glyph() / 2 + depth * sizing.indent();
+            double y = top + sizing.runOffset(vertex, branchVertex);
+            top += sizing.rowHeight(vertex, branchVertex);
+            right = Math.max(right, x + sizing.glyph() / 2 + sizing.rowWidth(vertex, branchVertex));
+            columns = Math.max(columns, depth + 1);
+            Placed row = new Placed(vertex, kind, depth, x, y, folded);
+            placed.add(row);
+            return row;
+        }
+
+        /** Places a node on its row and everything beneath it on the rows after. */
+        Placed place(Node node, int depth, int branchVertex) {
+            int index = node.vertexIndex();
+            boolean folded = collapsed.test(index);
+            ImmutableList<Branch> branches = tree.children(index, Branch.class);
+            Kind kind = switch (node) {
+                case Decision d -> Kind.DECISION;
+                case Chance c -> Kind.CHANCE;
+                case Outcome o -> Kind.OUTCOME;
+                case Branch b -> Kind.END;
+            };
+            boolean terminal = node instanceof Outcome || folded || branches.isEmpty();
+            Placed own = row(index, kind, folded && !branches.isEmpty(), depth, branchVertex);
+            if (terminal) {
+                return own;
+            }
+            for (Branch branch : branches) {
+                Optional<Node> next = branch.next();
+                Placed reached = next.isPresent()
+                        ? place(next.get(), depth + 1, branch.vertexIndex())
+                        : row(branch.vertexIndex(), Kind.END, false, depth + 1, branch.vertexIndex());
+                runs.add(new Run(branch.vertexIndex(), index, reached.vertexIndex(), own.x(), own.y() + sizing.glyph() / 2,
+                        own.x(), reached.y(), reached.x() - sizing.glyph() / 2));
+            }
+            return own;
+        }
+
+        DecisionTreeLayout build() {
+            double width = placed.isEmpty() ? 2 * sizing.margin() : right + sizing.margin();
+            double height = top + sizing.margin();
+            return new DecisionTreeLayout(placed, runs, width, height, placed.size(), columns);
         }
     }
 }

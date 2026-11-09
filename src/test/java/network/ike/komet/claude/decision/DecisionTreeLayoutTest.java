@@ -36,7 +36,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * The left-to-right drawing of the scan tree: a row per terminal, a column per depth of nodes,
  * every node at the midpoint of what it reaches, every branch an elbow that never runs backwards,
- * and a folded node drawn as a terminal with nothing beneath it.
+ * and a folded node drawn as a terminal with nothing beneath it. And the same tree as an outline,
+ * for a narrow surface: a row per glyph, a step right per depth, every branch a drop and a turn.
  */
 class DecisionTreeLayoutTest {
 
@@ -166,5 +167,79 @@ class DecisionTreeLayoutTest {
         assertTrue(folded.collapsed());
         assertEquals(Kind.CHANCE, folded.kind());
         assertEquals(4, layout.runs().size(), "the root's two alternatives and the unscanned chance's two events");
+    }
+
+    @Test
+    @DisplayName("An outline gives every glyph a row of its own, a step to the right for each level")
+    void anOutlineHasARowForEveryGlyph() {
+        DecisionTreeLayout across = DecisionTreeLayout.of(tree, sizing(), v -> false);
+        DecisionTreeLayout outline = DecisionTreeLayout.outline(tree, sizing(), v -> false);
+        assertEquals(across.placed().size(), outline.placed().size(), "the same glyphs");
+        assertEquals(outline.placed().size(), outline.rows());
+        assertEquals(5, outline.columns());
+        assertEquals(tree.rootIndex(), outline.placed().get(0).vertexIndex());
+        double y = Double.NEGATIVE_INFINITY;
+        for (Placed placed : outline.placed()) {
+            assertEquals(6 + 7 + placed.column() * 28, placed.x(), 1e-9, "a step of two glyphs for each level");
+            assertTrue(placed.y() > y, "each glyph beneath the one before it");
+            y = placed.y();
+        }
+        assertEquals(6 + 6 + outline.rows() * 40, outline.height(), 1e-9);
+        // the deepest row: its step, its glyph, and what its branch and its node say
+        assertEquals(6 + 7 + 4 * 28 + 7 + 100 + 50 + 6, outline.width(), 1e-9);
+        assertTrue(outline.width() < across.width() / 2, "an outline is far narrower: " + outline.width() + " against " + across.width());
+    }
+
+    @Test
+    @DisplayName("In an outline every branch drops from the foot of its node and turns right into the glyph it reaches")
+    void anOutlinesBranchesDropAndTurn() {
+        DecisionTreeLayout outline = DecisionTreeLayout.outline(tree, sizing(), v -> false);
+        assertEquals(12, outline.runs().size());
+        for (Run run : outline.runs()) {
+            Placed from = outline.placed(run.fromVertex()).orElseThrow();
+            Placed to = outline.placed(run.toVertex()).orElseThrow();
+            assertEquals(from.x(), run.x0(), 1e-9, "from the node's centre " + run);
+            assertEquals(from.x(), run.xBend(), 1e-9, "with no stub " + run);
+            assertEquals(from.y() + 7, run.y0(), 1e-9, "from the node's foot " + run);
+            assertEquals(to.y(), run.y(), 1e-9);
+            assertEquals(to.x() - 7, run.x1(), 1e-9, "to the glyph's left edge " + run);
+            assertTrue(run.y() > run.y0(), "downward " + run);
+            assertEquals(from.column() + 1, to.column());
+        }
+    }
+
+    @Test
+    @DisplayName("A row of an outline is as tall as its sizing says, row by row")
+    void anOutlinesRowsTakeTheirOwnHeights() {
+        Chance mra = tree.nodesOfType(Chance.class).get(0);
+        DecisionTreeLayout.Sizing plain = sizing();
+        DecisionTreeLayout.Sizing tall = new DecisionTreeLayout.Sizing() {
+            public double rowHeight() { return plain.rowHeight(); }
+            public double glyph() { return plain.glyph(); }
+            public double gap() { return plain.gap(); }
+            public double margin() { return plain.margin(); }
+            public double branchLabelWidth(int branchVertex) { return plain.branchLabelWidth(branchVertex); }
+            public double nodeLabelWidth(int nodeVertex) { return plain.nodeLabelWidth(nodeVertex); }
+            public double rowHeight(int glyphVertex, int branchVertex) { return glyphVertex == mra.vertexIndex() ? 100 : 40; }
+        };
+        DecisionTreeLayout before = DecisionTreeLayout.outline(tree, plain, v -> false);
+        DecisionTreeLayout after = DecisionTreeLayout.outline(tree, tall, v -> false);
+        assertEquals(before.height() + 60, after.height(), 1e-9);
+        boolean past = false;
+        for (int i = 0; i < after.placed().size(); i++) {
+            Placed placed = after.placed().get(i);
+            assertEquals(before.placed().get(i).y() + (past ? 60 : 0), placed.y(), 1e-9, "only the rows beneath it move: " + placed);
+            past |= placed.vertexIndex() == mra.vertexIndex();
+        }
+    }
+
+    @Test
+    @DisplayName("Folding a node of an outline leaves its row and takes away the rows beneath it")
+    void foldingAnOutline() {
+        Chance mra = tree.nodesOfType(Chance.class).get(0);
+        DecisionTreeLayout outline = DecisionTreeLayout.outline(tree, sizing(), Set.of(mra.vertexIndex())::contains);
+        assertEquals(5, outline.rows(), "the root, the folded chance, and the unscanned chance with its two outcomes");
+        assertTrue(outline.placed(mra.vertexIndex()).orElseThrow().collapsed());
+        assertEquals(4, outline.runs().size());
     }
 }

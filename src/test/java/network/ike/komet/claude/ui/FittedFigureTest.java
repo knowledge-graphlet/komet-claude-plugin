@@ -128,6 +128,25 @@ class FittedFigureTest {
         });
     }
 
+    @Test
+    void aFigureThatStandsInForAFullerOneOffersTheEscapeAtItsNaturalSize() throws Exception {
+        onFx(() -> {
+            Region figure = new Region();
+            figure.setPrefSize(300, 400);
+            FittedFigure fit = new FittedFigure(figure, 13, width -> { }, () -> { });
+            new Scene(new Pane(fit));
+            fit.resize(500, fit.prefHeight(500));
+            fit.layout();
+            assertEquals(1, fit.scale(), 1e-9);
+            assertFalse(expand(fit).isVisible(), "a figure that fits has nothing fuller to open");
+
+            fit.offerEscapeAlways("Open the tree drawn left to right, at full size");
+            fit.layout();
+            assertEquals(1, fit.scale(), 1e-9);
+            assertTrue(expand(fit).isVisible(), "an outline's escape opens the drawing it stands in for");
+        });
+    }
+
     private static Node expand(FittedFigure fit) {
         return fit.getChildrenUnmodifiable().stream().filter(n -> "decision-tree-expand".equals(n.getId())).findFirst().orElseThrow();
     }

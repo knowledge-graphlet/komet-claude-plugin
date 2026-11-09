@@ -142,6 +142,72 @@ class DecisionTreeDiagramTest {
         return diagram;
     }
 
+    static DecisionTreeDiagram outlined(Recording host, Set<Integer> collapsed) {
+        DecisionTreeDiagram diagram = new DecisionTreeDiagram(tree, rollback, Optional.empty(), ids, List.of(), collapsed, 14,
+                host, Optional.empty(), true);
+        StackPane root = new StackPane(diagram);
+        new Scene(root, 1200, 1200);
+        root.applyCss();
+        root.layout();
+        return diagram;
+    }
+
+    @Test
+    @DisplayName("As an outline the tree is far narrower and taller, every branch a drop and a turn, every row's parts side by side")
+    void drawsAnOutline() throws Exception {
+        onFx(() -> {
+            DecisionTreeDiagram across = drawn(new Recording(), new HashSet<>());
+            DecisionTreeDiagram outline = outlined(new Recording(), new HashSet<>());
+            assertTrue(outline.outline());
+            assertEquals(across.geometry().placed().size(), outline.geometry().rows(), "a row for every glyph");
+            assertTrue(outline.drawnWidthProperty().get() < across.drawnWidthProperty().get() / 2,
+                    outline.drawnWidthProperty().get() + " against " + across.drawnWidthProperty().get());
+            assertTrue(outline.drawnHeightProperty().get() > across.drawnHeightProperty().get());
+            double right = outline.drawnWidthProperty().get();
+            for (var run : outline.geometry().runs()) {
+                Polyline line = outline.run(run.vertexIndex()).orElseThrow();
+                assertEquals(line.getPoints().get(0), line.getPoints().get(2), 1e-9, "the drop is straight down");
+                assertTrue(line.getPoints().get(3) > line.getPoints().get(1), "downward");
+                var reached = outline.geometry().placed(run.toVertex()).orElseThrow();
+                Node said = outline.labelOf(run.vertexIndex(), true).orElseThrow();
+                assertTrue(said.getLayoutX() > reached.x(), "what the branch says is to the right of the glyph it reaches");
+                Node value = outline.valueOf(run.toVertex()).orElse(null);
+                if (value != null) {
+                    assertTrue(value.getLayoutX() >= said.getLayoutX() + said.getLayoutBounds().getWidth(),
+                            "the node's value follows what its branch says, on one line");
+                    assertTrue(value.getLayoutX() + value.getLayoutBounds().getWidth() <= right, "inside the drawing");
+                }
+                Node beneath = outline.labelOf(run.vertexIndex(), false).orElseThrow();
+                if (beneath.getLayoutBounds().getHeight() > 0) {
+                    assertTrue(beneath.getLayoutY() > reached.y(), "counts and costs beneath the row's first line");
+                    assertEquals(said.getLayoutX(), beneath.getLayoutX(), 1e-9, "under where the row's words begin");
+                }
+            }
+        });
+    }
+
+    @Test
+    @DisplayName("No row of an outline runs into the row beneath it, whatever its parts stack")
+    void anOutlinesRowsDoNotOverlap() throws Exception {
+        onFx(() -> {
+            DecisionTreeDiagram outline = outlined(new Recording(), new HashSet<>());
+            var placed = outline.geometry().placed();
+            var reaching = new java.util.HashMap<Integer, Integer>();
+            outline.geometry().runs().forEach(run -> reaching.put(run.toVertex(), run.vertexIndex()));
+            for (int i = 0; i + 1 < placed.size(); i++) {
+                double foot = placed.get(i).y();
+                Integer branch = reaching.get(placed.get(i).vertexIndex());
+                if (branch != null) {
+                    Node beneath = outline.labelOf(branch, false).orElseThrow();
+                    foot = Math.max(foot, beneath.getLayoutY() + beneath.getLayoutBounds().getHeight());
+                }
+                Integer next = reaching.get(placed.get(i + 1).vertexIndex());
+                Node said = outline.labelOf(next, true).orElseThrow();
+                assertTrue(said.getLayoutY() >= foot, "row " + (i + 1) + " begins " + (foot - said.getLayoutY()) + " inside row " + i);
+            }
+        });
+    }
+
     @Test
     @DisplayName("Every node has a glyph, every branch an elbow of four points, and the drawing has a size")
     void drawsEveryPart() throws Exception {

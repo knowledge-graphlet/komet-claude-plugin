@@ -47,6 +47,8 @@ final class FittedFigure extends Region {
     /** The narrowest the figure reflows to before it scales; a figure that does not reflow has its natural width. */
     private final double least;
     private final boolean escapable;
+    /** Whether the escape is offered even when the figure is not scaled. */
+    private boolean escapeAlways;
     private double toldWidth = -1;
 
     /**
@@ -92,6 +94,18 @@ final class FittedFigure extends Region {
         expand.setVisible(false);
         getChildren().addAll(figure, expand);
         setMinWidth(0);
+    }
+
+    /**
+     * Offers the escape whether or not the figure is scaled, for a figure that stands in for a
+     * fuller one the escape opens.
+     *
+     * @param tooltip what the escape opens, in the reader's words
+     */
+    void offerEscapeAlways(String tooltip) {
+        escapeAlways = true;
+        expand.setTooltip(new Tooltip(tooltip));
+        requestLayout();
     }
 
     /** How much the figure is scaled down to fit, 1 when it is drawn at its natural size. */
@@ -157,7 +171,7 @@ final class FittedFigure extends Region {
         figure.resizeRelocate(x, 0, natural, figure.prefHeight(natural));
         scale.setX(s);
         scale.setY(s);
-        expand.setVisible(s < 0.999 && escapable);
+        expand.setVisible((s < 0.999 || escapeAlways) && escapable);
         double w = expand.prefWidth(-1);
         expand.resizeRelocate(Math.max(0, width + bleed.getRight() - w), 0, w, expand.prefHeight(w));
         double given = available(width);

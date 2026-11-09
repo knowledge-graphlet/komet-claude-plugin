@@ -80,6 +80,11 @@ import java.util.function.Consumer;
  * asks the host to restate the block's line and redraw; a circle or a square folds on a click;
  * resting on a branch lights the path from it back to the root. The diagram is built once per
  * tree and rollback, and the host builds a new one when either changes.
+ *
+ * <p>A surface too narrow for that drawing asks for the tree as an outline, the
+ * {@link DecisionTreeLayout#outline}: the same glyphs, chips and values, every node on a row of
+ * its own beneath the node it hangs from, with what its branch says, its value and its name side
+ * by side to the right of its glyph and its counts and costs beneath.
  */
 final class DecisionTreeDiagram extends Region {
 
@@ -146,9 +151,15 @@ final class DecisionTreeDiagram extends Region {
     private final Map<Integer, MeasureChip> chips = new HashMap<>();
     private final Map<Integer, Node> valueLabels = new HashMap<>();
     private final Map<Integer, Node> nameLabels = new HashMap<>();
+    /** In an outline, an outcome's link to the tree it folds in, which stands beneath its row and not at its end. */
+    private final Map<Integer, Node> foldIns = new HashMap<>();
     private final Map<Integer, List<String>> findingsAt = new HashMap<>();
     private final Set<Integer> changed = new HashSet<>();
+    /** The nodes drawn as terminals: outcomes, folded nodes and nodes nothing hangs from. */
+    private final Set<Integer> terminals = new HashSet<>();
     private final Optional<Cohort> cohort;
+    /** Whether the tree is drawn as an outline, a row for each node, and not left to right. */
+    private final boolean outline;
     private final ReadOnlyDoubleWrapper drawnWidth = new ReadOnlyDoubleWrapper();
     private final ReadOnlyDoubleWrapper drawnHeight = new ReadOnlyDoubleWrapper();
     private DecisionTreeLayout layout;
@@ -173,6 +184,19 @@ final class DecisionTreeDiagram extends Region {
      */
     DecisionTreeDiagram(DecisionTree tree, Rollback rollback, Optional<Rollback> reference, Identities ids,
                         List<ProfileFinding> findings, Set<Integer> collapsed, double base, Host host, Optional<Cohort> cohort) {
+        this(tree, rollback, reference, ids, findings, collapsed, base, host, cohort, false);
+    }
+
+    /**
+     * A drawing of the tree in the form its surface has room for.
+     *
+     * @param outline whether to draw the tree as an outline, a row for each node, for a surface
+     *                too narrow for the drawing left to right
+     */
+    DecisionTreeDiagram(DecisionTree tree, Rollback rollback, Optional<Rollback> reference, Identities ids,
+                        List<ProfileFinding> findings, Set<Integer> collapsed, double base, Host host, Optional<Cohort> cohort,
+                        boolean outline) {
+        this.outline = outline;
         this.tree = tree;
         this.rollback = rollback;
         this.reference = reference;
@@ -214,9 +238,19 @@ final class DecisionTreeDiagram extends Region {
     /** The layout the diagram was last drawn on, for a test or a print. */
     DecisionTreeLayout geometry() {
         if (layout == null) {
-            layout = DecisionTreeLayout.of(tree, sizing(), collapsed::contains);
+            layout = layoutNow();
         }
         return layout;
+    }
+
+    /** Whether the tree is drawn as an outline. */
+    boolean outline() {
+        return outline;
+    }
+
+    private DecisionTreeLayout layoutNow() {
+        return outline ? DecisionTreeLayout.outline(tree, sizing(), collapsed::contains)
+                : DecisionTreeLayout.of(tree, sizing(), collapsed::contains);
     }
 
     // ── Building the parts ───────────────────────────────────────────────────
@@ -252,11 +286,22 @@ final class DecisionTreeDiagram extends Region {
         if (node instanceof Branch) {
             // a branch that ends: its name is on its run already
         } else {
-            host.concept(node.concept()).ifPresent(nameLine.getChildren()::add);
+            // an outline's rows are as tall as they need to be, so there a long name wraps and is read whole
+            host.concept(node.concept(), outline).ifPresent(nameLine.getChildren()::add);
             host.statements(index).ifPresent(nameLine.getChildren()::add);
-            host.foldIn(index).ifPresent(nameLine.getChildren()::add);
+            Optional<Node> foldIn = host.foldIn(index);
+            if (outline) {
+                // width is what an outline saves: the link takes a line of its own beneath the row
+                foldIn.ifPresent(link -> {
+                    foldIns.put(index, link);
+                    getChildren().add(link);
+                });
+            } else {
+                foldIn.ifPresent(nameLine.getChildren()::add);
+            }
         }
         if (terminal) {
+            terminals.add(index);
             // value and name on one line, the outcome's own costs beneath
             HBox top = new HBox(6, valueLabel);
             top.setAlignment(Pos.CENTER_LEFT);
@@ -803,7 +848,148 @@ final class DecisionTreeDiagram extends Region {
             public double nodeLabelWidth(int nodeVertex) {
                 return Math.max(widthOf(valueLabels.get(nodeVertex)), widthOf(nameLabels.get(nodeVertex))) + 4;
             }
+
+            @Override
+            public double indent() {
+                return glyph * 2;
+            }
+
+            @Override
+            public double rowHeight(int glyphVertex, int branchVertex) {
+                return firstLineHeight(glyphVertex, branchVertex) + beneathHeight(glyphVertex, branchVertex) + ROW_GAP;
+            }
+
+            @Override
+            public double runOffset(int glyphVertex, int branchVertex) {
+                // the glyph and every part of the row's first line share one centre line, however tall a wrapped name is
+                return ROW_GAP / 2 + firstLineHeight(glyphVertex, branchVertex) / 2;
+            }
+
+            @Override
+            public double rowWidth(int glyphVertex, int branchVertex) {
+                double first = 0;
+                for (Node part : firstLine(glyphVertex, branchVertex)) {
+                    first += widthOf(part) + PART_GAP;
+                }
+                double beneath = 0;
+                for (Node part : beneath(glyphVertex, branchVertex)) {
+                    beneath = Math.max(beneath, widthOf(part));
+                }
+                return TEXT_INSET + Math.max(first, beneath) + 4;
+            }
         };
+    }
+
+    // ── The outline's rows ───────────────────────────────────────────────────
+
+    /** The clear space between two rows of an outline. */
+    private static final double ROW_GAP = 8;
+    /** The space between a glyph and what its row says. */
+    private static final double TEXT_INSET = 6;
+    /** The space between two parts of a row's first line. */
+    private static final double PART_GAP = 8;
+
+    /**
+     * What an outline's row says on its first line, left to right: the branch that reaches the
+     * glyph, the node's value, and the node's name unless it is a terminal, whose name is beside
+     * its value already.
+     */
+    private List<Node> firstLine(int glyphVertex, int branchVertex) {
+        List<Node> parts = new ArrayList<>();
+        Node above = branchVertex < 0 ? null : branchAbove.get(branchVertex);
+        if (widthOf(above) > 0) {
+            parts.add(above);
+        }
+        Node value = valueLabels.get(glyphVertex);
+        if (value != null) {
+            parts.add(value);
+        }
+        Node name = terminals.contains(glyphVertex) ? null : nameLabels.get(glyphVertex);
+        if (widthOf(name) > 0) {
+            parts.add(name);
+        }
+        return parts;
+    }
+
+    /** What an outline's row stacks beneath its first line: the branch's counts and costs, a terminal's own, and the link to a tree it folds in. */
+    private List<Node> beneath(int glyphVertex, int branchVertex) {
+        List<Node> parts = new ArrayList<>();
+        Node below = branchVertex < 0 ? null : branchBelow.get(branchVertex);
+        if (heightOf(below) > 0) {
+            parts.add(below);
+        }
+        Node own = terminals.contains(glyphVertex) ? nameLabels.get(glyphVertex) : null;
+        if (heightOf(own) > 0) {
+            parts.add(own);
+        }
+        Node foldIn = foldIns.get(glyphVertex);
+        if (foldIn != null) {
+            parts.add(foldIn);
+        }
+        return parts;
+    }
+
+    private double firstLineHeight(int glyphVertex, int branchVertex) {
+        double height = lineHeight;
+        for (Node part : firstLine(glyphVertex, branchVertex)) {
+            height = Math.max(height, heightOf(part));
+        }
+        return height;
+    }
+
+    private double beneathHeight(int glyphVertex, int branchVertex) {
+        double height = 0;
+        for (Node part : beneath(glyphVertex, branchVertex)) {
+            height += heightOf(part);
+        }
+        return height;
+    }
+
+    /** Places an outline's parts: each run a drop and a turn, each row's labels to the right of its glyph. */
+    private void layoutOutline() {
+        Map<Integer, Run> reaching = new HashMap<>();
+        for (Run run : layout.runs()) {
+            reaching.put(run.toVertex(), run);
+            Polyline line = runs.get(run.vertexIndex());
+            if (line != null) {
+                line.getPoints().setAll(run.x0(), run.y0(), run.xBend(), run.y(), run.x1(), run.y());
+            }
+            // a rejected alternative is barred on the turn into its row
+            place(bars.get(run.vertexIndex()), run.xBend() + 7, run.y() - 6);
+        }
+        for (Placed placed : layout.placed()) {
+            placeGlyph(placed);
+            Run run = reaching.get(placed.vertexIndex());
+            int branch = run == null ? -1 : run.vertexIndex();
+            double left = placed.x() + glyph / 2 + TEXT_INSET;
+            double x = left;
+            for (Node part : firstLine(placed.vertexIndex(), branch)) {
+                place(part, x, placed.y() - heightOf(part) / 2);
+                x += widthOf(part) + PART_GAP;
+            }
+            double y = placed.y() + firstLineHeight(placed.vertexIndex(), branch) / 2 + 1;
+            for (Node part : beneath(placed.vertexIndex(), branch)) {
+                place(part, left, y);
+                y += heightOf(part);
+            }
+        }
+    }
+
+    private void placeGlyph(Placed placed) {
+        Node shape = glyphs.get(placed.vertexIndex());
+        if (shape == null) {
+            return;
+        }
+        double left = placed.x() - glyph / 2;
+        double top = placed.y() - glyph / 2;
+        if (shape instanceof Circle circle) {
+            circle.setCenterX(placed.x());
+            circle.setCenterY(placed.y());
+        } else if (shape instanceof Polygon || shape instanceof Rectangle) {
+            shape.relocate(left, top);
+        } else {
+            shape.relocate(placed.x(), top);
+        }
     }
 
     /** A label's height at its own width: a wrapped name is taller than one line only once its width is known. */
@@ -817,13 +1003,13 @@ final class DecisionTreeDiagram extends Region {
 
     @Override
     protected double computePrefWidth(double height) {
-        layout = DecisionTreeLayout.of(tree, sizing(), collapsed::contains);
+        layout = layoutNow();
         return layout.width();
     }
 
     @Override
     protected double computePrefHeight(double width) {
-        layout = DecisionTreeLayout.of(tree, sizing(), collapsed::contains);
+        layout = layoutNow();
         return layout.height();
     }
 
@@ -839,7 +1025,13 @@ final class DecisionTreeDiagram extends Region {
 
     @Override
     protected void layoutChildren() {
-        layout = DecisionTreeLayout.of(tree, sizing(), collapsed::contains);
+        layout = layoutNow();
+        if (outline) {
+            layoutOutline();
+            drawnWidth.set(layout.width());
+            drawnHeight.set(layout.height());
+            return;
+        }
         for (Run run : layout.runs()) {
             Polyline line = runs.get(run.vertexIndex());
             if (line != null) {
@@ -855,20 +1047,10 @@ final class DecisionTreeDiagram extends Region {
             }
         }
         for (Placed placed : layout.placed()) {
-            Node shape = glyphs.get(placed.vertexIndex());
-            if (shape == null) {
+            if (glyphs.get(placed.vertexIndex()) == null) {
                 continue;
             }
-            double left = placed.x() - glyph / 2;
-            double top = placed.y() - glyph / 2;
-            if (shape instanceof Circle circle) {
-                circle.setCenterX(placed.x());
-                circle.setCenterY(placed.y());
-            } else if (shape instanceof Polygon || shape instanceof Rectangle) {
-                shape.relocate(left, top);
-            } else {
-                shape.relocate(placed.x(), top);
-            }
+            placeGlyph(placed);
             boolean terminal = placed.kind() == Kind.OUTCOME || placed.kind() == Kind.END || placed.collapsed();
             Node value = valueLabels.get(placed.vertexIndex());
             Node name = nameLabels.get(placed.vertexIndex());

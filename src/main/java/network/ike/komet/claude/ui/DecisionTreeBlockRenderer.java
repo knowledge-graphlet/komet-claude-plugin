@@ -238,13 +238,8 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
         DecisionTree tree;
         DecisionTreeDiagram diagram;
         final Map<Integer, MeasureChip> parameterChips = new HashMap<>();
-        /** How wide a name may be in the drawing, in ems: narrower when the tree must fit a narrow region. */
-        double chipEms = CHIP_EMS;
-        /** The width the names were last fitted to; they grow back only when the region grows past it. */
-        double fittedAt = -1;
-        /** The cap and the drawing's natural width before the last change of cap, from which the next is solved. */
-        double priorEms = -1;
-        double priorNatural = -1;
+        /** How the drawing fits its region: how wide a name may be, and whether the tree is an outline. */
+        final DecisionTreeFit fit = new DecisionTreeFit(CHIP_EMS, MIN_CHIP_EMS);
         /** Whether the drawing is being built: only its names take the fitted cap, never the parameters above it. */
         boolean drawing;
         /** The drawing as it was last built, built again at full size for the escape. */
@@ -463,15 +458,21 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
             }
             drawing = true;
             try {
-                diagram = new DecisionTreeDiagram(drawn, rollback, reference, shown, findings, collapsed, base, this, cohort);
+                diagram = new DecisionTreeDiagram(drawn, rollback, reference, shown, findings, collapsed, base, this, cohort,
+                        fit.outline());
             } finally {
                 drawing = false;
             }
             // the same drawing at full size, for the escape
             Set<Integer> folded = Set.copyOf(collapsed);
             whole = () -> new DecisionTreeDiagram(drawn, rollback, reference, shown, findings, folded, base, this, cohort);
-            // the tree fits its region, compacted and then scaled, and never scrolls sideways
-            top.getChildren().add(new FittedFigure(diagram, base, this::fitTo, this::openWhole));
+            // the tree fits its region, compacted, then an outline, then scaled, and never scrolls sideways
+            FittedFigure fitted = new FittedFigure(diagram, base, this::fitTo, this::openWhole);
+            if (fit.outline()) {
+                // the outline stands in for the drawing left to right, which stays one click away
+                fitted.offerEscapeAlways("Open the tree drawn left to right, at full size");
+            }
+            top.getChildren().add(fitted);
             // the ledger: every alternative's consequences in their own units
             String healthUnit = unitName(rollback.coordinate().healthSemantic(), "");
             List<List<String>> table = DecisionTreeFigures.ledgerTable(drawn, rollback, shown, symbol(), healthUnit, cohort);
@@ -675,44 +676,16 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
         }
 
         /**
-         * The drawing was given a width: when the tree is wider, its names are drawn narrower, down
-         * to {@link #MIN_CHIP_EMS}, and the figure scales what is still too wide; when the region
-         * has grown and the tree has room, they widen again. Names never widen at the width they
-         * were narrowed for, so the two cannot take turns.
+         * The drawing was given a width: {@link DecisionTreeFit} says whether to draw it again with
+         * narrower or wider names, or in its other form.
          */
         private void fitTo(double width) {
             if (diagram == null || committed == null || width <= 0) {
                 return;
             }
-            double natural = diagram.prefWidth(-1);
-            double next = chipEms;
-            if (natural > width + 1 && chipEms > MIN_CHIP_EMS) {
-                next = Math.max(MIN_CHIP_EMS, Math.min(chipEms - 1, Math.floor(capFor(width, natural))));
-            } else if (width > fittedAt + 1 && natural < 0.85 * width && chipEms < CHIP_EMS) {
-                next = Math.min(CHIP_EMS, Math.max(chipEms, Math.floor(capFor(0.95 * width, natural))));
-            }
-            fittedAt = width;
-            if (next != chipEms) {
-                priorEms = chipEms;
-                priorNatural = natural;
-                chipEms = next;
+            if (fit.given(width, diagram.prefWidth(-1))) {
                 fillTop(tree, committed, price, Optional.empty(), committedFindings);
             }
-        }
-
-        /**
-         * The cap at which the drawing would be a width: the drawing's width is about a fixed part
-         * plus a part that grows with the cap, which two drawings at different caps solve for;
-         * with one, the width is taken to grow with the cap alone.
-         */
-        private double capFor(double width, double natural) {
-            if (priorEms > 0 && priorEms != chipEms && priorNatural != natural) {
-                double perEm = (priorNatural - natural) / (priorEms - chipEms);
-                if (perEm > 0) {
-                    return chipEms + (width - natural) / perEm;
-                }
-            }
-            return chipEms * width / natural;
         }
 
         /**
@@ -723,16 +696,8 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
             if (whole == null || column.getScene() == null) {
                 return;
             }
-            double was = chipEms;
-            chipEms = CHIP_EMS;
-            drawing = true;
-            DecisionTreeDiagram full;
-            try {
-                full = whole.get();
-            } finally {
-                chipEms = was;
-                drawing = false;
-            }
+            // built outside a drawing of the column, so its names take the full cap whatever the region
+            DecisionTreeDiagram full = whole.get();
             javafx.scene.transform.Scale zoom = new javafx.scene.transform.Scale(1, 1, 0, 0);
             full.getTransforms().add(zoom);
             javafx.scene.Group zoomed = new javafx.scene.Group(full);
@@ -807,7 +772,7 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
 
         /** How wide a name may be, in ems: the fitted cap in the drawing, the full one elsewhere. */
         private double cap() {
-            return drawing ? chipEms : CHIP_EMS;
+            return drawing ? fit.ems() : CHIP_EMS;
         }
 
         @Override
