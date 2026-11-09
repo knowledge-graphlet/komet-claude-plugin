@@ -238,7 +238,7 @@ class PageDiagramIT {
         PrintSettings settings = PrintSettings.DEFAULT;
         DocumentSurfaceView surface = surface(document, "page-captions");
         List<LayoutOracle.Unit> units = onFx(() -> surface.pageUnits(settings.theme()));
-        DocumentModel model = onFx(() -> StoredDocumentModel.of(document, Map.of(), surface::printFigures));
+        DocumentModel model = onFx(() -> StoredDocumentModel.of(document, Map.of(), surface.printing()));
         assertEquals(described(ModelUnits.of(model, settings.theme().baseFontSize())), described(units));
 
         // A structured block that cannot be drawn prints as its source, under its caption; one that is drawn carries its title in its figure.
