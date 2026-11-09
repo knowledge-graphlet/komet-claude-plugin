@@ -44,8 +44,6 @@ import javafx.scene.Node;
 import javafx.scene.control.Label;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
-import javafx.scene.layout.Priority;
-import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Circle;
@@ -71,9 +69,10 @@ import network.ike.komet.claude.tools.GraphTools;
 /**
  * The live rendering of an {@code anf} fenced block on the assistant surface
  * ({@code dev-anf-adoc-representation}, {@code dev-calculator-blocks}): a finding of the note,
- * inline with the narrative it was lifted from. Folded, it is one line: the narrative span the
+ * inline with the narrative it was lifted from. Folded, it is one row: the narrative span the
  * fence names ({@code narrative="A 62-year-old man"}), the statement's topic as a Koncept chip,
- * and its result; resting on it shows the whole statement, and a click unfolds the statement as
+ * and its result, each whole, on a second line where the region is narrow ({@link WrappedRow});
+ * resting on it shows the whole statement, and a click unfolds the statement as
  * the editable ANF tree control the lift's editor uses, so the reader sees the narrative, the ANF
  * it became, and can correct the ANF in place. An edit is projected back to the block's text
  * through the surface's {@link BlockRewriter}, and the statement is re-published to the blocks
@@ -256,9 +255,10 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
         final String info;
         final String originalBody;
         final VBox column = new VBox(2);
-        final HBox line = new HBox(8);
+        /** The folded line. Its pieces stay whole: those that do not fit go to a line beneath. */
+        final WrappedRow line = new WrappedRow(8, 2);
         /** Who the statement is about, on a row of its own: a group's name is long, and beside the topic it crushes both. */
-        final HBox subjectLine = new HBox(6);
+        final WrappedRow subjectLine = new WrappedRow(6, 2);
         final Label fold = new Label("▸");
         final boolean element;
         final List<Node> spanNodes = new ArrayList<>();
@@ -288,7 +288,6 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
                     context.defineStatement(name, statement);
                 }
             });
-            line.setAlignment(Pos.CENTER_LEFT);
             line.setCursor(Cursor.HAND);
             line.setId(idOf(info).map(name -> "anf-" + name).orElse(null));
             fold.setFont(Font.font(base * 0.9));
@@ -303,6 +302,7 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
                 Label narrative = new Label("“" + span + "”");
                 narrative.setFont(Font.font(null, FontPosture.ITALIC, base * 0.95));
                 narrative.setTextFill(Color.web("#333"));
+                narrative.setWrapText(true);
                 spanNodes.add(narrative);
                 spanNodes.add(arrow());
             });
@@ -310,6 +310,7 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
                 Label fact = new Label(sentence);
                 fact.setFont(Font.font(base * 0.95));
                 fact.setTextFill(Color.web("#282040"));
+                fact.setWrapText(true);
                 elementNodes.add(fact);
             });
             buildAnf();
@@ -320,7 +321,6 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
                 Tooltip.install(subjectLine, tip);
             }
             line.setOnMouseClicked(e -> toggle());
-            subjectLine.setAlignment(Pos.CENTER_LEFT);
             subjectLine.setCursor(Cursor.HAND);
             subjectLine.setPadding(new Insets(0, 0, 0, base + 8));
             subjectLine.setOnMouseClicked(e -> toggle());
@@ -356,7 +356,7 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
             }
             anfNodes.addAll(summary(statement));
             if (statement.subjectOfInformation() != null) {
-                subjectNodes.add(whole(muted("in")));
+                subjectNodes.add(muted("in"));
                 subjectNodes.add(value(statement.subjectOfInformation()));
             }
             if (stale()) {
@@ -368,7 +368,7 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
                 Label named = new Label(name);
                 named.setFont(Font.font(base * 0.78));
                 named.setTextFill(Color.web("#999"));
-                (subjectNodes.isEmpty() ? anfNodes : subjectNodes).add(whole(named));
+                (subjectNodes.isEmpty() ? anfNodes : subjectNodes).add(named);
             });
         }
 
@@ -423,7 +423,6 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
             }
             List<Node> nodes = new ArrayList<>();
             fold.setVisible(anf && statement != null);
-            nodes.add(fold);
             nodes.addAll(spanNodes);
             nodes.addAll(elementNodes);
             if (anf) {
@@ -434,15 +433,12 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
             } else {
                 nodes.add(stateWord());
             }
-            Region spring = new Region();
-            HBox.setHgrow(spring, Priority.ALWAYS);
-            nodes.add(spring);
-            line.getChildren().setAll(nodes);
+            line.show(fold, nodes);
             line.setCursor(anf && statement != null ? Cursor.HAND : Cursor.DEFAULT);
             boolean subject = visible && anf && !subjectNodes.isEmpty();
             subjectLine.setVisible(subject);
             subjectLine.setManaged(subject);
-            subjectLine.getChildren().setAll(subjectNodes);
+            subjectLine.show(null, subjectNodes);
         }
 
         private Label arrow() {
@@ -461,7 +457,7 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
             }
         }
 
-        /** The folded line's pieces: the topic as a chip, then the result or the request; a result stays whole. */
+        /** The folded line's pieces: the topic as a chip, then the result or the request. */
         private List<Node> summary(AnfStatement s) {
             List<Node> nodes = new ArrayList<>();
             Node topic = value(s.topic());
@@ -469,7 +465,7 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
             switch (s.circumstance()) {
                 case Circumstance.Performance p -> {
                     if (p.result() != null) {
-                        nodes.add(whole(plain(result(p.result()))));
+                        nodes.add(plain(result(p.result())));
                     }
                     if (p.bodySite() != null) {
                         nodes.add(muted("at"));
@@ -479,24 +475,16 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
                 case Circumstance.Request r -> {
                     nodes.add(muted("requested"));
                     if (r.requestedResult() != null) {
-                        nodes.add(whole(plain(result(r.requestedResult()))));
+                        nodes.add(plain(result(r.requestedResult())));
                     }
                 }
                 case Circumstance.Narrative n -> {
-                    // the quotation is the piece that gives way, not the topic
-                    whole(topic);
-                    nodes.add(muted("“" + n.text() + "”"));
+                    Label quotation = muted("“" + n.text() + "”");
+                    quotation.setWrapText(true);
+                    nodes.add(quotation);
                 }
             }
             return nodes;
-        }
-
-        /** Keeps a piece at its full width when the line is short of room. */
-        private <N extends Node> N whole(N node) {
-            if (node instanceof Region region) {
-                region.setMinWidth(Region.USE_PREF_SIZE);
-            }
-            return node;
         }
 
         private String result(AnfStatement.Result r) {
@@ -528,6 +516,8 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
                     : KonceptChips.chip(pid.get(), sctid, viewCalc, base, typography);
             if (chip instanceof KonceptBadge badge) {
                 badge.setStatusSlotReserved(true);
+                // a name longer than the whole row wraps inside its chip, and is not cut short
+                badge.setMultiLineLabel(true);
             }
             return chip;
         }
@@ -628,6 +618,7 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
     private Label localConcept(String text) {
         Label chip = new Label(text);
         chip.setFont(Font.font(base * 0.95));
+        chip.setWrapText(true);
         chip.setStyle("-fx-background-color: #f4f2ec; -fx-background-radius: 9; -fx-padding: 1 7 1 7;"
                 + " -fx-text-fill: #333; -fx-border-color: #b9b3a3; -fx-border-radius: 9; -fx-border-style: dashed;"
                 + " -fx-border-width: 1;");
