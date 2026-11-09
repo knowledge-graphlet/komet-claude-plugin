@@ -20,6 +20,8 @@ import org.junit.jupiter.api.Test;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** The document's tree registry, as the blocks of a conversation share it. */
 class ProfileBlocksTest {
@@ -69,6 +71,54 @@ class ProfileBlocksTest {
         context.model("site").orElseThrow().write(2, network.ike.komet.claude.decision.Bounds.point(0.15));
         assertEquals("decision: k:X[x] @id=x\n  parameter = [0.15,0.15] anf:est-x\n", written.toString());
         java.lang.ref.Reference.reachabilityFence(rendering);
+    }
+
+    @Test
+    void aPagesCopyOfAModelLeavesTheWritableOneInPlace() {
+        ProfileBlocks context = new ProfileBlocks();
+        AtomicInteger heard = new AtomicInteger();
+        Runnable rendering = heard::incrementAndGet;
+        context.listen(rendering);
+        StringBuilder written = new StringBuilder();
+        String text = "decision: k:X[x] @id=x\n  parameter = [0.1,0.1] k:P[p] @id=p";
+        // the block on the surface, which can write the model
+        context.defineModel(new network.ike.komet.claude.decision.GraphletModel("site", "graphlet-model id=site", text,
+                java.util.Optional.of(written::append)), 1);
+        // a page prints the document: the same model stated again, later, with its line break and no writer
+        context.defineModel(new network.ike.komet.claude.decision.GraphletModel("site", "graphlet-model, id=site", text + "\n",
+                java.util.Optional.empty()), 7);
+        assertTrue(context.model("site").orElseThrow().writable(), "the page's copy does not take the model");
+        assertEquals(1, heard.get(), "and nothing moved, so no rendering is told");
+        // "Use this value" in a rendering still reaches the block
+        assertTrue(context.model("site").orElseThrow().write(2, network.ike.komet.claude.decision.Bounds.point(0.15)));
+        assertEquals("decision: k:X[x] @id=x\n  parameter = [0.15,0.15] k:P[p] @id=p", written.toString());
+        // and the block, restating its model with the value, is not refused as an earlier block
+        context.defineModel(new network.ike.komet.claude.decision.GraphletModel("site", "graphlet-model id=site", written.toString(),
+                java.util.Optional.of(written::append)), 1);
+        assertEquals(written.toString(), context.model("site").orElseThrow().body());
+        assertEquals(2, heard.get(), "the renderings hear the value");
+        java.lang.ref.Reference.reachabilityFence(rendering);
+    }
+
+    @Test
+    void aReadOnlyModelOfOtherTextTakesIt() {
+        ProfileBlocks context = new ProfileBlocks();
+        context.defineModel(new network.ike.komet.claude.decision.GraphletModel("site", "graphlet-model id=site",
+                "decision: k:X[x] @id=x\n", java.util.Optional.of(text -> { })), 1);
+        context.defineModel(new network.ike.komet.claude.decision.GraphletModel("site", "graphlet-model id=site",
+                "decision: k:Y[y] @id=y\n", java.util.Optional.empty()), 7);
+        assertEquals("decision: k:Y[y] @id=y\n", context.model("site").orElseThrow().body(), "the document says something else now");
+        assertFalse(context.model("site").orElseThrow().writable());
+    }
+
+    @Test
+    void aBlockBuiltAfterAPageTakesTheModelFromIt() {
+        ProfileBlocks context = new ProfileBlocks();
+        context.defineModel(new network.ike.komet.claude.decision.GraphletModel("site", "graphlet-model id=site",
+                "decision: k:X[x] @id=x\n", java.util.Optional.empty()), 3);
+        context.defineModel(new network.ike.komet.claude.decision.GraphletModel("site", "graphlet-model id=site",
+                "decision: k:X[x] @id=x\n", java.util.Optional.of(text -> { })), 4);
+        assertTrue(context.model("site").orElseThrow().writable(), "the surface's block, made later, holds the model and can write it");
     }
 
     @Test

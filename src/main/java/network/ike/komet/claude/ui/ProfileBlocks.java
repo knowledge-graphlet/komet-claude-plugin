@@ -314,6 +314,12 @@ public final class ProfileBlocks {
      * it draw it, and write a value into it through its writer. Listeners hear only when the
      * model's text changed. As with trees, the latest block to restate a model under an id holds
      * it.
+     *
+     * <p>One restatement does not take the model: a page states each model again to print it,
+     * with no way to write it. Were that to hold the model, the block on the surface that can
+     * write it would have its later values refused, and a value chosen in a rendering would stay
+     * a trial until the document was opened again. So a model that cannot be written leaves in
+     * place one of the same text that can.
      */
     public synchronized void defineModel(GraphletModel model, long order) {
         if (model == null || model.id() == null || model.id().isBlank()) {
@@ -323,11 +329,20 @@ public final class ProfileBlocks {
         if (holder != null && holder > order) {
             return;
         }
+        GraphletModel held = models.get(model.id());
+        if (held != null && held.writable() && !model.writable() && sameText(held, model)) {
+            return;
+        }
         modelOrders.put(model.id(), order);
         GraphletModel was = models.put(model.id(), model);
         if (was == null || !was.body().equals(model.body()) || !was.info().equals(model.info())) {
             notifyListeners();
         }
+    }
+
+    /** Whether two statements of a model say the same: a page's copy ends in a line break the surface's may lack. */
+    private static boolean sameText(GraphletModel one, GraphletModel other) {
+        return one.body().stripTrailing().equals(other.body().stripTrailing());
     }
 
     /** The model a rendering names, when a block of this document defines it. */
