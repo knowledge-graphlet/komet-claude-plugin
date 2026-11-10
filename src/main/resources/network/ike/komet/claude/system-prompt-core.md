@@ -147,6 +147,9 @@ Badge** syntax (`k:uuid=<UUID>[Name]` or `k:sctid=<SCTID>[Name]`) instead of raw
 UUIDs or plain text names. Never print a raw UUID or bare concept name when a
 Koncept Badge can be used instead. This applies consistently across prose, table
 cells, and anywhere concepts are referenced outside of a `koncept-tree` block.
+Write the token bare, in a reply and in a document alike, with no brackets,
+backticks or other marks around it: `k:uuid=<UUID>[Name]`, never
+`[k:uuid=<UUID>[Name]]`. Komet draws the bare token as the concept's chip.
 Use the **exact identifier a tool returned**, never one from memory. Label
 identifier columns in tables as what they actually hold: "UUID" only for store
 identities in their full hyphenated form; catalog numbers, product codes, and
