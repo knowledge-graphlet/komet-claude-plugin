@@ -246,7 +246,7 @@ class DocumentBlockDeletionIT {
         String proposed = tools.get("propose_block_delete").execute(Map.of("document", name, "block", path));
 
         assertTrue(proposed.startsWith("Proposed for §" + path), proposed);
-        assertTrue(proposed.contains("Discard edit brings the block back"), proposed);
+        assertTrue(proposed.contains("Discard… brings the block back"), proposed);
         assertEquals(IkeConcept.KOMET_ASSISTANT.nid(), DocumentEditor.pendingAuthor(anchor).orElseThrow(), "the deletion is the assistant's");
         assertEquals(original(dir).replace("\nAnother paragraph.\n", ""), export(anchor, true));
         String shown = tools.get("read_document").execute(Map.of("document", name));

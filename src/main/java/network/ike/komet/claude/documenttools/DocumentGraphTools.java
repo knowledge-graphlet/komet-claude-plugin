@@ -399,8 +399,8 @@ public final class DocumentGraphTools {
         return new Tool("propose_block_edit",
                 "Propose new text for one block of a STAMPed document: the block's lines are replaced with the text, written "
                         + "as an uncommitted edit under the Komet assistant's name — the same edit the card's Edit block makes for a "
-                        + "person — so the card shows it pending with the edited badge and the person commits it in git (Commit…) or "
-                        + "discards it (Discard edit). Nothing reaches git until they commit; say so. Read the block first with "
+                        + "person — so the card shows it pending in the bar at the bottom of the card and the person commits it in git (Commit) or "
+                        + "discards it (Discard…). Nothing reaches git until they commit; say so. Read the block first with "
                         + "read_block: the text replaces its AsciiDoc source lines exactly, one line per line (a listing keeps its "
                         + "---- delimiters). Only blocks that hold lines and no blocks can be edited (paragraphs, list items, listings, "
                         + "table rows). Refused when another author's edit of the document is pending: theirs is settled first. "
@@ -436,7 +436,7 @@ public final class DocumentGraphTools {
                     if (pending.isPresent()) {
                         return "Not proposed: an edit of " + opened.name() + " by " + StampNames.name(v, pending.getAsLong())
                                 + " is pending in the card. A change is never made on top of a change nobody has settled: ask them to "
-                                + "commit it in git (Commit…) or discard it (Discard edit), then propose again.";
+                                + "commit it in git (Commit) or discard it (Discard…), then propose again.";
                     }
                     Optional<String> previous = Optional.of(node.lines().stream().map(GitDocumentMaterializer.StoredLine::text)
                             .collect(java.util.stream.Collectors.joining("\n")));
@@ -451,7 +451,7 @@ public final class DocumentGraphTools {
                     return "Proposed for §" + node.path() + " of " + opened.name() + ": " + result.message()
                             + ". It is pending under " + StampNames.name(v, edit.getAuthorNidForChanges())
                             + (opened.card() != null ? "; the card shows it with the edited badge" : "; open the document in a Stamped Document card to see it")
-                            + ". Nothing is in git until the person commits it (Commit…); Discard edit withdraws it."
+                            + ". Nothing is in git until the person commits it (Commit); Discard… withdraws it."
                             + stated(opened.anchor(), node.block().nid(), previous, text, v, edit);
                 });
     }
@@ -463,7 +463,7 @@ public final class DocumentGraphTools {
                 "Propose a new paragraph, listing or structured block of a STAMPed document, inserted right after a chosen block: the "
                         + "new lines and the block land as an uncommitted insertion under the Komet assistant's name — the same "
                         + "insertion the card's Add paragraph after… makes for a person — so the card shows the new block pending "
-                        + "with the edited mark and the person commits it in git (Commit…) or discards it (Discard edit). Nothing "
+                        + "with the edited mark and the person commits it in git (Commit) or discards it (Discard…). Nothing "
                         + "reaches git until they commit; say so. The block to insert after must hold lines and no blocks (a "
                         + "paragraph, a list item, a listing, a structured block): read the document first with read_document to "
                         + "pick it; the new block becomes its next sibling, after a blank line. The text is the block's AsciiDoc "
@@ -506,7 +506,7 @@ public final class DocumentGraphTools {
                     if (pending.isPresent()) {
                         return "Not proposed: an edit of " + opened.name() + " by " + StampNames.name(v, pending.getAsLong())
                                 + " is pending in the card. A change is never made on top of a change nobody has settled: ask them to "
-                                + "commit it in git (Commit…) or discard it (Discard edit), then propose again.";
+                                + "commit it in git (Commit) or discard it (Discard…), then propose again.";
                     }
                     KometActionResult result = KometActions.expect(KometConcept.ADD_DOCUMENT_BLOCK)
                             .perform(AddDocumentBlock.input(node.block().nid(), kind, text.endsWith("\n") ? text : text + "\n"), v, edit);
@@ -519,7 +519,7 @@ public final class DocumentGraphTools {
                     return "Proposed after §" + node.path() + " of " + opened.name() + ": " + result.message()
                             + ". It is pending under " + StampNames.name(v, edit.getAuthorNidForChanges())
                             + (opened.card() != null ? "; the card shows the new block with the edited mark" : "; open the document in a Stamped Document card to see it")
-                            + ". Nothing is in git until the person commits it (Commit…); Discard edit withdraws it. The blocks after it "
+                            + ". Nothing is in git until the person commits it (Commit); Discard… withdraws it. The blocks after it "
                             + "have moved, so read their paths again before you edit by them."
                             + newBlock(opened, graph).map(block -> stated(opened.anchor(), block, Optional.empty(), text, v, edit)).orElse("");
                 });
@@ -611,8 +611,8 @@ public final class DocumentGraphTools {
         return new Tool("propose_block_delete",
                 "Propose removing one block of a STAMPed document: its lines leave the document as an uncommitted deletion under "
                         + "the Komet assistant's name — the same deletion the card's Delete block… makes for a person — so the card "
-                        + "shows the document without it, pending with the edited badge, and the person commits it in git (Commit…) "
-                        + "or discards it (Discard edit). Nothing reaches git until they commit; say so. Only blocks that hold "
+                        + "shows the document without it, pending in the bar at the bottom of the card, and the person commits it in git (Commit) "
+                        + "or discards it (Discard…). Nothing reaches git until they commit; say so. Only blocks that hold "
                         + "lines and no blocks can be deleted (paragraphs, list items, listings); a section is emptied block by "
                         + "block. Read the block first with read_block and tell the person what goes. Refused when another author's "
                         + "edit of the document is pending: theirs is settled first.",
@@ -636,7 +636,7 @@ public final class DocumentGraphTools {
                     if (pending.isPresent()) {
                         return "Not proposed: an edit of " + opened.name() + " by " + StampNames.name(v, pending.getAsLong())
                                 + " is pending in the card. A change is never made on top of a change nobody has settled: ask them to "
-                                + "commit it in git (Commit…) or discard it (Discard edit), then propose again.";
+                                + "commit it in git (Commit) or discard it (Discard…), then propose again.";
                     }
                     KometActionResult result = KometActions.expect(KometConcept.DELETE_DOCUMENT_BLOCK)
                             .perform(DeleteDocumentBlock.input(node.block().nid()), v, edit);
@@ -649,7 +649,7 @@ public final class DocumentGraphTools {
                     return "Proposed for §" + node.path() + " of " + opened.name() + ": " + result.message()
                             + ". It is pending under " + StampNames.name(v, edit.getAuthorNidForChanges())
                             + (opened.card() != null ? "; the card shows the document without the block, with the edited badge" : "; open the document in a Stamped Document card to see it")
-                            + ". Nothing is in git until the person commits it (Commit…); Discard edit brings the block back.";
+                            + ". Nothing is in git until the person commits it (Commit); Discard… brings the block back.";
                 });
     }
 

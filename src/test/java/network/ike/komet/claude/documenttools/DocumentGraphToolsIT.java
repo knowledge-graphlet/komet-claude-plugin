@@ -161,7 +161,7 @@ class DocumentGraphToolsIT {
                 .map(GitDocumentMaterializer.StoredLine::text).toList()).replace("began by", "started by") + "\n", Coordinates.Edit.Default());
         String refused = call("propose_block_edit", Map.of("document", name, "block", path, "text", text));
         assertTrue(refused.startsWith("Not proposed: an edit of " + name + " by "), refused);
-        assertTrue(refused.contains("Commit…") && refused.contains("Discard edit"), refused);
+        assertTrue(refused.contains("(Commit)") && refused.contains("Discard…"), refused);
         DocumentEditor.cancel(anchor);
     }
 
