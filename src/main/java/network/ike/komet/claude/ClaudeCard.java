@@ -574,6 +574,11 @@ public final class ClaudeCard extends AbstractHostCard {
         }
         HBox actions = new HBox(2, rename, trash);
         actions.setMinWidth(Region.USE_PREF_SIZE);
+        // The controls add no height to the row: it stays as tall as its text, which then sits centred in the
+        // cell, and the controls centre themselves on it, a little over the row's top and bottom edges.
+        actions.setAlignment(Pos.CENTER);
+        actions.setMinHeight(0);
+        actions.setPrefHeight(0);
         actions.visibleProperty().bind(cell.hoverProperty());
         return actions;
     }
@@ -1777,7 +1782,14 @@ public final class ClaudeCard extends AbstractHostCard {
         HBox.setHgrow(composeStack, Priority.ALWAYS);
 
         sendButton = new Button("Send");
-        sendButton.setOnAction(e -> onSend());
+        // In a sidebar Send turns into the stop control while the active conversation is answering.
+        sendButton.setOnAction(e -> {
+            if (paneMode && active != null && active.busy) {
+                stopActive();
+            } else {
+                onSend();
+            }
+        });
 
         // The model that answers the next question, switchable without opening Settings.
         modelButton = new MenuButton();
@@ -2965,8 +2977,9 @@ public final class ClaudeCard extends AbstractHostCard {
     }
 
     private void setStopVisible(boolean visible) {
-        stopButton.setVisible(visible);
-        stopButton.setManaged(visible);
+        // In a sidebar the stop control is the Send button itself (updateInputState).
+        stopButton.setVisible(visible && !paneMode);
+        stopButton.setManaged(visible && !paneMode);
     }
 
     /**
@@ -3010,8 +3023,32 @@ public final class ClaudeCard extends AbstractHostCard {
     private void updateInputState() {
         boolean busy = active != null && active.busy;
         input.setDisable(busy);
+        if (paneMode) {
+            showPaneStop(busy);
+            return;
+        }
         sendButton.setDisable(busy);
         sendButton.setText(busy ? "Working…" : "Send");
+    }
+
+    /** In a sidebar, shows Send as the stop control (a white square on the blue plate) while {@code busy}. */
+    private void showPaneStop(boolean busy) {
+        if (busy == sendButton.getStyleClass().contains("assistant-pane-stop")) {
+            return;
+        }
+        if (busy) {
+            Region square = new Region();
+            square.getStyleClass().add("assistant-pane-stop-glyph");
+            sendButton.setGraphic(square);
+            sendButton.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
+            sendButton.setTooltip(new Tooltip("Stop generating"));
+            sendButton.getStyleClass().add("assistant-pane-stop");
+        } else {
+            sendButton.setGraphic(null);
+            sendButton.setContentDisplay(ContentDisplay.TEXT_ONLY);
+            sendButton.setTooltip(null);
+            sendButton.getStyleClass().remove("assistant-pane-stop");
+        }
     }
 
     /*******************************************************************************

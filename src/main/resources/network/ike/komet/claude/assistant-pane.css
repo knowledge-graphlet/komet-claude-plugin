@@ -296,6 +296,25 @@
     -fx-text-fill: rgba(31, 42, 68, 0.45);
 }
 
+/* Send while the assistant is answering: the same blue plate, squared to the controls' height, holding a
+   white square. Pressing it stops the reply. */
+.assistant-pane-send.assistant-pane-stop {
+    -fx-pref-width: 26;
+    -fx-max-width: 26;
+    -fx-padding: 0;
+}
+
+.assistant-pane-stop-glyph {
+    -fx-background-color: white;
+    -fx-background-radius: 2;
+    -fx-min-width: 10;
+    -fx-min-height: 10;
+    -fx-pref-width: 10;
+    -fx-pref-height: 10;
+    -fx-max-width: 10;
+    -fx-max-height: 10;
+}
+
 /* ---- Views that replace the chat: History, Settings, Help ---- */
 
 .assistant-pane-view {
@@ -407,7 +426,7 @@
 
 .assistant-pane-conversations .list-cell {
     -fx-background-color: white;
-    -fx-padding: 8 12 8 12;
+    -fx-padding: 11 12 11 12;
     -fx-font-size: 12px;
 }
 
