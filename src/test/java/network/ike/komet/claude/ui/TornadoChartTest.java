@@ -92,6 +92,12 @@ class TornadoChartTest {
         final List<String> lit = new ArrayList<>();
         final List<String> tried = new ArrayList<>();
         final List<String> previews = new ArrayList<>();
+        final List<String> held = new ArrayList<>();
+
+        @Override
+        public void hold(int measureVertex, double value) {
+            held.add(measureVertex + "@" + Math.round(value));
+        }
 
         @Override
         public String nameOf(int measureVertex) {
@@ -293,9 +299,10 @@ class TornadoChartTest {
             control.lower.setText("2500");
             control.lower.fireEvent(new javafx.event.ActionEvent());
             assertEquals(2_500, control.slider.getValue(), 1e-9, "and is held within when it narrows");
-            control.apply.fire();
-            assertEquals(List.of(scanCost + "=2500"), host.tried);
-            assertTrue(chart.control().isEmpty(), "committing closes the control");
+            assertTrue(host.tried.isEmpty(), "nothing is used while the control is open");
+            chart.closeControl();
+            assertEquals(List.of(scanCost + "=2500"), host.tried, "closing uses the value the control was left at");
+            assertTrue(chart.control().isEmpty());
             MeasureControl again = chart.openControl(scanCost);
             again.slider.setValue(900);
             chart.closeControl();
@@ -336,35 +343,99 @@ class TornadoChartTest {
             MeasureControl control = chart.openControl(scanCost);
             javafx.event.Event.fireEvent(row.name, mouse(javafx.scene.input.MouseEvent.MOUSE_EXITED));
             javafx.event.Event.fireEvent(control, mouse(javafx.scene.input.MouseEvent.MOUSE_EXITED));
-            assertTrue(chart.control().isPresent(), "only a click, Esc or the button closes it");
+            assertTrue(chart.control().isPresent(), "only a click, Esc or a value used closes it");
             assertEquals(null, control.getOnMouseExited(), "and it has no timer waiting on the pointer");
         });
     }
 
     @Test
-    @DisplayName("A typed value previews as typed, widens the range when it is outside, and is what the button uses")
+    @DisplayName("A typed value is held on Return as typed, one that does not read is marked, and closing uses what is held")
     void typedValue() throws Exception {
         onFx(() -> {
             Recording host = new Recording();
             TornadoChart chart = drawn(host);
             int scanCost = tree.children(vertexOf("rda-scan"), MoneyCost.class).get(0).vertexIndex();
             MeasureControl control = chart.openControl(scanCost);
+            control.shown.setText("not a number");
+            control.shown.fireEvent(new javafx.event.ActionEvent());
+            assertTrue(host.held.isEmpty(), "nothing is held from a value that does not read");
             control.shown.setText("1,234");
             control.shown.fireEvent(new javafx.event.ActionEvent());
             assertEquals(scanCost + "~1234", host.previews.get(host.previews.size() - 1), "not held to the slider's step");
-            assertEquals(1_234, control.slider.getValue(), 1e-9);
+            assertEquals(List.of(scanCost + "@1234"), host.held, "Return has every rendering follow what is typed, with no button to press");
+            assertTrue(chart.control().isPresent(), "and the control stays open for the next value");
             control.shown.setText("2000");
             control.shown.fireEvent(new javafx.event.ActionEvent());
-            assertEquals(2_000, control.slider.getMax(), 1e-9, "the range widens to take it in");
-            assertEquals("2000", control.upper.getText());
-            control.shown.setText("not a number");
-            control.apply.fire();
-            assertTrue(host.tried.isEmpty(), "nothing is tried from a value that does not read");
-            assertTrue(chart.control().isPresent(), "and the control stays open to correct it");
-            control.shown.setText("1500");
-            control.apply.fire();
-            assertEquals(List.of(scanCost + "=1500"), host.tried, "the button uses what is typed, without an Enter first");
+            assertEquals(2_000, control.slider.getMax(), 1e-9, "the range widens to take in a value outside it");
+            assertEquals(List.of(scanCost + "@1234", scanCost + "@2000"), host.held);
+            assertTrue(host.tried.isEmpty(), "nothing is written while the control is open");
+            chart.closeControl();
+            assertEquals(List.of(scanCost + "=2000"), host.tried, "closing uses the value the control was left at, once");
         });
+    }
+
+    @Test
+    @DisplayName("Letting go of the slider, or Return on it, holds the value it stands at; a press and release that moved nothing holds nothing")
+    void lettingGoHoldsTheValue() throws Exception {
+        onFx(() -> {
+            Recording host = new Recording();
+            TornadoChart chart = drawn(host);
+            int scanCost = tree.children(vertexOf("rda-scan"), MoneyCost.class).get(0).vertexIndex();
+            MeasureControl control = chart.openControl(scanCost);
+            control.slider.fireEvent(released(control.slider));
+            assertTrue(host.held.isEmpty(), "the slider stands where the tree does");
+            control.slider.setValue(1_201);
+            assertTrue(host.held.isEmpty(), "a value on the way is a preview");
+            assertEquals(List.of(scanCost + "~1200"), host.previews);
+            control.slider.fireEvent(released(control.slider));
+            assertEquals(List.of(scanCost + "@1200"), host.held, "the value the slider was left at, snapped to its step");
+            control.slider.fireEvent(released(control.slider));
+            assertEquals(List.of(scanCost + "@1200"), host.held, "a value held already is not held again");
+            assertTrue(chart.control().isPresent(), "the control stays open");
+            control.slider.setValue(900);
+            control.slider.fireEvent(new javafx.scene.input.KeyEvent(javafx.scene.input.KeyEvent.KEY_PRESSED, "", "",
+                    javafx.scene.input.KeyCode.ENTER, false, false, false, false));
+            assertEquals(List.of(scanCost + "@1200", scanCost + "@900"), host.held, "Return on the slider holds where the arrow keys left it");
+            assertTrue(host.tried.isEmpty());
+            chart.closeControl();
+            assertEquals(List.of(scanCost + "=900"), host.tried);
+            MeasureControl untouched = chart.openControl(scanCost);
+            chart.closeControl();
+            assertEquals(List.of(scanCost + "=900"), host.tried, "a control closed where the tree stands uses nothing");
+            assertTrue(untouched.slider.getValue() == 700);
+        });
+    }
+
+    @Test
+    @DisplayName("A slider that has rested for a second is held without being let go, and one that keeps moving is not")
+    void aSliderAtRestIsHeld() throws Exception {
+        Recording host = new Recording();
+        java.util.concurrent.atomic.AtomicReference<MeasureControl> opened = new java.util.concurrent.atomic.AtomicReference<>();
+        int[] vertex = new int[1];
+        onFx(() -> {
+            TornadoChart chart = drawn(host);
+            vertex[0] = tree.children(vertexOf("rda-scan"), MoneyCost.class).get(0).vertexIndex();
+            opened.set(chart.openControl(vertex[0]));
+            opened.get().slider.setValue(1_000);
+        });
+        Thread.sleep((long) (MeasureControl.REST.toMillis() / 2));
+        onFx(() -> {
+            assertTrue(host.held.isEmpty(), "half a second is not a rest");
+            opened.get().slider.setValue(1_100);                  // it moves again: the second starts over
+        });
+        Thread.sleep((long) (MeasureControl.REST.toMillis() * 0.7));
+        onFx(() -> assertTrue(host.held.isEmpty(), "the second is counted from the last move: " + host.held));
+        Thread.sleep((long) (MeasureControl.REST.toMillis() * 0.8));
+        onFx(() -> {
+            assertEquals(List.of(vertex[0] + "@1100"), host.held, "the value it rested at, once");
+            opened.get().closed();
+        });
+    }
+
+    private static javafx.scene.input.MouseEvent released(javafx.scene.Node on) {
+        return new javafx.scene.input.MouseEvent(javafx.scene.input.MouseEvent.MOUSE_RELEASED, 0, 0, 0, 0,
+                javafx.scene.input.MouseButton.PRIMARY, 1, false, false, false, false, false, false, false, true, false, true,
+                new javafx.scene.input.PickResult(on, 0, 0));
     }
 
     @Test
@@ -385,8 +456,8 @@ class TornadoChartTest {
                     });
             assertEquals("0.0375", control.shown.getText());
             control.slider.setPrefWidth(400);
-            control.apply.fire();
-            assertEquals(List.of(0.0375), committed, "used untouched, the value is what the tree already had");
+            control.closed();
+            assertTrue(committed.isEmpty(), "closed untouched, nothing is used: the tree keeps the value it had");
         });
     }
 

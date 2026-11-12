@@ -73,6 +73,8 @@ final class CalculatorTornado extends VBox {
     private final Map<Long, Row> rows = new LinkedHashMap<>();
     private final MeasurePeek peek = new MeasurePeek();
     private Row controlRow;
+    /** The control that is open, which is told when it closes so a value it was left at is used. */
+    private MeasureControl openControl;
 
     private final class Row {
         final CalculatorSensitivity.Row swept;
@@ -185,6 +187,7 @@ final class CalculatorTornado extends VBox {
         getChildren().add(legend);
         sceneProperty().addListener((obs, was, now) -> {
             if (now == null) {
+                closeControl();                                   // a value its control was left at is assumed, not lost with the chart
                 peek.close();
             }
         });
@@ -237,23 +240,26 @@ final class CalculatorTornado extends VBox {
 
                     @Override
                     public void commit(double value) {
-                        peek.close();
-                        controlRow = null;
-                        host.preview(quantity, OptionalDouble.empty());
                         host.assume(quantity, value);
                     }
                 });
+        openControl = control;
         peek.show(row, control, row.name, base * MeasureControl.WIDTH_EMS, this::closeControl);
     }
 
-    /** Closes the control, and takes the result back to where it stands. */
+    /** Closes the control: the preview goes, and a value the control was left at that moved is assumed. */
     private void closeControl() {
         if (controlRow == null) {
             return;
         }
+        MeasureControl closing = openControl;
         controlRow = null;
+        openControl = null;
         peek.close();
         host.preview(0, OptionalDouble.empty());
+        if (closing != null) {
+            closing.closed();
+        }
     }
 
     /** The rows drawn, for a test. */

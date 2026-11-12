@@ -17,11 +17,9 @@ package network.ike.komet.claude.ui;
 
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
-import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.Slider;
 import javafx.scene.control.TextField;
-import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Font;
@@ -34,8 +32,11 @@ import java.util.Optional;
 
 /**
  * The control that opens on a click on a value's name in the tornado: the value's lower and upper
- * bound, a slider between them, and the value the tree is drawn at. Moving the slider or typing a
- * value previews the tree at that value, live and uncommitted; the button makes it a what-if. The
+ * bound, a slider between them, and the value the tree is drawn at. While the slider moves the
+ * value is previewed; when it has rested for a second, or is let go, or Return is pressed in the
+ * value field or on the slider, the value is held: every rendering follows it and the control
+ * stays open for the next one. Closing the control uses the value it was left at. There is no
+ * button to press: a value a person has set is the value (KEC, 2026-11-11). The
  * bounds are the slider's range, the swing's by default. Typing other bounds moves the range, and
  * typing a value outside it widens the range to take it in, never the block.
  */
@@ -46,10 +47,19 @@ final class MeasureControl extends VBox {
 
     /** What the control asks of the chart it opens from. */
     interface Listener {
-        /** The tree is to be drawn at this value, uncommitted. */
+        /** What this value would give is to be shown, uncommitted, while the slider moves. */
         void preview(double value);
 
-        /** This value is to be tried as a what-if. */
+        /**
+         * The slider has rested at this value for {@link #REST}, or was let go at it, or it was
+         * typed and Return pressed: every rendering is to follow it, the control staying open. A
+         * chart whose renderings cannot follow shows it as a preview.
+         */
+        default void hold(double value) {
+            preview(value);
+        }
+
+        /** The control closed at a value that is not where the tree stood: the value is to be used. */
         void commit(double value);
     }
 
@@ -57,7 +67,6 @@ final class MeasureControl extends VBox {
     final TextField upper;
     final Slider slider;
     final TextField shown;
-    final Button apply;
     private final Listener listener;
     /** The slider's resolution: one tidy step per whole pixel of its track, never finer. */
     private double step = 1;
@@ -66,6 +75,13 @@ final class MeasureControl extends VBox {
     private double current;
     /** Whether the value has moved from where the tree stands: until it has, the step does not touch it. */
     private boolean moved;
+    /** The value the control opened at, where the tree stands: closing there uses nothing. */
+    private final double opened;
+    /** The value every rendering was last asked to follow. */
+    private double held;
+    /** How long the slider rests before every rendering follows it. */
+    static final javafx.util.Duration REST = javafx.util.Duration.seconds(1);
+    private final javafx.animation.PauseTransition rest = new javafx.animation.PauseTransition(REST);
     /** The value field's text as this control last wrote it: any other text is a person's. */
     private String written = "";
 
@@ -111,17 +127,21 @@ final class MeasureControl extends VBox {
         shown.setFont(Font.font(null, FontWeight.BOLD, base * 0.9));
         shown.setPrefColumnCount(8);
         shown.setMinWidth(javafx.scene.layout.Region.USE_PREF_SIZE);
-        apply = new Button("Use this value");
-        apply.setId("measure-control-apply");
-        apply.setFont(Font.font(base * 0.85));
-        apply.setTooltip(new Tooltip("Tries it as a what-if, which the block can then take back or write"));
-        HBox foot = new HBox(10, new Label("value"), shown, apply);
+        HBox foot = new HBox(10, new Label("value"), shown);
         foot.setAlignment(Pos.CENTER_LEFT);
         ((Label) foot.getChildren().get(0)).setFont(Font.font(base * 0.85));
+        Label uses = new Label("The trees follow when the slider rests for a second or is let go. The value is saved when this closes.");
+        uses.setId("measure-control-uses");
+        uses.setFont(Font.font(base * 0.75));
+        uses.setTextFill(javafx.scene.paint.Color.web("#666"));
+        uses.setWrapText(true);
 
-        getChildren().addAll(title, how, bounds, slider, foot);
+        getChildren().addAll(title, how, bounds, slider, foot, uses);
         restep();
         current = slider.getValue();
+        opened = current;
+        held = current;
+        rest.setOnFinished(e -> hold());
         write(TornadoChart.value(current));
         slider.widthProperty().addListener((obs, was, now) -> restep());
         slider.valueProperty().addListener((obs, was, now) -> {
@@ -140,15 +160,49 @@ final class MeasureControl extends VBox {
             moved = true;
             show(snapped);
             listener.preview(snapped);
+            rest.playFromStart();                                 // held once it has stood here a second
         });
         lower.setOnAction(e -> rerange());
         upper.setOnAction(e -> rerange());
-        shown.setOnAction(e -> typeValue());
-        apply.setOnAction(e -> {
+        shown.setOnAction(e -> {
             if (typeValue()) {
-                listener.commit(current);
+                hold();
             }
         });
+        // the end of a drag, or a click on the track: no second is waited for
+        slider.addEventHandler(javafx.scene.input.MouseEvent.MOUSE_RELEASED, e -> hold());
+        // the arrow keys move the slider a step at a time: each step is a preview, and Return does not wait for the rest
+        slider.addEventHandler(javafx.scene.input.KeyEvent.KEY_PRESSED, e -> {
+            if (e.getCode() == javafx.scene.input.KeyCode.ENTER) {
+                hold();
+                e.consume();
+            }
+        });
+    }
+
+    /**
+     * Has every rendering follow the value the control stands at, when it is not the one they
+     * follow already: what the slider's rest, letting go of it, and Return do. The control stays
+     * open.
+     */
+    void hold() {
+        rest.stop();
+        if (current != held) {
+            held = current;
+            listener.hold(current);
+        }
+    }
+
+    /**
+     * The control has closed: no rest is waited for, and a value that is not where the tree stood
+     * when the control opened is used. A value field that does not read as one value uses the
+     * slider's.
+     */
+    void closed() {
+        rest.stop();
+        if (moved && current != opened) {
+            listener.commit(current);
+        }
     }
 
     /**

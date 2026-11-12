@@ -30,8 +30,22 @@ import java.util.function.Consumer;
  * @param info   the model block's info string
  * @param body   the model block's text
  * @param writer takes the model's restated text, when the surface may write it
+ * @param holder takes a restated text the model is to read at before it is written, when the surface may write it
  */
-public record GraphletModel(String id, String info, String body, Optional<Consumer<String>> writer) {
+public record GraphletModel(String id, String info, String body, Optional<Consumer<String>> writer,
+                            Optional<Consumer<String>> holder) {
+
+    /**
+     * A model whose values are written at once or not at all: no rendering holds one first.
+     *
+     * @param id     the model's id
+     * @param info   the model block's info string
+     * @param body   the model block's text
+     * @param writer takes the model's restated text, when the surface may write it
+     */
+    public GraphletModel(String id, String info, String body, Optional<Consumer<String>> writer) {
+        this(id, info, body, writer, Optional.empty());
+    }
 
     /** Whether the surface this model is shown on may write it. */
     public boolean writable() {
@@ -52,10 +66,33 @@ public record GraphletModel(String id, String info, String body, Optional<Consum
             return false;
         }
         Optional<String> restated = DecisionTreeEdits.restate(body, line, bounds);
-        if (restated.isEmpty() || restated.get().equals(body)) {
-            return restated.isPresent();
+        if (restated.isEmpty()) {
+            return false;
         }
+        // handed on even when the text is the model's already: a value held is written by this
         writer.get().accept(restated.get());
+        return true;
+    }
+
+    /**
+     * Holds a value in the model: the model reads at it and every rendering that names the model
+     * redraws, but the document is not written yet. The slider of a rendering holds the value it
+     * rests at, and {@link #write} writes the value it is left at when its control closes, so a
+     * person sees the trees follow the slider and the document takes one edit.
+     *
+     * @param line   the one-based line of the model's text that states the parameter
+     * @param bounds the value, with equal bounds
+     * @return whether the model holds it: false when it cannot be written here or the line states no parameter
+     */
+    public boolean hold(int line, Bounds bounds) {
+        if (holder.isEmpty()) {
+            return false;
+        }
+        Optional<String> restated = DecisionTreeEdits.restate(body, line, bounds);
+        if (restated.isEmpty()) {
+            return false;
+        }
+        holder.get().accept(restated.get());
         return true;
     }
 }

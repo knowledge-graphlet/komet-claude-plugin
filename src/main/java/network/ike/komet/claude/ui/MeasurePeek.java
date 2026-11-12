@@ -68,7 +68,7 @@ final class MeasurePeek {
             return;
         }
         Object[] mine = new Object[1];
-        PeekPopover peek = PeekPopover.show(control, width, "Try a value", anchor, at.getX(), at.getY() + BELOW_ROW, null,
+        PeekPopover peek = PeekPopover.show(control, width, "Set a value", anchor, at.getX(), at.getY() + BELOW_ROW, null,
                 () -> {
                     // a popover fades out, so its end can arrive after the next one has opened
                     if (mine[0] == open) {

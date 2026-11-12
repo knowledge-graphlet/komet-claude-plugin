@@ -76,7 +76,7 @@ import java.util.function.Consumer;
  * {@link ProfileBlocks}, as an {@code anf} block publishes its statement, so the renderings that
  * name it draw it and redraw when it moves.
  *
- * <p>A value edited here, or committed from a rendering with "Use this value", restates the one
+ * <p>A value edited here, or set in a rendering by its slider or a click on its bar, restates the one
  * line of the block that holds it, as an ordinary measure with equal bounds, and hands the text to
  * the surface's {@link BlockRewriter}: a committed value is a new version of the model. A surface
  * without a rewriter shows the model read-only.
@@ -200,15 +200,27 @@ final class GraphletModelBlockRenderer implements network.ike.komet.document.Str
 
         /** The model takes a restated text: published again, drawn again, and written to the document. */
         private void take(String restated) {
-            if (restated.equals(body)) {
-                return;
+            take(restated, true);
+        }
+
+        /** The model reads at a restated text, published and drawn again, which the document does not hold yet. */
+        private void hold(String restated) {
+            take(restated, false);
+        }
+
+        /**
+         * @param save whether the document is written: a text held before is written by a later
+         *             take of the same text, which changes nothing that is drawn
+         */
+        private void take(String restated, boolean save) {
+            if (!restated.equals(body)) {
+                body = restated;
+                rebuild();
             }
-            String was = written;
-            body = restated;
-            rebuild();
-            if (rewriter != null) {
-                rewriter.rewrite(info, was, info, restated);
-                written = restated;
+            if (save && rewriter != null && !body.equals(written)) {
+                String was = written;
+                written = body;
+                rewriter.rewrite(info, was, info, body);
             }
         }
 
@@ -229,7 +241,8 @@ final class GraphletModelBlockRenderer implements network.ike.komet.document.Str
             List<ProfileFinding> findings = new ArrayList<>(parsed.findings().castToList());
             column.getChildren().clear();
             if (id != null) {
-                context.defineModel(new GraphletModel(id, info, body, rewriter == null ? Optional.empty() : Optional.of(this::take)), order);
+                context.defineModel(new GraphletModel(id, info, body, rewriter == null ? Optional.empty() : Optional.of(this::take),
+                        rewriter == null ? Optional.empty() : Optional.of(this::hold)), order);
             }
             if (tree == null) {
                 column.getChildren().add(findingsOnly(findings));

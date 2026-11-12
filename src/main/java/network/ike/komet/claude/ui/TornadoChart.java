@@ -75,8 +75,16 @@ final class TornadoChart extends Region {
         /** Lights or unlights a measure on the tree as the pointer rests on its bar. */
         void light(int measureVertex, boolean on);
 
-        /** Tries a value of a measure as a what-if. */
+        /** Uses a value of a measure: a click on its bar, or its control closing at a value that moved. */
         void tryValue(int measureVertex, double value);
+
+        /**
+         * Has every rendering follow a value of a measure while its control stays open: the
+         * slider rested at it or was let go. A host that cannot shows it as a preview.
+         */
+        default void hold(int measureVertex, double value) {
+            preview(measureVertex, OptionalDouble.of(value));
+        }
 
         /** Draws the tree at a value of a measure, uncommitted; empty draws it where it stands. */
         void preview(int measureVertex, OptionalDouble value);
@@ -195,6 +203,7 @@ final class TornadoChart extends Region {
         marker.setMouseTransparent(true);
         sceneProperty().addListener((obs, was, now) -> {
             if (now == null) {
+                closeControl();                                   // a value its control was left at is used, not lost with the chart
                 peek.close();
             }
         });
@@ -444,11 +453,13 @@ final class TornadoChart extends Region {
                     }
 
                     @Override
+                    public void hold(double value) {
+                        mark(row, value);
+                        host.hold(measureVertex, value);
+                    }
+
+                    @Override
                     public void commit(double value) {
-                        peek.close();
-                        control = null;
-                        controlRow = null;
-                        marker.setVisible(false);
                         host.tryValue(measureVertex, value);
                     }
                 });
@@ -458,16 +469,18 @@ final class TornadoChart extends Region {
         return control;
     }
 
-    /** Closes the control, and takes the tree back to where it stands. */
+    /** Closes the control: a value it was left at that is not where the tree stood is used, and the preview goes. */
     void closeControl() {
         if (control == null) {
             return;
         }
         Row row = controlRow;
+        MeasureControl closing = control;
         control = null;
         controlRow = null;
         marker.setVisible(false);
         peek.close();
+        closing.closed();
         host.preview(row.swing.measureVertex(), OptionalDouble.empty());
     }
 

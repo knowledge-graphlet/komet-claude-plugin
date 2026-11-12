@@ -44,8 +44,8 @@ import java.util.Optional;
  * <p>A {@code [decision-tree, model=bimo-site-model]} or {@code [tornado, model=bimo-site-model]}
  * block is a rendering of the model: it holds no structure and no number, only how the model is
  * viewed, the standpoint it is rolled back from and the cohort it is counted out for. Values are
- * in the model, views on the rendering, trials in the view: a slider's preview is seen in one
- * rendering alone, and "Use this value" writes the model, so every rendering that names it
+ * in the model, views on the rendering: while a slider is dragged its preview is seen in one
+ * rendering alone, and letting go of it writes the model, so every rendering that names it
  * redraws. A model block names itself with {@code id=}, or by its root's {@code @id} when it
  * names none.
  */

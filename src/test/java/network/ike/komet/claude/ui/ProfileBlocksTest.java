@@ -67,10 +67,33 @@ class ProfileBlocksTest {
         context.defineModel(model, 1);
         assertEquals(1, heard.get(), "the same text again is silent");
         assertEquals("site", context.model("site").orElseThrow().id());
-        // "Use this value" from a rendering: the model's block takes the restated line
+        // a value set in a rendering: the model's block takes the restated line
         context.model("site").orElseThrow().write(2, network.ike.komet.claude.decision.Bounds.point(0.15));
         assertEquals("decision: k:X[x] @id=x\n  parameter = [0.15,0.15] anf:est-x\n", written.toString());
         java.lang.ref.Reference.reachabilityFence(rendering);
+    }
+
+    @Test
+    void aValueHeldIsReadByTheRenderingsBeforeItIsWritten() {
+        StringBuilder held = new StringBuilder();
+        StringBuilder written = new StringBuilder();
+        String text = "decision: k:X[x] @id=x\n  parameter = [0.1,0.1] k:P[p] @id=p\n";
+        String restated = "decision: k:X[x] @id=x\n  parameter = [0.15,0.15] k:P[p] @id=p\n";
+        network.ike.komet.claude.decision.GraphletModel model = new network.ike.komet.claude.decision.GraphletModel(
+                "site", "graphlet-model id=site", text, java.util.Optional.of(written::append), java.util.Optional.of(held::append));
+        // a slider at rest: the block reads at the value, and the document is not written
+        assertTrue(model.hold(2, network.ike.komet.claude.decision.Bounds.point(0.15)));
+        assertEquals(restated, held.toString());
+        assertEquals("", written.toString(), "holding writes nothing");
+        // the block has published the model at the held text; the control closes at the same value
+        network.ike.komet.claude.decision.GraphletModel after = new network.ike.komet.claude.decision.GraphletModel(
+                "site", "graphlet-model id=site", restated, java.util.Optional.of(written::append), java.util.Optional.of(held::append));
+        assertTrue(after.write(2, network.ike.komet.claude.decision.Bounds.point(0.15)));
+        assertEquals(restated, written.toString(), "a value held is written, though the text is the model's already");
+        // a model no rendering may hold a value in keeps it a trial
+        assertFalse(new network.ike.komet.claude.decision.GraphletModel("site", "graphlet-model id=site", text,
+                java.util.Optional.of(written::append)).hold(2, network.ike.komet.claude.decision.Bounds.point(0.2)));
+        assertFalse(model.hold(1, network.ike.komet.claude.decision.Bounds.point(0.2)), "a line that states no parameter holds nothing");
     }
 
     @Test
@@ -89,7 +112,7 @@ class ProfileBlocksTest {
                 java.util.Optional.empty()), 7);
         assertTrue(context.model("site").orElseThrow().writable(), "the page's copy does not take the model");
         assertEquals(1, heard.get(), "and nothing moved, so no rendering is told");
-        // "Use this value" in a rendering still reaches the block
+        // a value set in a rendering still reaches the block
         assertTrue(context.model("site").orElseThrow().write(2, network.ike.komet.claude.decision.Bounds.point(0.15)));
         assertEquals("decision: k:X[x] @id=x\n  parameter = [0.15,0.15] k:P[p] @id=p", written.toString());
         // and the block, restating its model with the value, is not refused as an earlier block

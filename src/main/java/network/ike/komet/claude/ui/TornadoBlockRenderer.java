@@ -64,11 +64,16 @@ import java.util.concurrent.Executors;
  * {@link ProfileBlocks}, sweeps it off the application thread, and draws the bars. A parameter
  * that reads a statement swings over the statement's range; the tree runs at the model's value.
  *
- * <p>Values are in the model, views on the rendering, trials in the view: a slider's preview is
- * drawn here alone, as a line beneath the chart saying what the choice would cost at that value,
- * and goes when the control closes; "Use this value" writes the model, and every rendering that
- * names the model redraws. The health price is a view attribute of this block,
- * {@code health-price=}, as it is of the tree block.
+ * <p>Values are in the model, views on the rendering: while a slider moves its preview is drawn
+ * here alone, as a line beneath the chart saying what the choice would cost at that value. When
+ * the slider has rested a second, or is let go, the model holds the value and every rendering
+ * that names the model redraws, the control staying open and this chart standing as it was drawn
+ * so the control keeps its row; when the control closes the value it was left at is written to
+ * the document, as a click on a bar writes at once (KEC, 2026-11-11: no button between a value
+ * set and a value used, and the trees follow the slider). Where the model cannot be written, the
+ * value stays a trial, and says so.
+ * The health price is a view attribute of this block, {@code health-price=}, as it is of the
+ * tree block.
  */
 final class TornadoBlockRenderer implements network.ike.komet.document.StructuredBlockKind.FenceRenderer {
 
@@ -173,7 +178,16 @@ final class TornadoBlockRenderer implements network.ike.komet.document.Structure
             rebuild();
         }
 
+        /** Whether the model moved while this chart's control was open: the chart is drawn again when the control closes. */
+        private boolean stale;
+
         private void onContext() {
+            if (tornado != null && tornado.control().isPresent()) {
+                // the control is anchored on a row of this chart, and holds the value the model just took: a new chart
+                // would close it under the person's hand
+                stale = true;
+                return;
+            }
             String now = context.model(modelId).map(GraphletModel::body).orElse(null);
             // the model's text moved, a statement a parameter reads landed, or the model itself did
             if (!java.util.Objects.equals(now, drawnBody) || parsed == null || !parsed.missingStatements().isEmpty()
@@ -184,6 +198,7 @@ final class TornadoBlockRenderer implements network.ike.komet.document.Structure
 
         void rebuild() {
             generation++;
+            stale = false;
             lastSweep = null;
             mover = null;
             tornado = null;
@@ -313,13 +328,16 @@ final class TornadoBlockRenderer implements network.ike.komet.document.Structure
             // the tree is another rendering: a trial is seen here alone
         }
 
-        /** The trial drawn beneath the chart: the choice and its cost at the value, seen in this rendering alone. */
+        /** What a value would give, drawn beneath the chart while its slider is dragged: the choice and its cost at the value. */
         @Override
         public void preview(int measureVertex, OptionalDouble value) {
             if (value.isEmpty() || mover == null || lastSweep == null) {
                 trial.setText("");
                 trial.setVisible(false);
                 trial.setManaged(false);
+                if (value.isEmpty() && stale && (tornado == null || tornado.control().isEmpty())) {
+                    onContext();                                  // the control has closed: the chart catches up with the model
+                }
                 return;
             }
             Optional<DecisionTreeSensitivity.FoldedValue> folded = lastSweep.folded(measureVertex);
@@ -329,16 +347,35 @@ final class TornadoBlockRenderer implements network.ike.komet.document.Structure
             String words = at.map(rollback -> {
                 OptionalInt chosen = rollback.chosen(rollback.tree().rootIndex());
                 String choice = chosen.isPresent() ? "“" + alternativeName(chosen.getAsInt()) + "”" : "no sure choice";
-                return "Trial, seen here only: at " + quantity(measureVertex, value.getAsDouble()) + " the expected cost is "
+                return "At " + quantity(measureVertex, value.getAsDouble()) + " the expected cost is "
                         + rollback.rootValue().map(v -> symbol() + DecisionTreeBlockRenderer.money(v)).orElse("not determinable")
                         + ", choosing " + choice + ".";
-            }).orElse("Trial, seen here only: the model is not determinable at " + quantity(measureVertex, value.getAsDouble()) + ".");
+            }).orElse("At " + quantity(measureVertex, value.getAsDouble()) + " the model is not determinable.");
             trial.setText(words);
             trial.setVisible(true);
             trial.setManaged(true);
         }
 
-        /** "Use this value": the model takes it, and every rendering that names the model redraws. */
+        /**
+         * The slider rested at a value, or was let go: the model holds it, so the tree and every
+         * other rendering redraw at once, and the document is written when the control closes.
+         * The health price is this block's own view, and a value a linked tree holds is that
+         * tree's: both stay a preview until the control closes.
+         */
+        @Override
+        public void hold(int measureVertex, double value) {
+            preview(measureVertex, OptionalDouble.of(value));
+            if (measureVertex == DecisionTreeSensitivity.HEALTH_PRICE || lastSweep == null || lastSweep.folded(measureVertex).isPresent()) {
+                return;
+            }
+            OptionalInt line = parsed == null ? OptionalInt.empty() : parsed.lineOf(measureVertex);
+            Optional<GraphletModel> model = context.model(modelId);
+            if (line.isPresent() && model.isPresent()) {
+                model.get().hold(line.getAsInt(), Bounds.point(value));
+            }
+        }
+
+        /** A value set by the slider, typed, or clicked on a bar: the model takes it, and every rendering that names the model redraws. */
         @Override
         public void tryValue(int measureVertex, double value) {
             if (measureVertex == DecisionTreeSensitivity.HEALTH_PRICE) {

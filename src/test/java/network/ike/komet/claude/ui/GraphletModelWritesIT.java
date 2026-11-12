@@ -274,7 +274,7 @@ class GraphletModelWritesIT {
         assertEquals(rootValue(parsed), rootValue(stored), 0.5);
         assertEquals(250_625, rootValue(stored), 0.5);
 
-        // "Use this value" at 30%: the restated text, written after a commit, is a new version of the same model
+        // a value set in the tornado, 30%: the restated text, written after a commit, is a new version of the same model
         Transaction.forVersion(version).orElseThrow().commit();
         String restated = DecisionTreeEdits.restate(modelBody, 2, Bounds.point(0.3)).orElseThrow();
         assertTrue(restated.contains("parameter = [0.3,0.3] anf:est-material-problem"), restated);
