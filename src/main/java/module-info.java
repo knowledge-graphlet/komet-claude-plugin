@@ -141,6 +141,9 @@ module komet.claude {
             with network.ike.komet.claude.ClaudeCard.Factory,
                  network.ike.komet.claude.instructions.InstructionEditorCard.Factory,
                  network.ike.komet.claude.composition.KnowledgeBaseCompositionCard.Factory;
+    // The same assistant in the sidebar of every top-level window (journal, landing page, KL editor).
+    provides dev.ikm.komet.layout.sidebar.KlAssistantPaneProvider
+            with network.ike.komet.claude.AssistantPane.Provider;
     // KlArea.Factory makes the embeddable areas available in the knowledge-layout editor palette.
     provides dev.ikm.komet.layout.KlArea.Factory
             with network.ike.komet.claude.ClaudeCheckArea.Factory,

@@ -409,6 +409,245 @@ public final class ClaudeCard extends AbstractHostCard {
         init();
     }
 
+    /*******************************************************************************
+     *  Sidebar pane presentation                                                  *
+     ******************************************************************************/
+
+    /** The tile label of a card shown in a window's assistant sidebar. */
+    private static final String PANE_TILE_LABEL = "Assistant Sidebar";
+
+    /**
+     * Whether this card is the content of a window's assistant sidebar ({@link AssistantPane}) rather than
+     * a card on a journal's workspace: it then has no tab, toolbar, border or conversations rail of its own;
+     * the pane's header carries its controls, and the rail is the pane's history view.
+     */
+    private boolean paneMode;
+    /** Runs once the body is built, when the pane can take the card's controls and history. */
+    private Runnable paneReady = () -> { };
+    /** Runs when the conversation on screen, or its title, changes. */
+    private Runnable paneChanged = () -> { };
+    /** Names the window the pane is in, for the request's system prompt. */
+    private java.util.function.Supplier<String> paneHostName = () -> "";
+    /** The card's coordinate popup, which the pane's More menu opens; made with the card toolbar. */
+    private FilterOptionsPopup coordinatePopup;
+    /** A conversation of another tile to show once the body is built: the sidebar's "Open in a card". */
+    private KometPreferences pendingOpenTile;
+    private String pendingOpenConversation;
+
+    /**
+     * Makes the assistant for a window's sidebar: the same card, conversations and settings as on a
+     * journal's workspace, restored from the node when the sidebar has been opened in this window before.
+     *
+     * @param paneNode     the sidebar's preferences node; the card's own node is its child
+     * @param journalTopic the journal the assistant's proposals open windows in, or {@code null}
+     * @param hostName     names the window the pane is in
+     * @return the card, to be bound once its parent context is seeded
+     */
+    static ClaudeCard forPane(KometPreferences paneNode, UUID journalTopic, java.util.function.Supplier<String> hostName) {
+        boolean saved;
+        try {
+            saved = paneNode.nodeExists(ClaudeCard.class.getSimpleName());
+        } catch (BackingStoreException e) {
+            throw new IllegalStateException("Could not read the assistant sidebar's preferences", e);
+        }
+        Factory factory = new Factory();
+        ClaudeCard card = (ClaudeCard) (saved ? factory.restoreCard(paneNode) : factory.createCard(paneNode, journalTopic));
+        card.setJournalTopic(journalTopic);
+        card.paneMode = true;
+        card.paneHostName = hostName;
+        if (card.preferences().get(TILE_LABEL_KEY, "").isBlank()) {
+            card.preferences().put(TILE_LABEL_KEY, PANE_TILE_LABEL);
+        }
+        // The sidebar hides the pane and shows it again; the card keeps its conversations either way.
+        card.keepPreferencesWhenDetached();
+        card.fxObject().getStyleClass().removeAll("claude-card", "dynamic-card-root");
+        card.body.getStyleClass().remove("dynamic-card-body");
+        return card;
+    }
+
+    /** @param ready runs once the body is built */
+    void onPaneReady(Runnable ready) {
+        this.paneReady = ready;
+    }
+
+    /** @param changed runs when the conversation on screen, or its title, changes */
+    void onPaneChanged(Runnable changed) {
+        this.paneChanged = changed;
+    }
+
+    /** @return whether the pane is in a journal, where documents pair and a conversation can open in a card */
+    boolean isPaneInJournal() {
+        return getJournalTopic() != null;
+    }
+
+    /** Opens the coordinate popup beside the pane, as the card's crosshair does. */
+    void paneShowCoordinates() {
+        ViewOptionsPopupHelper.flankWindowShowStrategy(fxObject()).accept(coordinatePopup);
+    }
+
+    /** Asks which stored document to pair with the conversation on screen. */
+    void panePairDocument() {
+        chooseDocumentBeside();
+    }
+
+    /** Ends the pairing of the conversation on screen with its document. */
+    void paneStopPairing() {
+        stopPairing();
+    }
+
+    /** @return whether the conversation on screen is paired with a document */
+    boolean paneHasPairedDocument() {
+        return active != null && active.pairedDocument != null;
+    }
+
+    /** Opens or closes the find bar over the transcript. */
+    void paneFind() {
+        toggleFind();
+    }
+
+    /** @param collapsed whether every exchange of the transcript is folded to its title */
+    void paneSetAllExchangesCollapsed(boolean collapsed) {
+        surface.setAllExchangesCollapsed(collapsed);
+    }
+
+    /** Saves the transcript of the conversation on screen to a file the person chooses. */
+    void paneSaveTranscript() {
+        saveTranscript();
+    }
+
+    /** @return the assistant's help topic, when a help book answers for it */
+    Optional<KlHelpTopic> getPaneHelpTopic() {
+        return helpTopic();
+    }
+
+    /**
+     * Opens a new assistant card on the journal's workspace, showing the conversation on screen. The card
+     * browses this pane's conversations; the conversation moves to the card when the person next writes in it.
+     */
+    void paneOpenInCard() {
+        String conversationId = active == null ? null : active.id;
+        KometPreferences paneTile = preferences();
+        EvtBusFactory.getDefaultEvtBus().publish(getJournalTopic(), new MakeCardWindowEvent(this,
+                MakeCardWindowEvent.CREATE_NEW, Factory.class.getName(), null, -1, -1,
+                card -> Platform.runLater(() -> ((ClaudeCard) card).openConversationOf(paneTile, conversationId))));
+    }
+
+    /** Shows another tile's conversation, now or once the body is built. */
+    private void openConversationOf(KometPreferences tile, String conversationId) {
+        if (split == null) {
+            pendingOpenTile = tile;
+            pendingOpenConversation = conversationId;
+            return;
+        }
+        refreshTileSelector();
+        for (TileRef ref : tileSelector.getItems()) {
+            if (!ref.own() && ref.node().absolutePath().equals(tile.absolutePath())) {
+                tileSelector.getSelectionModel().select(ref);   // the selector's listener loads the tile
+                conversations.stream().filter(conv -> conv.id.equals(conversationId)).findFirst().ifPresent(this::activate);
+                return;
+            }
+        }
+    }
+
+    /**
+     * The rename and move-to-Trash controls of one row of the pane's history view, shown while the pointer is
+     * over the row. Each acts on its row's conversation, which it makes the one on screen first.
+     */
+    private javafx.scene.Node paneRowActions(ListCell<Conversation> cell, Conversation conversation) {
+        Button rename = new Button();
+        rename.setGraphic(PaneIcons.line(PaneIcons.PENCIL, 13));
+        rename.setTooltip(new Tooltip("Rename"));
+        rename.setOnAction(e -> {
+            activate(conversation);
+            renameActive();
+        });
+        Button trash = new Button();
+        trash.setGraphic(PaneIcons.line(PaneIcons.TRASH, 13));
+        trash.setTooltip(new Tooltip("Move to Trash"));
+        trash.setOnAction(e -> {
+            activate(conversation);
+            moveActiveToTrash();
+        });
+        for (Button button : List.of(rename, trash)) {
+            button.getStyleClass().add("assistant-pane-row-action");
+            button.setFocusTraversable(false);
+        }
+        HBox actions = new HBox(2, rename, trash);
+        actions.setMinWidth(Region.USE_PREF_SIZE);
+        actions.visibleProperty().bind(cell.hoverProperty());
+        return actions;
+    }
+
+    /** @return the conversations list: the pane's history view */
+    ListView<?> getPaneConversationList() {
+        return conversationList;
+    }
+
+    /** @return the conversations, so the pane's history view can count them */
+    javafx.collections.ObservableList<?> getPaneConversations() {
+        return conversations;
+    }
+
+    /** @return the control that opens the Trash, labelled with how many conversations it holds */
+    Button getPaneTrashButton() {
+        return trashButton;
+    }
+
+    /** @return the title of the conversation on screen */
+    String getPaneConversationTitle() {
+        return active == null ? "" : railLabel(active);
+    }
+
+    /** Starts a new conversation, as the rail's New does. */
+    void paneNewConversation() {
+        newConversation();
+    }
+
+    /** Renames the conversation on screen, as a double-click in the rail does. */
+    void paneRenameConversation() {
+        renameActive();
+    }
+
+    /**
+     * Shows only the conversations whose title contains the text; all of them for blank text.
+     *
+     * @param text what the person typed in the history view's search field
+     */
+    void paneFilterConversations(String text) {
+        String query = text == null ? "" : text.strip().toLowerCase();
+        conversationList.setItems(query.isEmpty() ? conversations
+                : conversations.filtered(conv -> String.valueOf(railLabel(conv)).toLowerCase().contains(query)));
+    }
+
+    /** The pane is going with its window: saved, then unbound once a reply still on its way has landed. */
+    void paneShutdown() {
+        save();
+        knowledgeLayoutUnbindOnClose();
+    }
+
+    /** Docked in a sidebar the card is not a workspace window: no move, no resize edges, no outline. */
+    @Override
+    protected boolean isWorkspaceWindow() {
+        return !paneMode;
+    }
+
+    /** In a sidebar the pane's header replaces the card's tab and toolbar. */
+    @Override
+    protected void contributeToHeader(VBox headerBox, Region toolBar) {
+        if (paneMode) {
+            headerBox.getChildren().clear();
+            fxObject().setTop(null);
+        }
+    }
+
+    /** The system prompt of a sidebar request names the window the person opened the assistant from. */
+    private String withPaneContext(String system) {
+        String host = paneMode ? paneHostName.get() : "";
+        return host == null || host.isBlank() ? system
+                : system + "\n\n## Where you are\n\nThe person opened you from the assistant sidebar of the Komet window named \""
+                        + host + "\".";
+    }
+
     /** Live assistant cards, most recently realized last, so UI automation can find the one in use. */
     private static final java.util.List<java.lang.ref.WeakReference<ClaudeCard>> OPEN = new java.util.concurrent.CopyOnWriteArrayList<>();
 
@@ -587,6 +826,9 @@ public final class ClaudeCard extends AbstractHostCard {
      * opens at the edge the card is about to have. A card already narrower keeps its width.
      */
     private void narrowForPair() {
+        if (paneMode) {
+            return;   // the sidebar sets the pane's width, and the pane has no rail to hide
+        }
         if (railVisible) {
             preferences().put(PREF_RAIL_VISIBLE, Boolean.FALSE.toString());
             showRail(false);
@@ -609,17 +851,20 @@ public final class ClaudeCard extends AbstractHostCard {
         beside.setOnAction(e -> chooseDocumentBeside());
         javafx.scene.control.MenuItem stop = new javafx.scene.control.MenuItem("Stop pairing");
         stop.setId("assistantStopPairing");
-        stop.setOnAction(e -> {
-            if (active != null) {
-                active.pairedDocument = null;
-                active.documentSeen = null;
-                network.ike.komet.document.DocumentPairing.pair(active.id, null);
-                saveConversation(active);
-            }
-        });
+        stop.setOnAction(e -> stopPairing());
         menu.getItems().addAll(beside, stop);
         menu.setOnShowing(e -> stop.setDisable(active == null || active.pairedDocument == null));
         return menu;
+    }
+
+    /** Ends the pairing of the conversation on screen with its document. */
+    private void stopPairing() {
+        if (active != null) {
+            active.pairedDocument = null;
+            active.documentSeen = null;
+            network.ike.komet.document.DocumentPairing.pair(active.id, null);
+            saveConversation(active);
+        }
     }
 
     /** Asks which stored document to pair with the conversation on screen. */
@@ -759,7 +1004,7 @@ public final class ClaudeCard extends AbstractHostCard {
         coordinateButton.getStyleClass().add("coordinate");
         coordinateButton.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
         coordinateButton.setTooltip(new Tooltip("Coordinates"));
-        ViewOptionsPopupHelper.setupViewCoordinateOptionsPopup(getCardViewProperties(),
+        coordinatePopup = ViewOptionsPopupHelper.setupViewCoordinateOptionsPopup(getCardViewProperties(),
                 FilterOptionsPopup.FILTER_TYPE.CHAPTER_WINDOW, fxObject(), coordinateButton, () -> { });
         ObservableView cardView = getCardViewProperties().nodeView();
         Runnable syncOverrideIndicator = () -> {
@@ -800,58 +1045,102 @@ public final class ClaudeCard extends AbstractHostCard {
         settings.setId("assistantSettings");
         settings.getStyleClass().addAll("claude-card-toolbar-button", "claude-card-settings-button");
 
-        SettingsPanePopup pane = new SettingsPanePopup("Assistant Settings");
-        pane.addSection("Text size",
+        SettingsPanePopup popup = new SettingsPanePopup("Assistant Settings");
+        addSettingsSections(popup::addSection, new SettingsSurface() {
+            @Override
+            public void refreshSummaries() {
+                popup.refreshSummaries();
+            }
+
+            @Override
+            public void hide() {
+                popup.hide();
+            }
+        });
+        popup.attachTo(settings, (Pane) fxObject());
+        return settings;
+    }
+
+    /**
+     * What a settings section asks of whatever shows it: the settings popup on a card, the pane's own
+     * settings view in a sidebar.
+     */
+    interface SettingsSurface {
+
+        /** Re-reads every section's summary line, after a setting changed. */
+        void refreshSummaries();
+
+        /** Leaves the settings, as when a section opens an editor elsewhere. */
+        void hide();
+    }
+
+    /** Takes the settings sections, one call each. */
+    interface SettingsSections {
+
+        /**
+         * @param title   the section's title
+         * @param summary supplies the section's current-value line
+         * @param content builds the section's own content, fresh each time it is opened
+         */
+        void add(String title, java.util.function.Supplier<String> summary, java.util.function.Supplier<javafx.scene.Node> content);
+    }
+
+    /**
+     * Registers the assistant's settings sections with whatever shows them.
+     *
+     * @param sections takes each section
+     * @param settingsSurface what the sections' content asks of the surface showing them
+     */
+    void addSettingsSections(SettingsSections sections, SettingsSurface settingsSurface) {
+        sections.add("Text size",
                 () -> Math.round(baseFontSize) + " px",
-                () -> textSizeSettingsContent(pane));
-        pane.addSection("Chip labels",
+                () -> textSizeSettingsContent(settingsSurface));
+        sections.add("Chip labels",
                 () -> (chipSmallCaps ? "Small caps" : "Plain") + (chipBold ? " · bold" : ""),
-                () -> chipLabelSettingsContent(pane));
-        pane.addSection("System prompt",
+                () -> chipLabelSettingsContent(settingsSurface));
+        sections.add("System prompt",
                 () -> selectedTitledSetName().orElseGet(
                         () -> preferences().get(PREF_SYSTEM_INSTRUCTIONS_FILE, "").isBlank()
                                 ? "Default" : "Edited"),
-                () -> promptSettingsContent(pane));
-        pane.addSection("Tool contract",
+                () -> promptSettingsContent(settingsSurface));
+        sections.add("Tool contract",
                 () -> setName(preferences().get(PREF_TOOL_CONTRACT_SET, "")).orElse("Bundled"),
-                () -> toolContractSettingsContent(pane));
-        pane.addSection("Skills",
+                () -> toolContractSettingsContent(settingsSurface));
+        sections.add("Skills",
                 () -> {
                     int all = allSkills().size();
                     int offered = skills().size();
                     return offered == all ? "All " + all : offered + " of " + all;
                 },
-                () -> skillsSettingsContent(pane));
-        pane.addSection("Model",
+                () -> skillsSettingsContent(settingsSurface));
+        sections.add("Model",
                 this::currentModelLabel,
-                () -> modelSettingsContent(pane));
-        pane.addSection("Effort",
+                () -> modelSettingsContent(settingsSurface));
+        sections.add("Effort",
                 () -> effortLabel(effectiveEffort(currentModel())),
-                () -> effortSettingsContent(pane));
-        pane.addSection("API key",
+                () -> effortSettingsContent(settingsSurface));
+        sections.add("API key",
                 () -> hasApiKey() ? "Set (per-user)" : "Not set",
-                () -> apiKeySettingsContent(pane));
-        pane.addSection("Trash",
+                () -> apiKeySettingsContent(settingsSurface));
+        sections.add("Trash",
                 () -> KlTrash.emptyOnQuit() ? "Emptied when Komet quits" : "Kept until you empty it",
-                () -> trashSettingsContent(pane));
-        pane.attachTo(settings, (Pane) fxObject());
-        return settings;
+                () -> trashSettingsContent(settingsSurface));
     }
 
     /** The text-size section: live ± adjustment, the card summary tracking each press. */
-    private javafx.scene.Node textSizeSettingsContent(SettingsPanePopup pane) {
+    private javafx.scene.Node textSizeSettingsContent(SettingsSurface settingsSurface) {
         Label current = new Label(Math.round(baseFontSize) + " px");
         Button fontDown = new Button("A−");
         fontDown.setOnAction(e -> {
             adjustFont(-1);
             current.setText(Math.round(baseFontSize) + " px");
-            pane.refreshSummaries();
+            settingsSurface.refreshSummaries();
         });
         Button fontUp = new Button("A+");
         fontUp.setOnAction(e -> {
             adjustFont(1);
             current.setText(Math.round(baseFontSize) + " px");
-            pane.refreshSummaries();
+            settingsSurface.refreshSummaries();
         });
         HBox row = new HBox(8, fontDown, fontUp, current);
         row.setAlignment(Pos.CENTER_LEFT);
@@ -864,14 +1153,14 @@ public final class ClaudeCard extends AbstractHostCard {
      * plain text, and the label weight. Each change persists and re-renders the transcript, the
      * same path the text-size ± takes; compose chips follow on their next cell rebuild.
      */
-    private javafx.scene.Node chipLabelSettingsContent(SettingsPanePopup pane) {
+    private javafx.scene.Node chipLabelSettingsContent(SettingsSurface settingsSurface) {
         CheckBox smallCaps = new CheckBox("Small caps");
         smallCaps.setSelected(chipSmallCaps);
         smallCaps.setOnAction(e -> {
             chipSmallCaps = smallCaps.isSelected();
             userPreferences().put(PREF_CHIP_SMALL_CAPS, Boolean.toString(chipSmallCaps));
             refreshTranscript();
-            pane.refreshSummaries();
+            settingsSurface.refreshSummaries();
         });
         CheckBox bold = new CheckBox("Bold");
         bold.setSelected(chipBold);
@@ -879,7 +1168,7 @@ public final class ClaudeCard extends AbstractHostCard {
             chipBold = bold.isSelected();
             userPreferences().put(PREF_CHIP_BOLD, Boolean.toString(chipBold));
             refreshTranscript();
-            pane.refreshSummaries();
+            settingsSurface.refreshSummaries();
         });
         VBox column = new VBox(8, smallCaps, bold);
         // The drill stretches section content to the pane body; top-left keeps the controls
@@ -900,7 +1189,7 @@ public final class ClaudeCard extends AbstractHostCard {
      * The card-local layer edits in the escape window; a titled set edits in its own editor
      * tile (authoring never happens in a settings pane).
      */
-    private javafx.scene.Node promptSettingsContent(SettingsPanePopup pane) {
+    private javafx.scene.Node promptSettingsContent(SettingsSurface settingsSurface) {
         record Choice(String id, String label) {
             @Override
             public String toString() {
@@ -949,7 +1238,7 @@ public final class ClaudeCard extends AbstractHostCard {
         Button openEditor = new Button("Open in Instruction Editor…");
         openEditor.setOnAction(e -> {
             // Navigating away: the settings pane yields to the editor it just summoned.
-            pane.hide();
+            settingsSurface.hide();
             openInInstructionEditor();
         });
         // Revert to default (KEC 2026-08-18): back to the bundled system prompt — the titled
@@ -974,7 +1263,7 @@ public final class ClaudeCard extends AbstractHostCard {
             refreshSystemPrompt();
             preview.setText(instructionsLayer());
             selector.getSelectionModel().select(choices.get(0));
-            pane.refreshSummaries();
+            settingsSurface.refreshSummaries();
         });
         Label titledHint = new Label(
                 "Author and edit instruction sets in the Instruction Editor; "
@@ -992,7 +1281,7 @@ public final class ClaudeCard extends AbstractHostCard {
             }
             refreshSystemPrompt();
             preview.setText(instructionsLayer());
-            pane.refreshSummaries();
+            settingsSurface.refreshSummaries();
         });
 
         HBox promptActions = new HBox(8, openEditor, revertDefault);
@@ -1036,7 +1325,7 @@ public final class ClaudeCard extends AbstractHostCard {
      * shared per-user preference every assistant card, the Instruction Editor's drafting and the
      * commit narrator read.
      */
-    private javafx.scene.Node modelSettingsContent(SettingsPanePopup pane) {
+    private javafx.scene.Node modelSettingsContent(SettingsSurface settingsSurface) {
         javafx.scene.control.ComboBox<String> models = new javafx.scene.control.ComboBox<>();
         models.setId("assistantModel");
         models.setMaxWidth(Double.MAX_VALUE);
@@ -1075,7 +1364,7 @@ public final class ClaudeCard extends AbstractHostCard {
         models.valueProperty().addListener((obs, was, is) -> {
             if (!filling[0] && is != null && !is.equals(currentModel())) {
                 chooseModel(is);
-                pane.refreshSummaries();
+                settingsSurface.refreshSummaries();
             }
         });
         if (hasApiKey()) {
@@ -1089,7 +1378,7 @@ public final class ClaudeCard extends AbstractHostCard {
                         }
                         offer.run();
                         status.setText(listed.size() + " models available to your key, newest first.");
-                        pane.refreshSummaries();
+                        settingsSurface.refreshSummaries();
                     }));
         } else {
             status.setText("Set the API key to see every model your key can use.");
@@ -1101,7 +1390,7 @@ public final class ClaudeCard extends AbstractHostCard {
      * The effort section: how thoroughly the model works, among the levels the configured model
      * takes, saved to the shared per-user preference the menu beside Send also sets.
      */
-    private javafx.scene.Node effortSettingsContent(SettingsPanePopup pane) {
+    private javafx.scene.Node effortSettingsContent(SettingsSurface settingsSurface) {
         javafx.scene.control.ComboBox<String> levels = new javafx.scene.control.ComboBox<>();
         levels.setId("assistantEffort");
         levels.setMaxWidth(Double.MAX_VALUE);
@@ -1120,7 +1409,7 @@ public final class ClaudeCard extends AbstractHostCard {
         levels.valueProperty().addListener((obs, was, is) -> {
             if (is != null && !is.equals(configuredEffort())) {
                 chooseEffort(is);
-                pane.refreshSummaries();
+                settingsSurface.refreshSummaries();
             }
         });
         Label note = new Label("Higher effort thinks longer and answers harder questions better; lower effort answers "
@@ -1303,12 +1592,12 @@ public final class ClaudeCard extends AbstractHostCard {
     }
 
     /** The Trash section: whether quitting empties it, and the way into it. */
-    private javafx.scene.Node trashSettingsContent(SettingsPanePopup pane) {
+    private javafx.scene.Node trashSettingsContent(SettingsSurface settingsSurface) {
         CheckBox onQuit = new CheckBox("Empty the Trash when Komet quits");
         onQuit.setSelected(KlTrash.emptyOnQuit());
         onQuit.selectedProperty().addListener((obs, was, is) -> {
             KlTrash.setEmptyOnQuit(is);
-            pane.refreshSummaries();
+            settingsSurface.refreshSummaries();
         });
         Label note = new Label("Move to Trash takes a conversation out of the list. It is deleted for good, with its journal "
                 + "in the knowledge base, when the Trash is emptied; until then it can be put back.");
@@ -1319,7 +1608,7 @@ public final class ClaudeCard extends AbstractHostCard {
     }
 
     /** The API-key section: the per-user key, masked, saved to shared per-user preferences. */
-    private javafx.scene.Node apiKeySettingsContent(SettingsPanePopup pane) {
+    private javafx.scene.Node apiKeySettingsContent(SettingsSurface settingsSurface) {
         PasswordField field = new PasswordField();
         field.setPromptText("sk-ant-…");
         field.setText(apiKey());
@@ -1333,7 +1622,7 @@ public final class ClaudeCard extends AbstractHostCard {
             } catch (BackingStoreException ex) {
                 LOG.warn("Could not sync the API key preference", ex);
             }
-            pane.refreshSummaries();
+            settingsSurface.refreshSummaries();
         });
         VBox content = new VBox(6, field, note, save);
         return content;
@@ -1345,6 +1634,7 @@ public final class ClaudeCard extends AbstractHostCard {
         // each refresh so concept chips re-resolve against the current coordinate.
         if (split == null) {
             buildBody();
+            paneReady.run();
         }
         refreshTranscript();
     }
@@ -1480,6 +1770,7 @@ public final class ClaudeCard extends AbstractHostCard {
         composeHint.setMouseTransparent(true);
         composeHint.setStyle("-fx-text-fill: #9a9a9a;");
         composeHint.setPadding(new Insets(4, 8, 0, 8));
+        composeHint.setWrapText(paneMode);   // a sidebar is too narrow for the hint on one line
         composeModel.addListener(change -> composeHint.setVisible(composeModel.isEmpty()));
         StackPane composeStack = new StackPane(input, composeHint);
         StackPane.setAlignment(composeHint, Pos.TOP_LEFT);
@@ -1507,9 +1798,29 @@ public final class ClaudeCard extends AbstractHostCard {
         for (Region button : List.of(findButton, modelButton, sendButton)) {
             button.setMinWidth(Region.USE_PREF_SIZE);
         }
-        HBox inputBar = new HBox(6, findButton, composeStack, modelButton, sendButton);
-        inputBar.setAlignment(Pos.BOTTOM_LEFT);
-        inputBar.setPadding(new Insets(6));
+        Region inputBar;
+        if (paneMode) {
+            // A sidebar is narrow: the compose surface takes the full width, with its controls in a row under it.
+            Region composeSpacer = new Region();
+            HBox.setHgrow(composeSpacer, Priority.ALWAYS);
+            // No Find button here: Find is in the pane's More menu (and on Ctrl+F).
+            HBox composeControls = new HBox(6, composeSpacer, modelButton, sendButton);
+            composeControls.setAlignment(Pos.CENTER_LEFT);
+            composeStack.getStyleClass().add("assistant-pane-compose");
+            sendButton.getStyleClass().addAll("assistant-pane-send", "assistant-pane-compose-control");
+            modelButton.getStyleClass().addAll("assistant-pane-flat", "assistant-pane-compose-control");
+            composeHint.setText(getJournalTopic() != null
+                    ? "Ask about this journal… (drop a concept to add it)"
+                    : "Ask about your knowledge base… (drop a concept to add it)");
+            VBox composer = new VBox(8, composeStack, composeControls);
+            composer.getStyleClass().add("assistant-pane-composer");
+            inputBar = composer;
+        } else {
+            HBox bar = new HBox(6, findButton, composeStack, modelButton, sendButton);
+            bar.setAlignment(Pos.BOTTOM_LEFT);
+            bar.setPadding(new Insets(6));
+            inputBar = bar;
+        }
 
         // Status strip: transient transport state (working / tool / retrying / elapsed / done / failed)
         // lives here, NOT in the conversation transcript. A Retry re-sends the held request in place.
@@ -1612,7 +1923,8 @@ public final class ClaudeCard extends AbstractHostCard {
                 // selection highlight; the unfocused (grey) selection keeps dark text
                 // (KEC 2026-08-17: the out-of-focus selection was unreadable).
                 Runnable syncFills = () -> {
-                    boolean lit = isSelected() && lv.isFocused();
+                    // The pane's history view tints the selected row; its text stays dark.
+                    boolean lit = !paneMode && isSelected() && lv.isFocused();
                     String fill = lit ? "-fx-text-fill: white;" : "-fx-text-fill: #1a1a1a;";
                     ordinalLabel.setStyle(fill);
                     titleLabel.setStyle(fill);
@@ -1646,6 +1958,9 @@ public final class ClaudeCard extends AbstractHostCard {
                 if (c.busy) {
                     row.getChildren().add(spinner);
                 }
+                if (paneMode) {
+                    row.getChildren().add(paneRowActions(this, c));
+                }
                 setText(null);
                 setGraphic(row);
             }
@@ -1677,7 +1992,8 @@ public final class ClaudeCard extends AbstractHostCard {
         VBox.setVgrow(conversationList, Priority.ALWAYS);
         conversationRail.setMinWidth(140);
 
-        railVisible = readRailVisiblePref();
+        // In a sidebar the rail is the pane's history view, never a column beside the transcript.
+        railVisible = !paneMode && readRailVisiblePref();
         railDivider = readRailDividerPref();
         split = new SplitPane(transcriptPanel());
         SplitPane.setResizableWithParent(conversationRail, Boolean.FALSE);
@@ -1685,7 +2001,13 @@ public final class ClaudeCard extends AbstractHostCard {
         content = new BorderPane();
         content.setCenter(split);
         content.setBottom(bottom);
-        content.setPrefSize(900, 680);
+        if (paneMode) {
+            content.getStyleClass().add("assistant-pane-body");
+            retryButton.getStyleClass().add("assistant-pane-flat");
+            stopButton.getStyleClass().add("assistant-pane-flat");
+        } else {
+            content.setPrefSize(900, 680);
+        }
         buildFindBar();
         // Cmd/Ctrl+F opens the transcript find bar.
         content.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
@@ -1717,6 +2039,10 @@ public final class ClaudeCard extends AbstractHostCard {
             newConversation();
         } else {
             activate(conversations.get(conversations.size() - 1));
+        }
+        if (pendingOpenTile != null) {
+            openConversationOf(pendingOpenTile, pendingOpenConversation);
+            pendingOpenTile = null;
         }
     }
 
@@ -2090,7 +2416,10 @@ public final class ClaudeCard extends AbstractHostCard {
         strip.setPadding(new Insets(2, 8, 2, 8));
 
         BorderPane panel = new BorderPane();
-        panel.setTop(strip);
+        if (!paneMode) {
+            // In a sidebar these three actions are in the pane's More menu.
+            panel.setTop(strip);
+        }
         panel.setCenter(documentArea.fxObject());
         return panel;
     }
@@ -2226,6 +2555,7 @@ public final class ClaudeCard extends AbstractHostCard {
         conv.stopRequested = false;
         conv.pendingRetryText = null;
         conversationList.refresh();
+        paneChanged.run();
         if (conv == active) {
             updateInputState();
             updateStatusArea();
@@ -2268,7 +2598,7 @@ public final class ClaudeCard extends AbstractHostCard {
             // the next reply follows the draft in the transcript. Each turn is committed as it lands,
             // so a correction that fails leaves the draft standing.
             answering.set(conv);
-            String system = requestSystem(conv);
+            String system = withPaneContext(requestSystem(conv));
             List<Map<String, Object>> context = new ArrayList<>(history);
             String message = text;
             String lastReply = null;
@@ -2397,6 +2727,7 @@ public final class ClaudeCard extends AbstractHostCard {
                     requestExchangeTitle(conv, text, finalReply, key, model);
                 }
                 conversationList.refresh();
+                paneChanged.run();
                 if (conv == active) {
                     updateInputState();
                     updateStatusArea();
@@ -2730,6 +3061,7 @@ public final class ClaudeCard extends AbstractHostCard {
         refreshTranscript(false);
         updateInputState();
         updateStatusArea();
+        paneChanged.run();
     }
 
     /** Creates a fresh conversation (with the intro) and makes it active. */
@@ -2748,7 +3080,8 @@ public final class ClaudeCard extends AbstractHostCard {
                         + "waits for you to publish or commit it. "
                         + (hasApiKey()
                                 ? "Type a question below to begin."
-                                : "Set your Anthropic API key in Assistant settings (the sliders button) to begin."),
+                                : "Set your Anthropic API key in Assistant settings (the "
+                                        + (paneMode ? "gear" : "sliders") + " button) to begin."),
                 false));
         conversations.add(conv);
         activate(conv);
@@ -2770,6 +3103,7 @@ public final class ClaudeCard extends AbstractHostCard {
                 active.named = true;
                 active.userNamed = true;
                 conversationList.refresh();
+                paneChanged.run();
                 saveConversation(active);
             }
         });
@@ -2810,7 +3144,8 @@ public final class ClaudeCard extends AbstractHostCard {
             return;
         }
         long count = PluginTrash.entries().stream().filter(e -> e.kind() == PluginTrash.Kind.CONVERSATION).count();
-        trashButton.setText(count == 0 ? "🗑 Trash" : "🗑 Trash (" + count + ")");
+        String glyph = paneMode ? "" : "🗑 ";   // the pane's history footer draws its own bin
+        trashButton.setText(count == 0 ? glyph + "Trash" : glyph + "Trash (" + count + ")");
     }
 
     /** The name the rail shows for a conversation: its first exchange's title unless it was renamed. */
@@ -3773,7 +4108,7 @@ public final class ClaudeCard extends AbstractHostCard {
     }
 
     /** The Tool contract section: the bundled contract, or a Tool Contract set from an Instruction Editor. */
-    private javafx.scene.Node toolContractSettingsContent(SettingsPanePopup pane) {
+    private javafx.scene.Node toolContractSettingsContent(SettingsSurface settingsSurface) {
         record Choice(String id, String label) {
             @Override
             public String toString() {
@@ -3818,7 +4153,7 @@ public final class ClaudeCard extends AbstractHostCard {
             }
             refreshSystemPrompt();
             preview.showText(toolContractLayer());
-            pane.refreshSummaries();
+            settingsSurface.refreshSummaries();
         });
         Label hint = new Label("The tool contract follows the instructions in every request: how the assistant "
                 + "uses Komet's tools, grounds what it says, and draws concepts. To change it, Save as… the "
@@ -3826,14 +4161,14 @@ public final class ClaudeCard extends AbstractHostCard {
         hint.setWrapText(true);
         Button openEditor = new Button("Open in Instruction Editor…");
         openEditor.setOnAction(e -> {
-            pane.hide();
+            settingsSurface.hide();
             openInInstructionEditor();
         });
         return new VBox(6, selector, preview, openEditor, hint);
     }
 
     /** The Skills section: every skill, bundled or written in an Instruction Editor, each on or off for this card. */
-    private javafx.scene.Node skillsSettingsContent(SettingsPanePopup pane) {
+    private javafx.scene.Node skillsSettingsContent(SettingsSurface settingsSurface) {
         VBox list = new VBox(4);
         Set<String> excluded = new java.util.HashSet<>(excludedSkills());
         List<network.ike.komet.claude.instructions.AssistantSkills.Skill> all = allSkills();
@@ -3857,7 +4192,7 @@ public final class ClaudeCard extends AbstractHostCard {
                     LOG.warn("Could not sync the skills selection", ex);
                 }
                 refreshSystemPrompt();
-                pane.refreshSummaries();
+                settingsSurface.refreshSummaries();
             });
             list.getChildren().add(include);
         }

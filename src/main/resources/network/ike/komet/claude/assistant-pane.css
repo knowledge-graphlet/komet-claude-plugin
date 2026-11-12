@@ -1,0 +1,456 @@
+/*
+ * The Komet Assistant in a window's sidebar (AssistantPane): the light chrome of user-built
+ * knowledge-layout windows (pale bar, hairline, dark glyphs) with the app's blue as its accent.
+ * Colors are literals because the KL editor's scene does not load the kview palette:
+ * #4A7AD2 is -Secondary-05, #5896F6 -Secondary-04, #395C9A -Secondary-06, #44495E -Grey-10.
+ */
+
+.assistant-pane {
+    -fx-background-color: white;
+    -fx-font-family: "Noto Sans";
+}
+
+/* ---- Line icons (PaneIcons): a round 1.8-unit stroke on a 24-unit grid, no fill ---- */
+
+.assistant-pane-line-icon {
+    -fx-fill: transparent;
+    -fx-stroke: #44495E;
+    -fx-stroke-width: 1.8;
+    -fx-stroke-line-cap: round;
+    -fx-stroke-line-join: round;
+}
+
+/* The More glyph: three zero-length segments, which a wide round stroke draws as discs. */
+.assistant-pane-dots-icon .assistant-pane-line-icon {
+    -fx-stroke-width: 3;
+}
+
+/* ---- Header: 40px, the knowledge-layout window toolbar's height ---- */
+
+.assistant-pane-header {
+    -fx-background-color: #ededed, #f8f8f8;
+    -fx-background-insets: 0, 0 0 1 0;
+    -fx-min-height: 40;
+    -fx-pref-height: 40;
+    -fx-max-height: 40;
+    -fx-padding: 0 8 0 8;
+}
+
+/* The assistant's mark: a filled spark in the accent blue. */
+.assistant-pane-mark {
+    -fx-background-color: #4A7AD2;
+    -fx-shape: "M11 2l2.3 6.7L20 11l-6.7 2.3L11 20l-2.3-6.7L2 11l6.7-2.3z M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z";
+    -fx-min-width: 18;
+    -fx-min-height: 18;
+    -fx-max-width: 18;
+    -fx-max-height: 18;
+}
+
+.assistant-pane-name {
+    -fx-font-family: "Noto Sans Bold";
+    -fx-font-size: 13px;
+    -fx-text-fill: #1F2A44;
+}
+
+/* Icon buttons: 26px, flat, with a dark tint plate on hover, as on the light window chrome. */
+.assistant-pane-button {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-background-radius: 5;
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+    -fx-min-width: 26;
+    -fx-pref-width: 26;
+    -fx-max-width: 26;
+    -fx-min-height: 26;
+    -fx-pref-height: 26;
+    -fx-max-height: 26;
+    -fx-alignment: center;
+}
+
+.assistant-pane-button:hover {
+    -fx-background-color: rgba(0, 0, 0, 0.08);
+}
+
+.assistant-pane-button:armed {
+    -fx-background-color: rgba(0, 0, 0, 0.14);
+}
+
+/* A view's toggle while its view is showing: a pale blue plate under a blue glyph. */
+.assistant-pane-button:selected {
+    -fx-background-color: #E8F0FE;
+}
+
+.assistant-pane-button:selected .assistant-pane-line-icon {
+    -fx-stroke: #4A7AD2;
+}
+
+/* The collapse control: the open button's blue, so opening and closing look like one control. */
+.assistant-pane-button.assistant-pane-collapse {
+    -fx-background-color: #4A7AD2;
+    -fx-background-radius: 7;
+    -fx-min-width: 28;
+    -fx-pref-width: 28;
+    -fx-max-width: 28;
+    -fx-min-height: 28;
+    -fx-pref-height: 28;
+    -fx-max-height: 28;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.25), 4, 0, 0, 1);
+}
+
+.assistant-pane-button.assistant-pane-collapse:hover {
+    -fx-background-color: #5896F6;
+}
+
+.assistant-pane-button.assistant-pane-collapse:armed {
+    -fx-background-color: #395C9A;
+}
+
+.assistant-pane-collapse .assistant-pane-line-icon {
+    -fx-stroke: white;
+}
+
+/* ---- Context strip: the knowledge-layout hint strip ---- */
+
+.assistant-pane-context {
+    -fx-background-color: #F4F6FA;
+    -fx-border-color: transparent transparent #E6EAF1 transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-padding: 6 12 6 12;
+}
+
+.assistant-pane-context > .label {
+    -fx-font-family: "Noto Sans Medium";
+    -fx-font-size: 12px;
+    -fx-text-fill: #5D6B84;
+}
+
+.assistant-pane-context > .assistant-pane-host-name {
+    -fx-font-family: "Noto Sans SemiBold";
+    -fx-text-fill: #1F2A44;
+}
+
+/* ---- The conversation on screen ---- */
+
+.assistant-pane-title-row {
+    -fx-padding: 6 8 6 12;
+    -fx-border-color: transparent transparent #E5E7EB transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.assistant-pane-conversation-title {
+    -fx-font-family: "Noto Sans SemiBold";
+    -fx-font-size: 12px;
+    -fx-text-fill: #1F2A44;
+}
+
+/* Small inline actions: the title's rename pencil, a history row's rename and Trash. */
+.assistant-pane-row-action {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-background-radius: 4;
+    -fx-border-color: transparent;
+    -fx-padding: 3;
+}
+
+.assistant-pane-row-action:hover {
+    -fx-background-color: rgba(0, 0, 0, 0.08);
+}
+
+.assistant-pane-row-action .assistant-pane-line-icon {
+    -fx-stroke: #6B7280;
+}
+
+/* ---- The assistant's body: transcript over the composer ---- */
+
+.assistant-pane-body {
+    -fx-background-color: white;
+}
+
+.assistant-pane-body .split-pane {
+    -fx-background-color: white;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
+.assistant-pane-body .scroll-pane,
+.assistant-pane-body .scroll-pane > .viewport {
+    -fx-background-color: white;
+    -fx-background-insets: 0;
+}
+
+/* A turn's speaker label: the window blue, in place of the document surface's own role colors.
+   Its size is left to the surface, which follows the assistant's Text size setting. */
+.assistant-pane-body .doc-turn-header {
+    -fx-text-fill: #395C9A;
+}
+
+/* A turn's text: plain on the white pane, without the text-area box the surface gives each block. */
+.assistant-pane-body .doc-prose-block {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-background-radius: 0;
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+}
+
+/* An exchange's title row: the surface styles it inline (beige, orange), hence !important. */
+.assistant-pane-body .claude-exchange-header {
+    -fx-background-color: #F4F6FA !important;
+}
+
+.assistant-pane-body .claude-exchange-header > .label {
+    -fx-text-fill: #395C9A !important;
+}
+
+/* Small secondary controls (the model menu, Stop, Retry): a hairline outline on white. */
+.assistant-pane-flat {
+    -fx-background-color: #cfd5df, white;
+    -fx-background-insets: 0, 1;
+    -fx-background-radius: 4, 3;
+    -fx-padding: 3 8 3 8;
+    -fx-font-size: 11px;
+    -fx-text-fill: #1F2A44;
+}
+
+.assistant-pane-flat:hover {
+    -fx-background-color: #9CAABF, #F5F8FC;
+}
+
+.assistant-pane-flat:armed {
+    -fx-background-color: #9CAABF, #E8F0FE;
+}
+
+.menu-button.assistant-pane-flat > .label {
+    -fx-text-fill: #1F2A44;
+    -fx-font-size: 11px;
+    -fx-padding: 0 4 0 0;
+}
+
+.menu-button.assistant-pane-flat > .arrow-button > .arrow {
+    -fx-background-color: #44495E;
+}
+
+/* The composer: the compose surface across the pane, the model menu and Send in a row under it. */
+.assistant-pane-composer {
+    -fx-background-color: white;
+    -fx-border-color: #E5E7EB transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+    -fx-padding: 10 12 12 12;
+}
+
+/* The outline is the wrapper's, inset from the compose surface: the surface paints a square white area of
+   its own, which drawn edge to edge covers the top corners of a rounded outline. */
+.assistant-pane-compose {
+    -fx-background-color: #cfd5df, white;
+    -fx-background-insets: 0, 1;
+    -fx-background-radius: 6, 5;
+    -fx-padding: 4;
+}
+
+.assistant-pane-compose:focus-within {
+    -fx-background-color: #4A7AD2, white;
+}
+
+.assistant-pane-compose .rich-text-area,
+.assistant-pane-compose .rich-text-area:focused {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-background-radius: 0;
+    -fx-border-color: transparent;
+}
+
+/* The model menu and Send are one height. */
+.assistant-pane-compose-control {
+    -fx-min-height: 26;
+    -fx-pref-height: 26;
+    -fx-max-height: 26;
+}
+
+.assistant-pane-flat.assistant-pane-compose-control {
+    -fx-padding: 0 8 0 8;
+}
+
+/* Send: the window's primary action, the Publish button's blue plate. */
+.assistant-pane-send {
+    -fx-background-color: #4A7AD2;
+    -fx-background-insets: 0;
+    -fx-background-radius: 5;
+    -fx-padding: 0 14 0 14;
+    -fx-font-family: "Noto Sans SemiBold";
+    -fx-font-size: 12px;
+    -fx-text-fill: white;
+}
+
+.assistant-pane-send:hover {
+    -fx-background-color: #5896F6;
+}
+
+.assistant-pane-send:armed {
+    -fx-background-color: #395C9A;
+}
+
+.assistant-pane-send:disabled {
+    -fx-opacity: 1.0;
+    -fx-background-color: rgba(0, 0, 0, 0.06);
+    -fx-text-fill: rgba(31, 42, 68, 0.45);
+}
+
+/* ---- Views that replace the chat: History, Settings, Help ---- */
+
+.assistant-pane-view {
+    -fx-background-color: white;
+}
+
+.assistant-pane-view-head {
+    -fx-padding: 6 12 6 6;
+    -fx-border-color: transparent transparent #E5E7EB transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.assistant-pane-view-title {
+    -fx-font-family: "Noto Sans Bold";
+    -fx-font-size: 13px;
+    -fx-text-fill: #1F2A44;
+}
+
+.assistant-pane-back {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-background-radius: 5;
+    -fx-border-color: transparent;
+    -fx-padding: 4 8 4 4;
+    -fx-graphic-text-gap: 2;
+    -fx-font-family: "Noto Sans SemiBold";
+    -fx-font-size: 12px;
+    -fx-text-fill: #4A7AD2;
+}
+
+.assistant-pane-back:hover {
+    -fx-background-color: rgba(0, 0, 0, 0.08);
+}
+
+.assistant-pane-back .assistant-pane-line-icon {
+    -fx-stroke: #4A7AD2;
+}
+
+.assistant-pane-view-footer {
+    -fx-padding: 9 12 9 12;
+    -fx-border-color: #E5E7EB transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+}
+
+.assistant-pane-count {
+    -fx-font-size: 12px;
+    -fx-text-fill: #44495E;
+}
+
+/* A text link: the history footer's Trash. */
+.assistant-pane-link {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-border-color: transparent;
+    -fx-padding: 0;
+    -fx-font-family: "Noto Sans SemiBold";
+    -fx-font-size: 12px;
+    -fx-text-fill: #4A7AD2;
+    -fx-cursor: hand;
+}
+
+.assistant-pane-link:hover {
+    -fx-underline: true;
+}
+
+/* History: the search field, an outlined box holding a glyph and a bare text field. */
+.assistant-pane-search-row {
+    -fx-padding: 10 12 6 12;
+}
+
+.assistant-pane-search {
+    -fx-background-color: #cfd5df, white;
+    -fx-background-insets: 0, 1;
+    -fx-background-radius: 6, 5;
+    -fx-padding: 2 9 2 9;
+}
+
+.assistant-pane-search .assistant-pane-line-icon {
+    -fx-stroke: #9CA3AF;
+}
+
+.assistant-pane-search:focus-within {
+    -fx-background-color: #4A7AD2, white;
+}
+
+/* The field inside the box is bare in every state: the box draws the one outline. Stated for the focused
+   state too, where the app's own text-field rules would otherwise bring back a border of the field's own. */
+.assistant-pane-search .assistant-pane-search-field,
+.assistant-pane-search .assistant-pane-search-field:focused,
+.assistant-pane-search .assistant-pane-search-field:hover {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-background-radius: 0;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-effect: null;
+    -fx-padding: 4 0 4 0;
+    -fx-font-size: 12px;
+    -fx-text-fill: #1F2937;
+    -fx-prompt-text-fill: #9CA3AF;
+}
+
+/* History: the conversations, one hairlined row each. */
+.assistant-pane-conversations {
+    -fx-background-color: white;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
+.assistant-pane-conversations .list-cell {
+    -fx-background-color: white;
+    -fx-padding: 8 12 8 12;
+    -fx-font-size: 12px;
+}
+
+.assistant-pane-conversations .list-cell:filled {
+    -fx-border-color: transparent transparent rgba(0, 0, 0, 0.06) transparent;
+    -fx-border-width: 0 0 1 0;
+}
+
+.assistant-pane-conversations .list-cell:filled:hover {
+    -fx-background-color: #F5F8FC;
+}
+
+.assistant-pane-conversations .list-cell:filled:selected {
+    -fx-background-color: #E8F0FE;
+}
+
+/* Settings: a row per section (title, current value, chevron), then the section's own content. */
+.assistant-pane-setting-row {
+    -fx-padding: 10 12 10 12;
+    -fx-border-color: transparent transparent rgba(0, 0, 0, 0.06) transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-cursor: hand;
+}
+
+.assistant-pane-setting-row:hover {
+    -fx-background-color: #F5F8FC;
+}
+
+.assistant-pane-setting-key {
+    -fx-font-family: "Noto Sans SemiBold";
+    -fx-font-size: 12px;
+    -fx-text-fill: #1F2A44;
+}
+
+.assistant-pane-setting-value {
+    -fx-font-size: 12px;
+    -fx-text-fill: #6B7280;
+}
+
+.assistant-pane-setting-row .assistant-pane-line-icon {
+    -fx-stroke: #6B7280;
+}
+
+.assistant-pane-setting-content {
+    -fx-padding: 12;
+}
