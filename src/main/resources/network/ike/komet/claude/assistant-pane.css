@@ -454,3 +454,55 @@
 .assistant-pane-setting-content {
     -fx-padding: 12;
 }
+
+/* Scrollbars, as in the KL windows: a slim rounded thumb over a transparent track, with no arrow buttons.
+   Covers the transcript, the conversations list, the settings and help views and the composer. */
+.assistant-pane .scroll-bar {
+    -fx-background-color: transparent;
+}
+
+.assistant-pane .scroll-bar:vertical {
+    -fx-pref-width: 8;
+    -fx-padding: 0 0 0 2;
+}
+
+.assistant-pane .scroll-bar:horizontal {
+    -fx-pref-height: 8;
+    -fx-padding: 2 0 0 0;
+}
+
+.assistant-pane .scroll-bar .track,
+.assistant-pane .scroll-bar .track-background {
+    -fx-background-color: transparent;
+}
+
+.assistant-pane .scroll-bar .thumb {
+    -fx-background-color: #FBFBFC, rgba(0, 0, 0, 0.4);
+    -fx-background-insets: 0, 1;
+    -fx-background-radius: 6px;
+    -fx-padding: 0;
+}
+
+.assistant-pane .scroll-bar:hover .thumb {
+    -fx-background-color: #FBFBFC, rgba(0, 0, 0, 0.5);
+}
+
+.assistant-pane .scroll-bar .increment-button,
+.assistant-pane .scroll-bar .decrement-button {
+    -fx-background-insets: 0;
+    -fx-min-width: 0;
+    -fx-pref-width: 0;
+    -fx-min-height: 0;
+    -fx-pref-height: 0;
+    -fx-padding: 0;
+}
+
+.assistant-pane .scroll-bar .increment-arrow,
+.assistant-pane .scroll-bar .decrement-arrow {
+    -fx-shape: " ";
+    -fx-padding: 0;
+}
+
+.assistant-pane .scroll-pane > .corner {
+    -fx-background-color: transparent;
+}

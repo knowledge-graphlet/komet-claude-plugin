@@ -176,7 +176,12 @@ public final class AssistantPane implements KlAssistantPane {
         Region cardNode = card.fxObject();
         cardNode.setMinWidth(0);
         root.setTop(new VBox(header, context, titleRow));
-        root.setCenter(new StackPane(cardNode, historyView, settingsView, helpView));
+        // The pane is as tall as its window, whatever its content asks for: the views scroll.
+        cardNode.setMinHeight(0);
+        StackPane body = new StackPane(cardNode, historyView, settingsView, helpView);
+        body.setMinHeight(0);
+        root.setCenter(body);
+        root.setMinHeight(0);
 
         // Subscribed last: a value subscription runs at once, and show() reads the nodes built above.
         views.selectedToggleProperty().subscribe(toggle -> {

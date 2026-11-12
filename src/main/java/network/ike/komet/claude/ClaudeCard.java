@@ -2002,6 +2002,10 @@ public final class ClaudeCard extends AbstractHostCard {
         content.setCenter(split);
         content.setBottom(bottom);
         if (paneMode) {
+            // A sidebar is as tall as its window: the body shrinks and the transcript scrolls, where a long
+            // reply would otherwise raise the minimum height of the whole window's content.
+            content.setMinHeight(0);
+            split.setMinHeight(0);
             content.getStyleClass().add("assistant-pane-body");
             retryButton.getStyleClass().add("assistant-pane-flat");
             stopButton.getStyleClass().add("assistant-pane-flat");
@@ -2421,6 +2425,10 @@ public final class ClaudeCard extends AbstractHostCard {
             panel.setTop(strip);
         }
         panel.setCenter(documentArea.fxObject());
+        if (paneMode) {
+            panel.setMinHeight(0);
+            documentArea.fxObject().setMinHeight(0);
+        }
         return panel;
     }
 
