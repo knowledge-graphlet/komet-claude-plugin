@@ -80,7 +80,7 @@ final class BenefitRiskBlockRenderer implements network.ike.komet.document.Struc
     enum View { TREE, TABLE, FOREST, DEVICE, FINDINGS, LOOKUP }
 
     /** The year a lookup reads as "known now": later than any finding. */
-    private static final int NOW = 9999;
+    static final int NOW = 9999;
 
     /** The natural width of the forest plot on the surface, at {@link #FOREST_SIZE}. */
     private static final double FOREST_WIDTH = 640;
@@ -173,6 +173,29 @@ final class BenefitRiskBlockRenderer implements network.ike.komet.document.Struc
 
     private static String yearWords(int year) {
         return year >= NOW ? "Known now" : "In print by " + year;
+    }
+
+    /**
+     * The years a lookup lets the reader choose between: the year the lookup names, the year the
+     * document is being read at when another lookup set one, and now. A lookup that names no
+     * year, in a document read as known now, can be read one way only, so it offers no choice:
+     * two choices that both read "Known now" are not a choice.
+     *
+     * @param first   the lookup's own year, {@link #NOW} or later when it names none
+     * @param reading the year the document is being read at
+     * @return the years to choose between, earliest first and ending in {@link #NOW}; a single
+     *         entry when there is nothing to choose
+     */
+    static List<Integer> yearChoices(int first, int reading) {
+        java.util.TreeSet<Integer> years = new java.util.TreeSet<>();
+        if (first < NOW) {
+            years.add(first);
+        }
+        if (reading < NOW) {
+            years.add(reading);
+        }
+        years.add(NOW);
+        return List.copyOf(years);
     }
 
     /** What the plot draws: the table a {@code table=} attribute names, read. */
@@ -464,21 +487,24 @@ final class BenefitRiskBlockRenderer implements network.ike.komet.document.Struc
     private List<Node> lookup(String info, DeviceRecord record) {
         Findings held = findings(info, context);
         int year = context.evidenceYear();
-        network.ike.komet.document.SegmentedControl<Integer> years = new network.ike.komet.document.SegmentedControl<>(
-                List.of(firstYear(info), NOW), BenefitRiskBlockRenderer::yearWords, y -> "Read every view of this document " + yearWords(y).toLowerCase(java.util.Locale.ROOT),
-                y -> y >= NOW ? "evidence-known-now" : "evidence-in-print");
-        years.light(base * 0.85);
-        years.select(year);
-        years.valueProperty().addListener((obs, was, chosen) -> {
-            if (chosen != null) {
-                context.setEvidenceYear(chosen);
-            }
-        });
         List<DeviceRecord.Reach> reached = record.reached(held, year);
         int inPrint = held.inPrintBy(year).size();
         List<Node> shown = new ArrayList<>();
         shown.add(heading("What the findings would have shown the reviewer"));
-        shown.add(years);
+        List<Integer> choices = yearChoices(firstYear(info), year);
+        if (choices.size() > 1) {
+            network.ike.komet.document.SegmentedControl<Integer> years = new network.ike.komet.document.SegmentedControl<>(
+                    choices, BenefitRiskBlockRenderer::yearWords, y -> "Read every view of this document " + yearWords(y).toLowerCase(java.util.Locale.ROOT),
+                    y -> y >= NOW ? "evidence-known-now" : y.equals(choices.getFirst()) ? "evidence-in-print" : "evidence-in-print-" + y);
+            years.light(base * 0.85);
+            years.select(Math.min(year, NOW));
+            years.valueProperty().addListener((obs, was, chosen) -> {
+                if (chosen != null) {
+                    context.setEvidenceYear(chosen);
+                }
+            });
+            shown.add(years);
+        }
         shown.add(sentence(reached.size() + " of the " + inPrint + " findings in the mock reach this " + (record.isTestRecord() ? "test." : "device.")));
         for (DeviceRecord.Reach reach : reached) {
             shown.add(findingRow(reach));
