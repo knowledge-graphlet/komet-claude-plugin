@@ -16,7 +16,11 @@ import javafx.scene.transform.Scale;
 final class PaneIcons {
 
     static final String COLLAPSE = "M7 6l6 6-6 6M13 6l6 6-6 6";
-    static final String PLUS = "M12 5v14M5 12h14";
+    /** Two arrows out to opposite corners. */
+    static final String MAXIMIZE = "M14 4h6v6M20 4l-7 7M10 20H4v-6M4 20l7-7";
+    /** The same arrows pointing in. */
+    static final String RESTORE = "M20 10h-6V4M14 10l6-6M4 14h6v6M10 14l-6 6";
+    static final String PLUS ="M12 5v14M5 12h14";
     static final String HISTORY = "M4 12a8 8 0 1 0 2.5-5.8L4 8.5M4 4v4.5h4.5M12 8v4.5l3 1.8";
     static final String GEAR = "M15 12a3 3 0 1 1-6 0 3 3 0 0 1 6 0z"
             + "M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 "

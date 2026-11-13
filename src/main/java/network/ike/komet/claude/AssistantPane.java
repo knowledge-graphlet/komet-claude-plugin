@@ -7,6 +7,8 @@ import dev.ikm.komet.layout.help.KlHelpTopic;
 import dev.ikm.komet.layout.help.KlHelpViewer;
 import dev.ikm.komet.layout.sidebar.KlAssistantPane;
 import dev.ikm.komet.layout.sidebar.KlAssistantPaneProvider;
+import javafx.beans.property.BooleanProperty;
+import javafx.beans.property.SimpleBooleanProperty;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.beans.property.StringProperty;
 import javafx.geometry.Pos;
@@ -45,8 +47,8 @@ import java.util.function.Supplier;
  * The Komet Assistant as a window's sidebar shows it: a {@link ClaudeCard} without its tab, toolbar and
  * conversations rail, under a header in the light knowledge-layout window chrome.
  *
- * <p>The header carries the control that collapses the sidebar, New conversation, History, Settings and a
- * More menu with the card's remaining actions (coordinates, document pairing, find, expand and collapse,
+ * <p>The header carries the control that collapses the sidebar, New conversation, History, Settings,
+ * Maximize (which becomes Restore while the pane covers the window's working area) and a More menu with the card's remaining actions (coordinates, document pairing, find, expand and collapse,
  * save, open in a card, help). A strip under it names the window the assistant is helping with, and a row
  * names the conversation on screen. History, Settings and Help each swap the chat for a view of their own
  * with a Back control.
@@ -57,6 +59,9 @@ import java.util.function.Supplier;
 public final class AssistantPane implements KlAssistantPane {
 
     private static final Logger LOG = LoggerFactory.getLogger(AssistantPane.class);
+
+    /** The widest the chat and the views that replace it are drawn, however wide the pane is. */
+    private static final double READING_WIDTH = 820;
 
     /** One settings section's row: its summary supplier and the label showing it. */
     private record SettingsRow(Supplier<String> summary, Label value) {
@@ -117,8 +122,21 @@ public final class AssistantPane implements KlAssistantPane {
         historyButton = viewToggle(PaneIcons.HISTORY, "History: all conversations", "assistantPaneHistory");
         settingsButton = viewToggle(PaneIcons.GEAR, "Assistant settings", "assistantPaneSettings");
 
+        Button maximize = new Button();
+        maximize.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
+        maximize.setId("assistantPaneMaximize");
+        maximize.getStyleClass().add("assistant-pane-button");
+        maximize.setFocusTraversable(false);
+        Tooltip maximizeTooltip = new Tooltip();
+        maximize.setTooltip(maximizeTooltip);
+        maximize.setOnAction(e -> setMaximized(!isMaximized()));
+        maximized.subscribe(isMaximized -> {
+            maximize.setGraphic(PaneIcons.line(isMaximized ? PaneIcons.RESTORE : PaneIcons.MAXIMIZE, 16));
+            maximizeTooltip.setText(isMaximized ? "Restore to sidebar" : "Maximize");
+        });
+
         HBox header = new HBox(4, collapse, mark, name, spacer, newConversation, historyButton, settingsButton,
-                moreMenu());
+                maximize, moreMenu());
         HBox.setMargin(mark, new javafx.geometry.Insets(0, 2, 0, 6));
         header.getStyleClass().add("assistant-pane-header");
         header.setAlignment(Pos.CENTER_LEFT);
@@ -179,6 +197,10 @@ public final class AssistantPane implements KlAssistantPane {
         // The pane is as tall as its window, whatever its content asks for: the views scroll.
         cardNode.setMinHeight(0);
         StackPane body = new StackPane(cardNode, historyView, settingsView, helpView);
+        // A reading column, centred: wider than the docked pane can be dragged, so it only shows maximized.
+        for (Node view : body.getChildren()) {
+            ((Region) view).setMaxWidth(READING_WIDTH);
+        }
         body.setMinHeight(0);
         root.setCenter(body);
         root.setMinHeight(0);
@@ -234,6 +256,19 @@ public final class AssistantPane implements KlAssistantPane {
     public String getHostName() { return hostName.get(); }
     @Override
     public void setHostName(String value) { hostName.set(value); }
+
+    // -- maximized
+    /**
+     * Whether the pane covers the window's working area in place of docking at its right edge. The header's
+     * Maximize control switches it; the sidebar does the placing.
+     */
+    private final BooleanProperty maximized = new SimpleBooleanProperty(this, "maximized", false);
+    @Override
+    public BooleanProperty maximizedProperty() { return maximized; }
+    @Override
+    public boolean isMaximized() { return maximized.get(); }
+    @Override
+    public void setMaximized(boolean value) { maximized.set(value); }
 
     /***************************************************************************
      *                                                                         *
