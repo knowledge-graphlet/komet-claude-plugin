@@ -293,6 +293,23 @@ class GraphletModelWritesIT {
     }
 
     @Test
+    void aModelWhoseStatementIsNotInTheKnowledgeBaseYetIsHeldAndSaysSo() {
+        // a document read from git: its anf block is there, and nothing has written the block's statement yet
+        Map<String, AnfStatement> stated = new LinkedHashMap<>(statements);
+        stated.put("est-unwritten", statements.get("est-inspection-cost"));
+        Map<String, Long> placed = new LinkedHashMap<>(blocks);
+        placed.put("est-unwritten", block("est-unwritten"));
+        DecisionTreeWrites.Written held = DecisionTreeWrites.write("graphlet-model id=gmw-unwritten",
+                modelBody.replace("[Inspect the site?]", "[Inspect a site whose cost is not written yet?]")
+                        .replace("anf:est-inspection-cost", "anf:est-unwritten"),
+                view, edit, LocalConcepts.Context.ALONE, ModelDocument.of(stated, placed, OptionalLong.of(module), view));
+        assertTrue(held.tree().isEmpty(), held.message());
+        assertTrue(held.message().startsWith("The model was not written"), held.message());
+        assertTrue(held.message().contains("the knowledge base does not have the statement anf:est-unwritten yet"), held.message());
+        assertTrue(held.message().endsWith("The text of the model is saved."), held.message());
+    }
+
+    @Test
     void aModelThatReadsAStatementTheDocumentLacksIsHeld() {
         DecisionTreeWrites.Written held = DecisionTreeWrites.write("graphlet-model id=gmw-missing",
                 modelBody.replace("[Inspect the site?]", "[Inspect the other site?]").replace("anf:est-material-problem", "anf:est-missing"),

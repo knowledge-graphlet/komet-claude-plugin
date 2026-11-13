@@ -109,6 +109,25 @@ public final class BlockSweep implements DecisionTreeSensitivity.Mover {
         });
     }
 
+    /**
+     * Sweeps a model for a review of it: each value over the range the review gives it, and the
+     * net value drawn for one alternative throughout, whichever the tree chooses as its values move.
+     *
+     * @param ranges    the range each value swings over, by its vertex; a value it gives none keeps the model's own
+     * @param reference the alternative whose net value is drawn, by its vertex; negative for the one the base chose
+     */
+    public static Optional<DecisionTreeSensitivity> sweep(String body, DecisionTerms terms, Identities ids,
+                                                          double price, int steps, ExternalQuantities externals,
+                                                          java.util.Map<String, String> linkedBodies, StatementMeasures statements,
+                                                          DecisionTreeSensitivity.Ranges ranges, int reference) {
+        return open(body, terms, ids, price, externals, linkedBodies, statements).map(mover -> {
+            DecisionTree base = mover.base.tree().orElseThrow();
+            return DecisionTreeSensitivity.of(mover.stated.tree().orElseThrow(),
+                    Rollback.of(base, coordinate(base, price), mover.linked), mover, steps,
+                    vertex -> ranges.range(vertex).or(() -> mover.stated.range(vertex)), reference);
+        });
+    }
+
     /** The mover alone, for a reader that moves one value at a time; empty when the block does not read as a tree. */
     public static Optional<BlockSweep> open(String body, DecisionTerms terms, Identities ids, double price) {
         return open(body, terms, ids, price, ExternalQuantities.none());

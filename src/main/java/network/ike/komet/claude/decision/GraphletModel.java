@@ -75,6 +75,21 @@ public record GraphletModel(String id, String info, String body, Optional<Consum
     }
 
     /**
+     * Writes the model's whole text, restated: several values a review has moved, as one edit of
+     * the document.
+     *
+     * @param restated the model's text with every moved value restated on its line
+     * @return whether the model took it: false when it is not writable
+     */
+    public boolean write(String restated) {
+        if (writer.isEmpty() || restated == null) {
+            return false;
+        }
+        writer.get().accept(restated);
+        return true;
+    }
+
+    /**
      * Holds a value in the model: the model reads at it and every rendering that names the model
      * redraws, but the document is not written yet. The slider of a rendering holds the value it
      * rests at, and {@link #write} writes the value it is left at when its control closes, so a

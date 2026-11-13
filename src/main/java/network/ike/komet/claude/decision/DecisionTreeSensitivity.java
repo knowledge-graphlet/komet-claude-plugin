@@ -256,15 +256,18 @@ public final class DecisionTreeSensitivity {
     private final Rollback base;
     private final double baseRoot;
     private final double baseNet;
+    /** The alternative whose net value every swing is drawn on; -1 when the root did not decide. */
+    private final int reference;
     private final ImmutableList<Swing> swings;
     private final ImmutableList<Unswept> unswept;
 
-    private DecisionTreeSensitivity(DecisionTree tree, Rollback base, ImmutableList<Swing> swings,
+    private DecisionTreeSensitivity(DecisionTree tree, Rollback base, int reference, ImmutableList<Swing> swings,
                                     ImmutableList<Unswept> unswept) {
         this.tree = tree;
         this.base = base;
+        this.reference = reference;
         this.baseRoot = base.rootValue().map(Bounds::midpoint).orElse(Double.NaN);
-        this.baseNet = net(base, base.chosen(tree.rootIndex()).orElse(-1));
+        this.baseNet = net(base, reference);
         this.swings = swings;
         this.unswept = unswept;
     }
@@ -298,6 +301,21 @@ public final class DecisionTreeSensitivity {
      * @param ranges the ranges the parameters' statements determined, by vertex
      */
     public static DecisionTreeSensitivity of(DecisionTree tree, Rollback base, Mover mover, int steps, Ranges ranges) {
+        return of(tree, base, mover, steps, ranges, -1);
+    }
+
+    /**
+     * Sweeps a tree with the net value drawn for one alternative throughout. A tornado draws the
+     * net value of the alternative the base chose. A review of a model moves the base, and the
+     * choice with it, so it names the alternative its bars are about, and a bar keeps its meaning
+     * while the choice changes.
+     *
+     * @param ranges    the ranges the parameters' statements determined, by vertex
+     * @param reference the alternative whose net value is drawn, by its vertex; negative for the
+     *                  alternative the base chose
+     */
+    public static DecisionTreeSensitivity of(DecisionTree tree, Rollback base, Mover mover, int steps, Ranges ranges,
+                                             int reference) {
         if (steps < 2) {
             throw new IllegalArgumentException("a sweep takes two or more steps, not " + steps);
         }
@@ -305,7 +323,7 @@ public final class DecisionTreeSensitivity {
         MutableList<Unswept> unswept = Lists.mutable.empty();
         org.eclipse.collections.api.map.primitive.MutableIntObjectMap<FoldedValue> folded =
                 org.eclipse.collections.api.factory.primitive.IntObjectMaps.mutable.empty();
-        int baseChosen = base.chosen(tree.rootIndex()).orElse(-1);
+        int baseChosen = reference >= 0 ? reference : base.chosen(tree.rootIndex()).orElse(-1);
         if (base.determinable()) {
             for (DecisionElement element : tree.nodes()) {
                 Measure measure = switch (element) {
@@ -378,7 +396,7 @@ public final class DecisionTreeSensitivity {
         // longest first on the axis a tornado draws: the net value where every swing carries one, else the cost
         boolean net = swings.allSatisfy(Swing::hasNet);
         swings.sortThis(Comparator.comparingDouble(net ? Swing::netWidth : Swing::width).reversed());
-        DecisionTreeSensitivity sensitivity = new DecisionTreeSensitivity(tree, base, swings.toImmutable(), unswept.toImmutable());
+        DecisionTreeSensitivity sensitivity = new DecisionTreeSensitivity(tree, base, baseChosen, swings.toImmutable(), unswept.toImmutable());
         sensitivity.folded = folded.toImmutable();
         return sensitivity;
     }
@@ -553,6 +571,14 @@ public final class DecisionTreeSensitivity {
     /** The alternative the root chose at the base, when it decided. */
     public OptionalInt baseChosen() {
         return base.chosen(tree.rootIndex());
+    }
+
+    /**
+     * The alternative whose net value every swing is drawn on: the one the base chose, unless the
+     * sweep was asked to keep another throughout.
+     */
+    public OptionalInt reference() {
+        return reference >= 0 ? OptionalInt.of(reference) : OptionalInt.empty();
     }
 
     /**

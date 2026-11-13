@@ -136,7 +136,11 @@ final class GraphletModelBlockRenderer implements network.ike.komet.document.Str
         String body = literal == null ? "" : literal;
         // published at once, so a rendering drawn before this block is built finds the model
         Optional<String> id = GraphletModelText.modelId(info, body);
-        return List.of(new BlockPiece(() -> new Live(info, body, id.orElse(null)).column, body.stripTrailing()));
+        // a model with an id grows into its review, with the tornado and the tree that draw it
+        return List.of(new BlockPiece(() -> {
+            VBox column = new Live(info, body, id.orElse(null)).column;
+            return id.isPresent() ? ModelReviewGrow.grown(column, viewCalc, viewProperties, base, context, id.get(), null) : column;
+        }, body.stripTrailing()));
     }
 
     /**
@@ -286,6 +290,9 @@ final class GraphletModelBlockRenderer implements network.ike.komet.document.Str
             FlowPane header = new FlowPane(8, 4);
             header.setAlignment(Pos.CENTER_LEFT);
             header.prefWrapLengthProperty().bind(column.widthProperty().subtract(4));
+            if (id != null) {
+                ExpandButton.leaveRoom(header);                         // a model with an id has the Expand button
+            }
             Label title = new Label("Graphlet model");
             title.setFont(Font.font(null, FontWeight.BOLD, base));
             header.getChildren().add(title);

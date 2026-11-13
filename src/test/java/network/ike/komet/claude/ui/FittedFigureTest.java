@@ -16,7 +16,6 @@
 package network.ike.komet.claude.ui;
 
 import javafx.application.Platform;
-import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
@@ -57,23 +56,23 @@ class FittedFigureTest {
     }
 
     @Test
-    void aWideFigureIsScaledToItsRegionAndOffersTheEscape() throws Exception {
+    void aWideFigureIsScaledToItsRegionAndSaysItIsReduced() throws Exception {
         onFx(() -> {
             Region figure = new Region();
             figure.setPrefSize(1000, 400);
-            FittedFigure fit = new FittedFigure(figure, 13, width -> { }, () -> { });
+            FittedFigure fit = new FittedFigure(figure, width -> { });
             new Scene(new Pane(fit));
             fit.resize(500, fit.prefHeight(500));
             fit.layout();
             assertEquals(0.5, fit.scale(), 1e-9);
             assertEquals(200, fit.prefHeight(500), 1e-9, "the height follows the scale");
-            assertTrue(expand(fit).isVisible(), "a scaled figure offers to open whole");
+            assertTrue(fit.reducedProperty().get(), "a scaled figure is reduced: its block can offer to expand it");
 
             fit.resize(1200, fit.prefHeight(1200));
             fit.layout();
             assertEquals(1, fit.scale(), 1e-9, "a figure that fits is never enlarged");
             assertEquals(400, fit.prefHeight(1200), 1e-9);
-            assertFalse(expand(fit).isVisible());
+            assertFalse(fit.reducedProperty().get(), "a figure at its natural size is not");
         });
     }
 
@@ -82,7 +81,7 @@ class FittedFigureTest {
         onFx(() -> {
             Region figure = new Region();
             figure.setPrefSize(1000, 400);
-            FittedFigure fit = new FittedFigure(figure, 13, width -> { }, () -> { });
+            FittedFigure fit = new FittedFigure(figure, width -> { });
             GridPane row = new GridPane();
             row.getStyleClass().add("doc-block-row");
             for (double percent : new double[] {100.0 * 2 / 12, 100.0 * 8 / 12, 100.0 * 2 / 12}) {
@@ -113,7 +112,7 @@ class FittedFigureTest {
         onFx(() -> {
             Region figure = new Region();
             figure.setPrefSize(1000, 400);
-            FittedFigure fit = new FittedFigure(figure, 13, 600);
+            FittedFigure fit = new FittedFigure(figure, 600);
             new Scene(new Pane(fit));
             fit.resize(800, fit.prefHeight(800));
             fit.layout();
@@ -124,31 +123,28 @@ class FittedFigureTest {
             fit.layout();
             assertEquals(600, figure.getWidth(), 1e-9, "never narrower than its least");
             assertEquals(0.5, fit.scale(), 1e-9);
-            assertFalse(expand(fit).isVisible(), "no escape was given");
+            assertTrue(fit.reducedProperty().get(), "below its least width it is scaled, and so reduced");
         });
     }
 
     @Test
-    void aFigureThatStandsInForAFullerOneOffersTheEscapeAtItsNaturalSize() throws Exception {
+    void aFigureThatStandsInForAFullerOneIsReducedAtItsNaturalSize() throws Exception {
         onFx(() -> {
             Region figure = new Region();
             figure.setPrefSize(300, 400);
-            FittedFigure fit = new FittedFigure(figure, 13, width -> { }, () -> { });
+            FittedFigure fit = new FittedFigure(figure, width -> { });
             new Scene(new Pane(fit));
             fit.resize(500, fit.prefHeight(500));
             fit.layout();
             assertEquals(1, fit.scale(), 1e-9);
-            assertFalse(expand(fit).isVisible(), "a figure that fits has nothing fuller to open");
+            assertFalse(fit.reducedProperty().get(), "a figure that fits has nothing fuller to show");
 
-            fit.offerEscapeAlways("Open the tree drawn left to right, at full size");
+            fit.standsInForFuller();
             fit.layout();
             assertEquals(1, fit.scale(), 1e-9);
-            assertTrue(expand(fit).isVisible(), "an outline's escape opens the drawing it stands in for");
+            assertTrue(fit.reducedProperty().get(), "an outline stands in for the drawing left to right, at any scale");
+            assertEquals(1, fit.getChildrenUnmodifiable().size(), "the figure has no mark of its own: its block has the Expand button");
         });
-    }
-
-    private static Node expand(FittedFigure fit) {
-        return fit.getChildrenUnmodifiable().stream().filter(n -> "decision-tree-expand".equals(n.getId())).findFirst().orElseThrow();
     }
 
     private static void onFx(Runnable body) throws Exception {

@@ -120,6 +120,10 @@ final class DecisionTreeDiagram extends Region {
         /** The pointer entered or left a measure's chip. */
         default void hover(int measureVertex, boolean on) {
         }
+
+        /** A node or a branch was clicked: its name, its value, or a branch's run. A surface with nothing to select does nothing. */
+        default void select(int vertexIndex) {
+        }
     }
 
     private static final Color INK = Color.web("#333");
@@ -306,6 +310,7 @@ final class DecisionTreeDiagram extends Region {
             HBox top = new HBox(6, valueLabel);
             top.setAlignment(Pos.CENTER_LEFT);
             top.getChildren().addAll(nameLine.getChildren());
+            top.setOnMouseClicked(e -> host.select(index));
             valueLabels.put(index, top);
             getChildren().add(top);
             if (node instanceof Outcome outcome) {
@@ -321,6 +326,8 @@ final class DecisionTreeDiagram extends Region {
         } else {
             valueLabels.put(index, valueLabel);
             nameLabels.put(index, nameLine);
+            valueLabel.setOnMouseClicked(e -> host.select(index));
+            nameLine.setOnMouseClicked(e -> host.select(index));
             getChildren().addAll(valueLabel, nameLine);
         }
         if (!terminal) {
@@ -425,6 +432,7 @@ final class DecisionTreeDiagram extends Region {
         for (Node part : List.of(run, above, below)) {
             part.setOnMouseEntered(e -> hot.accept(true));
             part.setOnMouseExited(e -> hot.accept(false));
+            part.setOnMouseClicked(e -> host.select(index));
         }
     }
 
@@ -753,6 +761,29 @@ final class DecisionTreeDiagram extends Region {
     /** The chip a measure is drawn as, when it is drawn on a branch or an outcome. */
     Optional<MeasureChip> chip(int measureVertex) {
         return Optional.ofNullable(chips.get(measureVertex));
+    }
+
+    /** The ground a selected node's name, or a measure that reads a selected value, is drawn on. */
+    private static final String SELECTED = "-fx-background-color: #e6eef8; -fx-background-radius: 6;";
+
+    /**
+     * Marks a measure as one that reads what is selected beside the tree: its chip alone, with
+     * the runs left as the rollback drew them.
+     */
+    void markMeasure(int measureVertex, boolean on) {
+        MeasureChip chip = chips.get(measureVertex);
+        if (chip != null) {
+            chip.setStyle(on ? SELECTED : "");
+        }
+    }
+
+    /** Marks a node or a branch as the one selected: its name, on the same ground. */
+    void markSelected(int vertexIndex, boolean on) {
+        Node name = branchAbove.containsKey(vertexIndex) ? branchAbove.get(vertexIndex)
+                : terminals.contains(vertexIndex) ? valueLabels.get(vertexIndex) : nameLabels.get(vertexIndex);
+        if (name != null) {
+            name.setStyle(on ? SELECTED : "");
+        }
     }
 
     /** Lights a measure: its chip, and the path from the branch that carries it back to the root. */

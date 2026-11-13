@@ -82,6 +82,37 @@ public final class ProfileBlocks {
         return shared;
     }
 
+    /**
+     * The state for a review of one of the document's models ({@code dev-grow-model-review}):
+     * what the document's blocks have made known, as it is now, in a context of its own. A
+     * drawing built over it reads the document's statements, calculators and trees, and a model
+     * defined in it is the review's copy, so a value moved there redraws the review's drawings
+     * and no block of the document.
+     *
+     * <p>The identities are the document's own, so a symbol means the same concept in the review
+     * as in the document. Everything else is a copy: a statement or a calculator's value that
+     * lands in the document after the review opens is not read by it.
+     *
+     * @param view the view the document's blocks are read under
+     * @return the review's state
+     */
+    public synchronized ProfileBlocks forReview(ViewCalculator view) {
+        ProfileBlocks review = new ProfileBlocks();
+        review.identities = (Shared) identities(view);
+        review.calculators.putAll(calculators);
+        review.statements.putAll(statements);
+        review.complexConcepts.putAll(complexConcepts);
+        review.complexConceptCards.putAll(complexConceptCards);
+        review.statementCards.putAll(statementCards);
+        review.values.putAll(values);
+        review.trees.putAll(trees);
+        foldedBy.forEach((folded, folding) -> review.foldedBy.put(folded, new java.util.LinkedHashSet<>(folding)));
+        review.evidenceBlocks.putAll(evidenceBlocks);
+        review.evidenceYear = evidenceYear;
+        review.level = level;
+        return review;
+    }
+
 
         private final Map<Long, Calculator> calculators = new HashMap<>();
     private final Map<String, AnfStatement> statements = new HashMap<>();
@@ -343,6 +374,24 @@ public final class ProfileBlocks {
     /** Whether two statements of a model say the same: a page's copy ends in a line break the surface's may lack. */
     private static boolean sameText(GraphletModel one, GraphletModel other) {
         return one.body().stripTrailing().equals(other.body().stripTrailing());
+    }
+
+    /** By model id: the review open on a model of this document, which a block of the model drawn again goes on with. */
+    private final Map<String, ModelReviewGrow> reviews = new HashMap<>();
+
+    /** A review of a model has opened. */
+    synchronized void reviewOpened(String modelId, ModelReviewGrow review) {
+        reviews.put(modelId, review);
+    }
+
+    /** A review of a model has closed; another review opened on the model since is left. */
+    synchronized void reviewClosed(String modelId, ModelReviewGrow review) {
+        reviews.remove(modelId, review);
+    }
+
+    /** The review open on a model, when there is one. */
+    synchronized Optional<ModelReviewGrow> openReview(String modelId) {
+        return Optional.ofNullable(reviews.get(modelId));
     }
 
     /** The model a rendering names, when a block of this document defines it. */

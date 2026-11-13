@@ -133,7 +133,11 @@ final class TornadoBlockRenderer implements network.ike.komet.document.Structure
         }
         double price = DecisionTreeText.healthPrice(info).orElse(DecisionTreeText.DEFAULT_HEALTH_PRICE);
         String modelId = GraphletModelText.modelReference(info).orElseThrow();
-        return List.of(new BlockPiece(() -> new Live(info, modelId, price).column, literal == null ? "" : literal.stripTrailing()));
+        // the review opens at the price of a healthy year this block reads the model at
+        String treeInfo = "decision-tree model=" + modelId
+                + DecisionTreeText.healthPrice(info).map(at -> " health-price=" + Tokens.number(at)).orElse("");
+        return List.of(new BlockPiece(() -> ModelReviewGrow.grown(new Live(info, modelId, price).column, viewCalc, viewProperties,
+                base, context, modelId, treeInfo), literal == null ? "" : literal.stripTrailing()));
     }
 
     /** One rendering of the block: the model as the document holds it, swept at a price. */
@@ -205,7 +209,7 @@ final class TornadoBlockRenderer implements network.ike.komet.document.Structure
             column.getChildren().clear();
             Label heading = new Label("Sensitivity of the choice, one value at a time");
             heading.setFont(Font.font(null, FontWeight.BOLD, base * 0.9));
-            column.getChildren().add(heading);
+            column.getChildren().add(ExpandButton.leaveRoom(heading));
             Optional<GraphletModel> model = context.model(modelId);
             if (model.isEmpty()) {
                 drawnBody = null;
@@ -267,7 +271,7 @@ final class TornadoBlockRenderer implements network.ike.komet.document.Structure
                     mover = moverLanded.orElse(null);
                     tornado = new TornadoChart(landed.get(), base, this);
                     tornado.setId("tornado-chart");
-                    column.getChildren().add(new FittedFigure(tornado, base, base * TORNADO_LEAST_EMS));
+                    column.getChildren().add(new FittedFigure(tornado, base * TORNADO_LEAST_EMS));
                     trial.setText("");
                     trial.setVisible(false);
                     trial.setManaged(false);

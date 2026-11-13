@@ -158,6 +158,58 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
         this.rewriter = rewriter;
     }
 
+    /** Where a tree's column keeps what builds its drawing at full size, left to right, for whoever asks how much room that takes. */
+    static final Object WHOLE = new Object();
+    /** Where a tree's column keeps an {@link java.util.function.IntConsumer} to tell of a node or branch clicked on it. */
+    static final Object ON_SELECT = new Object();
+    /** Where a tree's column keeps its {@link Marks}, for whoever marks a selection on the tree. */
+    static final Object MARKS = new Object();
+
+    /**
+     * How large a tree is when it is drawn whole, left to right at full size. The drawing is measured
+     * in a scene of its own: a label that is in no scene has no skin and measures as nothing, so a
+     * drawing asked for its size before it is shown answers a fraction of it.
+     *
+     * @param column   a tree block's column, which keeps what draws the tree whole under {@link #WHOLE}
+     * @param styledAs the scene whose stylesheets the drawing will be shown with, or null
+     * @return the drawing's width and height, or null when the block has not drawn its tree
+     */
+    static javafx.geometry.Dimension2D wholeSize(Node column, javafx.scene.Scene styledAs) {
+        if (!(column.getProperties().get(WHOLE) instanceof java.util.function.Supplier<?> whole)
+                || !(whole.get() instanceof javafx.scene.layout.Region drawing)) {
+            return null;
+        }
+        javafx.scene.Group root = new javafx.scene.Group(drawing);
+        javafx.scene.Scene measuring = new javafx.scene.Scene(root);
+        if (styledAs != null) {
+            measuring.getStylesheets().setAll(styledAs.getStylesheets());
+        }
+        root.applyCss();
+        root.layout();
+        return new javafx.geometry.Dimension2D(drawing.prefWidth(-1), drawing.prefHeight(-1));
+    }
+
+    /** A selection marked on a tree: the measures that read a selected value, and a selected node or branch. */
+    interface Marks {
+        /**
+         * @param measures the measures to mark, by vertex; empty for none
+         * @param selected the node or branch selected, by vertex; negative for none
+         */
+        void show(java.util.Collection<Integer> measures, int selected);
+    }
+
+    /**
+     * Whether the tree is drawn as a part of a model's review ({@code dev-grow-model-review}).
+     * The review has the room a document lacks, and has the model's values in a table of their
+     * own beside the tree, so the tree is drawn whole from the start, with no alternative folded,
+     * no row of parameters above it, and no Expand button, since it is grown already.
+     */
+    private boolean reviewing;
+
+    void setReviewing(boolean reviewing) {
+        this.reviewing = reviewing;
+    }
+
     @Override
     public List<BlockPiece> render(String info, String literal, StyleAttributeMap baseStyle) {
         if (viewCalc == null || !accepts(info, literal)) {
@@ -167,7 +219,17 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
         double price = DecisionTreeText.healthPrice(info).orElse(DecisionTreeText.DEFAULT_HEALTH_PRICE);
         OptionalDouble cohort = DecisionTreeText.cohort(info).map(OptionalDouble::of).orElse(OptionalDouble.empty());
         String model = GraphletModelText.modelReference(info).orElse(null);
-        return List.of(new BlockPiece(() -> new Live(info, body, price, cohort, model).column, body.stripTrailing()));
+        // A tree that draws a model grows into the model's review, and a tree with its own text grows whole
+        // while it is drawn reduced. The tree of a review is grown already.
+        return List.of(new BlockPiece(() -> {
+            Live live = new Live(info, body, price, cohort, model);
+            if (reviewing) {
+                return live.column;
+            }
+            return model != null
+                    ? ModelReviewGrow.grown(live.column, viewCalc, viewProperties, base, context, model, info)
+                    : WholeTreeGrow.grown(live.column, live.reduced);
+        }, body.stripTrailing()));
     }
 
     // ── Pure decisions (no store access) ────────────────────────────────
@@ -242,8 +304,10 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
         final DecisionTreeFit fit = new DecisionTreeFit(CHIP_EMS, MIN_CHIP_EMS);
         /** Whether the drawing is being built: only its names take the fitted cap, never the parameters above it. */
         boolean drawing;
-        /** The drawing as it was last built, built again at full size for the escape. */
+        /** The drawing as it was last built, built again at full size for whoever shows the tree whole: its review, or its grow. */
         java.util.function.Supplier<DecisionTreeDiagram> whole;
+        /** Whether the drawing is reduced where it stands: scaled down to fit, or an outline in place of the drawing left to right. */
+        final javafx.beans.property.BooleanProperty reduced = new javafx.beans.property.SimpleBooleanProperty(false);
 
         /** When this block was made, among the blocks of every document: the latest of those restating a tree holds it. */
         final long order = ORDERS.incrementAndGet();
@@ -280,7 +344,41 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
                 }
             });
                         context.listen(onContext);
+            column.getProperties().put(MARKS, (Marks) this::showMarks);
             rebuild();
+        }
+
+        /** The measures and the node marked on the drawing, kept so a drawing made again is marked as the last was. */
+        private java.util.Collection<Integer> markedMeasures = List.of();
+        private int markedNode = -1;
+
+        private void showMarks(java.util.Collection<Integer> measures, int selected) {
+            if (diagram != null) {
+                markedMeasures.forEach(measure -> diagram.markMeasure(measure, false));
+                if (markedNode >= 0) {
+                    diagram.markSelected(markedNode, false);
+                }
+            }
+            markedMeasures = List.copyOf(measures);
+            markedNode = selected;
+            applyMarks();
+        }
+
+        private void applyMarks() {
+            if (diagram == null) {
+                return;
+            }
+            markedMeasures.forEach(measure -> diagram.markMeasure(measure, true));
+            if (markedNode >= 0) {
+                diagram.markSelected(markedNode, true);
+            }
+        }
+
+        @Override
+        public void select(int vertexIndex) {
+            if (column.getProperties().get(ON_SELECT) instanceof java.util.function.IntConsumer told) {
+                told.accept(vertexIndex);
+            }
         }
 
         private void rebuildIfReadsExternal() {
@@ -427,13 +525,13 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
             parameterChips.clear();
             top.getChildren().clear();
             top.getChildren().add(header(drawn, rollback, at));
-            Node parameters = parameters(drawn, rollback.derivations());
+            Node parameters = reviewing ? null : parameters(drawn, rollback.derivations());
             if (parameters != null) {
                 top.getChildren().add(parameters);
             }
             Optional<Cohort> cohort = cohortSize.isPresent()
                     ? Optional.of(Cohort.of(drawn, rollback, cohortSize.getAsDouble())) : Optional.empty();
-            if (!foldedRejected) {
+            if (!foldedRejected && !reviewing) {
                 // the first drawing folds what the rollback rejected: its run and its value stay, its subtree opens on a click
                 foldedRejected = true;
                 for (DecisionElement.Node decision : drawn.nodesOfType(DecisionElement.Decision.class)) {
@@ -463,15 +561,19 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
             } finally {
                 drawing = false;
             }
-            // the same drawing at full size, for the escape
+            applyMarks();
+            // the same drawing at full size, for the review's question of what fits and for the tree's own grow
             Set<Integer> folded = Set.copyOf(collapsed);
             whole = () -> new DecisionTreeDiagram(drawn, rollback, reference, shown, findings, folded, base, this, cohort);
+            column.getProperties().put(WHOLE, whole);
             // the tree fits its region, compacted, then an outline, then scaled, and never scrolls sideways
-            FittedFigure fitted = new FittedFigure(diagram, base, this::fitTo, this::openWhole);
+            FittedFigure fitted = new FittedFigure(diagram, this::fitTo);
             if (fit.outline()) {
-                // the outline stands in for the drawing left to right, which stays one click away
-                fitted.offerEscapeAlways("Open the tree drawn left to right, at full size");
+                // the outline stands in for the drawing left to right, which the block's Expand button leads to
+                fitted.standsInForFuller();
             }
+            reduced.unbind();
+            reduced.bind(fitted.reducedProperty());
             top.getChildren().add(fitted);
             // the ledger: every alternative's consequences in their own units
             String healthUnit = unitName(rollback.coordinate().healthSemantic(), "");
@@ -503,7 +605,7 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
                     }
                 }
                 // a table of whole names, not the column's: it takes the margins, and wraps a cell before it ellipsises one
-                top.getChildren().add(new FittedFigure(new VBox(2, title, grid), base, 0));
+                top.getChildren().add(new FittedFigure(new VBox(2, title, grid), 0));
             }
             // the readouts: what the choice trades, money and health apart, and where a cohort ends up
             for (String readout : DecisionTreeFigures.readoutLines(drawn, rollback, shown, symbol(), healthUnit, cohort,
@@ -552,6 +654,9 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
             FlowPane header = new FlowPane(8, 4);
             header.setAlignment(Pos.CENTER_LEFT);
             header.prefWrapLengthProperty().bind(column.widthProperty().subtract(4));
+            if (!reviewing) {
+                ExpandButton.leaveRoom(header);                         // the block's Expand button is over the row's end
+            }
             Label title = new Label("Decision tree");
             title.setFont(Font.font(null, FontWeight.BOLD, base));
             header.getChildren().add(title);
@@ -688,47 +793,6 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
             }
         }
 
-        /**
-         * The full-surface escape: the tree whole, at full size, in a window over the journal's,
-         * panned by dragging and zoomed with the shortcut key and the wheel; Esc returns.
-         */
-        private void openWhole() {
-            if (whole == null || column.getScene() == null) {
-                return;
-            }
-            // built outside a drawing of the column, so its names take the full cap whatever the region
-            DecisionTreeDiagram full = whole.get();
-            javafx.scene.transform.Scale zoom = new javafx.scene.transform.Scale(1, 1, 0, 0);
-            full.getTransforms().add(zoom);
-            javafx.scene.Group zoomed = new javafx.scene.Group(full);
-            ScrollPane pane = new ScrollPane(zoomed);
-            pane.setPannable(true);
-            pane.setStyle("-fx-background-color: white;");
-            pane.addEventFilter(javafx.scene.input.ScrollEvent.SCROLL, e -> {
-                if (e.isShortcutDown()) {
-                    double factor = e.getDeltaY() > 0 ? 1.1 : 1 / 1.1;
-                    double next = Math.max(0.25, Math.min(4, zoom.getX() * factor));
-                    zoom.setX(next);
-                    zoom.setY(next);
-                    e.consume();
-                }
-            });
-            javafx.stage.Window owner = column.getScene().getWindow();
-            javafx.stage.Stage stage = new javafx.stage.Stage();
-            stage.initOwner(owner);
-            stage.initModality(javafx.stage.Modality.WINDOW_MODAL);
-            stage.setTitle(tree.root().map(r -> shown.label(r.concept().orElse(0L))).orElse("Decision tree"));
-            javafx.scene.Scene scene = new javafx.scene.Scene(pane, owner.getWidth() * 0.9, owner.getHeight() * 0.85);
-            scene.getStylesheets().setAll(column.getScene().getStylesheets());
-            scene.setOnKeyPressed(e -> {
-                if (e.getCode() == javafx.scene.input.KeyCode.ESCAPE) {
-                    stage.close();
-                }
-            });
-            stage.setScene(scene);
-            stage.show();
-        }
-
         // ── The diagram's host ──────────────────────────────────────────────
 
         @Override
@@ -802,7 +866,19 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
             if (names.isEmpty() && situation.isEmpty()) {
                 return Optional.empty();
             }
-            return Optional.of(statementMark(names, situation));
+            Node mark = statementMark(names, situation);
+            if (reviewing) {
+                // a review shows a node's statements in a part of its own, and does not edit them
+                if (mark instanceof javafx.scene.control.Control control && control.getTooltip() != null) {
+                    control.getTooltip().setText(control.getTooltip().getText()
+                            .replace("Click to see and edit the statement", "Click to see the statement"));
+                }
+                mark.setOnMouseClicked(e -> {
+                    select(vertexIndex);
+                    e.consume();
+                });
+            }
+            return Optional.of(mark);
         }
 
         @Override

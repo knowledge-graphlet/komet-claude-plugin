@@ -323,7 +323,7 @@ final class BenefitRiskBlockRenderer implements network.ike.komet.document.Struc
         return tree.goal().<List<Node>>map(goal -> {
             List<Node> shown = new ArrayList<>();
             shown.add(heading("Value tree"));
-            shown.add(new FittedFigure(new TreeDiagram(goal), base, width -> { }, null));
+            shown.add(new FittedFigure(new TreeDiagram(goal), width -> { }));
             shown.addAll(findings(tree.findings()));
             return shown;
         }).orElseGet(() -> findings(tree.findings()));
@@ -384,7 +384,7 @@ final class BenefitRiskBlockRenderer implements network.ike.komet.document.Struc
         }
         List<Node> shown = new ArrayList<>();
         shown.add(heading("Effects table, " + read.first().name() + " against " + read.second().name()));
-        shown.add(new FittedFigure(grid, base, 0));
+        shown.add(new FittedFigure(grid, 0));
         shown.add(sentence(read.summary()));
         shown.add(caption(read.legend()));
         shown.addAll(findings(read.findings()));
@@ -414,7 +414,7 @@ final class BenefitRiskBlockRenderer implements network.ike.komet.document.Struc
         shown.add(heading("Forest plot of the effects table"));
         javafx.scene.layout.Pane drawn = FigureNode.of(figure, 1, "System");
         drawn.setId("forest-plot");
-        shown.add(new FittedFigure(drawn, base, width -> { }, null));
+        shown.add(new FittedFigure(drawn, width -> { }));
         shown.add(caption("A filled square: the interval leaves out zero. A hollow square: it does not. "
                 + read.legend() + " Gates are not effects, so they are not drawn."));
         return shown;
@@ -430,7 +430,7 @@ final class BenefitRiskBlockRenderer implements network.ike.komet.document.Struc
         }
         javafx.scene.layout.Pane drawn = FigureNode.of(shareFigure(lines, FOREST_WIDTH, FOREST_SIZE), 1, "System");
         drawn.setId("share-plot");
-        shown.add(new FittedFigure(drawn, base, width -> { }, null));
+        shown.add(new FittedFigure(drawn, width -> { }));
         shown.add(caption("Komet computes each 95% Wilson interval from the share and the number counted. The reports counted "
                 + "different things over different times, so their shares are not one estimate."));
         return shown;

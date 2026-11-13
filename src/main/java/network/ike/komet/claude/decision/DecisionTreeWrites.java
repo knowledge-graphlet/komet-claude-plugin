@@ -185,6 +185,12 @@ public final class DecisionTreeWrites {
                 if (statement.isEmpty()) {
                     return Written.refused(notWritten + "the document has no anf block named " + identifier + ".");
                 }
+                // an anf block's statement is written when the block is saved; a document read from git has none yet,
+                // and a store that mints no identity by guessing has none to give for it
+                if (!PrimitiveData.get().hasPublicId(statement.get())) {
+                    return Written.refused(notWritten + "the knowledge base does not have the statement " + identifier
+                            + " yet. It is written when its anf block is saved. The text of the " + what + " is saved.");
+                }
                 concepts.put(identifier, statement.get());
                 statements.add(PrimitiveData.nid(statement.get()));
                 continue;
