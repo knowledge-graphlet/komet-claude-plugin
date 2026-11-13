@@ -39,9 +39,10 @@ import java.util.regex.Pattern;
  *
  * <p>A finding is two acts. What someone observed is an ANF statement, an {@code [anf]} block of the
  * document, which holds the topic, the group, the result, the method, the period and the year in
- * print. Entering that statement against a hazard and a material is a curator's act, and that is
- * the entry here, filed by hazard and material and not by the device the statement was made about,
- * so it can reach the review of another device. How many a share is of is a statement of its own,
+ * print. Entering that statement against a hazard and a material, or for a diagnostic test a target
+ * it detects, is a curator's act, and that is the entry here, filed by hazard and by material or
+ * target and not by the device the statement was made about, so it can reach the review of another
+ * device. An entry is filed against a material or a target, not both. How many a share is of is a statement of its own,
  * because each value is, and the source stays on the entry until an anf block writes associations.
  *
  * @param all      the findings, as entered
@@ -80,6 +81,7 @@ public record Findings(List<Finding> all, List<String> problems) {
      * @param statement    what was found, in a sentence, as the entry reads
      * @param hazard       the hazard it is entered against, when it shows one
      * @param material     the material it is entered against
+     * @param target       the target it is entered against, for a finding about a diagnostic test
      * @param statementName the name of the anf block that states it
      * @param countName    the name of the anf block that states how many a share is of
      * @param topic        what was observed
@@ -95,7 +97,7 @@ public record Findings(List<Finding> all, List<String> problems) {
      * @param unit         what the share counts
      * @param narrative    whether it holds narrative only, having no scale yet
      */
-    public record Finding(String id, String statement, Optional<Named> hazard, Optional<Named> material, String statementName,
+    public record Finding(String id, String statement, Optional<Named> hazard, Optional<Named> material, Optional<Named> target, String statementName,
                           Optional<String> countName, String topic, String group, String method, int inPrint, String counted,
                           String period, String source, Optional<String> result, OptionalDouble sharePercent, OptionalInt among,
                           String unit, boolean narrative) {
@@ -145,6 +147,7 @@ public record Findings(List<Finding> all, List<String> problems) {
         Map<String, String> values = new java.util.HashMap<>();
         Optional<Named> hazard = Optional.empty();
         Optional<Named> material = Optional.empty();
+        Optional<Named> target = Optional.empty();
         Optional<String> named = Optional.empty();
         Optional<String> countName = Optional.empty();
         for (BlockLines.Line child : line.children()) {
@@ -157,7 +160,12 @@ public record Findings(List<Finding> all, List<String> problems) {
                 hazard = named(child);
             } else if ("material".equals(child.word())) {
                 material = named(child);
+            } else if ("target".equals(child.word())) {
+                target = named(child);
             }
+        }
+        if (material.isPresent() && target.isPresent()) {
+            problems.add(sentence + " is filed against a material and a target; an entry is filed against one.");
         }
         if (named.isEmpty()) {
             problems.add(sentence + " names no statement.");
@@ -207,7 +215,7 @@ public record Findings(List<Finding> all, List<String> problems) {
         String counted = statement.circumstance() instanceof Circumstance.Narrative words ? words.text()
                 : result.map(r -> counted(r, size)).orElse(NOT_STATED);
         String method = statement.circumstance() instanceof Circumstance.Performance performance ? label(performance.method()) : "";
-        return Optional.of(new Finding(concept.identifier().orElse(concept.key()), sentence, hazard, material, named.get(), countName,
+        return Optional.of(new Finding(concept.identifier().orElse(concept.key()), sentence, hazard, material, target, named.get(), countName,
                 label(statement.topic()), group, method.isEmpty() ? NOT_STATED : method, (int) Math.round(statement.statementTime().lowerBound()),
                 counted, period(statement.circumstance().timing()), values.getOrDefault("source", ""), Optional.ofNullable(values.get("gate")),
                 share, among, unit, narrative));
@@ -302,6 +310,13 @@ public record Findings(List<Finding> all, List<String> problems) {
     /** How many findings hold narrative only, having no scale yet: a gap in what they can be read for. */
     public long narrativeOnly() {
         return all.stream().filter(Finding::narrative).count();
+    }
+
+    /** What the findings are filed against, in words: materials, targets, or materials or targets when both. */
+    public String filedAgainst() {
+        boolean materials = all.stream().anyMatch(f -> f.material().isPresent());
+        boolean targets = all.stream().anyMatch(f -> f.target().isPresent());
+        return targets && materials ? "materials or targets" : targets ? "targets" : "materials";
     }
 
     /** A finding by its identifier. */

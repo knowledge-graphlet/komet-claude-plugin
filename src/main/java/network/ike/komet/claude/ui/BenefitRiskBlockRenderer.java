@@ -200,6 +200,7 @@ final class BenefitRiskBlockRenderer implements network.ike.komet.document.Struc
                 List<List<String>> table = new ArrayList<>();
                 table.add(List.of("field", "value"));
                 record.materials().forEach(m -> table.add(List.of("material", m.name())));
+                record.targets().forEach(t -> table.add(List.of("target", t.name())));
                 record.hazards().forEach(h -> table.add(List.of("hazard", h.name())));
                 record.statements().forEach(line -> table.add(List.of("states", line)));
                 yield List.of(TextFigure.of("device-record", record.device().map(Findings.Named::name), List.of(), table));
@@ -415,12 +416,18 @@ final class BenefitRiskBlockRenderer implements network.ike.komet.document.Struc
     private List<Node> deviceCard(String body) {
         DeviceRecord record = DeviceRecord.parse(body);
         List<Node> shown = new ArrayList<>();
-        shown.add(heading("What a device record would state"));
+        shown.add(heading(record.isTestRecord() ? "What a test record would state" : "What a device record would state"));
         record.device().ifPresent(device -> shown.add(chip(device.name())));
         for (String line : record.statements()) {
             shown.add(sentence(line));
         }
-        shown.add(chipRow("Materials", record.materials()));
+        // a record of materials draws its row even when it names none, as it always has
+        if (!record.materials().isEmpty() || record.targets().isEmpty()) {
+            shown.add(chipRow("Materials", record.materials()));
+        }
+        if (!record.targets().isEmpty()) {
+            shown.add(chipRow("Targets", record.targets()));
+        }
         record.family().ifPresent(family -> shown.add(chipRow("Family", List.of(family))));
         shown.add(chipRow("Hazards of its design", record.hazards()));
         shown.addAll(findings(record.problems()));
@@ -443,7 +450,7 @@ final class BenefitRiskBlockRenderer implements network.ike.komet.document.Struc
     private List<Node> findingsLine(String body) {
         Findings held = Findings.parse(body, context::statement);
         List<Node> shown = new ArrayList<>();
-        Label mock = sentence("Mock of the proposed findings: " + held.all().size() + " findings. DeX holds no findings against materials today. "
+        Label mock = sentence("Mock of the proposed findings: " + held.all().size() + " findings. DeX holds no findings against " + held.filedAgainst() + " today. "
                 + "These were drafted for this document from published reports, and no curator has accepted them.");
         mock.setStyle("-fx-text-fill: #b5541a;");
         shown.add(mock);
@@ -472,7 +479,7 @@ final class BenefitRiskBlockRenderer implements network.ike.komet.document.Struc
         List<Node> shown = new ArrayList<>();
         shown.add(heading("What the findings would have shown the reviewer"));
         shown.add(years);
-        shown.add(sentence(reached.size() + " of the " + inPrint + " findings in the mock reach this device."));
+        shown.add(sentence(reached.size() + " of the " + inPrint + " findings in the mock reach this " + (record.isTestRecord() ? "test." : "device.")));
         for (DeviceRecord.Reach reach : reached) {
             shown.add(findingRow(reach));
         }
