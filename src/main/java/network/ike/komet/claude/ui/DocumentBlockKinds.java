@@ -367,8 +367,31 @@ public final class DocumentBlockKinds {
 
         @Override
         public List<network.ike.komet.document.DecisionFigure> figures(Source source, Context context) {
+            return figures(source, List.of(), context);
+        }
+
+        /** Statements one directly after another read as a run: a group is named once, above its first statement. */
+        @Override
+        public boolean printsAsRun() {
+            return true;
+        }
+
+        /**
+         * A statement as its line: under its group's heading, which a statement about the group
+         * of the statement before it does not print again. A block that names no topic prints
+         * its fields, as before.
+         */
+        @Override
+        public List<network.ike.komet.document.DecisionFigure> figures(Source source, List<Source> before, Context context) {
             AnfBlockRenderer.publish(info(source.parameters()), source.content(), context.view(), ProfileBlocks.of(context.blocks()));
-            return BlockPrint.fields(name(), List.of(source.content().split("\n", -1)));
+            List<String> lines = List.of(source.content().split("\n", -1));
+            StatementLines.Statement statement = StatementLines.read(source.parameters(), lines);
+            if (statement.topic().isEmpty()) {
+                return BlockPrint.fields(name(), lines);
+            }
+            boolean heading = before.isEmpty() || !StatementLines
+                    .read(before.getLast().parameters(), List.of(before.getLast().content().split("\n", -1))).group().equals(statement.group());
+            return List.of(StatementLines.figure(statement, heading));
         }
 
         /** A performance with its topic and result still to name, in the open-block form the lab documents take. */
