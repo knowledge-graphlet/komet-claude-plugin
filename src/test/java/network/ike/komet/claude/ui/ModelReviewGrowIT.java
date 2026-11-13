@@ -331,7 +331,7 @@ class ModelReviewGrowIT {
         }
         // a document too narrow for the tree, and one with room for it at full size
         Lone narrow = onFx(() -> new Lone(body, 420));
-        Lone wide = onFx(() -> new Lone(body, 6000));
+        Lone wide = onFx(() -> new Lone(body, 1800));                // the tree whole is 1555 wide
         settle();
         settle();
         onFxRun(() -> {
@@ -371,7 +371,7 @@ class ModelReviewGrowIT {
             KlExpansionHost.mark(documentPane, () -> "Document", false);
             KlExpansionHost.mark(window, () -> "Journal window", true);
             Stage stage = new Stage();
-            stage.setScene(new Scene(window, Math.max(1800, width), 900));
+            stage.setScene(new Scene(window, 1800, 850));
             stage.show();
             window.applyCss();
             window.layout();
@@ -407,7 +407,7 @@ class ModelReviewGrowIT {
         assertTrue(treeWidth > 600, "the whole tree is measured with its names, not as a drawing with no skins: " + treeWidth);
         // room for the table of values, 32 ems wide, and for four fifths of the tree beside it
         double cardWidth = BASE * 32 + treeWidth * 0.8;
-        Place place = place(true, cardWidth + 1500, 3000, cardWidth);
+        Place place = place(true, cardWidth + 300, 900, cardWidth);
         onFxRun(() -> ModelReviewGrow.of(place.tree).expand());
         settle();
         assertSame(place.window, onFx(place::filled), "the tree would not be at full size in the card, so the card is not a rung");
@@ -419,7 +419,8 @@ class ModelReviewGrowIT {
     @Test
     @DisplayName("In a place with room for the whole review, it opens in the nearest, the document's area")
     void theReviewOpensInTheNearestPlaceWhenItFits() throws Exception {
-        Place place = place(true, 6000, 3000, 6000);
+        // the whole review of this model is 1673 by 680: a place with room for it, and a window no larger than the test's screen
+        Place place = place(true, 1900, 900, 1900);
         onFxRun(() -> ModelReviewGrow.of(place.tornado).expand());
         settle();
         assertSame(place.documentPane, onFx(place::filled));
