@@ -345,6 +345,10 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
             });
                         context.listen(onContext);
             column.getProperties().put(MARKS, (Marks) this::showMarks);
+            if (modelId != null && !reviewing) {
+                // the model's block marks on this tree the branches that read a value, and hears of a node picked here
+                context.links(modelId).tree(column);
+            }
             rebuild();
         }
 
@@ -378,6 +382,8 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
         public void select(int vertexIndex) {
             if (column.getProperties().get(ON_SELECT) instanceof java.util.function.IntConsumer told) {
                 told.accept(vertexIndex);
+            } else if (modelId != null) {
+                context.links(modelId).picked(vertexIndex);
             }
         }
 
@@ -525,7 +531,8 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
             parameterChips.clear();
             top.getChildren().clear();
             top.getChildren().add(header(drawn, rollback, at));
-            Node parameters = reviewing ? null : parameters(drawn, rollback.derivations());
+            // a tree that draws a model is a view of it: the model's block has the values, and each is on the branch that reads it
+            Node parameters = reviewing || modelId != null ? null : parameters(drawn, rollback.derivations());
             if (parameters != null) {
                 top.getChildren().add(parameters);
             }
@@ -657,17 +664,14 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
             if (!reviewing) {
                 ExpandButton.leaveRoom(header);                         // the block's Expand button is over the row's end
             }
-            Label title = new Label("Decision tree");
-            title.setFont(Font.font(null, FontWeight.BOLD, base));
-            header.getChildren().add(title);
-            if (modelId != null) {
-                Label modelName = new Label("model " + modelId);
-                modelName.setId("decision-tree-model");
-                modelName.setFont(Font.font("Menlo", base * 0.8));
-                modelName.setStyle("-fx-text-fill: #666;");
-                header.getChildren().add(modelName);
+            if (modelId == null) {
+                // a tree with its own text says what it is and what it decides; a tree that draws a model is a
+                // view of it, named by its caption, and the question is on its root
+                Label title = new Label("Decision tree");
+                title.setFont(Font.font(null, FontWeight.BOLD, base));
+                header.getChildren().add(title);
+                drawn.root().ifPresent(root -> concept(root.concept()).ifPresent(header.getChildren()::add));
             }
-            drawn.root().ifPresent(root -> concept(root.concept()).ifPresent(header.getChildren()::add));
             // the trees that fold this one in, each a link back to where it is folded in
             if (treeId != null) {
                 for (String folding : context.foldedBy(treeId)) {
@@ -696,7 +700,10 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
                     priceField.setStyle("-fx-border-color: #c0392b;");
                 }
             });
-            header.getChildren().addAll(priceLabel, priceField);
+            // the price of a healthy year moves nothing in a tree that counts no health
+            if (!drawn.nodesOfType(DecisionElement.HealthCost.class).isEmpty()) {
+                header.getChildren().addAll(priceLabel, priceField);
+            }
             rollback.rootValue().ifPresent(value -> {
                 Label expected = new Label("expected cost " + symbol() + money(value));
                 expected.setFont(Font.font(null, FontWeight.BOLD, base * 0.9));

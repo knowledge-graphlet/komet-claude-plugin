@@ -1,0 +1,44 @@
+// The model of the jaw implant consult (implants/jaw-implant-consult.adoc in the document library): three chances
+// multiplied into one, two chances of the wear test, and two costs.
+[graphlet-model, id=jaw-wear-test-model]
+----
+decision: k:WearTestDecision[Does the FDA ask for a wear test of the jaw implant?] @id=jaw-decision
+  parameter = [0.3,0.7] k:LinkWear[Chance the bearing surface wears into particles in the jaw] @id=jaw-link-a basis=estimated
+  parameter = [0.8,0.95] k:LinkTissue[Chance the tissue reacts to the particles] @id=jaw-link-b basis=estimated
+  parameter = [0.5,0.8] k:LinkRemoval[Chance the reaction leads to removal] @id=jaw-link-c basis=estimated
+  parameter = k:FailingChance[Chance a device like this implant is a failing device] @id=jaw-failing from Product of k:LinkWear[] @id=jaw-link-a k:LinkTissue[] @id=jaw-link-b k:LinkRemoval[] @id=jaw-link-c
+  parameter = [0.9,0.9] k:TestStops[Chance a wear test stops a failing device] @id=jaw-test-stops basis=estimated
+  parameter = [0.05,0.05] k:TestErrs[Chance a wear test stops a sound device] @id=jaw-test-errs basis=estimated
+  parameter = [100000,100000] k:WearTestCost[Cost of one wear test] @id=jaw-test-cost in k:Usd[US dollar] @id=jaw-usd basis=cited source=simulia2016
+  parameter = [3560000,3560000] k:CareCost[Cost of care if a failing device is cleared, for 1780 patients, 10 of every 100 removed, at $20000 each] @id=jaw-care-cost in k:Usd[US dollar] @id=jaw-usd basis=estimated
+  alternative: k:AskTest[Ask for a wear test first] @id=jaw-ask
+    money = from k:WearTestCost[] @id=jaw-test-cost in k:Usd[US dollar] @id=jaw-usd
+    chance: k:ImplantState[State of the implant material in patients] @id=jaw-state-asked
+      event: k:FailingDevice[Failing device] @id=jaw-failing-asked
+        p = from k:FailingChance[] @id=jaw-failing
+        chance: k:WearResult[Wear test result] @id=jaw-result-failing
+          event: k:WearsThrough[Bearing surface wears through in the test] @id=jaw-wears
+            p = from k:TestStops[] @id=jaw-test-stops
+            outcome: k:Stopped[Device stopped before clearance] @id=jaw-stopped
+          residual: k:Holds[Bearing surface holds in the test] @id=jaw-holds
+            money = from k:CareCost[] @id=jaw-care-cost in k:Usd[US dollar] @id=jaw-usd
+            count = [1,1] k:FailingCleared[failing devices cleared] @id=jaw-failing-cleared
+            outcome: k:Cleared[Device cleared] @id=jaw-cleared-missed
+      residual: k:SoundDevice[Sound device] @id=jaw-sound-asked
+        chance: k:WearResult[Wear test result] @id=jaw-result-sound
+          event: k:WearsThrough[Bearing surface wears through in the test] @id=jaw-wears-sound
+            p = from k:TestErrs[] @id=jaw-test-errs
+            count = [1,1] k:SoundStopped[sound devices stopped in error] @id=jaw-sound-stopped
+            outcome: k:Stopped[Device stopped before clearance] @id=jaw-stopped-sound
+          residual: k:Holds[Bearing surface holds in the test] @id=jaw-holds-sound
+            outcome: k:Cleared[Device cleared] @id=jaw-cleared-sound
+  alternative: k:ClearNoTest[Clear the implant with no wear test] @id=jaw-clear
+    chance: k:ImplantState[State of the implant material in patients] @id=jaw-state-cleared
+      event: k:FailingDevice[Failing device] @id=jaw-failing-cleared-state
+        p = from k:FailingChance[] @id=jaw-failing
+        money = from k:CareCost[] @id=jaw-care-cost in k:Usd[US dollar] @id=jaw-usd
+        count = [1,1] k:FailingCleared[failing devices cleared] @id=jaw-failing-cleared
+        outcome: k:Cleared[Device cleared] @id=jaw-cleared-failing
+      residual: k:SoundDevice[Sound device] @id=jaw-sound-cleared
+        outcome: k:Cleared[Device cleared] @id=jaw-cleared-clear
+----

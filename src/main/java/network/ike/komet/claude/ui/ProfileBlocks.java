@@ -394,6 +394,97 @@ public final class ProfileBlocks {
         return Optional.ofNullable(reviews.get(modelId));
     }
 
+    /** By model id: what the blocks that draw the model tell each other. */
+    private final Map<String, ModelLinks> links = new HashMap<>();
+    /** The ids of the models whose values are shown in their blocks, which a block drawn again goes on with. */
+    private final java.util.Set<String> valuesOpen = new java.util.HashSet<>();
+
+    /**
+     * What the blocks that draw one model tell each other: the model's block tells the trees
+     * which of their branches read a value, and a tree tells the model's block which node was
+     * picked on it.
+     *
+     * @param modelId the model's id
+     * @return the model's links, made on first use
+     */
+    synchronized ModelLinks links(String modelId) {
+        return links.computeIfAbsent(modelId, id -> new ModelLinks());
+    }
+
+    /** Whether a model's block shows its values: false until a person opens them. */
+    synchronized boolean valuesOpen(String modelId) {
+        return valuesOpen.contains(modelId);
+    }
+
+    /** A person has opened or closed the values of a model's block. */
+    synchronized void setValuesOpen(String modelId, boolean open) {
+        if (open) {
+            valuesOpen.add(modelId);
+        } else {
+            valuesOpen.remove(modelId);
+        }
+    }
+
+    /**
+     * The links between the blocks that draw one model. A block is held only while something
+     * else holds it: a block that the surface has drawn again is forgotten.
+     */
+    static final class ModelLinks {
+        private final List<java.lang.ref.WeakReference<Node>> trees = new ArrayList<>();
+        private final List<java.lang.ref.WeakReference<java.util.function.IntConsumer>> pickers = new ArrayList<>();
+
+        /** A decision-tree block draws the model: its column, which keeps its {@link DecisionTreeBlockRenderer#MARKS}. */
+        synchronized void tree(Node column) {
+            trees.removeIf(held -> held.get() == null || held.get() == column);
+            trees.add(new java.lang.ref.WeakReference<>(column));
+        }
+
+        /** The model's block hears of a node picked on a tree; the block keeps the listener, which is held weakly here. */
+        synchronized void onPick(java.util.function.IntConsumer picker) {
+            pickers.removeIf(held -> held.get() == null);
+            pickers.add(new java.lang.ref.WeakReference<>(picker));
+        }
+
+        /**
+         * Marks, on every tree that draws the model and is shown, the measures that read a value.
+         *
+         * @param measures the vertices of the probabilities and costs to mark; none clears the marks
+         */
+        void mark(java.util.Collection<Integer> measures) {
+            for (Node column : shown()) {
+                if (column.getProperties().get(DecisionTreeBlockRenderer.MARKS) instanceof DecisionTreeBlockRenderer.Marks marks) {
+                    marks.show(measures, -1);
+                }
+            }
+        }
+
+        /** A node or a branch was picked on a tree that draws the model. */
+        void picked(int node) {
+            List<java.util.function.IntConsumer> told = new ArrayList<>();
+            synchronized (this) {
+                for (java.lang.ref.WeakReference<java.util.function.IntConsumer> held : pickers) {
+                    java.util.function.IntConsumer picker = held.get();
+                    if (picker != null) {
+                        told.add(picker);
+                    }
+                }
+            }
+            told.forEach(picker -> picker.accept(node));
+        }
+
+        /** The trees that draw the model and are in a scene. */
+        private synchronized List<Node> shown() {
+            List<Node> shown = new ArrayList<>();
+            for (java.lang.ref.WeakReference<Node> held : trees) {
+                Node column = held.get();
+                if (column != null && column.getScene() != null) {
+                    shown.add(column);
+                }
+            }
+            return shown;
+        }
+    }
+
     /** The model a rendering names, when a block of this document defines it. */
     public synchronized Optional<GraphletModel> model(String id) {
         return id == null ? Optional.empty() : Optional.ofNullable(models.get(id));

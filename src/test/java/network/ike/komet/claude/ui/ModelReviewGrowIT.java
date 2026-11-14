@@ -260,6 +260,111 @@ class ModelReviewGrowIT {
         return review.values().get(0).vertex();
     }
 
+    /** The first label under a node whose text a test accepts, or null. */
+    private static Node labelled(Node under, java.util.function.Predicate<String> text) {
+        return under.lookupAll(".label").stream()
+                .filter(label -> label instanceof javafx.scene.control.Label named && named.getText() != null && text.test(named.getText()))
+                .findFirst().orElse(null);
+    }
+
+    /** Every node under a node, itself first. */
+    private static List<Node> under(Node node) {
+        List<Node> all = new ArrayList<>();
+        all.add(node);
+        if (node instanceof javafx.scene.Parent parent) {
+            parent.getChildrenUnmodifiable().forEach(child -> all.addAll(under(child)));
+        }
+        return all;
+    }
+
+    private static long marked(Node tree) {
+        return under(tree).stream().filter(node -> node instanceof MeasureChip && !node.getStyle().isEmpty()).count();
+    }
+
+    private static List<Node> markedRows(Node model) {
+        return under(model).stream().filter(node -> node.getId() != null && node.getId().startsWith("model-row-")
+                && node.getStyle().contains("#e6eef8")).toList();
+    }
+
+    @Test
+    @DisplayName("The model's block is one line that opens to its values, each under what the tree reads it for")
+    void theModelIsOneLineThatOpensToItsValues() throws Exception {
+        Place place = place(true, 1300, 850, 620);
+        onFxRun(() -> {
+            assertNotNull(place.model.lookup("#graphlet-model-mark"), "the model's mark");
+            Button show = (Button) place.model.lookup("#graphlet-model-values");
+            assertEquals("6 values behind this decision", show.getText());
+            assertEquals("Show the values", show.getTooltip().getText());
+            assertNull(place.model.lookup("#graphlet-model-parameters"), "the values are not shown until a person asks for them");
+            assertNull(labelled(place.model, text -> text.equals("Graphlet model") || text.equals(MODEL)), "no word about how the model is stored");
+            // the tree that draws the model is a view of it: no list of the values, and no words about itself
+            assertNull(labelled(place.tree, text -> text.equals("Decision tree") || text.startsWith("model ")));
+            assertNull(place.tree.lookup("#health-price-field"), "no price of a healthy year on a tree that counts no health");
+            show.fire();
+        });
+        settle();
+        onFxRun(() -> {
+            place.window.applyCss();
+            place.window.layout();
+            assertEquals("Hide the values", ((Button) place.model.lookup("#graphlet-model-values")).getTooltip().getText());
+            Node table = place.model.lookup("#graphlet-model-parameters");
+            assertNotNull(table, "the values, in place");
+            List<String> groups = table.lookupAll(".graphlet-model-group").stream().map(node -> ((javafx.scene.control.Label) node).getText()).toList();
+            assertTrue(groups.size() >= 2 && groups.contains("Costs"), "each value under what the tree reads it for: " + groups);
+            List<Node> rows = under(table).stream().filter(node -> node.getId() != null && node.getId().startsWith("model-row-")).toList();
+            assertEquals(6, rows.size(), "a row for each value");
+            List<MeasureChip> amounts = under(table).stream().filter(MeasureChip.class::isInstance).map(MeasureChip.class::cast).toList();
+            assertEquals(6, amounts.size());
+            assertTrue(amounts.stream().noneMatch(chip -> chip.shown().contains("[")), "no interval notation: "
+                    + amounts.stream().map(MeasureChip::shown).toList());
+            assertTrue(under(table).stream().anyMatch(node -> node.getId() != null && node.getId().startsWith("model-bar-")), "a chance has a bar");
+            // a block drawn again, as after an edit, goes on showing its values
+            place.drawModelAgain(modelBody);
+            assertNotNull(place.model.lookup("#graphlet-model-parameters"), "the values stay open in a block drawn again");
+            ((Button) place.model.lookup("#graphlet-model-values")).fire();
+        });
+        settle();
+        onFxRun(() -> assertNull(place.model.lookup("#graphlet-model-parameters"), "and close again"));
+    }
+
+    @Test
+    @DisplayName("Pointing at a value marks the branches of the tree that read it, and a node picked on the tree marks its values")
+    void theValuesAndTheTreeMarkEachOther() throws Exception {
+        Place place = place(true, 1300, 850, 620);
+        onFxRun(() -> ((Button) place.model.lookup("#graphlet-model-values")).fire());
+        settle();
+        onFxRun(() -> {
+            place.window.applyCss();
+            place.window.layout();
+            assertEquals(0, marked(place.tree));
+            assertTrue(markedRows(place.model).isEmpty());
+            Node row = under(place.model).stream().filter(node -> node.getId() != null && node.getId().startsWith("model-row-"))
+                    .findFirst().orElseThrow();
+            javafx.event.Event.fireEvent(row, pointer(javafx.scene.input.MouseEvent.MOUSE_ENTERED));
+            assertEquals(List.of(row), markedRows(place.model), "the value pointed at");
+            assertTrue(marked(place.tree) >= 1, "the branches that read it are marked on the tree");
+            javafx.event.Event.fireEvent(row, pointer(javafx.scene.input.MouseEvent.MOUSE_EXITED));
+            assertTrue(markedRows(place.model).isEmpty(), "nothing is marked once the pointer has left");
+            assertEquals(0, marked(place.tree));
+            // a click on a node or a branch of the tree: the first that reads a value marks that value's row
+            for (Node part : under(place.tree)) {
+                if (part.getOnMouseClicked() == null || part instanceof MeasureChip || part instanceof Button) {
+                    continue;
+                }
+                part.getOnMouseClicked().handle(null);
+                if (!markedRows(place.model).isEmpty()) {
+                    break;
+                }
+            }
+            assertFalse(markedRows(place.model).isEmpty(), "a node picked on the tree marks the values it reads");
+        });
+    }
+
+    private static javafx.scene.input.MouseEvent pointer(javafx.event.EventType<javafx.scene.input.MouseEvent> type) {
+        return new javafx.scene.input.MouseEvent(type, 0, 0, 0, 0, javafx.scene.input.MouseButton.NONE, 0,
+                false, false, false, false, false, false, false, false, false, false, null);
+    }
+
     @Test
     @DisplayName("Each of the three blocks has one Expand button, drawn always at its top right, and no second mark")
     void theThreeBlocksHaveTheExpandButton() throws Exception {
@@ -282,10 +387,13 @@ class ModelReviewGrowIT {
             }
             assertNull(place.window.lookup("#decision-tree-expand"), "the tree has no mark of its own beside the button");
             // the first row of each block ends before the button, so nothing of it is drawn under the button
-            for (String firstRow : List.of("Graphlet model", "Sensitivity of the choice, one value at a time", "Decision tree")) {
-                Node title = place.window.lookupAll(".label").stream()
-                        .filter(label -> label instanceof javafx.scene.control.Label named && firstRow.equals(named.getText()))
-                        .findFirst().orElseThrow(() -> new AssertionError("no row " + firstRow));
+            Map<String, Node> firstRows = new LinkedHashMap<>();
+            firstRows.put("the model's line", place.model.lookup("#graphlet-model-values"));
+            firstRows.put("the tornado's title", labelled(place.window, text -> text.equals("Sensitivity of the choice, one value at a time")));
+            firstRows.put("the tree's expected cost", labelled(place.tree, text -> text.startsWith("expected cost")));
+            for (String firstRow : firstRows.keySet()) {
+                Node title = firstRows.get(firstRow);
+                assertNotNull(title, "no row for " + firstRow);
                 Node block = title;
                 while (ExpandButton.of(block) == null) {
                     block = block.getParent();
