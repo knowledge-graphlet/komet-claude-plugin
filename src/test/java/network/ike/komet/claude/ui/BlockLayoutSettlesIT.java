@@ -270,6 +270,11 @@ class BlockLayoutSettlesIT {
         assertTrue(every.stream().noneMatch(text -> text != null && (text.contains("[") || text.contains("settle-removal"))),
                 "no interval notation and no block name on the line: " + every);
         assertNotNull(onFx(() -> first.lookup("#anf-settle-removal")), "the line is found by the statement's name");
+        assertNotNull(onFx(() -> first.lookup("#anf-settle-removal").lookup(".anf-statement-sign")), "the sign at its head says it is a statement");
+        assertFalse(onFx(() -> ((javafx.scene.control.Label) first.lookup(".anf-statement-group")).getFont().getStyle()).toLowerCase().contains("italic"),
+                "the group is not set apart by italics");
+        assertEquals(2, (int) onFx(() -> first.lookupAll(".anf-words-mark").size()), "the group and the topic are words with no concept yet, and say so");
+        assertEquals(1, (int) onFx(() -> first.lookupAll(".anf-complex-mark").size()), "the group's words want a complex concept, and say that too");
 
         Node next = onFx(() -> {
             Node block = statement("The implant in the jaw joint, in patients");

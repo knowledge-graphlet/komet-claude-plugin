@@ -641,7 +641,7 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
                     : " beneath a branch, what it costs" + (anyHealth ? ", money then health in " + healthUnit : "");
             Label legend = new Label("⇒ is the expected cost per patient from that point on, in " + moneyUnit + priced
                     + ". A percentage is the share who go that way;" + beneath
-                    + ". The heavy run is the alternative chosen, a barred one is rejected. Hover a number for its working.");
+                    + ". The heavy run is the alternative chosen, a crossed one is rejected. Hover a number for its working.");
             legend.setId("decision-tree-legend");
             legend.setWrapText(true);
             legend.setFont(Font.font(base * 0.78));
@@ -1045,11 +1045,12 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
      * statement as written, a click peeks at each one's card, editable, writing back to its block.
      */
     private Node statementMark(List<String> names, OptionalLong situation) {
-        Label mark = new Label("ANF");
+        // the sign a statement has on its own line, in place of the letters ANF
+        Label mark = new Label();
+        mark.setGraphic(StatementSign.node(base * 0.95));
         mark.setId("anf-statement-mark");
         mark.setFont(Font.font(null, FontWeight.BOLD, base * 0.7));
-        mark.setStyle("-fx-background-color: #e6eef8; -fx-text-fill: #1f3b73; -fx-background-radius: 4;"
-                + " -fx-padding: 0 4 0 4; -fx-border-color: #9db3d6; -fx-border-radius: 4; -fx-border-width: 1;");
+        mark.setStyle("-fx-padding: 0 3 0 3;");
         mark.setCursor(javafx.scene.Cursor.HAND);
         List<String> written = new ArrayList<>();
         situation.ifPresent(nid -> context.complexConcept(nid).ifPresent(spec ->

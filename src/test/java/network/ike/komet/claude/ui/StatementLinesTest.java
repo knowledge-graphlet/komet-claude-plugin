@@ -155,6 +155,44 @@ class StatementLinesTest {
     }
 
     @Test
+    void aStatementHasItsBarAndWordsWithNoConceptHaveTheirMark() {
+        DecisionFigure figure = StatementLines.figure(StatementLines.read("[anf,type=performance]", REMOVAL), true);
+        assertEquals(2, figure.marks().stream().filter(mark -> mark.role().equals("statement-sign")).count(),
+                "the sign of a statement at the head of the line, an upright stroke and a stroke out of its middle");
+        DecisionFigure.Text group = figure.marks().stream().filter(DecisionFigure.Text.class::isInstance).map(DecisionFigure.Text.class::cast)
+                .filter(text -> text.role().equals("statement-group")).findFirst().orElseThrow();
+        assertFalse(group.italic(), "the group is not set apart by italics");
+        assertTrue(group.bold(), "it is named as a name is");
+        assertEquals(List.of("?", "?"), words(figure, "statement-words-mark"), "the group and the topic are words with no concept yet");
+        assertTrue(group.x() > 0, "the group's words begin after their mark");
+        assertTrue(figure.marks().stream().anyMatch(mark -> mark.role().equals("statement-complex-mark")),
+                "a group is a complex concept, so its words carry the complex concept's mark too");
+        assertTrue(StatementLines.figure(StatementLines.read("[anf,type=performance]", REMOVAL), false).marks().stream()
+                .noneMatch(mark -> mark.role().equals("statement-complex-mark")), "a topic's words want a concept, and carry the one mark");
+
+        // a topic that is a concept has no mark; the group, still words, has its own
+        List<String> concept = REMOVAL.stream().map(line -> line.startsWith("topic")
+                ? "topic:: k:Removal[Removal - action] @id=118292001" : line).toList();
+        StatementLines.Statement removal = StatementLines.read("[anf,type=performance]", concept);
+        assertFalse(removal.topicInWords());
+        assertEquals("Removal - action", StatementLines.read("[anf,type=performance]", List.of(
+                "topic:: k:Removal[Removal - action (qualifier value)] @id=118292001")).topic(),
+                "a concept is read by its name, without the tag its terminology writes after it");
+        assertEquals("Wear-through of the bearing surface (simulator)", StatementLines.read("[anf,type=performance]", List.of(
+                "topic:: candidate[Wear-through of the bearing surface (simulator)] disp=PENDING")).topic(), "a candidate's words are left whole");
+        assertTrue(removal.groupInWords());
+        assertEquals(List.of("?"), words(StatementLines.figure(removal, true), "statement-words-mark"));
+        assertEquals(List.of(), words(StatementLines.figure(removal, false), "statement-words-mark"), "a group that is not named has no mark either");
+
+        // words a person chose to keep as words want no concept, and carry no mark
+        StatementLines.Statement kept = StatementLines.read("[anf,type=performance]",
+                REMOVAL.stream().map(line -> line.replace("disp=PENDING", "disp=LEAVE_NARRATIVE")).toList());
+        assertFalse(kept.topicInWords() || kept.groupInWords());
+        assertEquals(List.of(), words(StatementLines.figure(kept, true), "statement-words-mark"));
+        assertEquals(List.of("Removal of the implant"), words(StatementLines.figure(kept, true), "statement-topic"));
+    }
+
+    @Test
     void aUnitReadsWithoutTheTagItsTerminologyGivesIt() {
         // a statement written back from its form names a unit as the knowledge base does, tag and all
         assertEquals("1989", StatementLines.time("[1989,1989] year (qualifier value)"));

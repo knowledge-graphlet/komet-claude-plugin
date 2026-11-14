@@ -253,8 +253,11 @@ class AnfStatementControlTest {
         render(methodInWords());
         Node value = onFx(() -> control.lookup(".anf-unsettled"));
         assertNotNull(value, "the method's value");
-        assertEquals(List.of("?", "Clinical report"), onFx(() -> value.lookupAll(".label").stream().map(node -> ((Label) node).getText())
-                .filter(text -> !text.startsWith("Find or create")).toList()), "a mark, then the words as they are");
+        assertEquals(List.of("Clinical report"), onFx(() -> value.lookupAll(".label").stream().map(node -> ((Label) node).getText())
+                .filter(text -> !text.startsWith("Find or create")).toList()), "the words as they are");
+        assertEquals("?", onFx(() -> ((javafx.scene.text.Text) value.lookup(".anf-unsettled-mark")).getText()),
+                "behind the sigil a badge carries for a component the knowledge base does not have");
+        assertNull(onFx(() -> value.lookup(".anf-complex-mark")), "a method is a concept, not a group: no complex concept is wanted for it");
         assertTrue(onFx(() -> ((Label) value.lookup(".anf-provisional")).isWrapText()), "words too long for the row go on to a second line");
         assertTrue(onFx(() -> value.lookupAll(".ditree-slot").isEmpty()), "no search box stands in the row");
         assertNull(onFx(() -> control.lookup("#anf-find-panel")), "the panel waits for a click");

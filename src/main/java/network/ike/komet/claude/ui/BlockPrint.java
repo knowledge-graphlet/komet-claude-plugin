@@ -58,6 +58,11 @@ final class BlockPrint {
      */
     private static final Pattern CANDIDATE = Pattern.compile(
             "candidate\\[([^\\]]*)](?:\\s+disp=\\S+)?(?:\\s+near=\\S+)?(?:\\s+text=\"(?:[^\"\\\\]|\\\\.)*\")?");
+    /**
+     * The tag a terminology writes after a name to say what kind of thing it names, as SNOMED CT writes
+     * {@code year (qualifier value)}: a reader needs the name alone.
+     */
+    private static final Pattern SEMANTIC_TAG = Pattern.compile("\\s*\\([a-z][a-z /-]*\\)\\s*$");
     /** What a block says about itself rather than its subject. */
     private static final Pattern MACHINERY = Pattern.compile("\\s+(?:@id|disp|statement)=\\S+");
     /** A field: its name, then {@code :}, {@code ::} or {@code =}, then its value. */
@@ -200,6 +205,16 @@ final class BlockPrint {
     /** A line with its concepts read as their names and its block machinery gone. */
     static String named(String line) {
         String candidates = CANDIDATE.matcher(line).replaceAll(match -> Matcher.quoteReplacement(match.group(1)));
-        return MACHINERY.matcher(CONCEPT.matcher(candidates).replaceAll(match -> Matcher.quoteReplacement(match.group(1)))).replaceAll("");
+        return MACHINERY.matcher(CONCEPT.matcher(candidates).replaceAll(match -> Matcher.quoteReplacement(untagged(match.group(1))))).replaceAll("");
+    }
+
+    /**
+     * A concept's name as a reader says it: without the tag its terminology writes after it. A candidate's words
+     * are left whole, since what stands in brackets at their end is the author's.
+     */
+    static String untagged(String name) {
+        String whole = name.strip();
+        String bare = SEMANTIC_TAG.matcher(whole).replaceFirst("");
+        return bare.isEmpty() ? whole : bare;
     }
 }

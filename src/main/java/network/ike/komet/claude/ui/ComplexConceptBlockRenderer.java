@@ -344,7 +344,12 @@ final class ComplexConceptBlockRenderer implements network.ike.komet.document.St
             GridPane grid = new GridPane();
             grid.setHgap(10);
             grid.setVgap(3);
-            grid.setPadding(new Insets(2, 0, 0, 12));
+            // a dotted bar beside the prerequisites says they are what must hold, where a statement's solid bar says what was found
+            grid.getStyleClass().add("complex-concept-must-hold");
+            grid.setStyle("-fx-border-color: transparent transparent transparent #2E3240; -fx-border-style: dotted;"
+                    + " -fx-border-width: 0 0 0 3;");
+            grid.setPadding(new Insets(2, 0, 2, 9));
+            VBox.setMargin(grid, new Insets(0, 0, 0, 3));
             // the value and the relation are short and stay whole; the topic takes what is left, its name wrapping
             grid.add(head("given"), 0, 0);
             grid.add(whole(head("value")), 1, 0);

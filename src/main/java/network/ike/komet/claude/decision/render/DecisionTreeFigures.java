@@ -91,7 +91,8 @@ public final class DecisionTreeFigures {
     /** The surface's base font size; every other size follows as it does on the live diagram. */
     static final double BASE = 12;
     /** The room the two bars of a rejected alternative take on its run, before its labels. */
-    private static final double BAR_ROOM = 16;
+    /** The room a rejected alternative's cross takes before the run's label. */
+    private static final double CROSS_ROOM = 16;
     private static final double SPAN_GAP = 5;
 
     /** One piece of a label row. */
@@ -173,7 +174,9 @@ public final class DecisionTreeFigures {
     static final String FOLD_IN = "#1f5fa8";
 
     /** The colour of the mark that a node holds ANF statements: the chosen run's blue. */
-    static final String STATEMENT_MARK = "#1f3b73";
+    static final String STATEMENT_MARK = "#2E3240";
+    /** The assertion sign, set as a character here, where a run's marks are text. */
+    static final String STATEMENT_SIGN = "\u22A2";
 
     private static final class TreeBuilder {
         private final DecisionTree tree;
@@ -196,7 +199,7 @@ public final class DecisionTreeFigures {
         private final Map<Integer, List<Span>> branchBelow = new HashMap<>();
         /** The most lines any run or outcome stacks beneath itself, which every row makes room for. */
         private int belowLines = 1;
-        private final Set<Integer> barred = new HashSet<>();
+        private final Set<Integer> rejected = new HashSet<>();
         private final Set<Integer> flagged = new HashSet<>();
         private final Set<Integer> chosenBranches = new HashSet<>();
         /** Which nodes hold ANF statements, marked beside their names. */
@@ -250,16 +253,17 @@ public final class DecisionTreeFigures {
                         : Stroke.solid(chosen ? DecisionFigureText.CHOSEN : DecisionFigureText.INK, chosen ? 2.6 : 1.2);
                 marks.add(new Polyline(new double[] {run.x0(), run.y0(), run.xBend(), run.y0(), run.xBend(), run.y(),
                         run.x1(), run.y()}, stroke, "run" + (chosen ? " chosen" : "") + (gap ? " gap" : "")));
-                boolean isBarred = barred.contains(index);
-                double labelX = run.xBend() + 8 + (isBarred ? BAR_ROOM : 0);
+                boolean isRejected = rejected.contains(index);
+                double labelX = run.xBend() + 8 + (isRejected ? CROSS_ROOM : 0);
                 row(marks, branchAbove.get(index), labelX, run.y() - lineHeight * lines(branchAbove.get(index)) - 2);
                 row(marks, branchBelow.get(index), labelX, run.y() + 3);
-                if (isBarred) {
-                    double bx = run.xBend() + 9;
-                    marks.add(new Polyline(new double[] {bx, run.y() - 6, bx, run.y() + 6},
-                            Stroke.solid(DecisionFigureText.INK, 1.6), "barred"));
-                    marks.add(new Polyline(new double[] {bx + 5, run.y() - 6, bx + 5, run.y() + 6},
-                            Stroke.solid(DecisionFigureText.INK, 1.6), "barred"));
+                if (isRejected) {
+                    // a cross on the run: two upright bars across it read as the sign of a statement
+                    double bx = run.xBend() + 8;
+                    marks.add(new Polyline(new double[] {bx, run.y() - 5, bx + 10, run.y() + 5},
+                            Stroke.solid(DecisionFigureText.INK, 1.6), "rejected"));
+                    marks.add(new Polyline(new double[] {bx, run.y() + 5, bx + 10, run.y() - 5},
+                            Stroke.solid(DecisionFigureText.INK, 1.6), "rejected"));
                 }
             }
             for (Placed placed : layout.placed()) {
@@ -340,7 +344,7 @@ public final class DecisionTreeFigures {
                     : " beneath a branch, what it costs.";
             return "\u21D2 is the expected cost from that point on" + unit + priced
                     + ". A percentage is the share who go that way;"
-                    + beneath + " The heavy run is the alternative chosen, a barred one is"
+                    + beneath + " The heavy run is the alternative chosen, a crossed one is"
                     + " rejected, and \u25B2 marks a value whose range flips the root's choice.";
         }
 
@@ -464,10 +468,10 @@ public final class DecisionTreeFigures {
                     size * 0.85, false, true, FOLD_IN, "fold-in"));
         }
 
-        /** The mark beside a node's name that it holds ANF statements, as the live drawing marks it. */
+        /** The sign beside a node's name that it names statements, the sign a statement has on its own line. */
         private Optional<Span> statementMark(int index) {
             return stated.test(index)
-                    ? Optional.of(new Span("ANF", size * 0.72, true, false, STATEMENT_MARK, "anf-mark"))
+                    ? Optional.of(new Span(STATEMENT_SIGN, size, true, false, STATEMENT_MARK, "anf-mark"))
                     : Optional.empty();
         }
 
@@ -505,7 +509,7 @@ public final class DecisionTreeFigures {
             stacked(below, branch.costs().castToList());
             branchBelow.put(index, below);
             if (branch instanceof Alternative && decided && !chosen) {
-                barred.add(index);
+                rejected.add(index);
             }
         }
 
@@ -673,7 +677,7 @@ public final class DecisionTreeFigures {
                 @Override
                 public double branchLabelWidth(int branchVertex) {
                     return Math.max(widthOf(branchAbove.get(branchVertex)), widthOf(branchBelow.get(branchVertex))) + 14
-                            + (barred.contains(branchVertex) ? BAR_ROOM : 0);
+                            + (rejected.contains(branchVertex) ? CROSS_ROOM : 0);
                 }
 
                 @Override

@@ -75,7 +75,7 @@ import java.util.function.Consumer;
  * A decision tree drawn as decision analysts draw it, on the {@link DecisionTreeLayout}: left to
  * right from the root, squares, circles and triangles, every branch an elbow carrying its name
  * and probability above the run and its costs below, the rolled-back expected cost beside every
- * glyph, the chosen alternative drawn heavy and each rejected one barred where it leaves the
+ * glyph, the chosen alternative drawn heavy and each rejected one crossed where it leaves the
  * square. The drawing is live: a stated number is a chip the reader can click and retype, which
  * asks the host to restate the block's line and redraw; a circle or a square folds on a click;
  * resting on a branch lights the path from it back to the root. The diagram is built once per
@@ -131,7 +131,8 @@ final class DecisionTreeDiagram extends Region {
     private static final Color GAP = Color.web("#b5541a");
     private static final Color HOT = Color.web("#d98b1a");
     /** The room the two bars of a rejected alternative take on its run, before its labels. */
-    private static final double BAR_ROOM = 16;
+    /** The room a rejected alternative's cross takes before the run's label. */
+    private static final double CROSS_ROOM = 16;
 
     private final DecisionTree tree;
     private final Rollback rollback;
@@ -415,18 +416,20 @@ final class DecisionTreeDiagram extends Region {
         getChildren().add(below);
 
         if (branch instanceof Alternative && decided && !chosen) {
-            Line one = new Line(0, 0, 0, 12);
-            Line two = new Line(5, 0, 5, 12);
+            // a cross on the run: two upright bars across it read as the sign of a statement
+            Line one = new Line(0, 0, 10, 10);
+            Line two = new Line(0, 10, 10, 0);
             one.setStroke(INK);
             two.setStroke(INK);
             one.setStrokeWidth(1.6);
             two.setStrokeWidth(1.6);
-            StackPane barred = new StackPane();
-            barred.getChildren().addAll(one, two);
-            barred.setAlignment(Pos.TOP_LEFT);
-            Tooltip.install(barred, new Tooltip("Rejected: the rollback chose another alternative"));
-            bars.put(index, barred);
-            getChildren().add(barred);
+            StackPane crossed = new StackPane();
+            crossed.getChildren().addAll(one, two);
+            crossed.setAlignment(Pos.TOP_LEFT);
+            crossed.getStyleClass().add("decision-rejected");
+            Tooltip.install(crossed, new Tooltip("Rejected: the rollback chose another alternative"));
+            bars.put(index, crossed);
+            getChildren().add(crossed);
         }
         Consumer<Boolean> hot = on -> light(index, on);
         for (Node part : List.of(run, above, below)) {
@@ -872,7 +875,7 @@ final class DecisionTreeDiagram extends Region {
             @Override
             public double branchLabelWidth(int branchVertex) {
                 return Math.max(widthOf(branchAbove.get(branchVertex)), widthOf(branchBelow.get(branchVertex))) + 14
-                        + (bars.containsKey(branchVertex) ? BAR_ROOM : 0);
+                        + (bars.containsKey(branchVertex) ? CROSS_ROOM : 0);
             }
 
             @Override
@@ -985,8 +988,8 @@ final class DecisionTreeDiagram extends Region {
             if (line != null) {
                 line.getPoints().setAll(run.x0(), run.y0(), run.xBend(), run.y(), run.x1(), run.y());
             }
-            // a rejected alternative is barred on the turn into its row
-            place(bars.get(run.vertexIndex()), run.xBend() + 7, run.y() - 6);
+            // a rejected alternative is crossed on the turn into its row
+            place(bars.get(run.vertexIndex()), run.xBend() + 7, run.y() - 5);
         }
         for (Placed placed : layout.placed()) {
             placeGlyph(placed);
@@ -1068,13 +1071,13 @@ final class DecisionTreeDiagram extends Region {
             if (line != null) {
                 line.getPoints().setAll(run.x0(), run.y0(), run.xBend(), run.y0(), run.xBend(), run.y(), run.x1(), run.y());
             }
-            Node barred = bars.get(run.vertexIndex());
-            double labelX = run.xBend() + 8 + (barred == null ? 0 : BAR_ROOM);
+            Node crossed = bars.get(run.vertexIndex());
+            double labelX = run.xBend() + 8 + (crossed == null ? 0 : CROSS_ROOM);
             Node above = branchAbove.get(run.vertexIndex());
             place(above, labelX, run.y() - (above == null ? lineHeight : Math.max(lineHeight, heightOf(above))) - 2);
             place(branchBelow.get(run.vertexIndex()), labelX, run.y() + 3);
-            if (barred != null) {
-                place(barred, run.xBend() + 9, run.y() - 6);
+            if (crossed != null) {
+                place(crossed, run.xBend() + 8, run.y() - 5);
             }
         }
         for (Placed placed : layout.placed()) {
@@ -1117,8 +1120,8 @@ final class DecisionTreeDiagram extends Region {
         return Optional.ofNullable(runs.get(branchVertex));
     }
 
-    /** Whether a rejected alternative is barred, for a test. */
-    boolean barred(int branchVertex) {
+    /** Whether a rejected alternative is crossed, for a test. */
+    boolean crossed(int branchVertex) {
         return bars.containsKey(branchVertex);
     }
 

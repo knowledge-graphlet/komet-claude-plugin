@@ -45,6 +45,7 @@ import javafx.scene.control.Label;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Circle;
@@ -299,6 +300,10 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
         final Tooltip tip = new Tooltip();
         /** The group a document's statement is about, above its line when the statement before is about another. */
         final Label group = new Label();
+        /** The group as what it is: its words behind the mark of words that have no concept yet, or its concept's badge. */
+        final HBox groupLine = new HBox(5);
+        /** The sign at the head of the line that says the line is a statement. */
+        final Node sign = StatementSign.node(base * 0.95);
         /** What was observed, with how and when it was known beneath it. */
         final VBox observed = new VBox(0);
         /** The result, with its timing beneath it, in a column every statement of a run shares. */
@@ -351,22 +356,27 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
                 elementNodes.add(fact);
             });
             if (plain) {
+                // the group is named as what it is, a concept or words still without one, not set apart by italics
                 group.getStyleClass().add("anf-statement-group");
-                // the surface's face has no italic, and answers a request for one in bold
-                group.setFont(Font.font("Open Sans", FontPosture.ITALIC, base * 0.9));
-                group.setTextFill(Color.web("#666"));
+                group.setFont(Font.font(null, FontWeight.BOLD, base * 0.92));
+                group.setTextFill(Color.web("#333"));
                 group.setWrapText(true);
-                group.setPadding(new Insets(5, 0, 1, 0));
-                group.setMaxWidth(base * 46);
-                group.setCursor(Cursor.HAND);
-                group.setOnMouseClicked(e -> toggle());
+                group.setMinWidth(0);
+                groupLine.getStyleClass().add("anf-statement-group-line");
+                groupLine.setAlignment(Pos.TOP_LEFT);
+                groupLine.setPadding(new Insets(6, 0, 2, 0));
+                groupLine.setMaxWidth(base * 46);
+                groupLine.setCursor(Cursor.HAND);
+                groupLine.setOnMouseClicked(e -> toggle());
+                // set down a little, so it stands on the middle of the first line's letters
+                HBox.setMargin(sign, new Insets(base * 0.22, 0, 0, 0));
                 observed.setMinWidth(0);
                 HBox.setHgrow(observed, Priority.ALWAYS);
                 amounts.setMinWidth(base * 9.5);
                 amounts.setPrefWidth(base * 9.5);
                 amounts.setMaxWidth(base * 9.5);
                 statementRow.getStyleClass().add("anf-statement-line");
-                statementRow.getChildren().addAll(fold, observed, amounts);
+                statementRow.getChildren().addAll(sign, fold, observed, amounts);
                 statementRow.setAlignment(Pos.TOP_LEFT);
                 statementRow.setMaxWidth(base * 46);
                 statementRow.setPadding(new Insets(1, 0, 3, 0));
@@ -390,7 +400,7 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
                 column.getChildren().add(levelSwitch());
             }
             if (plain) {
-                column.getChildren().addAll(group, statementRow);
+                column.getChildren().addAll(groupLine, statementRow);
             } else {
                 column.getChildren().addAll(line, subjectLine);
             }
@@ -461,9 +471,22 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
             StatementLines.Statement read = StatementLines.read(info, List.of(current.split("\n", -1)));
             String about = name(statement.subjectOfInformation());
             boolean named = !about.isEmpty() && !read.group().equals(groupBefore);
+            boolean concept = statement.subjectOfInformation() instanceof AnfValue.Grounded;
             group.setText(about);
-            group.setVisible(named);
-            group.setManaged(named);
+            group.setVisible(named && !concept);
+            group.setManaged(named && !concept);
+            groupLine.getChildren().clear();
+            if (statement.subjectOfInformation() instanceof AnfValue.Grounded grounded) {
+                groupLine.getChildren().add(chip(grounded));
+            } else {
+                if (wantsConcept(statement.subjectOfInformation())) {
+                    // a group is a complex concept: what is wanted for its words is one
+                    groupLine.getChildren().add(complexWordsMark(base * 0.92));
+                }
+                groupLine.getChildren().add(group);
+            }
+            groupLine.setVisible(named);
+            groupLine.setManaged(named);
             observed.getChildren().setAll(observedAs(statement.topic()));
             String detail = StatementLines.detail(read);
             if (!detail.isEmpty()) {
@@ -510,7 +533,22 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
             Label words = plain(v == null ? "?" : name(v));
             words.getStyleClass().add("anf-statement-topic");
             words.setWrapText(true);
-            return words;
+            words.setMinWidth(0);
+            if (!wantsConcept(v)) {
+                return words;
+            }
+            HBox marked = new HBox(5, wordsMark(base * 0.95), words);
+            marked.setAlignment(Pos.TOP_LEFT);
+            return marked;
+        }
+
+        /** Whether a value is words that still want a concept: a candidate not kept as words, or a question. */
+        private boolean wantsConcept(AnfValue v) {
+            return switch (v) {
+                case AnfValue.Candidate candidate -> candidate.disposition() != AnfValue.Disposition.LEAVE_NARRATIVE;
+                case AnfValue.Clarify clarify -> true;
+                case null, default -> false;
+            };
         }
 
         private boolean stale() {
@@ -758,6 +796,38 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
             show(element ? context.elementLevel() : ElementLevel.ANF);
             describe();
         }
+    }
+
+    /**
+     * The mark of words that are not a concept of the knowledge base: the sigil a badge carries for
+     * a component the knowledge base does not have, so the question mark looks one way wherever it
+     * means that.
+     */
+    private Node wordsMark(double size) {
+        Node sigil = dev.ikm.komet.framework.controls.KonceptSigils
+                .create(network.ike.docs.konceptcore.KonceptKind.UNKNOWN, 0, size).orElseGet(() -> new javafx.scene.text.Text("?"));
+        sigil.getStyleClass().add("anf-words-mark");
+        // the size of the words it stands before, which the badge's stylesheet would otherwise make a badge's
+        sigil.setStyle("-fx-font-size: " + size + "px;");
+        Tooltip.install(sigil, new Tooltip("Words only: not a concept of the knowledge base yet"));
+        return sigil;
+    }
+
+    /**
+     * The mark of words for which a complex concept is wanted, as a group is: the sigil of what the
+     * knowledge base does not have, then the complex concept's own mark.
+     */
+    private Node complexWordsMark(double size) {
+        javafx.scene.text.Text complex = new javafx.scene.text.Text(dev.ikm.komet.framework.controls.KonceptStatus.COMPLEX_GLYPH);
+        complex.getStyleClass().add("anf-complex-mark");
+        complex.setFill(Color.web(dev.ikm.komet.framework.controls.KonceptStatus.COMPLEX_COLOR_HEX));
+        complex.setFont(Font.font(null, FontWeight.BOLD, size));
+        Tooltip.install(complex, new Tooltip("A group: a complex concept is wanted for these words"));
+        // both marks are the size of the words, so standing at the top of the line they stand on its first baseline
+        HBox both = new HBox(1, wordsMark(size), complex);
+        both.setAlignment(Pos.TOP_LEFT);
+        both.setMinWidth(Region.USE_PREF_SIZE);
+        return both;
     }
 
     private Label stateTag(String word, String fill, String ink) {

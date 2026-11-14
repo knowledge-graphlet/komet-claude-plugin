@@ -195,6 +195,13 @@ class ComplexConceptControlTest {
         List<AnfStatementControl> statements = onFx(() -> control.lookupAll(".cc-nested-statement").stream()
                 .map(AnfStatementControl.class::cast).toList());
         assertEquals(3, statements.size(), "one statement control per prerequisite");
+        javafx.scene.layout.Region bar = onFx(() -> (javafx.scene.layout.Region) statements.getFirst().lookup(".ditree-clause-bar.anf-statement"));
+        assertNotNull(bar, "a prerequisite's statement has its bar");
+        assertTrue(onFx(() -> bar.getBorder() != null && bar.getBorder().getStrokes().stream()
+                .anyMatch(stroke -> stroke.getLeftStyle().equals(javafx.scene.layout.BorderStrokeStyle.DOTTED))),
+                "dotted: a prerequisite is what must hold, not what was found");
+        assertTrue(onFx(() -> bar.getBackground() == null || bar.getBackground().getFills().stream()
+                .allMatch(fill -> fill.getFill().equals(javafx.scene.paint.Color.TRANSPARENT))), "and no solid bar stands behind the dots");
         assertFalse(statements.getFirst().isShowsMissing(), "a prerequisite does not list a subject of record as missing");
         assertTrue(onFx(() -> control.getMissing().isEmpty()), "the specification is complete");
         assertNull(onFx(control::getLastRefusal));

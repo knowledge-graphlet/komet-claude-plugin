@@ -135,7 +135,7 @@ class DecisionTreeSvgTest {
     }
 
     @Test
-    @DisplayName("The chosen alternative is drawn heavy and marked, the rejected one barred, and a measure that flips the root is marked")
+    @DisplayName("The chosen alternative is drawn heavy and marked, the rejected one crossed, and a measure that flips the root is marked")
     void chosenAndRejected() throws Exception {
         Document doc = parse(DecisionTreeSvg.tree(tree, rollback, ids, Optional.of(sweep)));
         List<Element> chosen = withRole(doc, "polyline", "run", "chosen");
@@ -149,7 +149,7 @@ class DecisionTreeSvgTest {
         for (Element run : plain) {
             assertEquals("1.2", run.getAttribute("stroke-width"));
         }
-        assertEquals(4, withRole(doc, "polyline", "barred").size(), "two rejected alternatives, two bars each");
+        assertEquals(4, withRole(doc, "polyline", "rejected").size(), "two rejected alternatives, the two strokes of a cross each");
         assertTrue(withRole(doc, "text", "chosen").isEmpty(), "the heavy run says what is chosen; no tag repeats it");
         assertFalse(withRole(doc, "text", "flip-mark").isEmpty(), "the scan's cost flips the root, so its chip is marked");
         Document unswept = parse(DecisionTreeSvg.tree(tree, rollback, ids, Optional.empty()));

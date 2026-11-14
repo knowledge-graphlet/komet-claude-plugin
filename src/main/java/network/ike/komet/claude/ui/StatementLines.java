@@ -58,7 +58,10 @@ final class StatementLines {
     private static final double LINE = DecisionFigureText.lineHeight(SIZE);
     private static final double SMALL_LINE = DecisionFigureText.lineHeight(SMALL);
     /** How far a statement's line stands in from its group's heading. */
-    private static final double INDENT = 10;
+    /** Where the topic begins: clear of the statement's sign, so the sign and a mark before the topic's words read apart. */
+    private static final double INDENT = 13;
+    /** Where the statement's sign stands, at the head of the line. */
+    private static final double SIGN = 1.5;
     /** The room the result's column takes at the right, and the gap before it. */
     private static final double RESULT = 132;
     private static final double GAP = 14;
@@ -87,9 +90,11 @@ final class StatementLines {
      * @param when   the statement's time; empty when it has none
      * @param note   a narrative statement's words, without their quotation marks; empty when it has none
      * @param rest   every other field, each as its name in plain words and its value
+     * @param topicInWords whether the topic is words that still want a concept: a candidate not kept as words
+     * @param groupInWords whether the group is words that still want a concept
      */
     record Statement(String type, String topic, String group, String result, String within, String how, String when, String note,
-                     List<String> rest) {
+                     List<String> rest, boolean topicInWords, boolean groupInWords) {
         Statement {
             rest = List.copyOf(rest);
         }
@@ -104,6 +109,8 @@ final class StatementLines {
      */
     static Statement read(String parameters, List<String> lines) {
         Map<String, String> fields = new LinkedHashMap<>();
+        // what the topic and the group are written as, before their concepts are read as names
+        Map<String, String> written = new LinkedHashMap<>();
         String last = null;
         for (String line : lines) {
             String read = BlockPrint.named(line);
@@ -115,6 +122,7 @@ final class StatementLines {
             if (field.matches()) {
                 last = field.group(1).strip().toLowerCase(Locale.ROOT).replace(' ', '_').replace('-', '_');
                 fields.merge(last, field.group(2).strip(), (was, more) -> was + "; " + more);
+                written.merge(last, line, (was, more) -> was + "\n" + more);
             } else if (last != null) {
                 // a value that runs on to a second line
                 fields.merge(last, text, (was, more) -> was + " " + more);
@@ -131,7 +139,16 @@ final class StatementLines {
         List<String> rest = new ArrayList<>();
         fields.forEach((name, value) -> rest.add(name.replace('_', ' ') + ": " + measure(value)));
         return new Statement(type.find() ? type.group(1).toLowerCase(Locale.ROOT) : "", topic, group, measure(result), timing(within), how,
-                time(when), unquoted(note), rest);
+                time(when), unquoted(note), rest, inWords(written.get("topic")), inWords(written.get("subject_of_information")));
+    }
+
+    /**
+     * Whether a field is written as words that still want a concept: a candidate, or a question to
+     * clarify, and not a candidate a person chose to keep as words.
+     */
+    private static boolean inWords(String written) {
+        return written != null && (written.contains("candidate[") || written.contains("clarify["))
+                && !written.contains("disp=LEAVE_NARRATIVE");
     }
 
     private static String take(Map<String, String> fields, String name) {
@@ -156,8 +173,12 @@ final class StatementLines {
         List<Mark> marks = new ArrayList<>();
         double y = 0;
         if (heading && !statement.group().isEmpty()) {
-            for (String line : DecisionFigureText.wrap(statement.group(), SIZE, WIDTH)) {
-                marks.add(new Text(0, y, line, SIZE, false, true, DecisionFigureText.CAPTION, "statement-group"));
+            // the group is named as what it is, upright and in the ink of a name: words still without a concept behind their mark
+            // a group is a complex concept: what is wanted for its words is one
+            double from = statement.groupInWords() ? complexMark(marks, wordsMark(marks, 0, y) - 2, y) : 0;
+            // a bold line is wider than the measure the wrap is given
+            for (String line : DecisionFigureText.wrap(statement.group(), SIZE, (WIDTH - from) * 0.92)) {
+                marks.add(new Text(from, y, line, SIZE, true, false, DecisionFigureText.INK, "statement-group"));
                 y += LINE;
             }
             y += 2;
@@ -165,13 +186,15 @@ final class StatementLines {
         List<String> result = statement.result().isEmpty() ? List.of() : DecisionFigureText.wrap(statement.result(), SIZE, RESULT);
         List<String> within = statement.within().isEmpty() ? List.of() : DecisionFigureText.wrap(statement.within(), SMALL, RESULT);
         boolean column = !result.isEmpty() || !within.isEmpty();
-        double room = WIDTH - INDENT - (column ? RESULT + GAP : 0);
         double top = y + 2;
         double left = top;
+        double topicFrom = statement.topicInWords() ? wordsMark(marks, INDENT, top) : INDENT;
+        double room = WIDTH - topicFrom - (column ? RESULT + GAP : 0);
         for (String line : DecisionFigureText.wrap(statement.topic(), SIZE, room)) {
-            marks.add(new Text(INDENT, left, line, SIZE, false, false, DecisionFigureText.INK, "statement-topic"));
+            marks.add(new Text(topicFrom, left, line, SIZE, false, false, DecisionFigureText.INK, "statement-topic"));
             left += LINE;
         }
+        room = WIDTH - INDENT - (column ? RESULT + GAP : 0);
         String detail = detail(statement);
         if (!detail.isEmpty()) {
             for (String line : DecisionFigureText.wrap(detail, SMALL, room)) {
@@ -190,8 +213,35 @@ final class StatementLines {
             right += SMALL_LINE;
         }
         y = Math.max(left, right) + 3;
+        // the sign at the head of the line says the line is a statement
+        StatementSign.draw(marks, SIGN, top, SIZE, "statement-sign");
         marks.add(new Rect(INDENT, y, WIDTH - INDENT, 0.5, RULE, 1, null, "statement-rule"));
         return new DecisionFigure(WIDTH, y + 0.5, ROLE, marks);
+    }
+
+    /**
+     * Draws the mark of words that have no concept yet at the head of a line, and says where the
+     * words begin after it.
+     */
+    private static double wordsMark(List<Mark> marks, double x, double top) {
+        // the sigil a badge carries for a component the knowledge base does not have: its glyph, bold, in its colour
+        String glyph = network.ike.docs.konceptcore.KonceptKind.UNKNOWN.glyph();
+        marks.add(new Text(x, top, glyph, SIZE, true, false, network.ike.docs.konceptcore.KonceptKind.UNKNOWN.colorHex(), "statement-words-mark"));
+        return x + DecisionFigureText.width(glyph, SIZE, true) + 4;
+    }
+
+    /**
+     * Draws the complex concept's mark at the head of a line, a square with a cross in it, and says
+     * where the words begin after it. It is drawn, not set as a glyph: a page's faces may lack the sign.
+     */
+    private static double complexMark(List<Mark> marks, double x, double top) {
+        double side = 6.4;
+        double y = top + SIZE * 0.5 - side / 2 + 0.6;
+        String ink = dev.ikm.komet.framework.controls.KonceptStatus.COMPLEX_COLOR_HEX;
+        marks.add(new Rect(x, y, side, side, null, 1, DecisionFigure.Stroke.solid(ink, 0.8), "statement-complex-mark"));
+        marks.add(new Rect(x + side / 2 - 0.4, y + 1.2, 0.8, side - 2.4, ink, 1, null, "statement-complex-mark"));
+        marks.add(new Rect(x + 1.2, y + side / 2 - 0.4, side - 2.4, 0.8, ink, 1, null, "statement-complex-mark"));
+        return x + side + 4;
     }
 
     /** What stands beneath the topic in small type: the narrative's words, how it was known, when, and any other field. */
@@ -213,17 +263,9 @@ final class StatementLines {
         return String.join(" \u00B7 ", parts);
     }
 
-    /**
-     * The tag a terminology writes after a name to say what kind of thing it names, as SNOMED CT writes
-     * {@code year (qualifier value)}: a reader of a measure needs the name alone.
-     */
-    private static final Pattern SEMANTIC_TAG = Pattern.compile("\\s*\\([a-z][a-z /-]*\\)\\s*$");
-
     /** A unit as a reader says it: its name without a terminology's tag after it. */
     private static String unit(String written) {
-        String unit = written.strip();
-        String bare = SEMANTIC_TAG.matcher(unit).replaceFirst("");
-        return bare.isEmpty() ? unit : bare;
+        return BlockPrint.untagged(written);
     }
 
     /**

@@ -48,6 +48,15 @@
     -fx-padding: 0;
 }
 
+/* A prerequisite is what must hold, not what was found: its statement's bar is dotted where a
+   statement's own bar is solid. */
+.complex-concept-control .cc-nested-statement .ditree-clause-bar.anf-statement {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent transparent transparent #2E3240;
+    -fx-border-style: dotted;
+    -fx-border-width: 0 0 0 3;
+}
+
 /* Under the tree: what the specification still lacks, and the last refused edit. */
 .complex-concept-control .cc-status {
     -fx-padding: 6 0 0 6;

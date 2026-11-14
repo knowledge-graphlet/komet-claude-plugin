@@ -539,12 +539,13 @@ final class BenefitRiskBlockRenderer implements network.ike.komet.document.Struc
     private Node statementMark(Findings.Finding finding) {
         List<String> names = new ArrayList<>(List.of(finding.statementName()));
         finding.countName().ifPresent(names::add);
-        Label mark = new Label("ANF");
+        // the sign a statement has on its own line, in place of the letters ANF
+        Label mark = new Label();
+        mark.setGraphic(StatementSign.node(base * 0.95));
         mark.setId("anf-statement-mark");
         mark.setMinWidth(Region.USE_PREF_SIZE);
         mark.setFont(Font.font(null, FontWeight.BOLD, base * 0.7));
-        mark.setStyle("-fx-background-color: #e6eef8; -fx-text-fill: #1f3b73; -fx-background-radius: 4;"
-                + " -fx-padding: 0 4 0 4; -fx-border-color: #9db3d6; -fx-border-radius: 4; -fx-border-width: 1;");
+        mark.setStyle("-fx-padding: 0 3 0 3;");
         mark.setCursor(javafx.scene.Cursor.HAND);
         Tooltip tip = new Tooltip(String.join("\n\n", names.stream().map(name -> context.statement(name)
                 .map(statement -> "anf:" + name + "\n" + AnfAdoc.toAdoc(statement).strip()).orElse("anf:" + name)).toList())

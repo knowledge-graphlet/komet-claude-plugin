@@ -55,7 +55,7 @@ import static org.junit.jupiter.api.Assertions.fail;
 
 /**
  * The drawn scan tree: a glyph per node, an elbow per branch, the chosen alternative heavy and
- * the rejected one barred, a stated cost a chip that opens a field and hands typed bounds to
+ * the rejected one crossed, a stated cost a chip that opens a field and hands typed bounds to
  * the host, a folded chance drawn as a terminal. Hermetic: synthetic terms, store-free
  * identities, plain labels for chips.
  */
@@ -248,7 +248,7 @@ class DecisionTreeDiagramTest {
     }
 
     @Test
-    @DisplayName("The chosen alternative is drawn heavy and marked; the other is barred")
+    @DisplayName("The chosen alternative is drawn heavy and marked; the other is crossed")
     void chosenAndRejected() throws Exception {
         onFx(() -> {
             DecisionTreeDiagram diagram = drawn(new Recording(), new HashSet<>());
@@ -256,8 +256,8 @@ class DecisionTreeDiagramTest {
             List<Alternative> top = tree.children(tree.rootIndex(), Alternative.class).castToList();
             int rejected = top.stream().mapToInt(Alternative::vertexIndex).filter(i -> i != chosen).findFirst().orElseThrow();
             assertEquals(2.6, diagram.run(chosen).orElseThrow().getStrokeWidth(), 1e-9);
-            assertFalse(diagram.barred(chosen));
-            assertTrue(diagram.barred(rejected));
+            assertFalse(diagram.crossed(chosen));
+            assertTrue(diagram.crossed(rejected));
             assertEquals(1.2, diagram.run(rejected).orElseThrow().getStrokeWidth(), 1e-9);
             String above = labels(diagram.labelOf(chosen, true).orElseThrow());
             assertTrue(above.contains("⇒ $3,880"), "the value carries the block's money symbol: " + above);

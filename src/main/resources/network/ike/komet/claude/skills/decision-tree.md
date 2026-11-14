@@ -122,7 +122,7 @@ and in the tree `alternative: k:Scan[Magnetic resonance angiography screening] @
 - The statements are templates: no `subject_of_record::`, `author::` or `statement_time::`; the tree is the note.
 - Every field but `text::` takes a concept or a measure: `disposition::`, `method::`, `purpose::` and the like a `k:` token or a candidate, `result::`, `timing::` and the like an interval then its unit. **Leave out a field you have no concept for**; never write a bare word such as `disposition:: performed`.
 - Inside an `anf` block a concept is a grounded `k:Key[label] @id=<identity>` the knowledge base holds, a SNOMED CT identifier or the identifier a tool returned, or **`candidate[label] disp=PENDING`** when it lacks one. Never a block-local symbol such as `@id=rda-reopening`: those belong to the tree and complex-concept blocks only.
-- Komet draws an ANF mark beside each node that holds a statement: resting on it shows the statement, a click opens it editable. A statement of the wrong type, or on a decision or chance, comes back as a finding.
+- Komet draws the sign of a statement, ⊢, beside each node that names a statement: resting on it shows the statement, a click opens it editable. A statement of the wrong type, or on a decision or chance, comes back as a finding.
 
 ### Linked trees
 

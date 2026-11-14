@@ -33,7 +33,7 @@ import java.util.function.IntPredicate;
  * picture Komet shows without a toolkit. Squares for decisions, circles for chances, triangles
  * for outcomes; every branch an elbow with its name and probability above the run and its costs
  * below; the rolled-back value at every glyph and on every alternative; the chosen alternative
- * heavy and each rejected one barred. The tornado is one bar per swept measure on the net value
+ * heavy and each rejected one crossed. The tornado is one bar per swept measure on the net value
  * of the chosen alternative, longest first, solid for a stated interval and hollow for an assumed
  * range, recoloured beyond a flip with a tick carrying the threshold in the measure's unit.
  */

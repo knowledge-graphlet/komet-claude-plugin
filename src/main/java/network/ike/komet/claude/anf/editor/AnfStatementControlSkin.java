@@ -535,9 +535,13 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
             value.getStyleClass().add("anf-unsettled");
             value.setId("anf-find-" + vertex.vertexIndex() + (kind == ChipKind.ROLE_TYPE ? "-role" : ""));
             if (!kept()) {
-                Label mark = new Label("?");
+                // the sigil a badge carries for a component the knowledge base does not have: one look for that meaning
+                Node mark = dev.ikm.komet.framework.controls.KonceptSigils
+                        .create(network.ike.docs.konceptcore.KonceptKind.UNKNOWN, 0, 0).orElseGet(() -> new javafx.scene.text.Text("?"));
                 mark.getStyleClass().add("anf-unsettled-mark");
-                mark.setMinWidth(Region.USE_PREF_SIZE);
+                // the size of the words it stands before, which the badge's stylesheet would otherwise make a badge's
+                mark.setStyle("-fx-font-size: 1em;");
+                Tooltip.install(mark, new Tooltip("Words only: not a concept of the knowledge base yet"));
                 value.getChildren().add(mark);
             }
             Label said = new Label(said());
@@ -584,6 +588,15 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
         void beneath(VBox column, AnfSemantic attribute) {
             this.column = column;
             this.attribute = attribute;
+            // the subject of information is a group, and a group is a complex concept: that is what its words want
+            if (attribute == AnfSemantic.SUBJECT_OF_INFORMATION && !kept() && provisional.isPresent()) {
+                javafx.scene.text.Text complex = new javafx.scene.text.Text(dev.ikm.komet.framework.controls.KonceptStatus.COMPLEX_GLYPH);
+                complex.getStyleClass().add("anf-complex-mark");
+                complex.setFill(javafx.scene.paint.Color.web(dev.ikm.komet.framework.controls.KonceptStatus.COMPLEX_COLOR_HEX));
+                complex.setStyle("-fx-font-weight: bold; -fx-font-size: 1em;");
+                Tooltip.install(complex, new Tooltip("A group: a complex concept is wanted for these words"));
+                value.getChildren().add(1, complex);
+            }
         }
 
         /** Opens the panel beneath the row, or closes it. */

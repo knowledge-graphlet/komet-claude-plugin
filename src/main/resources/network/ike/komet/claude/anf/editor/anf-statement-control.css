@@ -17,22 +17,13 @@
     -fx-padding: 0 4 0 2;
 }
 
-/* A value with no concept yet: its words in full, in amber as the surface marks other
-   unpublished work, behind a mark that says a concept is still to be found. */
+/* A value with no concept yet: its words in full, behind the sigil a badge carries for a
+   component the knowledge base does not have. The sigil's colour is its kind's, set in code. */
 .anf-statement-control .anf-provisional {
-    -fx-text-fill: #8a5200;
+    -fx-text-fill: #2E3240;
 }
 .anf-statement-control .anf-unsettled {
     -fx-padding: 1 0 1 0;
-}
-.anf-statement-control .anf-unsettled-mark {
-    -fx-background-color: #c98f2e, #f8ead0;
-    -fx-background-insets: 0, 1;
-    -fx-background-radius: 8, 7;
-    -fx-text-fill: #8a5200;
-    -fx-font-weight: bold;
-    -fx-font-size: 0.916667em;
-    -fx-padding: 0 5 0 5;
 }
 /* Words a person chose to keep as words: no concept is asked for, so no mark. */
 .anf-statement-control .anf-kept-words {
