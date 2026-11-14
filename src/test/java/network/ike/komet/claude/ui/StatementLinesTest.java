@@ -61,6 +61,7 @@ class StatementLinesTest {
     void aMeasureReadsInAReadersWords() {
         assertEquals("Present", StatementLines.measure("[1,1] presence"));
         assertEquals("Absent", StatementLines.measure("[0,0] presence"));
+        assertEquals("Not determined", StatementLines.measure("[0,1] presence"));
         assertEquals("80%", StatementLines.measure("[0.8,0.8] Population share"));
         assertEquals("30% to 70%", StatementLines.measure("[0.3,0.7] Population share"));
         assertEquals("55 joints", StatementLines.measure("[55,55] Joints"));
@@ -137,7 +138,7 @@ class StatementLinesTest {
     @Test
     void aGroupIsNamedOnceInARun() {
         DocumentBlockKinds.Anf kind = new DocumentBlockKinds.Anf();
-        assertTrue(kind.printsAsRun());
+        assertTrue(kind.readsAsRun());
         StructuredBlockKind.Source removal = source("[anf,type=performance]", REMOVAL);
         StructuredBlockKind.Source counted = source("[anf,type=performance]", COUNTED);
         StructuredBlockKind.Source narrative = source("[anf,type=narrative]", NARRATIVE);

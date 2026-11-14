@@ -44,6 +44,7 @@ import javafx.scene.Node;
 import javafx.scene.control.Label;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Circle;
@@ -78,7 +79,13 @@ import network.ike.komet.claude.tools.GraphTools;
  * through the surface's {@link BlockRewriter}, and the statement is re-published to the blocks
  * that read it, so a calculation beneath recomputes. A result the record does not determine is
  * written as the interval that says so, {@code [0,1]} on the Presence scale or an unbounded
- * measure, and renders as that, never as a guess. The fence names the statement for the document,
+ * measure, and renders as that, never as a guess.
+ *
+ * <p>A document's own statement, with no narrative span and no element, is drawn as the line a
+ * page prints (KEC, 2026-11-13; {@link StatementLines}): under the group it is about, named once
+ * for a run of statements about it, what was observed in plain words, the result beside it in a
+ * reader's words, and how and when it was known in small type beneath. A click unfolds the same
+ * editable tree. The fence names the statement for the document,
  * {@code anf type=performance id=stmt-sbp}, and a {@code calculate} block binds to it by that name
  * through the shared {@link ProfileBlocks}.
  */
@@ -113,6 +120,20 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
     /** Where an edit of the statement goes when it is written back to the document; null leaves the edit on the view. */
     public void setRewriter(BlockRewriter rewriter) {
         this.rewriter = rewriter;
+    }
+
+    /** The group of the statement directly before this one in its document, as its block writes it; null when none stands there. */
+    private String groupBefore;
+
+    /**
+     * Tells the renderer of the statement directly before the one it draws: a statement about
+     * the group of the statement before it does not name the group again.
+     *
+     * @param group the group of the statement before, as its block writes it; null when no
+     *              statement stands directly before
+     */
+    void setGroupBefore(String group) {
+        this.groupBefore = group;
     }
 
     @Override
@@ -269,6 +290,17 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
         AnfStatementControl control;
         SegmentedControl<ElementLevel> levelSwitch;
         boolean open;
+        /** Whether the block is a document's own statement, with no narrative span and no element: drawn as a line under its group. */
+        final boolean plain;
+        /** The statement's text as it stands, which an edit restates. */
+        String current;
+        /** The group a document's statement is about, above its line when the statement before is about another. */
+        final Label group = new Label();
+        /** What was observed, with how and when it was known beneath it. */
+        final VBox observed = new VBox(0);
+        /** The result, with its timing beneath it, in a column every statement of a run shares. */
+        final VBox amounts = new VBox(0);
+        final HBox statementRow = new HBox(8);
         /** Held here so the context's weak reference lives as long as this finding. */
         final Consumer<ElementLevel> levelListener = this::show;
         /** Whether the block shows at all: an element row hides at the Narrative level, unless it carries the switch. */
@@ -282,6 +314,8 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
             column.setFillWidth(true);
             element = elementOf(info).isPresent();
             statement = element && body.isBlank() ? null : parse(body);
+            current = body;
+            plain = !element && wordsOf(info).isEmpty() && statement != null;
             idOf(info).ifPresent(name -> {
                 if (statement != null) {
                     context.defineStatementCard(name, this::card);
@@ -289,7 +323,7 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
                 }
             });
             line.setCursor(Cursor.HAND);
-            line.setId(idOf(info).map(name -> "anf-" + name).orElse(null));
+            (plain ? statementRow : line).setId(idOf(info).map(name -> "anf-" + name).orElse(null));
             fold.setFont(Font.font(base * 0.9));
             fold.setTextFill(Color.web("#666"));
             fold.setMinWidth(base);
@@ -313,12 +347,38 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
                 fact.setWrapText(true);
                 elementNodes.add(fact);
             });
+            if (plain) {
+                group.getStyleClass().add("anf-statement-group");
+                // the surface's face has no italic, and answers a request for one in bold
+                group.setFont(Font.font("Open Sans", FontPosture.ITALIC, base * 0.9));
+                group.setTextFill(Color.web("#666"));
+                group.setWrapText(true);
+                group.setPadding(new Insets(5, 0, 1, 0));
+                group.setMaxWidth(base * 46);
+                group.setCursor(Cursor.HAND);
+                group.setOnMouseClicked(e -> toggle());
+                observed.setMinWidth(0);
+                HBox.setHgrow(observed, Priority.ALWAYS);
+                amounts.setMinWidth(base * 9.5);
+                amounts.setPrefWidth(base * 9.5);
+                amounts.setMaxWidth(base * 9.5);
+                statementRow.getStyleClass().add("anf-statement-line");
+                statementRow.getChildren().addAll(fold, observed, amounts);
+                statementRow.setAlignment(Pos.TOP_LEFT);
+                statementRow.setMaxWidth(base * 46);
+                statementRow.setPadding(new Insets(1, 0, 3, 0));
+                statementRow.setStyle("-fx-border-color: transparent transparent #dcdcdc transparent; -fx-border-width: 0 0 1 0;");
+                statementRow.setCursor(Cursor.HAND);
+                statementRow.setOnMouseClicked(e -> toggle());
+            }
             buildAnf();
             if (statement != null) {
-                Tooltip tip = new Tooltip(AnfAdoc.toAdoc(statement).strip());
+                // the statement as its block writes it, under the name the document's trees and models read it by
+                Tooltip tip = new Tooltip(idOf(info).map(name -> "anf:" + name + "\n").orElse("") + AnfAdoc.toAdoc(statement).strip());
                 tip.setFont(Font.font("Menlo", base * 0.85));
                 Tooltip.install(line, tip);
                 Tooltip.install(subjectLine, tip);
+                Tooltip.install(statementRow, tip);
             }
             line.setOnMouseClicked(e -> toggle());
             subjectLine.setCursor(Cursor.HAND);
@@ -327,7 +387,11 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
             if (element && context.elementSpans().isSwitchHost(info)) {
                 column.getChildren().add(levelSwitch());
             }
-            column.getChildren().addAll(line, subjectLine);
+            if (plain) {
+                column.getChildren().addAll(group, statementRow);
+            } else {
+                column.getChildren().addAll(line, subjectLine);
+            }
             if (element) {
                 column.getProperties().put(MarkdownRichText.BLOCK_SHOWN, shown);
                 column.getProperties().put(MarkdownRichText.BLOCK_NO_EXPAND, Boolean.TRUE);
@@ -343,6 +407,10 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
         private void buildAnf() {
             anfNodes.clear();
             subjectNodes.clear();
+            if (plain) {
+                buildLine();
+                return;
+            }
             if (statement == null && element) {
                 anfNodes.add(stateTag("not lifted", "#ece8f2", "#5e4b7e"));
                 return;
@@ -370,6 +438,68 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
                 named.setTextFill(Color.web("#999"));
                 (subjectNodes.isEmpty() ? anfNodes : subjectNodes).add(named);
             });
+        }
+
+        /**
+         * A document's statement as one line: its group above it when the statement before is
+         * about another, what was observed, the result beside it in a reader's words, and how and
+         * when it was known beneath. The words are the page's ({@link StatementLines}); a concept
+         * of the knowledge base keeps its badge, and a candidate is plain words.
+         */
+        private void buildLine() {
+            StatementLines.Statement read = StatementLines.read(info, List.of(current.split("\n", -1)));
+            String about = name(statement.subjectOfInformation());
+            boolean named = !about.isEmpty() && !read.group().equals(groupBefore);
+            group.setText(about);
+            group.setVisible(named);
+            group.setManaged(named);
+            observed.getChildren().setAll(observedAs(statement.topic()));
+            String detail = StatementLines.detail(read);
+            if (!detail.isEmpty()) {
+                Label small = muted(detail);
+                small.getStyleClass().add("anf-statement-detail");
+                small.setWrapText(true);
+                observed.getChildren().add(small);
+            }
+            amounts.getChildren().clear();
+            String result = switch (statement.circumstance()) {
+                case Circumstance.Performance p -> p.result() == null ? "" : StatementLines.measure(result(p.result()));
+                case Circumstance.Request r -> r.requestedResult() == null ? "" : StatementLines.measure(result(r.requestedResult()));
+                default -> "";
+            };
+            if (!result.isEmpty()) {
+                Label amount = plain(result);
+                amount.getStyleClass().add("anf-statement-result");
+                amount.setWrapText(true);
+                amounts.getChildren().add(amount);
+            }
+            if (!read.within().isEmpty()) {
+                Label within = muted(read.within());
+                within.getStyleClass().add("anf-statement-timing");
+                within.setWrapText(true);
+                amounts.getChildren().add(within);
+            }
+        }
+
+        /** What a value is called: a concept by the view's name for it, a candidate by its label. */
+        private String name(AnfValue v) {
+            return switch (v) {
+                case null -> "";
+                case AnfValue.Grounded g -> unitName(g);
+                case AnfValue.Candidate c -> c.provisionalLabel();
+                case AnfValue.Clarify c -> "clarify " + c.field();
+            };
+        }
+
+        /** What was observed: a concept of the knowledge base as its badge, anything else as plain words. */
+        private Node observedAs(AnfValue v) {
+            if (v instanceof AnfValue.Grounded g) {
+                return chip(g);
+            }
+            Label words = plain(v == null ? "?" : name(v));
+            words.getStyleClass().add("anf-statement-topic");
+            words.setWrapText(true);
+            return words;
         }
 
         private boolean stale() {
@@ -410,6 +540,10 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
 
         /** Lays the row out for a level: nothing at Narrative, the sentence and state at Elements, the ANF at ANF. */
         private void show(ElementLevel level) {
+            if (plain) {
+                // a document's statement has one form, its line
+                return;
+            }
             if (levelSwitch != null && levelSwitch.getValue() != level) {
                 levelSwitch.select(level);
             }
@@ -574,6 +708,7 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
                     return;
                 }
                 statement = edited;
+                current = bodyOf(AnfAdoc.toAdoc(edited));
                 idOf(info).ifPresent(name -> context.defineStatement(name, edited));
                 refold(edited);
                 if (rewriter != null) {

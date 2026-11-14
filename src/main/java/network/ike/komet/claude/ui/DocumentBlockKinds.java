@@ -120,14 +120,27 @@ public final class DocumentBlockKinds {
             return name;
         }
 
+        /**
+         * The renderer for a block that continues a run of blocks of this kind: the kind's
+         * renderer by default, which a kind that reads as a run tells of the blocks before.
+         */
+        FenceRenderer renderer(Context context, BlockRewriter rewriter, List<Source> before) {
+            return renderer(context, rewriter);
+        }
+
         @Override
         public final Node view(Source source, Context context) {
+            return view(source, List.of(), context);
+        }
+
+        @Override
+        public final Node view(Source source, List<Source> before, Context context) {
             String content = source.content();
             // a write back restates the block's text in the document: its content, and its attribute line when that changed
             BlockRewriter rewriter = context.save() == null ? null
                     : (info, literal, newInfo, newLiteral) -> context.save().accept(newInfo.equals(info)
                             ? source.withContent(newLiteral) : source.withParameters(attributeLine(newInfo), newLiteral));
-            List<BlockPiece> pieces = renderer(context, rewriter)
+            List<BlockPiece> pieces = renderer(context, rewriter, before)
                     .render(info(source.parameters()), content.endsWith("\n") ? content : content + "\n", null);
             if (pieces.isEmpty()) {
                 throw new IllegalArgumentException("not a " + name + " block the surface can draw");
@@ -372,8 +385,18 @@ public final class DocumentBlockKinds {
 
         /** Statements one directly after another read as a run: a group is named once, above its first statement. */
         @Override
-        public boolean printsAsRun() {
+        public boolean readsAsRun() {
             return true;
+        }
+
+        /** A statement that follows another is drawn knowing the group of the one before it, which it does not name again. */
+        @Override
+        FenceRenderer renderer(Context context, BlockRewriter rewriter, List<Source> before) {
+            AnfBlockRenderer renderer = new AnfBlockRenderer(context.view(), context.viewProperties(), context.base(), ProfileBlocks.of(context.blocks()));
+            renderer.setRewriter(rewriter);
+            renderer.setGroupBefore(before.isEmpty() ? null
+                    : StatementLines.read(before.getLast().parameters(), List.of(before.getLast().content().split("\n", -1))).group());
+            return renderer;
         }
 
         /**

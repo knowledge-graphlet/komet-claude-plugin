@@ -114,6 +114,13 @@ class BlockLayoutSettlesIT {
     private static final String ANF = """
             topic::   candidate[clinical site inspection] disp=PENDING
             """;
+    /** A document's own statement: a share of a group, from a report, within a time. */
+    private static final String STATEMENT = """
+            topic:: candidate[Removal of the implant] disp=PENDING
+            subject_of_information:: candidate[The implant in the jaw joint, in patients] disp=PENDING
+            result:: [0.8,0.8] candidate[Population share] disp=PENDING
+            method:: candidate[Clinical report] disp=PENDING
+            """;
 
     private ViewCalculator view;
     private Executor sweepsBefore;
@@ -232,6 +239,58 @@ class BlockLayoutSettlesIT {
     void anAnfStatementComesToRest() throws Exception {
         settles("ANF statement", () -> List.of(only(new AnfBlockRenderer(view, BASE, new ProfileBlocks())
                 .render("anf type=request id=settle-request", ANF, null))));
+    }
+
+    /** A document's statement as the surface draws it, after a statement about a group, or after none. */
+    private Node statement(String groupBefore) {
+        AnfBlockRenderer renderer = new AnfBlockRenderer(view, BASE, new ProfileBlocks());
+        renderer.setGroupBefore(groupBefore);
+        return only(renderer.render("anf type=performance id=settle-removal", STATEMENT, null));
+    }
+
+    private static List<String> said(Node block, String styleClass) {
+        return block.lookupAll("." + styleClass).stream().filter(Node::isManaged)
+                .map(node -> ((javafx.scene.control.Label) node).getText()).toList();
+    }
+
+    @Test
+    void aDocumentsStatementIsALineInAReadersWords() throws Exception {
+        settles("a document's statement", () -> List.of(statement(null)));
+        Node first = onFx(() -> {
+            Node block = statement(null);
+            new Scene(new VBox(block), 700, 300);
+            return block;
+        });
+        assertEquals(List.of("The implant in the jaw joint, in patients"), onFx(() -> said(first, "anf-statement-group")),
+                "the group, above the first statement about it");
+        assertEquals(List.of("Removal of the implant"), onFx(() -> said(first, "anf-statement-topic")), "what was observed, in plain words");
+        assertEquals(List.of("80%"), onFx(() -> said(first, "anf-statement-result")), "the result in a reader's words");
+        assertEquals(List.of("Clinical report"), onFx(() -> said(first, "anf-statement-detail")), "how it was known, beneath");
+        List<String> every = onFx(() -> first.lookupAll(".label").stream().map(node -> ((javafx.scene.control.Label) node).getText()).toList());
+        assertTrue(every.stream().noneMatch(text -> text != null && (text.contains("[") || text.contains("settle-removal"))),
+                "no interval notation and no block name on the line: " + every);
+        assertNotNull(onFx(() -> first.lookup("#anf-settle-removal")), "the line is found by the statement's name");
+
+        Node next = onFx(() -> {
+            Node block = statement("The implant in the jaw joint, in patients");
+            new Scene(new VBox(block), 700, 300);
+            return block;
+        });
+        assertEquals(List.of(), onFx(() -> said(next, "anf-statement-group")), "a statement about the group of the one before does not name it again");
+        Node other = onFx(() -> {
+            Node block = statement("Jaw joints with the disc left in place, in patients");
+            new Scene(new VBox(block), 700, 300);
+            return block;
+        });
+        assertEquals(1, onFx(() -> said(other, "anf-statement-group")).size(), "a statement about another group names its own");
+
+        // a click on the line unfolds the editable statement, as before
+        onFx(() -> {
+            first.lookup("#anf-settle-removal").getOnMouseClicked().handle(null);
+            return null;
+        });
+        assertTrue(onFx(() -> ((Parent) first).getChildrenUnmodifiable().stream()
+                .anyMatch(network.ike.komet.claude.anf.editor.AnfStatementControl.class::isInstance)), "the statement opens as its editable tree");
     }
 
     private static Node only(List<BlockPiece> pieces) {

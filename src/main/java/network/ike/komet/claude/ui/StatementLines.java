@@ -195,7 +195,7 @@ final class StatementLines {
     }
 
     /** What stands beneath the topic in small type: the narrative's words, how it was known, when, and any other field. */
-    private static String detail(Statement statement) {
+    static String detail(Statement statement) {
         List<String> parts = new ArrayList<>();
         if (!statement.note().isEmpty()) {
             parts.add("\u201C" + statement.note() + "\u201D");
@@ -239,6 +239,10 @@ final class StatementLines {
             }
             if (lower != null && lower == 1 && (upper == null || upper == 1)) {
                 return "Present";
+            }
+            // the interval a record writes when it does not determine the result
+            if (lower != null && upper != null && lower == 0 && upper == 1) {
+                return "Not determined";
             }
         }
         boolean share = (named.contains("share") || named.contains("fraction") || named.contains("probability") || named.contains("proportion"))
