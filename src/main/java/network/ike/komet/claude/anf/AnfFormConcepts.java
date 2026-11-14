@@ -25,7 +25,7 @@ import dev.ikm.tinkar.terms.EntityProxy;
 import network.ike.komet.claude.anf.editor.AnfStatementControl;
 import network.ike.komet.claude.authoring.BlockConcepts;
 import network.ike.komet.claude.authoring.ConceptChangeWriter;
-import network.ike.komet.claude.authoring.DescriptionOperation;
+import network.ike.komet.claude.authoring.DescriptionDialect;
 import network.ike.komet.document.LocalConcepts;
 import network.ike.komet.document.SemanticVersions;
 
@@ -34,8 +34,9 @@ import java.util.Objects;
 
 /**
  * What a statement's form writes to the knowledge base when a person settles a value that has
- * words and no concept: a new concept made from the words, or the words given to an existing
- * concept as another name (IKE-Network/ike-issues#812). Both are written uncommitted, under the
+ * words and no concept: a new concept made from the words, or the words added to an existing
+ * concept as an additional description, a regular name with an acceptability in a dialect the
+ * person chooses (IKE-Network/ike-issues#812). Both are written uncommitted, under the
  * person's own author, module and path, each in a change of its own that the person publishes
  * or discards with the rest of their work.
  *
@@ -86,19 +87,24 @@ public final class AnfFormConcepts implements AnfStatementControl.ConceptWriter 
     }
 
     @Override
-    public void addName(ConceptFacade concept, String name) {
-        String words = name == null ? "" : name.strip();
+    public List<String> dialects() {
+        return DescriptionDialect.available(view).stream().map(DescriptionDialect::label).toList();
+    }
+
+    @Override
+    public void addDescription(ConceptFacade concept, String text, String dialect, boolean preferred) {
+        String words = text == null ? "" : text.strip();
         if (words.isEmpty()) {
-            return;
+            throw new IllegalArgumentException("a description needs its text");
         }
         ConceptChangeWriter.Change change = ConceptChangeWriter.open(view, ConceptFacade.make(edit.getAuthorNidForChanges()),
                 ConceptFacade.make(edit.getDefaultModuleNid()), ConceptFacade.make(edit.getDefaultPathNid()), concept,
-                "another name, from a statement's form");
+                "an additional description, from a statement's form");
         try {
-            change.editDescriptions(List.of(new DescriptionOperation.AddSynonym(words, false, false)));
+            change.addRegularName(words, DescriptionDialect.labelled(dialect), preferred, false);
         } catch (IllegalArgumentException refused) {
-            // the concept is called by these words already: there is nothing to add
-            if (refused.getMessage() == null || !refused.getMessage().contains(" already has the ")) {
+            // the concept has this regular name in the dialect already: there is nothing to add
+            if (refused.getMessage() == null || !refused.getMessage().contains(" already has the regular name ")) {
                 throw refused;
             }
         }

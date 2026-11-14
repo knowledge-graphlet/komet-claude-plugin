@@ -48,8 +48,8 @@ public class AnfStatementControl extends KLDiTreeControl {
     /**
      * Writes to the knowledge base for a value of the statement that has words and no concept:
      * a host that can write supplies one, and the control then offers to make a concept from the
-     * words, or to give the words to a concept as another name. Without one the control only
-     * finds concepts.
+     * words, or to add the words to a concept as an additional description. Without one the
+     * control only finds concepts.
      */
     public interface ConceptWriter {
 
@@ -65,14 +65,26 @@ public class AnfStatementControl extends KLDiTreeControl {
         ConceptFacade create(String name, ConceptFacade parent);
 
         /**
-         * Gives words to a concept as another name of it, uncommitted. Words the concept is
-         * already called by are left as they are.
+         * The dialects of the knowledge base a description can be given an acceptability in, by
+         * the names a person chooses among, the one to offer first at the head.
          *
-         * @param concept the concept
-         * @param name    the words
+         * @return the dialects' names; none when no description can be added
+         */
+        List<String> dialects();
+
+        /**
+         * Adds an additional description to a concept, uncommitted: a regular name, with an
+         * acceptability in one dialect. A regular name that is to be preferred takes the place
+         * of the one preferred in that dialect now, which becomes acceptable. A regular name the
+         * concept already has in that dialect is left as it is.
+         *
+         * @param concept   the concept
+         * @param text      the description's text
+         * @param dialect   the dialect, one of {@link #dialects()}
+         * @param preferred whether the description is preferred in the dialect, or acceptable
          * @throws RuntimeException with a reason to show the person, when it cannot be written
          */
-        void addName(ConceptFacade concept, String name);
+        void addDescription(ConceptFacade concept, String text, String dialect, boolean preferred);
     }
 
     private ConceptWriter conceptWriter;

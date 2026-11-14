@@ -405,6 +405,84 @@ public final class ConceptChangeWriter {
             return new DescriptionsEdited(!saved.isEmpty(), List.copyOf(changes), List.copyOf(added));
         }
 
+        /**
+         * Adds a regular name to the concept, with an acceptability in one dialect. A regular name
+         * that is to be preferred takes the place of the one preferred in that dialect now, which
+         * becomes acceptable in the same edit, so the dialect keeps one preferred regular name.
+         * A regular name the concept already has, with no acceptability in the dialect, is given
+         * one, and no second description is written. The check comes before anything is written,
+         * so a refused addition writes nothing.
+         *
+         * @param text          the description's text
+         * @param in            the dialect its acceptability is in
+         * @param preferred     whether it is preferred in the dialect, or acceptable
+         * @param caseSensitive whether its case is significant
+         * @return what the edit did
+         * @throws IllegalArgumentException when the text is blank, or the concept already has a
+         *                                  regular name with that text and an acceptability in
+         *                                  the dialect
+         * @throws IllegalStateException    when the change was published or discarded, the
+         *                                  knowledge base does not have the dialect, or the regular
+         *                                  name preferred now has an unpublished change of another
+         *                                  transaction
+         */
+        public DescriptionsEdited addRegularName(String text, DescriptionDialect in, boolean preferred, boolean caseSensitive) {
+            refuseIfEnded();
+            String words = nonBlank(text);
+            if (!in.in(calc)) {
+                throw new IllegalStateException("this knowledge base has no " + in.label() + " dialect to give an acceptability in");
+            }
+            Map<Long, Description> active = descriptions(in);
+            long regular = KernelConcept.REGULAR_NAME_DESCRIPTION_TYPE.nid();
+            Description same = active.values().stream()
+                    .filter(description -> description.type() == regular && description.text().equals(words)).findFirst().orElse(null);
+            if (same != null && same.dialect() != null) {
+                throw new IllegalArgumentException(name() + " already has the regular name \"" + words + "\", "
+                        + (Boolean.TRUE.equals(same.preferred()) ? "preferred" : "acceptable") + " in " + in.label());
+            }
+            Description was = !preferred ? null : active.values().stream()
+                    .filter(description -> description.type() == regular && Boolean.TRUE.equals(description.preferred()))
+                    .findFirst().orElse(null);
+            if (was != null) {
+                refuseOtherPendingVersions(was.dialect(), "the acceptability of \"" + was.text() + "\"");
+            }
+            List<String> changes = new ArrayList<>();
+            Set<Long> saved = new LinkedHashSet<>();
+            if (was != null) {
+                int field = ConceptProposalWriter.index(ConceptProposalWriter.latest(calc, in.pattern()), in.dialect());
+                EntityComposer<ObservableSemanticVersion.Editable, ObservableSemantic> editor = composer.composeSemantic(
+                        EntityProxy.Semantic.make(was.dialect()).publicId(), EntityProxy.Semantic.make(was.nid()), in.pattern());
+                editor.getEditableVersion().getEditableFields().get(field).setObjectValue(KometConcept.ACCEPTABLE);
+                editor.save();
+                saved.add(editor.getEntity().nid());
+                changes.add("\"" + was.text() + "\" is now acceptable in " + in.label());
+            }
+            long described;
+            if (same != null) {
+                // the concept is called this already, in another dialect: the description is given its acceptability in this one
+                int field = ConceptProposalWriter.index(ConceptProposalWriter.latest(calc, in.pattern()), in.dialect());
+                EntityComposer<ObservableSemanticVersion.Editable, ObservableSemantic> editor = composer.composeSemantic(
+                        PublicIds.newRandom(), EntityProxy.Semantic.make(same.nid()), in.pattern());
+                editor.getEditableVersion().getEditableFields().get(field)
+                        .setObjectValue(preferred ? KernelConcept.PREFERRED : KometConcept.ACCEPTABLE);
+                editor.save();
+                saved.add(editor.getEntity().nid());
+                described = same.nid();
+                changes.add("\"" + words + "\" is now " + (preferred ? "preferred" : "acceptable") + " in " + in.label());
+            } else {
+                ConceptProposalWriter.Described written = ConceptProposalWriter.description(composer, calc, concept, words, caseSensitive,
+                        KernelConcept.REGULAR_NAME_DESCRIPTION_TYPE, preferred, in);
+                saved.add(written.description());
+                if (written.dialect() != 0) {
+                    saved.add(written.dialect());
+                }
+                described = written.description();
+                changes.add("added the regular name \"" + words + "\", " + (preferred ? "preferred" : "acceptable") + " in " + in.label());
+            }
+            saved.forEach(this::remember);
+            return new DescriptionsEdited(true, List.copyOf(changes), same != null ? List.of() : List.of(EntityProxy.Semantic.make(described)));
+        }
+
         /** Writes one description's planned changes: a retirement, or its fields and acceptability. */
         private void write(Planned plan, List<String> changes, Set<Long> opened, Set<Long> saved) {
             Description description = plan.description;
@@ -534,12 +612,16 @@ public final class ConceptChangeWriter {
 
         /** The concept's active descriptions on the view, with their US English acceptability. */
         private Map<Long, Description> descriptions() {
+            return descriptions(DescriptionDialect.US_ENGLISH);
+        }
+
+        /** The concept's active descriptions on the view, with their acceptability in one dialect. */
+        private Map<Long, Description> descriptions(DescriptionDialect in) {
             PatternEntityVersion pattern = ConceptProposalWriter.latest(calc, KernelPattern.DESCRIPTION_PATTERN);
             int text = ConceptProposalWriter.index(pattern, KernelConcept.TEXT_FOR_DESCRIPTION);
             int type = ConceptProposalWriter.index(pattern, KernelConcept.DESCRIPTION_TYPE);
             int caseSignificance = ConceptProposalWriter.index(pattern, KernelConcept.DESCRIPTION_CASE_SIGNIFICANCE);
-            int acceptability = ConceptProposalWriter.index(ConceptProposalWriter.latest(calc, KernelPattern.US_DIALECT_PATTERN),
-                    KometConcept.US_ENGLISH_DIALECT);
+            int acceptability = ConceptProposalWriter.index(ConceptProposalWriter.latest(calc, in.pattern()), in.dialect());
             Map<Long, Description> descriptions = new LinkedHashMap<>();
             EntityService.get().semanticsForComponentOfPattern(concept.nid(), KernelPattern.DESCRIPTION_PATTERN.nid()).forEach(semantic -> {
                 Latest<SemanticEntityVersion> latest = calc.latest(semantic.nid());
@@ -550,7 +632,7 @@ public final class ConceptChangeWriter {
                 Long dialect = null;
                 Boolean preferred = null;
                 for (SemanticEntity<SemanticEntityVersion> candidate : EntityService.get()
-                        .semanticsForComponentOfPattern(semantic.nid(), KernelPattern.US_DIALECT_PATTERN.nid()).toList()) {
+                        .semanticsForComponentOfPattern(semantic.nid(), in.pattern().nid()).toList()) {
                     Latest<SemanticEntityVersion> dialectLatest = calc.latest(candidate.nid());
                     if (dialectLatest.isPresent() && dialectLatest.get().state() == State.ACTIVE) {
                         dialect = candidate.nid();

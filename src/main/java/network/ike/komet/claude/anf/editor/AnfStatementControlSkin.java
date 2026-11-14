@@ -493,8 +493,9 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
      * shows the words in full; the panel says what the attribute needs, lists the concepts
      * closest to the words, each with Use, and, where the control's host can write
      * ({@link AnfStatementControl#getConceptWriter()}), offers to make a new concept from the
-     * words or to give the words to the concept used as another name. A candidate can also be
-     * kept as words. Settling the value is an edit of the tree, which draws the row again, closed.
+     * words or to add an additional description to the concept used, a regular name with the
+     * dialect and acceptability the person chooses. A candidate can also be kept as words.
+     * Settling the value is an edit of the tree, which draws the row again, closed.
      */
     private final class FindOrCreate {
         private static final String OPEN = "Find or create ▸";
@@ -515,7 +516,11 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
         final VBox results = new VBox(2);
         final Label status = new Label();
         final Label problem = new Label();
-        CheckBox alsoName;
+        /** Whether the concept that is used is also given an additional description, and what that description is. */
+        CheckBox alsoDescribe;
+        TextField describedAs;
+        ToggleGroup dialects;
+        ToggleButton preferred;
         /** The search slot the panel's searches run through, as the tree's own search controls do. */
         KLComponentControl searcher;
         /** Counts the searches asked, so a slow answer to an earlier one is dropped. */
@@ -688,11 +693,18 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
             showing(problem, false);
             built.getChildren().addAll(need, query, heading("Closest concepts"), status, results);
             AnfStatementControl.ConceptWriter writer = anfControl().getConceptWriter();
-            if (writer != null && !words().isEmpty()) {
-                alsoName = new CheckBox("Add “" + words() + "” to the concept I use, as another name");
-                alsoName.setId("anf-find-also-name");
-                alsoName.setWrapText(true);
-                built.getChildren().add(alsoName);
+            List<String> offered = writer == null ? List.of() : writer.dialects();
+            if (!offered.isEmpty()) {
+                alsoDescribe = new CheckBox("Add an additional Description to the selected concept");
+                alsoDescribe.setId("anf-find-also-describe");
+                alsoDescribe.setWrapText(true);
+                Node describing = describing(offered);
+                showing(describing, false);
+                alsoDescribe.selectedProperty().subscribe(selected -> {
+                    showing(describing, selected);
+                    revealSoon();
+                });
+                built.getChildren().addAll(alsoDescribe, describing);
             }
             if (writer != null) {
                 built.getChildren().addAll(heading("None of these"), newConcept(writer));
@@ -714,11 +726,66 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
             return heading;
         }
 
+        /**
+         * What the additional description is, shown while the box is ticked: its text, the dialect its
+         * acceptability is in, and whether it is acceptable or preferred there. It is a regular name.
+         */
+        private Node describing(List<String> offered) {
+            describedAs = new TextField(words());
+            describedAs.setId("anf-find-description");
+            describedAs.setPromptText("Text of the description");
+            HBox.setHgrow(describedAs, Priority.ALWAYS);
+            dialects = new ToggleGroup();
+            HBox dialect = segments(dialects, offered, 0, "anf-find-dialect-");
+            ToggleGroup acceptability = new ToggleGroup();
+            HBox accepted = segments(acceptability, List.of("Acceptable", "Preferred"), 0, "anf-find-acceptability-");
+            preferred = (ToggleButton) accepted.getChildren().get(1);
+            Label says = new Label();
+            says.getStyleClass().add("anf-find-status");
+            says.setWrapText(true);
+            Runnable say = () -> says.setText(preferred.isSelected()
+                    ? "Added as a regular name. The regular name preferred in this dialect now becomes acceptable."
+                    : "Added as a regular name.");
+            acceptability.selectedToggleProperty().subscribe(toggle -> say.run());
+            say.run();
+            VBox rows = new VBox(4, labelled("Description", describedAs), labelled("Dialect", dialect), labelled("Acceptability", accepted), says);
+            rows.getStyleClass().add("anf-find-describing");
+            rows.setPadding(new javafx.geometry.Insets(0, 0, 2, 22));
+            return rows;
+        }
+
+        private HBox labelled(String name, Node value) {
+            Label label = new Label(name);
+            label.getStyleClass().add("anf-find-status");
+            label.setMinWidth(86);
+            HBox row = new HBox(6, label, value);
+            row.setAlignment(Pos.CENTER_LEFT);
+            return row;
+        }
+
+        /** One segmented control over exclusive choices, one of them always chosen. */
+        private HBox segments(ToggleGroup group, List<String> choices, int chosen, String id) {
+            HBox segments = new HBox();
+            segments.getStyleClass().add("anf-kind-control");
+            for (int i = 0; i < choices.size(); i++) {
+                ToggleButton segment = new ToggleButton(choices.get(i));
+                segment.getStyleClass().add("anf-kind-segment");
+                segment.setId(id + i);
+                segment.setToggleGroup(group);
+                segment.setSelected(i == chosen);
+                // a click on the chosen segment leaves it chosen
+                segment.setOnAction(e -> segment.setSelected(true));
+                segments.getChildren().add(segment);
+            }
+            return segments;
+        }
+
         /** The row that makes a concept from the words: its name, what it is a kind of, and Create. */
         private Node newConcept(AnfStatementControl.ConceptWriter writer) {
             TextField name = new TextField(words());
             name.setId("anf-find-name");
-            name.setPromptText("Name of the new concept");
+            name.setPromptText("Fully qualified name of the new concept");
+            Tooltip.install(name, new Tooltip("The new concept's fully qualified name, which is also its preferred regular name"));
             HBox.setHgrow(name, Priority.ALWAYS);
             Label kindOf = new Label("a kind of");
             kindOf.getStyleClass().add("anf-find-status");
@@ -852,15 +919,20 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
             }
         }
 
-        /** Settles the value with a concept that was found, giving it the words as another name first when that is asked. */
+        /** Settles the value with a concept that was found, adding the additional description to it first when that is asked. */
         private void use(ConceptFacade concept) {
             problem("");
             AnfStatementControl.ConceptWriter writer = anfControl().getConceptWriter();
-            if (writer != null && alsoName != null && alsoName.isSelected()) {
+            if (writer != null && alsoDescribe != null && alsoDescribe.isSelected()) {
+                String text = describedAs.getText() == null ? "" : describedAs.getText().strip();
+                if (text.isEmpty()) {
+                    problem("Give the additional description its text.");
+                    return;
+                }
                 try {
-                    writer.addName(concept, words());
+                    writer.addDescription(concept, text, ((ToggleButton) dialects.getSelectedToggle()).getText(), preferred.isSelected());
                 } catch (RuntimeException failure) {
-                    problem("The words were not added as a name, and nothing was changed: " + reason(failure));
+                    problem("The description was not added, and nothing was changed: " + reason(failure));
                     return;
                 }
             }

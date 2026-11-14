@@ -125,7 +125,7 @@ public final class ConceptProposalWriter {
         DISCARDED
     }
 
-    /** A description written with its US-English acceptability. */
+    /** A description written with its acceptability in a dialect, US English unless another was asked for. */
     record Described(long description, long dialect) {
     }
 
@@ -530,9 +530,23 @@ public final class ConceptProposalWriter {
         return description(composer, calc, PublicIds.newRandom(), concept, text, caseSensitive, type, preferred);
     }
 
+    /** A description and its acceptability in one dialect. */
+    static Described description(ObservableComposer composer, ViewCalculator calc, EntityFacade concept,
+                                         String text, boolean caseSensitive, ConceptFacade type, boolean preferred,
+                                         DescriptionDialect in) {
+        return description(composer, calc, PublicIds.newRandom(), concept, text, caseSensitive, type, preferred, in);
+    }
+
     /** A description under the given identity, and its US-English acceptability under one derived from it. */
     private static Described description(ObservableComposer composer, ViewCalculator calc, PublicId id, EntityFacade concept,
                                          String text, boolean caseSensitive, ConceptFacade type, boolean preferred) {
+        return description(composer, calc, id, concept, text, caseSensitive, type, preferred, DescriptionDialect.US_ENGLISH);
+    }
+
+    /** A description under the given identity, and its acceptability in one dialect under an identity derived from it. */
+    private static Described description(ObservableComposer composer, ViewCalculator calc, PublicId id, EntityFacade concept,
+                                         String text, boolean caseSensitive, ConceptFacade type, boolean preferred,
+                                         DescriptionDialect in) {
         PatternEntityVersion pattern = latest(calc, KernelPattern.DESCRIPTION_PATTERN);
         Map<ConceptFacade, Object> byMeaning = Map.of(
                 KernelConcept.LANGUAGE_CONCEPT_NID_FOR_DESCRIPTION, KernelConcept.ENGLISH_LANGUAGE,
@@ -544,11 +558,11 @@ public final class ConceptProposalWriter {
                 fields -> byMeaning.forEach((meaning, value) ->
                         fields.get(index(pattern, meaning)).setObjectValue(value)));
 
-        PatternEntityVersion dialect = latest(calc, KernelPattern.US_DIALECT_PATTERN);
+        PatternEntityVersion dialect = latest(calc, in.pattern());
         // The dialect pattern's one field is named for the dialect itself; it holds the acceptability.
-        int acceptability = index(dialect, KometConcept.US_ENGLISH_DIALECT);
-        ObservableSemantic dialectSemantic = semantic(composer, LocalConcepts.derived(id, "us-dialect"), description,
-                KernelPattern.US_DIALECT_PATTERN,
+        int acceptability = index(dialect, in.dialect());
+        ObservableSemantic dialectSemantic = semantic(composer, LocalConcepts.derived(id, in.key()), description,
+                in.pattern(),
                 fields -> fields.get(acceptability).setObjectValue(preferred ? KernelConcept.PREFERRED : KometConcept.ACCEPTABLE));
         return new Described(description.nid(), dialectSemantic.nid());
     }

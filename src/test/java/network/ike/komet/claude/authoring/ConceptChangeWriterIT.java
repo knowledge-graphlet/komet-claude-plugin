@@ -473,6 +473,45 @@ class ConceptChangeWriterIT {
     }
 
     @Test
+    void aRegularNameIsAddedAcceptableOrPreferredInOneDialect() {
+        EntityFacade concept = describedFixture("Dialect fixture");
+        EntityFacade preferred = description(concept, "Dialect fixture");
+        Change change = open(concept);
+
+        assertRefused(IllegalArgumentException.class,
+                () -> onFx(() -> change.addRegularName("Dialect fixture alternative", DescriptionDialect.US_ENGLISH, false, false)),
+                "a regular name the concept has in the dialect already");
+        assertRefused(IllegalArgumentException.class,
+                () -> onFx(() -> change.addRegularName("  ", DescriptionDialect.US_ENGLISH, false, false)), "a description with no text");
+        assertEquals(Status.EMPTY, change.status(), "a refused addition writes nothing");
+
+        DescriptionsEdited acceptable = onFx(() -> change.addRegularName("Dialect fixture also", DescriptionDialect.US_ENGLISH, false, false));
+        assertEquals(1, acceptable.added().size());
+        assertFalse(isPreferred(acceptable.added().getFirst().nid()), "acceptable, as asked");
+        assertTrue(isPreferred(preferred.nid()), "an acceptable regular name leaves the preferred one as it is");
+
+        DescriptionsEdited first = onFx(() -> change.addRegularName("Dialect fixture first", DescriptionDialect.US_ENGLISH, true, false));
+        assertTrue(isPreferred(first.added().getFirst().nid()), "preferred, as asked");
+        assertFalse(isPreferred(preferred.nid()), "the regular name that was preferred becomes acceptable, so the dialect keeps one");
+        assertEquals(2, first.changes().size(), first.changes().toString());
+        assertTrue(activeTexts(concept).containsAll(Set.of("Dialect fixture", "Dialect fixture also", "Dialect fixture first")));
+        assertEquals(transactionsOf(dialect(preferred.nid())), transactionsOf(first.added().getFirst().nid()),
+                "the acceptability that changed and the description that was added are in one change");
+
+        // another dialect is another acceptability: what is preferred in US English is as it was
+        org.junit.jupiter.api.Assumptions.assumeTrue(DescriptionDialect.GB_ENGLISH.in(view), "this knowledge base has no GB English dialect");
+        DescriptionsEdited british = onFx(() -> change.addRegularName("Dialect fixture colour", DescriptionDialect.GB_ENGLISH, true, false));
+        assertEquals(1, british.added().size());
+        assertTrue(isPreferred(first.added().getFirst().nid()), "preferred in US English still");
+        assertEquals(1, british.changes().size(), "nothing was preferred in GB English before: " + british.changes());
+
+        // a regular name the concept has, with no acceptability in the dialect, is given one and not written twice
+        DescriptionsEdited given = onFx(() -> change.addRegularName("Dialect fixture also", DescriptionDialect.GB_ENGLISH, false, false));
+        assertEquals(List.of(), given.added(), "no second description");
+        assertTrue(given.changes().getFirst().contains("acceptable in GB English"), given.changes().toString());
+    }
+
+    @Test
     void synonymsAndTextualDefinitionsAreAddedButNotRepeated() {
         EntityFacade concept = describedFixture("Add fixture");
         Change change = open(concept);

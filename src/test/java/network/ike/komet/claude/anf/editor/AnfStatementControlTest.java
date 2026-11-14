@@ -268,7 +268,7 @@ class AnfStatementControlTest {
         assertTrue(onFx(() -> ((Label) panel.lookup(".anf-find-need")).getText()).contains("how the result was obtained"), "what a method is");
         assertEquals(List.of("Auscultation", "Palpation"), listed(), "the concepts the search finds, in its order");
         assertNull(inPanel("#anf-find-create"), "a host that cannot write offers no new concept");
-        assertNull(inPanel("#anf-find-also-name"));
+        assertNull(inPanel("#anf-find-also-describe"), "and no additional description");
 
         fx(() -> ((Button) control.lookup(".anf-find-result").lookup(".button")).fire());
         assertEquals(concept("Auscultation").nid(), method().concept().orElseThrow().nid(), "Use settles the value with the concept");
@@ -300,8 +300,8 @@ class AnfStatementControlTest {
     }
 
     @Test
-    @DisplayName("Where the host can write, the words become a new concept, or another name of the concept used")
-    void theWordsBecomeANewConceptOrAnotherName() throws Exception {
+    @DisplayName("Where the host can write, the words become a new concept, or an additional description of the concept used")
+    void theWordsBecomeANewConceptOrAnAdditionalDescription() throws Exception {
         List<String> written = new ArrayList<>();
         writer = new AnfStatementControl.ConceptWriter() {
             @Override
@@ -311,8 +311,13 @@ class AnfStatementControlTest {
             }
 
             @Override
-            public void addName(ConceptFacade concept, String name) {
-                written.add("name " + NAMES.get(concept.nid()) + " " + name);
+            public List<String> dialects() {
+                return List.of("US English", "GB English");
+            }
+
+            @Override
+            public void addDescription(ConceptFacade concept, String text, String dialect, boolean preferred) {
+                written.add("describe " + NAMES.get(concept.nid()) + " as " + text + ", " + (preferred ? "preferred" : "acceptable") + " in " + dialect);
             }
         };
         found = List.of(concept("Auscultation"));
@@ -332,17 +337,55 @@ class AnfStatementControlTest {
         assertEquals(List.of("create Clinical report below Report"), written);
         assertEquals(concept("Clinical report").nid(), method().concept().orElseThrow().nid(), "the value is the concept that was made");
 
-        // the same words, given to a concept that was found as another name of it
+        // the same words, added to a concept that was found as an additional description of it
+        written.clear();
+        render(methodInWords());
+        clickUnsettled();
+        assertEquals(List.of("Auscultation"), listed());
+        CheckBox also = (CheckBox) onFx(() -> control.lookup("#anf-find-also-describe"));
+        assertEquals("Add an additional Description to the selected concept", onFx(also::getText));
+        Node text = onFx(() -> control.lookup("#anf-find-description"));
+        assertFalse(onFx(() -> text.getParent().getParent().isVisible()), "what the description is waits for the box to be ticked");
+
+        // ticked with nothing more chosen: the words, acceptable, in the first dialect the knowledge base offers
+        fx(() -> also.setSelected(true));
+        assertTrue(onFx(() -> text.getParent().getParent().isVisible()), "a ticked box shows the description's text, dialect and acceptability");
+        assertEquals("Clinical report", onFx(() -> ((TextField) text).getText()));
+        assertEquals(List.of("US English", "GB English"), onFx(() -> List.of(
+                ((ToggleButton) control.lookup("#anf-find-dialect-0")).getText(), ((ToggleButton) control.lookup("#anf-find-dialect-1")).getText())));
+        assertTrue(onFx(() -> ((ToggleButton) control.lookup("#anf-find-dialect-0")).isSelected()
+                && ((ToggleButton) control.lookup("#anf-find-acceptability-0")).isSelected()), "the first dialect, and acceptable, until chosen otherwise");
+        fx(() -> ((Button) control.lookup(".anf-find-result").lookup(".button")).fire());
+        assertEquals(List.of("describe Auscultation as Clinical report, acceptable in US English"), written);
+        assertEquals(concept("Auscultation").nid(), method().concept().orElseThrow().nid());
+
+        // another text, preferred, in the other dialect
         written.clear();
         render(methodInWords());
         clickUnsettled();
         assertEquals(List.of("Auscultation"), listed());
         fx(() -> {
-            ((CheckBox) control.lookup("#anf-find-also-name")).setSelected(true);
+            ((CheckBox) control.lookup("#anf-find-also-describe")).setSelected(true);
+            ((TextField) control.lookup("#anf-find-description")).setText("Report of a clinic");
+            ((ToggleButton) control.lookup("#anf-find-dialect-1")).fire();
+            ((ToggleButton) control.lookup("#anf-find-acceptability-1")).fire();
             ((Button) control.lookup(".anf-find-result").lookup(".button")).fire();
         });
-        assertEquals(List.of("name Auscultation Clinical report"), written);
-        assertEquals(concept("Auscultation").nid(), method().concept().orElseThrow().nid());
+        assertEquals(List.of("describe Auscultation as Report of a clinic, preferred in GB English"), written);
+
+        // a description with no text is not added, and the value is left as it was
+        written.clear();
+        render(methodInWords());
+        clickUnsettled();
+        assertEquals(List.of("Auscultation"), listed());
+        fx(() -> {
+            ((CheckBox) control.lookup("#anf-find-also-describe")).setSelected(true);
+            ((TextField) control.lookup("#anf-find-description")).setText("  ");
+            ((Button) control.lookup(".anf-find-result").lookup(".button")).fire();
+        });
+        assertEquals(List.of(), written);
+        assertEquals("Give the additional description its text.", onFx(() -> ((Label) control.lookup(".anf-find-problem")).getText()));
+        assertTrue(method().concept().isEmpty());
     }
 
     @Test
