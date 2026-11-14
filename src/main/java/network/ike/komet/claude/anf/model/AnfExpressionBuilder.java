@@ -974,6 +974,26 @@ public final class AnfExpressionBuilder {
         }
     }
 
+    /** The disposition of a candidate that stays as the words it is: no concept is sought for it. */
+    public static final String KEPT_AS_WORDS = "LEAVE_NARRATIVE";
+
+    /**
+     * Leaves a candidate as the words it is: its disposition then says no concept is sought for
+     * it, so an editor stops asking for one. The vertex, its label and its place stay; a concept
+     * chosen for it later settles it as any candidate is settled.
+     *
+     * @param attribute the attribute that carries the candidate
+     * @throws AnfRefusal if the attribute carries no candidate
+     */
+    public void keepAsWords(AnfStatement attribute) {
+        EntityVertex vertex = own(attribute);
+        if (!vertex.properties().containsKey(IkeConcept.ANF_PROVISIONAL_LABEL.nid())) {
+            throw new AnfRefusal("The " + attribute.semantic().describe() + " has no words to keep: it carries no candidate");
+        }
+        vertex.putUncommittedProperty(IkeConcept.ANF_PROVISIONAL_DISPOSITION.nid(), KEPT_AS_WORDS);
+        vertex.commitProperties();
+    }
+
     private static final List<ConceptFacade> PROVISIONAL_KEYS = List.of(
             IkeConcept.ANF_PROVISIONAL_LABEL, IkeConcept.ANF_PROVISIONAL_TEXT, IkeConcept.ANF_PROVISIONAL_DISPOSITION,
             IkeConcept.ANF_PROVISIONAL_NEAREST_MATCHES, IkeConcept.ANF_CLARIFICATION_FIELD,

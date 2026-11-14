@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.anf.editor;
 
+import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.komet.kview.controls.KLDiTreeControl;
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.ReadOnlyObjectProperty;
@@ -44,6 +45,48 @@ public class AnfStatementControl extends KLDiTreeControl {
     private final BooleanProperty showsMissing = new SimpleBooleanProperty(this, "showsMissing", true);
     private final BooleanProperty envelopeFromContext = new SimpleBooleanProperty(this, "envelopeFromContext", false);
 
+    /**
+     * Writes to the knowledge base for a value of the statement that has words and no concept:
+     * a host that can write supplies one, and the control then offers to make a concept from the
+     * words, or to give the words to a concept as another name. Without one the control only
+     * finds concepts.
+     */
+    public interface ConceptWriter {
+
+        /**
+         * Makes a concept the knowledge base lacks, uncommitted. A concept the knowledge base
+         * already has under exactly that name is that concept, and is returned as it is.
+         *
+         * @param name   the concept's fully qualified name
+         * @param parent what it is a kind of
+         * @return the concept
+         * @throws RuntimeException with a reason to show the person, when it cannot be written
+         */
+        ConceptFacade create(String name, ConceptFacade parent);
+
+        /**
+         * Gives words to a concept as another name of it, uncommitted. Words the concept is
+         * already called by are left as they are.
+         *
+         * @param concept the concept
+         * @param name    the words
+         * @throws RuntimeException with a reason to show the person, when it cannot be written
+         */
+        void addName(ConceptFacade concept, String name);
+    }
+
+    private ConceptWriter conceptWriter;
+
+    /** @return what writes a new concept or another name for the control, or null when its host cannot write */
+    public final ConceptWriter getConceptWriter() {
+        return conceptWriter;
+    }
+
+    /** @param writer what writes a new concept or another name for the control; null when its host cannot write */
+    public final void setConceptWriter(ConceptWriter writer) {
+        this.conceptWriter = writer;
+    }
+
     /** Creates an empty ANF statement control. */
     public AnfStatementControl() {
         getStyleClass().add("anf-statement-control");
@@ -52,6 +95,17 @@ public class AnfStatementControl extends KLDiTreeControl {
     @Override
     protected Skin<?> createDefaultSkin() {
         return new AnfStatementControlSkin(this);
+    }
+
+    /**
+     * How tall the statement stands depends on how wide it is given to be: the words of a value
+     * that has no concept yet are shown in full, on as many lines as they need.
+     *
+     * @return horizontal
+     */
+    @Override
+    public javafx.geometry.Orientation getContentBias() {
+        return javafx.geometry.Orientation.HORIZONTAL;
     }
 
     /**

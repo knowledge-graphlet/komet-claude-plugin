@@ -705,6 +705,11 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
             AnfStatementControl tree = KLDiTreeControlFactory.configure(new AnfStatementControl(), viewCalc);
             tree.setCompactMode(true);
             tree.setShowsMissing(false);
+            if (viewProperties != null) {
+                // a value with words and no concept can be made a concept, or given to one as a name, under the journal's edit coordinate
+                tree.setConceptWriter(new network.ike.komet.claude.anf.AnfFormConcepts(viewCalc,
+                        viewProperties.nodeView().editCoordinate().toEditCoordinateRecord()));
+            }
             tree.setMaxWidth(Double.MAX_VALUE);
             tree.setPadding(new Insets(2, 0, 4, base * 1.5));
             DiTreeEntity start = AnfProjection.toTree(statement);

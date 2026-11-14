@@ -24,10 +24,16 @@ import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.entity.graph.EntityVertex;
 import dev.ikm.tinkar.terms.ConceptFacade;
+import dev.ikm.tinkar.terms.EntityFacade;
+import javafx.animation.PauseTransition;
+import javafx.application.Platform;
 import javafx.css.PseudoClass;
 import javafx.geometry.Pos;
 import javafx.geometry.Side;
+import javafx.scene.Cursor;
 import javafx.scene.Node;
+import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuItem;
@@ -38,6 +44,7 @@ import javafx.scene.control.TextFormatter;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.control.Tooltip;
+import javafx.scene.image.ImageView;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.TransferMode;
@@ -62,7 +69,9 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * The skin of {@link AnfStatementControl}: the axiom control's editing skin with the ANF statement
@@ -152,6 +161,22 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
      * @param semantic the meaning
      * @return its display name
      */
+    /**
+     * The height the tree needs at a width: its rows are measured at the width they will be given, since the words of
+     * a value with no concept wrap. A skin measures its children at no width in particular unless it says otherwise.
+     */
+    @Override
+    protected double computePrefHeight(double width, double topInset, double rightInset, double bottomInset, double leftInset) {
+        double inner = width < 0 ? -1 : Math.max(0, width - leftInset - rightInset);
+        double height = 0;
+        for (Node child : getChildren()) {
+            if (child.isManaged()) {
+                height = Math.max(height, child.prefHeight(inner));
+            }
+        }
+        return topInset + height + bottomInset;
+    }
+
     static String name(AnfSemantic semantic) {
         String name = semantic.describe().replaceFirst("\\s*\\([^()]*\\)\\s*$", "").replaceFirst("^ANF ", "");
         return name.isEmpty() ? name : Character.toUpperCase(name.charAt(0)) + name.substring(1);
@@ -321,8 +346,11 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
         };
     }
 
-    /** A labelled attribute row: accent bar, attribute name, then the value nodes. */
-    private HBox attributeRow(EntityVertex vertex, AnfSemantic attribute, Node... value) {
+    /**
+     * A labelled attribute row: accent bar, attribute name, then the value nodes. A row with a
+     * value that has no concept yet stands in a column, where that value's panel opens beneath it.
+     */
+    private Node attributeRow(EntityVertex vertex, AnfSemantic attribute, Node... value) {
         HBox row = new HBox(clauseBar("anf-attribute"), attributeLabel(attribute));
         row.getChildren().addAll(value);
         row.getStyleClass().addAll("ditree-concept-row", "anf-attribute-row");
@@ -340,7 +368,16 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
                 e.consume();
             });
         }
-        return row;
+        if (opening().isEmpty()) {
+            return row;
+        }
+        VBox column = new VBox(row);
+        column.getStyleClass().add("anf-unsettled-row");
+        for (FindOrCreate find : opening()) {
+            find.beneath(column, attribute);
+        }
+        opening().clear();
+        return column;
     }
 
     private static Label attributeLabel(AnfSemantic attribute) {
@@ -386,40 +423,449 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
     }
 
     /**
-     * The value of an attribute that has no concept yet: its candidate or question, and (when
-     * editing) a search control whose pick settles it.
+     * The values with no concept yet that were built since the last attribute row, which mounts each one's panel
+     * beneath itself. Made on first use: the superclass draws the tree before this class's fields are set.
+     */
+    private List<FindOrCreate> opening;
+
+    private List<FindOrCreate> opening() {
+        if (opening == null) {
+            opening = new ArrayList<>();
+        }
+        return opening;
+    }
+
+    /**
+     * The value of an attribute that has no concept yet: the words it has in place of one, in
+     * full, with a mark that says a concept is still to be found. When editing, a click on the
+     * value opens a panel beneath its row, where a concept is found or made
+     * ({@link FindOrCreate}).
      */
     private Node unsettledValue(EntityVertex vertex, ChipKind kind, Optional<AnfProvisional> provisional,
                                 String prompt) {
-        HBox box = new HBox(4);
-        box.setAlignment(Pos.CENTER_LEFT);
-        provisional.ifPresent(p -> {
-            Label label = new Label(switch (p) {
-                case AnfProvisional.Candidate candidate -> "candidate: " + candidate.label();
-                case AnfProvisional.Clarification clarification -> "asks: " + clarification.question();
-            });
-            label.getStyleClass().add("anf-provisional");
-            label.pseudoClassStateChanged(PROVISIONAL, true);
-            box.getChildren().add(label);
-        });
-        if (isEditable()) {
-            KLComponentControl search = newSlot();
-            Tooltip.install(search, new Tooltip(prompt));
-            search.setMaxWidth(Double.MAX_VALUE);
-            HBox.setHgrow(search, Priority.ALWAYS);
-            search.entityProperty().subscribe((oldEntity, newEntity) -> {
-                if (!KLComponentControl.isEmpty(newEntity)) {
-                    applyChipEdit(vertex, kind, newEntity.nid());
-                }
-            });
-            box.getChildren().add(search);
-            HBox.setHgrow(box, Priority.ALWAYS);
-        } else if (provisional.isEmpty()) {
+        if (!isEditable() && provisional.isEmpty()) {
             Label none = new Label("not stated");
             none.getStyleClass().add("anf-unstated");
-            box.getChildren().add(none);
+            return none;
         }
-        return box;
+        FindOrCreate find = new FindOrCreate(vertex, kind, provisional, prompt);
+        if (isEditable()) {
+            opening().add(find);
+        }
+        return find.value;
+    }
+
+    /** What an attribute's concept is, in a sentence, for a person who is about to find or make one. */
+    private static String needOf(AnfSemantic attribute, ChipKind kind) {
+        if (kind == ChipKind.INTERVAL_UNIT) {
+            return "The unit is what the numbers count or measure: a unit of measure, a scale, or the things counted.";
+        }
+        if (kind == ChipKind.ROLE_TYPE) {
+            return "The role is the part this participant has in what was done.";
+        }
+        return switch (attribute) {
+            case TOPIC -> "The topic is what was done or looked for: an action, such as a procedure or an observation.";
+            case SUBJECT_OF_INFORMATION -> "The subject of information is who or what the statement is about, when that is not the subject of record.";
+            case SUBJECT_OF_RECORD -> "The subject of record is the person or thing whose record the statement is in.";
+            case AUTHOR -> "The author is who makes the statement.";
+            case STATEMENT_TYPE -> "The statement type says whether something was done or is asked for.";
+            case PURPOSE -> "The purpose is why it was done or is asked for.";
+            case METHOD -> "The method is how the result was obtained.";
+            case DEVICE -> "The device is what was used to do it.";
+            case BODY_SITE -> "The body site is where on the body it was done.";
+            case LATERALITY -> "The laterality is which side of the body.";
+            case APPROACH -> "The approach is the route taken to the site.";
+            case SPECIMEN_TYPE -> "The specimen type is what kind of sample was examined.";
+            case SPECIMEN_SOURCE_SITE -> "The specimen source site is where the sample was taken from.";
+            case DISPOSITION -> "The disposition is what became of the action when no result was determined.";
+            case HEALTH_RISK -> "The health risk is how the result bears on the subject's health.";
+            case PRIORITY -> "The priority is how soon it is asked for.";
+            case CONDITIONAL_TRIGGER -> "The conditional trigger is what must hold before the request applies.";
+            case LOCATION -> "The location is where it was done or is to be done.";
+            case PARTICIPANT -> "A participant is who took part in what was done.";
+            case ASSOCIATED_STATEMENT -> "The association is how this statement stands to the other one.";
+            default -> "Choose the concept for the " + lowerName(attribute) + ".";
+        };
+    }
+
+    /**
+     * A value with no concept yet, and the panel that opens beneath its row to settle it. The row
+     * shows the words in full; the panel says what the attribute needs, lists the concepts
+     * closest to the words, each with Use, and, where the control's host can write
+     * ({@link AnfStatementControl#getConceptWriter()}), offers to make a new concept from the
+     * words or to give the words to the concept used as another name. A candidate can also be
+     * kept as words. Settling the value is an edit of the tree, which draws the row again, closed.
+     */
+    private final class FindOrCreate {
+        private static final String OPEN = "Find or create ▸";
+        private static final String CLOSE = "Close ▾";
+        /** How many concepts the panel lists: the closest few, since more are found by better words. */
+        private static final int LISTED = 6;
+
+        final EntityVertex vertex;
+        final ChipKind kind;
+        final Optional<AnfProvisional> provisional;
+        final String prompt;
+        final HBox value = new HBox(4);
+        final Label link = new Label(OPEN);
+        VBox column;
+        AnfSemantic attribute;
+        VBox panel;
+        TextField query;
+        final VBox results = new VBox(2);
+        final Label status = new Label();
+        final Label problem = new Label();
+        CheckBox alsoName;
+        /** The search slot the panel's searches run through, as the tree's own search controls do. */
+        KLComponentControl searcher;
+        /** Counts the searches asked, so a slow answer to an earlier one is dropped. */
+        int asked;
+
+        FindOrCreate(EntityVertex vertex, ChipKind kind, Optional<AnfProvisional> provisional, String prompt) {
+            this.vertex = vertex;
+            this.kind = kind;
+            this.provisional = provisional;
+            this.prompt = prompt;
+            value.setAlignment(Pos.CENTER_LEFT);
+            value.getStyleClass().add("anf-unsettled");
+            value.setId("anf-find-" + vertex.vertexIndex() + (kind == ChipKind.ROLE_TYPE ? "-role" : ""));
+            if (!kept()) {
+                Label mark = new Label("?");
+                mark.getStyleClass().add("anf-unsettled-mark");
+                mark.setMinWidth(Region.USE_PREF_SIZE);
+                value.getChildren().add(mark);
+            }
+            Label said = new Label(said());
+            said.getStyleClass().add(kept() ? "anf-kept-words" : "anf-provisional");
+            said.pseudoClassStateChanged(PROVISIONAL, !kept());
+            said.setWrapText(true);
+            said.setMinWidth(0);
+            value.getChildren().add(said);
+            HBox.setHgrow(value, Priority.ALWAYS);
+            if (isEditable()) {
+                link.getStyleClass().add("anf-find-link");
+                link.setMinWidth(Region.USE_PREF_SIZE);
+                value.getChildren().add(link);
+                value.setCursor(Cursor.HAND);
+                value.setOnMouseClicked(e -> {
+                    toggle();
+                    e.consume();
+                });
+                Tooltip.install(value, new Tooltip(kept() ? "Kept as words. " + prompt : prompt));
+            }
+        }
+
+        /** Whether the value is a candidate a person chose to keep as words. */
+        private boolean kept() {
+            return provisional.orElse(null) instanceof AnfProvisional.Candidate candidate
+                    && AnfExpressionBuilder.KEPT_AS_WORDS.equals(candidate.disposition());
+        }
+
+        /** The words the value has, when it is a candidate: what a search begins with, and a new concept's name. */
+        private String words() {
+            return provisional.orElse(null) instanceof AnfProvisional.Candidate candidate ? candidate.label().strip() : "";
+        }
+
+        /** What the row says in place of a concept. */
+        private String said() {
+            return switch (provisional.orElse(null)) {
+                case AnfProvisional.Candidate candidate -> candidate.label();
+                case AnfProvisional.Clarification clarification -> "Asks: " + clarification.question();
+                case null -> "No " + (prompt.startsWith("Choose ") ? prompt.substring("Choose ".length()) : "concept") + " yet";
+            };
+        }
+
+        /** Stands the value's panel beneath its row, in the row's column. */
+        void beneath(VBox column, AnfSemantic attribute) {
+            this.column = column;
+            this.attribute = attribute;
+        }
+
+        /** Opens the panel beneath the row, or closes it. */
+        void toggle() {
+            if (column == null) {
+                return;
+            }
+            if (panel == null) {
+                panel = panel();
+            }
+            if (column.getChildren().contains(panel)) {
+                column.getChildren().remove(panel);
+                link.setText(OPEN);
+                return;
+            }
+            VBox.setMargin(panel, new javafx.geometry.Insets(2, 0, 6, 14));
+            column.getChildren().add(panel);
+            link.setText(CLOSE);
+            search(query.getText());
+            Platform.runLater(query::requestFocus);
+            revealSoon();
+        }
+
+        /**
+         * Brings the open panel into view once it is laid out, after each of the next two layouts, since a wrapped
+         * label's height arrives in the second: a panel opened at the foot of a view is no use below it.
+         */
+        private void revealSoon() {
+            javafx.scene.Scene scene = column == null ? null : column.getScene();
+            if (scene == null) {
+                return;
+            }
+            int[] layouts = {0};
+            Runnable[] afterLayout = new Runnable[1];
+            afterLayout[0] = () -> {
+                reveal();
+                if (++layouts[0] >= 2) {
+                    scene.removePostLayoutPulseListener(afterLayout[0]);
+                } else {
+                    Platform.requestNextPulse();
+                }
+            };
+            scene.addPostLayoutPulseListener(afterLayout[0]);
+            Platform.requestNextPulse();
+        }
+
+        /**
+         * Scrolls the nearest scroll pane the form stands in, by as little as shows the panel's foot, and never so far
+         * that the value's own row leaves the view: a panel taller than the view shows from its row down.
+         */
+        private void reveal() {
+            if (panel == null || panel.getScene() == null || !column.getChildren().contains(panel)) {
+                return;
+            }
+            javafx.scene.control.ScrollPane scroll = null;
+            for (Node at = column.getParent(); at != null && scroll == null; at = at.getParent()) {
+                scroll = at instanceof javafx.scene.control.ScrollPane pane ? pane : null;
+            }
+            if (scroll == null || scroll.getContent() == null) {
+                return;
+            }
+            Node content = scroll.getContent();
+            javafx.geometry.Bounds stands = content.sceneToLocal(column.localToScene(column.getBoundsInLocal()));
+            double viewport = scroll.getViewportBounds().getHeight();
+            double range = content.getBoundsInLocal().getHeight() - viewport;
+            if (stands == null || viewport <= 0 || range <= 0) {
+                return;
+            }
+            double top = scroll.getVvalue() * range;
+            double want = top;
+            if (stands.getMaxY() + 6 > top + viewport) {
+                want = stands.getMaxY() + 6 - viewport;
+            }
+            if (stands.getMinY() < want) {
+                want = stands.getMinY();
+            }
+            if (Math.abs(want - top) >= 1) {
+                scroll.setVvalue(Math.clamp(want / range, 0, 1));
+            }
+        }
+
+        private VBox panel() {
+            VBox built = new VBox(6);
+            built.getStyleClass().add("anf-find-panel");
+            built.setId("anf-find-panel");
+            searcher = newSlot();
+            Label need = new Label(needOf(attribute, kind));
+            need.getStyleClass().add("anf-find-need");
+            need.setWrapText(true);
+            query = new TextField(words());
+            query.setId("anf-find-query");
+            query.setPromptText("Words to search for");
+            // a search follows the typing once it rests, and Enter asks at once
+            PauseTransition rest = new PauseTransition(javafx.util.Duration.millis(350));
+            rest.setOnFinished(e -> search(query.getText()));
+            query.textProperty().subscribe((was, now) -> rest.playFromStart());
+            query.setOnAction(e -> {
+                rest.stop();
+                search(query.getText());
+            });
+            onEscape(query, this::toggle);
+            status.getStyleClass().add("anf-find-status");
+            status.setWrapText(true);
+            results.setId("anf-find-results");
+            problem.getStyleClass().add("anf-find-problem");
+            problem.setWrapText(true);
+            showing(problem, false);
+            built.getChildren().addAll(need, query, heading("Closest concepts"), status, results);
+            AnfStatementControl.ConceptWriter writer = anfControl().getConceptWriter();
+            if (writer != null && !words().isEmpty()) {
+                alsoName = new CheckBox("Add “" + words() + "” to the concept I use, as another name");
+                alsoName.setId("anf-find-also-name");
+                alsoName.setWrapText(true);
+                built.getChildren().add(alsoName);
+            }
+            if (writer != null) {
+                built.getChildren().addAll(heading("None of these"), newConcept(writer));
+            }
+            built.getChildren().add(problem);
+            if (provisional.orElse(null) instanceof AnfProvisional.Candidate && !kept()) {
+                Button keep = new Button("Keep as words");
+                keep.setId("anf-find-keep");
+                Tooltip.install(keep, new Tooltip("Leave these words as they are: no concept is asked for"));
+                keep.setOnAction(e -> anfEdit(builder -> builder.keepAsWords(in(builder, vertex, AnfStatement.class))));
+                built.getChildren().add(keep);
+            }
+            return built;
+        }
+
+        private Label heading(String text) {
+            Label heading = new Label(text);
+            heading.getStyleClass().add("anf-find-heading");
+            return heading;
+        }
+
+        /** The row that makes a concept from the words: its name, what it is a kind of, and Create. */
+        private Node newConcept(AnfStatementControl.ConceptWriter writer) {
+            TextField name = new TextField(words());
+            name.setId("anf-find-name");
+            name.setPromptText("Name of the new concept");
+            HBox.setHgrow(name, Priority.ALWAYS);
+            Label kindOf = new Label("a kind of");
+            kindOf.getStyleClass().add("anf-find-status");
+            kindOf.setMinWidth(Region.USE_PREF_SIZE);
+            KLComponentControl parent = newSlot();
+            parent.setId("anf-find-parent");
+            Tooltip.install(parent, new Tooltip("What the new concept is a kind of"));
+            HBox.setHgrow(parent, Priority.ALWAYS);
+            Button create = new Button("Create");
+            create.setId("anf-find-create");
+            create.setMinWidth(Region.USE_PREF_SIZE);
+            create.setOnAction(e -> {
+                String fqn = name.getText() == null ? "" : name.getText().strip();
+                if (fqn.isEmpty()) {
+                    problem("Give the new concept a name.");
+                    return;
+                }
+                if (KLComponentControl.isEmpty(parent.getEntity())) {
+                    problem("Choose what the new concept is a kind of.");
+                    return;
+                }
+                ConceptFacade made;
+                try {
+                    made = writer.create(fqn, ConceptFacade.make(parent.getEntity().nid()));
+                } catch (RuntimeException failure) {
+                    problem("The concept was not made: " + reason(failure));
+                    return;
+                }
+                applyChipEdit(vertex, kind, made.nid());
+            });
+            // the name has a line of its own: beside the search for what it is a kind of, it would have no room
+            HBox below = new HBox(6, kindOf, parent, create);
+            below.setAlignment(Pos.CENTER_LEFT);
+            VBox rows = new VBox(4, name, below);
+            rows.getStyleClass().add("anf-find-new");
+            return rows;
+        }
+
+        /** Says why something asked for in the panel was not done; empty takes the line away. */
+        private void problem(String text) {
+            problem.setText(text);
+            showing(problem, !text.isEmpty());
+        }
+
+        private static String reason(Throwable failure) {
+            Throwable cause = failure;
+            while (cause.getCause() != null && (cause.getMessage() == null || cause instanceof java.util.concurrent.CompletionException)) {
+                cause = cause.getCause();
+            }
+            return cause.getMessage() == null ? cause.getClass().getSimpleName() : cause.getMessage();
+        }
+
+        /** Lists the concepts closest to some words, searched off the application thread. */
+        private void search(String text) {
+            int mine = ++asked;
+            String wanted = text == null ? "" : text.strip();
+            results.getChildren().clear();
+            if (wanted.length() < 3) {
+                status("Type three letters or more to search.");
+                return;
+            }
+            status("Searching …");
+            Function<String, List<EntityFacade>> completer = searcher.getCompleter();
+            if (completer == null) {
+                status("This form has no search.");
+                return;
+            }
+            CompletableFuture.supplyAsync(() -> completer.apply(wanted)).whenComplete((found, failure) -> Platform.runLater(() -> {
+                if (mine != asked) {
+                    return;                                          // a later search was asked since
+                }
+                if (failure != null) {
+                    status("The search could not be run: " + reason(failure));
+                    return;
+                }
+                List<ConceptFacade> concepts = found.stream().filter(ConceptFacade.class::isInstance)
+                        .map(ConceptFacade.class::cast).limit(LISTED).toList();
+                status(concepts.isEmpty() ? "No concept is found for these words." : "");
+                concepts.forEach(concept -> results.getChildren().add(result(concept)));
+                revealSoon();                                        // the panel is taller by what was found
+            }));
+        }
+
+        private void status(String text) {
+            status.setText(text);
+            showing(status, !text.isEmpty());
+        }
+
+        /** One concept the search found: its identicon, its name, what it is a kind of, and Use. */
+        private Node result(ConceptFacade concept) {
+            ImageView icon = new ImageView(dev.ikm.komet.framework.Identicon.generateIdenticonImage(concept.publicId()));
+            icon.setFitWidth(16);
+            icon.setFitHeight(16);
+            Function<EntityFacade, String> namer = searcher.getComponentNameRenderer();
+            Label name = new Label(namer == null ? concept.description() : namer.apply(concept));
+            name.getStyleClass().add("anf-find-result-name");
+            name.setWrapText(true);
+            name.setMinWidth(0);
+            // what it is a kind of stands beneath the name, each in full, on as many lines as it needs
+            VBox named = new VBox(name);
+            named.setMinWidth(0);
+            HBox.setHgrow(named, Priority.ALWAYS);
+            String parent = parentOf(concept, namer);
+            if (!parent.isEmpty()) {
+                Label kindOf = new Label("a kind of " + parent);
+                kindOf.getStyleClass().add("anf-find-status");
+                kindOf.setWrapText(true);
+                kindOf.setMinWidth(0);
+                named.getChildren().add(kindOf);
+            }
+            Button use = new Button("Use");
+            use.setMinWidth(Region.USE_PREF_SIZE);
+            use.setOnAction(e -> use(concept));
+            HBox row = new HBox(6, icon, named, use);
+            row.setAlignment(Pos.CENTER_LEFT);
+            row.getStyleClass().add("anf-find-result");
+            return row;
+        }
+
+        /** The first thing a concept is a kind of, by name, for telling like-named concepts apart; empty when it has none. */
+        private static String parentOf(ConceptFacade concept, Function<EntityFacade, String> namer) {
+            try {
+                var parents = Calculators.View.Default().navigationCalculator().parentsOf(concept.nid());
+                if (parents.isEmpty()) {
+                    return "";
+                }
+                ConceptFacade parent = ConceptFacade.make(parents.get(0));
+                return namer == null ? parent.description() : namer.apply(parent);
+            } catch (RuntimeException unread) {
+                return "";
+            }
+        }
+
+        /** Settles the value with a concept that was found, giving it the words as another name first when that is asked. */
+        private void use(ConceptFacade concept) {
+            problem("");
+            AnfStatementControl.ConceptWriter writer = anfControl().getConceptWriter();
+            if (writer != null && alsoName != null && alsoName.isSelected()) {
+                try {
+                    writer.addName(concept, words());
+                } catch (RuntimeException failure) {
+                    problem("The words were not added as a name, and nothing was changed: " + reason(failure));
+                    return;
+                }
+            }
+            applyChipEdit(vertex, kind, concept.nid());
+        }
     }
 
     private Node conceptAttributeRow(EntityVertex vertex, Attribute.ConceptReference chip) {

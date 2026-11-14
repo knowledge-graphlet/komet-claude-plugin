@@ -23,18 +23,24 @@ import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.common.util.uuid.UuidT5Generator;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.terms.ConceptFacade;
+import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.EntityProxy;
 import javafx.application.Platform;
 import javafx.scene.Node;
 import javafx.scene.Scene;
+import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleButton;
+import javafx.scene.input.MouseButton;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.StackPane;
 import network.ike.foundation.ike.bindings.IkeConcept;
 import network.ike.komet.claude.HeadlessFx;
 import network.ike.komet.claude.anf.model.AnfExpression;
 import network.ike.komet.claude.anf.model.AnfExpressionBuilder;
+import network.ike.komet.claude.anf.model.AnfProvisional;
 import network.ike.komet.claude.anf.model.AnfSemantic;
 import network.ike.komet.claude.anf.model.AnfStatement;
 import network.ike.komet.claude.anf.model.AnfStatement.Attribute;
@@ -47,6 +53,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -77,6 +84,10 @@ class AnfStatementControlTest {
     private static final Map<Long, String> NAMES = new ConcurrentHashMap<>();
 
     private AnfStatementControl control;
+    /** What the control's host writes for it, when a test gives it one; none by default, as a host that cannot write. */
+    private AnfStatementControl.ConceptWriter writer;
+    /** What a search for any words finds, in the search's order. */
+    private List<EntityFacade> found = List.of();
 
     @BeforeAll
     static void start() {
@@ -147,7 +158,13 @@ class AnfStatementControlTest {
             control.setComponentItemResolver(nid -> new ComponentItem(NAMES.getOrDefault(nid, "Concept"),
                     Identicon.generateIdenticonImage(PrimitiveData.publicId(nid))));
             control.setDescriptionResolver(nid -> NAMES.getOrDefault(nid, "Concept"));
-            control.setComponentSlotFactory(KLComponentControl::new);
+            control.setComponentSlotFactory(() -> {
+                KLComponentControl slot = new KLComponentControl();
+                slot.setTypeAheadCompleter(words -> found);
+                slot.setComponentNameRenderer(entity -> NAMES.getOrDefault(entity.nid(), "Concept"));
+                return slot;
+            });
+            control.setConceptWriter(writer);
             control.setValue(tree);
             new Scene(new StackPane(control), 700, 600);
             control.applyCss();
@@ -194,6 +211,138 @@ class AnfStatementControlTest {
     @BeforeEach
     void clearNames() {
         control = null;
+        writer = null;
+        found = List.of();
+    }
+
+    /** A performance whose method is words, with no concept yet. */
+    private static DiTreeEntity methodInWords() {
+        AnfExpressionBuilder builder = new AnfExpressionBuilder(IkeConcept.PERFORMANCE_CIRCUMSTANCE);
+        builder.expression(builder.context(), AnfSemantic.TOPIC, concept("Removal of the implant"));
+        builder.provisionalConceptReference(builder.circumstance(), AnfSemantic.METHOD,
+                new AnfProvisional.Candidate("Clinical report", "Clinical report", "PENDING", List.of()));
+        return builder.asDiTree();
+    }
+
+    /** Clicks the value that has no concept, as a person does to open or close its panel. */
+    private void clickUnsettled() throws Exception {
+        fx(() -> control.lookup(".anf-unsettled").getOnMouseClicked().handle(new MouseEvent(MouseEvent.MOUSE_CLICKED, 0, 0, 0, 0,
+                MouseButton.PRIMARY, 1, false, false, false, false, true, false, false, true, false, false, null)));
+    }
+
+    private Node inPanel(String id) throws Exception {
+        return onFx(() -> control.lookup("#anf-find-panel") == null ? null : control.lookup("#anf-find-panel").lookup(id));
+    }
+
+    /** The names of the concepts the panel lists, once its search has answered. */
+    private List<String> listed() throws Exception {
+        for (int tries = 0; tries < 100; tries++) {
+            List<String> names = onFx(() -> control.lookupAll(".anf-find-result-name").stream().map(node -> ((Label) node).getText()).toList());
+            if (!names.isEmpty()) {
+                return names;
+            }
+            Thread.sleep(50);
+        }
+        return List.of();
+    }
+
+    @Test
+    @DisplayName("A value with no concept shows its words in full, and a click opens a panel beneath its row")
+    void aValueWithNoConceptOpensAPanelBeneathItsRow() throws Exception {
+        found = List.of(concept("Auscultation"), concept("Palpation"));
+        render(methodInWords());
+        Node value = onFx(() -> control.lookup(".anf-unsettled"));
+        assertNotNull(value, "the method's value");
+        assertEquals(List.of("?", "Clinical report"), onFx(() -> value.lookupAll(".label").stream().map(node -> ((Label) node).getText())
+                .filter(text -> !text.startsWith("Find or create")).toList()), "a mark, then the words as they are");
+        assertTrue(onFx(() -> ((Label) value.lookup(".anf-provisional")).isWrapText()), "words too long for the row go on to a second line");
+        assertTrue(onFx(() -> value.lookupAll(".ditree-slot").isEmpty()), "no search box stands in the row");
+        assertNull(onFx(() -> control.lookup("#anf-find-panel")), "the panel waits for a click");
+
+        clickUnsettled();
+        Node panel = onFx(() -> control.lookup("#anf-find-panel"));
+        assertNotNull(panel, "a click opens the panel");
+        assertTrue(onFx(() -> panel.getParent().getStyleClass().contains("anf-unsettled-row")
+                && panel.getParent().getChildrenUnmodifiable().indexOf(panel) == 1), "beneath the value's own row");
+        assertEquals("Clinical report", onFx(() -> ((TextField) panel.lookup("#anf-find-query")).getText()), "the search begins with the words");
+        assertTrue(onFx(() -> ((Label) panel.lookup(".anf-find-need")).getText()).contains("how the result was obtained"), "what a method is");
+        assertEquals(List.of("Auscultation", "Palpation"), listed(), "the concepts the search finds, in its order");
+        assertNull(inPanel("#anf-find-create"), "a host that cannot write offers no new concept");
+        assertNull(inPanel("#anf-find-also-name"));
+
+        fx(() -> ((Button) control.lookup(".anf-find-result").lookup(".button")).fire());
+        assertEquals(concept("Auscultation").nid(), method().concept().orElseThrow().nid(), "Use settles the value with the concept");
+        assertNull(onFx(() -> control.lookup("#anf-find-panel")), "and the row is drawn again, closed");
+        assertNull(onFx(() -> control.lookup(".anf-unsettled")));
+
+        assertTrue(onFx(control::undo));
+        assertTrue(method().concept().isEmpty(), "undo gives the words back");
+        clickUnsettled();
+        assertNotNull(onFx(() -> control.lookup("#anf-find-panel")));
+        clickUnsettled();
+        assertNull(onFx(() -> control.lookup("#anf-find-panel")), "a second click closes the panel");
+    }
+
+    @Test
+    @DisplayName("A candidate is kept as words: no concept is asked for, and its mark goes")
+    void aCandidateIsKeptAsWords() throws Exception {
+        render(methodInWords());
+        clickUnsettled();
+        fx(() -> ((Button) control.lookup("#anf-find-keep")).fire());
+        AnfProvisional.Candidate kept = (AnfProvisional.Candidate) method().provisional().orElseThrow();
+        assertEquals(AnfExpressionBuilder.KEPT_AS_WORDS, kept.disposition());
+        assertEquals("Clinical report", kept.label());
+        assertNull(onFx(() -> control.lookup(".anf-unsettled-mark")), "words that are kept carry no mark");
+        assertEquals("Clinical report", onFx(() -> ((Label) control.lookup(".anf-kept-words")).getText()));
+        clickUnsettled();
+        assertNull(onFx(() -> control.lookup("#anf-find-keep")), "words already kept are not offered to be kept");
+        assertNotNull(onFx(() -> control.lookup("#anf-find-query")), "a concept can still be found for them");
+    }
+
+    @Test
+    @DisplayName("Where the host can write, the words become a new concept, or another name of the concept used")
+    void theWordsBecomeANewConceptOrAnotherName() throws Exception {
+        List<String> written = new ArrayList<>();
+        writer = new AnfStatementControl.ConceptWriter() {
+            @Override
+            public ConceptFacade create(String name, ConceptFacade parent) {
+                written.add("create " + name + " below " + NAMES.get(parent.nid()));
+                return concept(name);
+            }
+
+            @Override
+            public void addName(ConceptFacade concept, String name) {
+                written.add("name " + NAMES.get(concept.nid()) + " " + name);
+            }
+        };
+        found = List.of(concept("Auscultation"));
+        render(methodInWords());
+        clickUnsettled();
+        assertEquals("Clinical report", onFx(() -> ((TextField) control.lookup("#anf-find-name")).getText()), "the new concept's name begins as the words");
+
+        fx(() -> ((Button) control.lookup("#anf-find-create")).fire());
+        assertEquals(List.of(), written, "nothing is made of a concept that is a kind of nothing");
+        assertEquals("Choose what the new concept is a kind of.", onFx(() -> ((Label) control.lookup(".anf-find-problem")).getText()));
+        assertTrue(method().concept().isEmpty());
+
+        fx(() -> {
+            ((KLComponentControl) control.lookup("#anf-find-parent")).setEntity(concept("Report"));
+            ((Button) control.lookup("#anf-find-create")).fire();
+        });
+        assertEquals(List.of("create Clinical report below Report"), written);
+        assertEquals(concept("Clinical report").nid(), method().concept().orElseThrow().nid(), "the value is the concept that was made");
+
+        // the same words, given to a concept that was found as another name of it
+        written.clear();
+        render(methodInWords());
+        clickUnsettled();
+        assertEquals(List.of("Auscultation"), listed());
+        fx(() -> {
+            ((CheckBox) control.lookup("#anf-find-also-name")).setSelected(true);
+            ((Button) control.lookup(".anf-find-result").lookup(".button")).fire();
+        });
+        assertEquals(List.of("name Auscultation Clinical report"), written);
+        assertEquals(concept("Auscultation").nid(), method().concept().orElseThrow().nid());
     }
 
     @Test

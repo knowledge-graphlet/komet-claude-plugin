@@ -321,6 +321,28 @@ class AnfExpressionBuilderTest {
     }
 
     @Test
+    void aCandidateKeptAsWordsKeepsItsVertexAndItsWordsAndIsSettledLaterAsAnyCandidate() {
+        AnfExpressionBuilder builder = performance();
+        Circumstance circumstance = builder.circumstance();
+        Attribute.ConceptReference chip = builder.provisionalConceptReference(circumstance, AnfSemantic.BODY_SITE,
+                new AnfProvisional.Candidate("Left antecubital fossa", "the left elbow crease", "PENDING",
+                        List.of("1", "2")));
+        UUID identity = chip.vertexUUID();
+
+        builder.keepAsWords(chip);
+        assertEquals(identity, chip.vertexUUID());
+        AnfProvisional.Candidate kept = (AnfProvisional.Candidate) chip.provisional().orElseThrow();
+        assertEquals(new AnfProvisional.Candidate("Left antecubital fossa", "the left elbow crease",
+                AnfExpressionBuilder.KEPT_AS_WORDS, List.of("1", "2")), kept, "only what is to be done with the words changes");
+
+        builder.updateConcept(chip, concept("Antecubital fossa"));
+        assertTrue(chip.provisional().isEmpty(), "a concept chosen later settles it");
+
+        AnfRefusal refusal = assertThrows(AnfRefusal.class, () -> builder.keepAsWords(chip));
+        assertTrue(refusal.getMessage().contains("no words to keep"), refusal.getMessage());
+    }
+
+    @Test
     void anEditInsideANestedExpressionIsSplicedBackAsAnUpdateOfOneVertex() {
         AnfExpressionBuilder builder = performance();
         Context context = builder.context();

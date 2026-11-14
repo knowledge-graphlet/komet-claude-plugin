@@ -17,11 +17,63 @@
     -fx-padding: 0 4 0 2;
 }
 
-/* A value the lift could not ground: its candidate or question, in amber, as the surface marks
-   other unpublished work. */
+/* A value with no concept yet: its words in full, in amber as the surface marks other
+   unpublished work, behind a mark that says a concept is still to be found. */
 .anf-statement-control .anf-provisional {
-    -fx-text-fill: #B26B00;
-    -fx-font-style: italic;
+    -fx-text-fill: #8a5200;
+}
+.anf-statement-control .anf-unsettled {
+    -fx-padding: 1 0 1 0;
+}
+.anf-statement-control .anf-unsettled-mark {
+    -fx-background-color: #c98f2e, #f8ead0;
+    -fx-background-insets: 0, 1;
+    -fx-background-radius: 8, 7;
+    -fx-text-fill: #8a5200;
+    -fx-font-weight: bold;
+    -fx-font-size: 0.916667em;
+    -fx-padding: 0 5 0 5;
+}
+/* Words a person chose to keep as words: no concept is asked for, so no mark. */
+.anf-statement-control .anf-kept-words {
+    -fx-text-fill: #2E3240;
+}
+.anf-statement-control .anf-find-link {
+    -fx-text-fill: #5A6170;
+    -fx-font-size: 0.916667em;
+    -fx-padding: 0 0 0 8;
+}
+.anf-statement-control .anf-unsettled:hover .anf-find-link {
+    -fx-text-fill: #1a56b0;
+    -fx-underline: true;
+}
+
+/* The panel that opens beneath a row to find a concept for its value, or make one. */
+.anf-statement-control .anf-find-panel {
+    -fx-background-color: #b8c1d0, white;
+    -fx-background-insets: 0, 1;
+    -fx-background-radius: 5, 4;
+    -fx-padding: 8 10 8 10;
+}
+.anf-statement-control .anf-find-need {
+    -fx-text-fill: #2E3240;
+}
+.anf-statement-control .anf-find-heading {
+    -fx-text-fill: #5A6170;
+    -fx-font-size: 0.916667em;
+    -fx-padding: 4 0 0 0;
+}
+.anf-statement-control .anf-find-status {
+    -fx-text-fill: #8a93a6;
+    -fx-font-size: 0.916667em;
+}
+.anf-statement-control .anf-find-result {
+    -fx-padding: 3 0 3 0;
+    -fx-border-color: #e3e7ee transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+}
+.anf-statement-control .anf-find-problem {
+    -fx-text-fill: #a32d2d;
 }
 .anf-statement-control .anf-unstated {
     -fx-text-fill: #8a93a6;
