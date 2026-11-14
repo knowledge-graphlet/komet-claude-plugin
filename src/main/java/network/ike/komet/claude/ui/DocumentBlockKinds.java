@@ -389,13 +389,36 @@ public final class DocumentBlockKinds {
             return true;
         }
 
+        /**
+         * A statement's form shows each edit as it is made, on its line and in its tree, so the
+         * surface keeps the form when the edit is saved: it stays open, where it stands.
+         */
+        @Override
+        public boolean showsOwnEdits() {
+            return true;
+        }
+
+        /**
+         * A statement reads one thing of the run before it: the group of the statement directly
+         * before, which it does not name again. An edit of a statement's result or topic then
+         * leaves every statement after it as it stands.
+         */
+        @Override
+        public String readOfRun(List<Source> before) {
+            return before.isEmpty() ? "" : "\u0000" + groupOf(before.getLast());
+        }
+
+        /** The group a statement's block is about, as the block writes it. */
+        private static String groupOf(Source source) {
+            return StatementLines.read(source.parameters(), List.of(source.content().split("\n", -1))).group();
+        }
+
         /** A statement that follows another is drawn knowing the group of the one before it, which it does not name again. */
         @Override
         FenceRenderer renderer(Context context, BlockRewriter rewriter, List<Source> before) {
             AnfBlockRenderer renderer = new AnfBlockRenderer(context.view(), context.viewProperties(), context.base(), ProfileBlocks.of(context.blocks()));
             renderer.setRewriter(rewriter);
-            renderer.setGroupBefore(before.isEmpty() ? null
-                    : StatementLines.read(before.getLast().parameters(), List.of(before.getLast().content().split("\n", -1))).group());
+            renderer.setGroupBefore(before.isEmpty() ? null : groupOf(before.getLast()));
             return renderer;
         }
 
@@ -412,8 +435,7 @@ public final class DocumentBlockKinds {
             if (statement.topic().isEmpty()) {
                 return BlockPrint.fields(name(), lines);
             }
-            boolean heading = before.isEmpty() || !StatementLines
-                    .read(before.getLast().parameters(), List.of(before.getLast().content().split("\n", -1))).group().equals(statement.group());
+            boolean heading = before.isEmpty() || !groupOf(before.getLast()).equals(statement.group());
             return List.of(StatementLines.figure(statement, heading));
         }
 

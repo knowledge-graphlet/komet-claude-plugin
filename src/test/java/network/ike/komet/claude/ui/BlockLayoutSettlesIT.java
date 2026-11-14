@@ -293,6 +293,79 @@ class BlockLayoutSettlesIT {
                 .anyMatch(network.ike.komet.claude.anf.editor.AnfStatementControl.class::isInstance)), "the statement opens as its editable tree");
     }
 
+    /** Whether a statement's block shows its form, the editable tree, beneath its line. */
+    private static boolean unfolded(Node block) throws Exception {
+        return onFx(() -> ((Parent) block).getChildrenUnmodifiable().stream()
+                .anyMatch(network.ike.komet.claude.anf.editor.AnfStatementControl.class::isInstance));
+    }
+
+    /** Clicks a statement's line, as a person does to unfold or fold it. */
+    private static void click(Node block) throws Exception {
+        onFx(() -> {
+            block.lookup("#anf-settle-removal").getOnMouseClicked().handle(null);
+            return null;
+        });
+    }
+
+    @Test
+    void aStatementAPersonUnfoldedIsUnfoldedWhenItsBlockIsDrawnAgain() throws Exception {
+        // one document: its blocks are drawn again, after an edit, in the context they were first drawn in
+        ProfileBlocks document = new ProfileBlocks();
+        Callable<Node> draw = () -> {
+            Node block = only(new AnfBlockRenderer(view, BASE, document).render("anf type=performance id=settle-removal", STATEMENT, null));
+            new Scene(new VBox(block), 700, 300);
+            return block;
+        };
+        Node first = onFx(draw);
+        assertFalse(unfolded(first), "a statement is folded until a person unfolds it");
+        click(first);
+        assertTrue(unfolded(first));
+
+        Node again = onFx(draw);
+        assertTrue(unfolded(again), "the block drawn again shows the form the person left open");
+        click(again);
+        assertFalse(unfolded(onFx(draw)), "and its line alone once the person has folded it");
+        assertFalse(unfolded(onFx(() -> statement(null))), "a statement of the same name in another document is as it was");
+    }
+
+    @Test
+    void aStatementsFormWritesEachEditAgainstTheTextLastWritten() throws Exception {
+        List<String[]> written = new ArrayList<>();
+        Node block = onFx(() -> {
+            AnfBlockRenderer renderer = new AnfBlockRenderer(view, BASE, new ProfileBlocks());
+            renderer.setRewriter((info, was, newInfo, now) -> written.add(new String[] {was, now}));
+            Node drawn = only(renderer.render("anf type=performance id=settle-removal", STATEMENT, null));
+            new Scene(new VBox(drawn), 700, 300);
+            return drawn;
+        });
+        click(block);
+        network.ike.komet.claude.anf.editor.AnfStatementControl form = onFx(() -> ((Parent) block).getChildrenUnmodifiable().stream()
+                .filter(network.ike.komet.claude.anf.editor.AnfStatementControl.class::isInstance)
+                .map(network.ike.komet.claude.anf.editor.AnfStatementControl.class::cast).findFirst().orElseThrow());
+        String info = "anf type=performance id=settle-removal";
+        java.util.function.Function<String, dev.ikm.tinkar.entity.graph.DiTreeEntity> tree = body -> network.ike.komet.claude.anf.AnfProjection
+                .toTree(network.ike.komet.claude.anf.AnfAdoc.parse(AnfBlockRenderer.asAdoc(info, body), id -> java.util.Optional.empty()));
+
+        // the form outlives a save: an edit, and then an edit back to what the block began with, are both written
+        onFx(() -> {
+            form.setValue(tree.apply(STATEMENT.replace("[0.8,0.8]", "[0.5,0.5]")));
+            return null;
+        });
+        assertEquals(1, written.size(), "an edit in the form is written back");
+        assertTrue(written.get(0)[1].contains("[0.5,0.5]"), written.get(0)[1]);
+        assertEquals(STATEMENT.replace("[0.8,0.8]", "[0.5,0.5]").strip(), written.get(0)[1].strip(),
+                "only what was edited is written otherwise: a candidate named by its label alone is written as it was");
+        assertEquals(List.of("The implant in the jaw joint, in patients"), onFx(() -> said(block, "anf-statement-group")));
+        onFx(() -> {
+            form.setValue(tree.apply(STATEMENT));
+            return null;
+        });
+        assertEquals(2, written.size(), "an edit back to where the block began is an edit of what was last written");
+        assertEquals(written.get(0)[1], written.get(1)[0], "it is written against the text the first edit wrote");
+        assertTrue(written.get(1)[1].contains("[0.8,0.8]"), written.get(1)[1]);
+        assertEquals(List.of("80%"), onFx(() -> said(block, "anf-statement-result")), "and the line reads as the form now does");
+    }
+
     private static Node only(List<BlockPiece> pieces) {
         assertEquals(1, pieces.size(), "a block renders as one piece");
         return pieces.getFirst().node().get();

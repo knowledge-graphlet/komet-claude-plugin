@@ -425,6 +425,23 @@ public final class ProfileBlocks {
         }
     }
 
+    /** The names of the statements a person has unfolded to their form, which a block drawn again goes on with. */
+    private final java.util.Set<String> statementsOpen = new java.util.HashSet<>();
+
+    /** Whether a named statement's block shows its form: false until a person unfolds it. */
+    synchronized boolean statementOpen(String name) {
+        return statementsOpen.contains(name);
+    }
+
+    /** A person has unfolded a named statement to its form, or folded it again. */
+    synchronized void setStatementOpen(String name, boolean open) {
+        if (open) {
+            statementsOpen.add(name);
+        } else {
+            statementsOpen.remove(name);
+        }
+    }
+
     /**
      * The links between the blocks that draw one model. A block is held only while something
      * else holds it: a block that the surface has drawn again is forgotten.

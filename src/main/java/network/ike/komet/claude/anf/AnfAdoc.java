@@ -220,7 +220,9 @@ public final class AnfAdoc {
                 if (!c.nearestMatches().isEmpty()) {
                     cb.append(" near=").append(String.join(";", c.nearestMatches()));
                 }
-                if (c.text() != null && !c.text().isBlank()) {
+                // the phrase the meaning came from, where it says more than the label: a candidate written as its
+                // label alone reads back with the label as its phrase, and is written again as it was
+                if (c.text() != null && !c.text().isBlank() && !c.text().equals(c.provisionalLabel())) {
                     cb.append(" text=").append(quote(c.text()));
                 }
                 yield cb.toString();

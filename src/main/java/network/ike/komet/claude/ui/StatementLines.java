@@ -214,6 +214,19 @@ final class StatementLines {
     }
 
     /**
+     * The tag a terminology writes after a name to say what kind of thing it names, as SNOMED CT writes
+     * {@code year (qualifier value)}: a reader of a measure needs the name alone.
+     */
+    private static final Pattern SEMANTIC_TAG = Pattern.compile("\\s*\\([a-z][a-z /-]*\\)\\s*$");
+
+    /** A unit as a reader says it: its name without a terminology's tag after it. */
+    private static String unit(String written) {
+        String unit = written.strip();
+        String bare = SEMANTIC_TAG.matcher(unit).replaceFirst("");
+        return bare.isEmpty() ? unit : bare;
+    }
+
+    /**
      * A measure in a reader's words: present or absent, a percentage, an amount of money, or a
      * number with its unit; an interval as its two ends, a bound on one side as "at least" or
      * "at most". Text that is not a measure is returned as it stands.
@@ -231,7 +244,7 @@ final class StatementLines {
         Double upper = number(m.group(3));
         boolean lowerOpen = m.group(1).equals("(");
         boolean upperOpen = m.group(4).equals(")");
-        String unit = m.group(5).strip();
+        String unit = unit(m.group(5));
         String named = unit.toLowerCase(Locale.ROOT);
         if (named.startsWith("presence")) {
             if (lower != null && upper != null && lower == 0 && upper == 0) {
@@ -270,7 +283,7 @@ final class StatementLines {
         }
         Double lower = number(m.group(2));
         Double upper = number(m.group(3));
-        String unit = m.group(5).strip();
+        String unit = unit(m.group(5));
         String suffix = unit.isEmpty() || unit.equalsIgnoreCase("year") ? "" : " " + unitWords(unit, lower, upper);
         if (lower != null && lower.equals(upper)) {
             return whole(lower) + suffix;
@@ -299,7 +312,7 @@ final class StatementLines {
         }
         Double lower = number(m.group(2));
         Double upper = number(m.group(3));
-        String unit = m.group(5).strip();
+        String unit = unit(m.group(5));
         if (lower != null && upper != null && lower == 0 && upper > 0) {
             return "within " + DecisionFigureText.shown(upper, false, false) + (unit.isEmpty() ? "" : " " + unitWords(unit, upper, upper));
         }

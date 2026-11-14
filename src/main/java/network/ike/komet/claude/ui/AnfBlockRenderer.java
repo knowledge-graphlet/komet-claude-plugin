@@ -274,7 +274,6 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
     /** One finding: folded to its line, or unfolded to the editable tree; an element's row follows the document's level. */
     private final class Finding {
         final String info;
-        final String originalBody;
         final VBox column = new VBox(2);
         /** The folded line. Its pieces stay whole: those that do not fit go to a line beneath. */
         final WrappedRow line = new WrappedRow(8, 2);
@@ -294,6 +293,10 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
         final boolean plain;
         /** The statement's text as it stands, which an edit restates. */
         String current;
+        /** The statement's text as the document has it: the block's own text, then each edit written back. */
+        String written;
+        /** The statement as its block writes it, under its name, for the pointer at rest on the line. */
+        final Tooltip tip = new Tooltip();
         /** The group a document's statement is about, above its line when the statement before is about another. */
         final Label group = new Label();
         /** What was observed, with how and when it was known beneath it. */
@@ -308,13 +311,13 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
 
         Finding(String info, String body) {
             this.info = info;
-            this.originalBody = body;
             column.getStyleClass().add("anf-block");
             column.setPadding(new Insets(1, 0, 1, 0));
             column.setFillWidth(true);
             element = elementOf(info).isPresent();
             statement = element && body.isBlank() ? null : parse(body);
             current = body;
+            written = body;
             plain = !element && wordsOf(info).isEmpty() && statement != null;
             idOf(info).ifPresent(name -> {
                 if (statement != null) {
@@ -373,8 +376,7 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
             }
             buildAnf();
             if (statement != null) {
-                // the statement as its block writes it, under the name the document's trees and models read it by
-                Tooltip tip = new Tooltip(idOf(info).map(name -> "anf:" + name + "\n").orElse("") + AnfAdoc.toAdoc(statement).strip());
+                describe();
                 tip.setFont(Font.font("Menlo", base * 0.85));
                 Tooltip.install(line, tip);
                 Tooltip.install(subjectLine, tip);
@@ -401,6 +403,15 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
             } else {
                 show(ElementLevel.ANF);
             }
+            // a statement a person unfolded stays unfolded when its block is drawn again
+            if (statement != null && idOf(info).map(context::statementOpen).orElse(false)) {
+                toggle();
+            }
+        }
+
+        /** Says the statement as its block writes it, under the name the document's trees and models read it by. */
+        private void describe() {
+            tip.setText(idOf(info).map(name -> "anf:" + name + "\n").orElse("") + AnfAdoc.toAdoc(statement).strip());
         }
 
         /** The ANF part of the row: the statement's topic and result, its name, or why there is none. */
@@ -671,6 +682,7 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
             }
             open = !open;
             fold.setText(open ? "▾" : "▸");
+            idOf(info).ifPresent(name -> context.setStatementOpen(name, open));
             if (!open) {
                 if (control != null) {
                     column.getChildren().remove(control);
@@ -712,9 +724,13 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
                 idOf(info).ifPresent(name -> context.defineStatement(name, edited));
                 refold(edited);
                 if (rewriter != null) {
+                    // against the text last written, not the text the block began with: the form outlives a save,
+                    // and an edit that goes back to where the block began is an edit too
                     String body = bodyOf(AnfAdoc.toAdoc(edited));
-                    if (!body.equals(originalBody) && !body.equals(originalBody + "\n")) {
-                        rewriter.rewrite(info, originalBody, info, body);
+                    String before = written;
+                    if (!body.equals(before) && !body.equals(before + "\n")) {
+                        written = body;
+                        rewriter.rewrite(info, before, info, body);
                     }
                 }
             });
@@ -735,6 +751,7 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
         private void refold(AnfStatement edited) {
             buildAnf();
             show(element ? context.elementLevel() : ElementLevel.ANF);
+            describe();
         }
     }
 

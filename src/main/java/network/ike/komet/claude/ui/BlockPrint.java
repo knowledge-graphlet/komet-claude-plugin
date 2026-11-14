@@ -49,8 +49,15 @@ import java.util.regex.Pattern;
  */
 final class BlockPrint {
 
-    /** A concept as a block writes it, {@code k:Key[its name]} or {@code candidate[its name]}: read as its name. */
-    private static final Pattern CONCEPT = Pattern.compile("(?:k:[\\w.-]*|candidate)\\[([^\\]]*)]");
+    /** A concept as a block writes it, {@code k:Key[its name]}: read as its name. */
+    private static final Pattern CONCEPT = Pattern.compile("k:[\\w.-]*\\[([^\\]]*)]");
+    /**
+     * A candidate as a block writes it, {@code candidate[its name]}, with what the block says of it after: how it is
+     * disposed, the concepts nearest it, the phrase it came from. Read as its name, so two blocks that name the same
+     * candidate read the same whatever else each says of it.
+     */
+    private static final Pattern CANDIDATE = Pattern.compile(
+            "candidate\\[([^\\]]*)](?:\\s+disp=\\S+)?(?:\\s+near=\\S+)?(?:\\s+text=\"(?:[^\"\\\\]|\\\\.)*\")?");
     /** What a block says about itself rather than its subject. */
     private static final Pattern MACHINERY = Pattern.compile("\\s+(?:@id|disp|statement)=\\S+");
     /** A field: its name, then {@code :}, {@code ::} or {@code =}, then its value. */
@@ -192,6 +199,7 @@ final class BlockPrint {
 
     /** A line with its concepts read as their names and its block machinery gone. */
     static String named(String line) {
-        return MACHINERY.matcher(CONCEPT.matcher(line).replaceAll(match -> Matcher.quoteReplacement(match.group(1)))).replaceAll("");
+        String candidates = CANDIDATE.matcher(line).replaceAll(match -> Matcher.quoteReplacement(match.group(1)));
+        return MACHINERY.matcher(CONCEPT.matcher(candidates).replaceAll(match -> Matcher.quoteReplacement(match.group(1)))).replaceAll("");
     }
 }

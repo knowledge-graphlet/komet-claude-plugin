@@ -23,6 +23,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /** An ANF statement as a page reads it: one line under its group, in a reader's words. */
@@ -151,6 +152,44 @@ class StatementLinesTest {
         assertEquals(List.of("55 joints"), words(second, "statement-result"));
         DecisionFigure alone = kind.figures(counted, context).getFirst();
         assertEquals(List.of("The implant in the jaw joint, in patients"), words(alone, "statement-group"), "a statement that begins a run names its group");
+    }
+
+    @Test
+    void aUnitReadsWithoutTheTagItsTerminologyGivesIt() {
+        // a statement written back from its form names a unit as the knowledge base does, tag and all
+        assertEquals("1989", StatementLines.time("[1989,1989] year (qualifier value)"));
+        assertEquals("within 30 months", StatementLines.timing("[0,30] month (qualifier value)"));
+        assertEquals("at 7 years", StatementLines.timing("[7,7] year (qualifier value)"));
+        assertEquals("55 joints", StatementLines.measure("[55,55] Joints (qualifier value)"));
+        assertEquals("80%", StatementLines.measure("[0.8,0.8] Population share (property)"));
+    }
+
+    @Test
+    void aCandidateReadsAsItsNameWhateverItsBlockSaysOfIt() {
+        // a block may say how a candidate is disposed, which concepts are nearest it, and the phrase it came from
+        List<String> said = REMOVAL.stream().map(line -> line.startsWith("topic") || line.startsWith("subject_of_information")
+                ? line + " near=258707000;258706009 text=\"the implant, as the report \\\"names\\\" it\"" : line).toList();
+        StatementLines.Statement plain = StatementLines.read("[anf,type=performance]", REMOVAL);
+        StatementLines.Statement more = StatementLines.read("[anf,type=performance]", said);
+        assertEquals("Removal of the implant", more.topic());
+        assertEquals(plain.group(), more.group(), "the same candidate is the same group, so its heading is not said twice");
+        assertEquals(plain, more);
+    }
+
+    @Test
+    void aStatementReadsOnlyTheGroupOfTheStatementBeforeIt() {
+        DocumentBlockKinds.Anf kind = new DocumentBlockKinds.Anf();
+        assertTrue(kind.showsOwnEdits(), "a statement's form shows each edit as it is made, so the surface keeps it");
+        StructuredBlockKind.Source removal = source("[anf,type=performance]", REMOVAL);
+        StructuredBlockKind.Source halved = source("[anf,type=performance]",
+                REMOVAL.stream().map(line -> line.replace("[0.8,0.8]", "[0.5,0.5]")).toList());
+        StructuredBlockKind.Source narrative = source("[anf,type=narrative]", NARRATIVE);
+        assertNotEquals(removal.content(), halved.content());
+
+        assertEquals(kind.readOfRun(List.of(narrative, removal)), kind.readOfRun(List.of(halved)),
+                "another result in the statement before, or another statement before that, changes nothing a statement reads");
+        assertNotEquals(kind.readOfRun(List.of(removal)), kind.readOfRun(List.of(narrative)), "the group of the statement before is read");
+        assertNotEquals(kind.readOfRun(List.of()), kind.readOfRun(List.of(removal)), "a statement that begins a run reads none");
     }
 
     @Test
