@@ -15,6 +15,7 @@
  */
 package network.ike.komet.claude.ui;
 
+import network.ike.komet.claude.anf.editor.StatementSign;
 import network.ike.komet.document.DecisionFigure;
 import network.ike.komet.document.DecisionFigure.Mark;
 import network.ike.komet.document.DecisionFigure.Rect;
@@ -59,9 +60,9 @@ final class StatementLines {
     private static final double SMALL_LINE = DecisionFigureText.lineHeight(SMALL);
     /** How far a statement's line stands in from its group's heading. */
     /** Where the topic begins: clear of the statement's sign, so the sign and a mark before the topic's words read apart. */
-    private static final double INDENT = 13;
+    private static final double INDENT = 14;
     /** Where the statement's sign stands, at the head of the line. */
-    private static final double SIGN = 1.5;
+    private static final double SIGN = 0.5;
     /** The room the result's column takes at the right, and the gap before it. */
     private static final double RESULT = 132;
     private static final double GAP = 14;
@@ -175,7 +176,7 @@ final class StatementLines {
         if (heading && !statement.group().isEmpty()) {
             // the group is named as what it is, upright and in the ink of a name: words still without a concept behind their mark
             // a group is a complex concept: what is wanted for its words is one
-            double from = statement.groupInWords() ? complexMark(marks, wordsMark(marks, 0, y) - 2, y) : 0;
+            double from = statement.groupInWords() ? wordsMark(marks, 0, y) : 0;
             // a bold line is wider than the measure the wrap is given
             for (String line : DecisionFigureText.wrap(statement.group(), SIZE, (WIDTH - from) * 0.92)) {
                 marks.add(new Text(from, y, line, SIZE, true, false, DecisionFigureText.INK, "statement-group"));
@@ -220,28 +221,11 @@ final class StatementLines {
     }
 
     /**
-     * Draws the mark of words that have no concept yet at the head of a line, and says where the
-     * words begin after it.
+     * Draws the mark of words the knowledge base has nothing for at the head of a line, and says
+     * where the words begin after it.
      */
     private static double wordsMark(List<Mark> marks, double x, double top) {
-        // the sigil a badge carries for a component the knowledge base does not have: its glyph, bold, in its colour
-        String glyph = network.ike.docs.konceptcore.KonceptKind.UNKNOWN.glyph();
-        marks.add(new Text(x, top, glyph, SIZE, true, false, network.ike.docs.konceptcore.KonceptKind.UNKNOWN.colorHex(), "statement-words-mark"));
-        return x + DecisionFigureText.width(glyph, SIZE, true) + 4;
-    }
-
-    /**
-     * Draws the complex concept's mark at the head of a line, a square with a cross in it, and says
-     * where the words begin after it. It is drawn, not set as a glyph: a page's faces may lack the sign.
-     */
-    private static double complexMark(List<Mark> marks, double x, double top) {
-        double side = 6.4;
-        double y = top + SIZE * 0.5 - side / 2 + 0.6;
-        String ink = dev.ikm.komet.framework.controls.KonceptStatus.COMPLEX_COLOR_HEX;
-        marks.add(new Rect(x, y, side, side, null, 1, DecisionFigure.Stroke.solid(ink, 0.8), "statement-complex-mark"));
-        marks.add(new Rect(x + side / 2 - 0.4, y + 1.2, 0.8, side - 2.4, ink, 1, null, "statement-complex-mark"));
-        marks.add(new Rect(x + 1.2, y + side / 2 - 0.4, side - 2.4, 0.8, ink, 1, null, "statement-complex-mark"));
-        return x + side + 4;
+        return network.ike.komet.claude.anf.editor.WordsMark.draw(marks, x, top, SIZE, "statement-words-mark");
     }
 
     /** What stands beneath the topic in small type: the narrative's words, how it was known, when, and any other field. */

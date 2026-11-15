@@ -230,6 +230,28 @@ class AnfStatementControlTest {
                 MouseButton.PRIMARY, 1, false, false, false, false, true, false, false, true, false, false, null)));
     }
 
+    /** Clicks a listed concept's row, as a person does to select it, or twice to use it. */
+    private void clickRow(int index, int clicks) throws Exception {
+        fx(() -> control.lookup("#anf-find-result-" + index).getOnMouseClicked().handle(new MouseEvent(MouseEvent.MOUSE_CLICKED, 0, 0, 0, 0,
+                MouseButton.PRIMARY, clicks, false, false, false, false, true, false, false, true, false, false, null)));
+    }
+
+    /** Which listed rows are selected, by their place in the list. */
+    private List<Integer> selectedRows() throws Exception {
+        return onFx(() -> {
+            List<Node> rows = List.copyOf(control.lookupAll(".anf-find-result"));
+            return java.util.stream.IntStream.range(0, rows.size())
+                    .filter(i -> rows.get(i).getPseudoClassStates().contains(javafx.css.PseudoClass.getPseudoClass("selected")))
+                    .boxed().toList();
+        });
+    }
+
+    /** Presses a key in the search field. */
+    private void press(javafx.scene.input.KeyCode key) throws Exception {
+        fx(() -> control.lookup("#anf-find-query").fireEvent(new javafx.scene.input.KeyEvent(javafx.scene.input.KeyEvent.KEY_PRESSED,
+                "", "", key, false, false, false, false)));
+    }
+
     private Node inPanel(String id) throws Exception {
         return onFx(() -> control.lookup("#anf-find-panel") == null ? null : control.lookup("#anf-find-panel").lookup(id));
     }
@@ -255,8 +277,11 @@ class AnfStatementControlTest {
         assertNotNull(value, "the method's value");
         assertEquals(List.of("Clinical report"), onFx(() -> value.lookupAll(".label").stream().map(node -> ((Label) node).getText())
                 .filter(text -> !text.startsWith("Find or create")).toList()), "the words as they are");
-        assertEquals("?", onFx(() -> ((javafx.scene.text.Text) value.lookup(".anf-unsettled-mark")).getText()),
-                "behind the sigil a badge carries for a component the knowledge base does not have");
+        assertEquals(List.of("?"), onFx(() -> ((javafx.scene.Parent) value.lookup(".anf-unsettled-mark")).getChildrenUnmodifiable().stream()
+                .filter(javafx.scene.text.Text.class::isInstance).map(node -> ((javafx.scene.text.Text) node).getText()).toList()),
+                "behind a question mark in a ring, the one mark of words the knowledge base has nothing for");
+        assertEquals(1, (int) onFx(() -> (int) ((javafx.scene.Parent) value.lookup(".anf-unsettled-mark")).getChildrenUnmodifiable().stream()
+                .filter(javafx.scene.shape.Circle.class::isInstance).count()));
         assertNull(onFx(() -> value.lookup(".anf-complex-mark")), "a method is a concept, not a group: no complex concept is wanted for it");
         assertTrue(onFx(() -> ((Label) value.lookup(".anf-provisional")).isWrapText()), "words too long for the row go on to a second line");
         assertTrue(onFx(() -> value.lookupAll(".ditree-slot").isEmpty()), "no search box stands in the row");
@@ -273,8 +298,20 @@ class AnfStatementControlTest {
         assertNull(inPanel("#anf-find-create"), "a host that cannot write offers no new concept");
         assertNull(inPanel("#anf-find-also-describe"), "and no additional description");
 
-        fx(() -> ((Button) control.lookup(".anf-find-result").lookup(".button")).fire());
-        assertEquals(concept("Auscultation").nid(), method().concept().orElseThrow().nid(), "Use settles the value with the concept");
+        // a listed concept is a row to select, and Use settles the value with the selected one
+        assertTrue(onFx(() -> control.lookup(".anf-find-result").lookupAll(".button").isEmpty()), "a row has no button of its own");
+        Button use = (Button) inPanel("#anf-find-use");
+        assertEquals("Use the selected concept", onFx(use::getText));
+        assertTrue(onFx(use::isDisable), "nothing is selected until a person selects it");
+        assertEquals(List.of(), selectedRows());
+        clickRow(1, 1);
+        assertEquals(List.of(1), selectedRows(), "a click selects the row");
+        assertFalse(onFx(use::isDisable));
+        assertTrue(method().concept().isEmpty(), "and settles nothing yet");
+        clickRow(0, 1);
+        assertEquals(List.of(0), selectedRows(), "one row is selected at a time");
+        fx(use::fire);
+        assertEquals(concept("Auscultation").nid(), method().concept().orElseThrow().nid(), "Use settles the value with the selected concept");
         assertNull(onFx(() -> control.lookup("#anf-find-panel")), "and the row is drawn again, closed");
         assertNull(onFx(() -> control.lookup(".anf-unsettled")));
 
@@ -284,6 +321,66 @@ class AnfStatementControlTest {
         assertNotNull(onFx(() -> control.lookup("#anf-find-panel")));
         clickUnsettled();
         assertNull(onFx(() -> control.lookup("#anf-find-panel")), "a second click closes the panel");
+    }
+
+    @Test
+    @DisplayName("The arrow keys move the selection through the found concepts, Enter uses it, and so does a double click")
+    void theSelectionIsMovedByKeysAndUsedByEnterOrADoubleClick() throws Exception {
+        found = List.of(concept("Auscultation"), concept("Palpation"));
+        render(methodInWords());
+        clickUnsettled();
+        assertEquals(List.of("Auscultation", "Palpation"), listed());
+        press(javafx.scene.input.KeyCode.DOWN);
+        assertEquals(List.of(0), selectedRows(), "down selects the first row when none is selected");
+        press(javafx.scene.input.KeyCode.DOWN);
+        assertEquals(List.of(1), selectedRows());
+        press(javafx.scene.input.KeyCode.DOWN);
+        assertEquals(List.of(1), selectedRows(), "and stops at the last");
+        press(javafx.scene.input.KeyCode.UP);
+        assertEquals(List.of(0), selectedRows());
+        press(javafx.scene.input.KeyCode.DOWN);
+        fx(() -> ((TextField) control.lookup("#anf-find-query")).getOnAction().handle(new javafx.event.ActionEvent()));
+        assertEquals(concept("Palpation").nid(), method().concept().orElseThrow().nid(), "Enter uses the selected concept");
+
+        assertTrue(onFx(control::undo));
+        clickUnsettled();
+        assertEquals(List.of("Auscultation", "Palpation"), listed());
+        assertEquals(List.of(), selectedRows(), "a panel opened again has nothing selected");
+        clickRow(0, 2);
+        assertEquals(concept("Auscultation").nid(), method().concept().orElseThrow().nid(), "a double click selects the row and uses it");
+    }
+
+    @Test
+    @DisplayName("The statement's form begins with the statement's sign, and each mark says what it is")
+    void theFormBeginsWithTheSignAndItsMarksSayWhatTheyAre() throws Exception {
+        render(methodInWords());
+        Node sign = onFx(() -> control.lookup(".anf-statement-sign"));
+        assertNotNull(sign, "the sign a statement has wherever it is named");
+        assertTrue(onFx(() -> sign.getParent().getStyleClass().contains("ditree-clause-header")
+                && sign.getParent().getChildrenUnmodifiable().indexOf(sign) == 0), "at the head of the statement's clause");
+        assertNull(onFx(() -> control.lookup(".ditree-clause-bar.anf-statement")), "in place of the bar the clause began with");
+        assertNotNull(onFx(() -> control.lookup(".ditree-clause-bar.anf-circumstance")), "the other clauses keep their bars");
+        assertTrue(MarkMeaning.of(sign).startsWith("Statement\n"), MarkMeaning.of(sign));
+        Node words = onFx(() -> control.lookup(".anf-unsettled-mark"));
+        assertEquals(MarkMeaning.WORDS_ONLY, MarkMeaning.of(words), "the question mark says what it means");
+
+        // a statement that is what must hold keeps a bar before its sign, dotted
+        fx(() -> {
+            AnfStatementControl holds = new AnfStatementControl();
+            holds.setMustHold(true);
+            holds.setComponentItemResolver(control.getComponentItemResolver());
+            holds.setDescriptionResolver(control.getDescriptionResolver());
+            holds.setValue(methodInWords());
+            new Scene(new StackPane(holds), 700, 600);
+            holds.applyCss();
+            holds.layout();
+            control = holds;
+        });
+        Node bar = onFx(() -> control.lookup(".ditree-clause-bar.anf-must-hold"));
+        assertNotNull(bar, "what must hold has its bar");
+        assertEquals(MarkMeaning.MUST_HOLD, MarkMeaning.of(bar));
+        assertEquals(1, (int) onFx(() -> bar.getParent().getChildrenUnmodifiable().indexOf(control.lookup(".anf-statement-sign"))),
+                "and the statement's sign after it");
     }
 
     @Test
@@ -358,7 +455,8 @@ class AnfStatementControlTest {
                 ((ToggleButton) control.lookup("#anf-find-dialect-0")).getText(), ((ToggleButton) control.lookup("#anf-find-dialect-1")).getText())));
         assertTrue(onFx(() -> ((ToggleButton) control.lookup("#anf-find-dialect-0")).isSelected()
                 && ((ToggleButton) control.lookup("#anf-find-acceptability-0")).isSelected()), "the first dialect, and acceptable, until chosen otherwise");
-        fx(() -> ((Button) control.lookup(".anf-find-result").lookup(".button")).fire());
+        clickRow(0, 1);
+        fx(() -> ((Button) control.lookup("#anf-find-use")).fire());
         assertEquals(List.of("describe Auscultation as Clinical report, acceptable in US English"), written);
         assertEquals(concept("Auscultation").nid(), method().concept().orElseThrow().nid());
 
@@ -372,8 +470,9 @@ class AnfStatementControlTest {
             ((TextField) control.lookup("#anf-find-description")).setText("Report of a clinic");
             ((ToggleButton) control.lookup("#anf-find-dialect-1")).fire();
             ((ToggleButton) control.lookup("#anf-find-acceptability-1")).fire();
-            ((Button) control.lookup(".anf-find-result").lookup(".button")).fire();
         });
+        clickRow(0, 1);
+        fx(() -> ((Button) control.lookup("#anf-find-use")).fire());
         assertEquals(List.of("describe Auscultation as Report of a clinic, preferred in GB English"), written);
 
         // a description with no text is not added, and the value is left as it was
@@ -384,8 +483,9 @@ class AnfStatementControlTest {
         fx(() -> {
             ((CheckBox) control.lookup("#anf-find-also-describe")).setSelected(true);
             ((TextField) control.lookup("#anf-find-description")).setText("  ");
-            ((Button) control.lookup(".anf-find-result").lookup(".button")).fire();
         });
+        clickRow(0, 1);
+        fx(() -> ((Button) control.lookup("#anf-find-use")).fire());
         assertEquals(List.of(), written);
         assertEquals("Give the additional description its text.", onFx(() -> ((Label) control.lookup(".anf-find-problem")).getText()));
         assertTrue(method().concept().isEmpty());

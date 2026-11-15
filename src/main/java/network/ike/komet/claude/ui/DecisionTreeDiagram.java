@@ -427,7 +427,7 @@ final class DecisionTreeDiagram extends Region {
             crossed.getChildren().addAll(one, two);
             crossed.setAlignment(Pos.TOP_LEFT);
             crossed.getStyleClass().add("decision-rejected");
-            Tooltip.install(crossed, new Tooltip("Rejected: the rollback chose another alternative"));
+            network.ike.komet.claude.anf.editor.MarkMeaning.install(crossed, network.ike.komet.claude.anf.editor.MarkMeaning.REJECTED);
             bars.put(index, crossed);
             getChildren().add(crossed);
         }

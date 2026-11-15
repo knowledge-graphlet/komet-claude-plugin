@@ -116,6 +116,8 @@ public final class ProfileBlocks {
 
         private final Map<Long, Calculator> calculators = new HashMap<>();
     private final Map<String, AnfStatement> statements = new HashMap<>();
+    /** The identity each named statement has in the knowledge base, where its block is a stored document's. */
+    private final Map<String, dev.ikm.tinkar.common.id.PublicId> statementIdentities = new HashMap<>();
     private final Map<Long, ComplexConceptText.Spec> complexConcepts = new HashMap<>();
     private final Map<Long, Supplier<Node>> complexConceptCards = new HashMap<>();
     /** By name: a fresh editable card over the statement an anf block of this document names, for a peek from a tree. */
@@ -311,9 +313,14 @@ public final class ProfileBlocks {
         }
     }
 
-    /** What the evidence blocks and statements of the document last said, and the year they are read as of. */
+    /**
+     * What the evidence blocks and statements of the document last said, the year they are read as
+     * of, and which statements the knowledge base has: a finding shows its statement's identicon.
+     */
     public synchronized String evidenceState() {
-        return evidenceYear + evidenceBlocks.toString() + new java.util.TreeMap<>(statements);
+        java.util.TreeMap<String, String> identities = new java.util.TreeMap<>();
+        statementIdentities.forEach((name, identity) -> identities.put(name, identity.idString()));
+        return evidenceYear + evidenceBlocks.toString() + new java.util.TreeMap<>(statements) + identities;
     }
 
     /** The text of the value tree or effects table with an identifier, when its block has been read. */
@@ -558,6 +565,33 @@ public final class ProfileBlocks {
     /** The statement an anf block of this document named. */
     public synchronized Optional<AnfStatement> statement(String name) {
         return Optional.ofNullable(statements.get(name));
+    }
+
+    /**
+     * A named statement's block is a stored document's: the statement has the identity the
+     * knowledge base gives the statement that block states.
+     *
+     * @param name     the statement's name
+     * @param identity the statement's public id
+     */
+    public synchronized void defineStatementIdentity(String name, dev.ikm.tinkar.common.id.PublicId identity) {
+        if (name == null || name.isBlank() || identity == null) {
+            return;
+        }
+        if (!identity.equals(statementIdentities.put(name, identity))) {
+            notifyListeners();
+        }
+    }
+
+    /**
+     * The identity a named statement has in the knowledge base, by which its identicon is drawn
+     * the same wherever the statement is named.
+     *
+     * @param name the statement's name
+     * @return its public id; empty when its block is not a stored document's, or has not been drawn
+     */
+    public synchronized Optional<dev.ikm.tinkar.common.id.PublicId> statementIdentity(String name) {
+        return Optional.ofNullable(statementIdentities.get(name));
     }
 
     /** The calculator a concept names, when a block of this document defines it. */

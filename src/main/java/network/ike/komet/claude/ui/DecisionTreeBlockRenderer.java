@@ -74,6 +74,8 @@ import network.ike.komet.claude.decision.LinkedTrees;
 import network.ike.komet.claude.decision.TreeStatements;
 import network.ike.komet.claude.anf.AnfAdoc;
 import network.ike.komet.claude.anf.AnfStatement;
+import network.ike.komet.claude.anf.editor.MarkMeaning;
+import network.ike.komet.claude.anf.editor.StatementSign;
 import network.ike.komet.claude.anf.Circumstance;
 import network.ike.komet.claude.decision.ValuationCoordinate;
 import network.ike.komet.claude.decision.ViewIdentities;
@@ -1047,7 +1049,8 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
     private Node statementMark(List<String> names, OptionalLong situation) {
         // the sign a statement has on its own line, in place of the letters ANF
         Label mark = new Label();
-        mark.setGraphic(StatementSign.node(base * 0.95));
+        // the label says what the sign is and which statements these are, so the sign says nothing of its own
+        mark.setGraphic(StatementMarks.graphic(names, context, base));
         mark.setId("anf-statement-mark");
         mark.setFont(Font.font(null, FontWeight.BOLD, base * 0.7));
         mark.setStyle("-fx-padding: 0 3 0 3;");
@@ -1060,9 +1063,13 @@ final class DecisionTreeBlockRenderer implements network.ike.komet.document.Stru
                     .map(statement -> "anf:" + name + "\n" + AnfAdoc.toAdoc(statement).strip())
                     .orElse("anf:" + name + ": no anf block before the tree names it"));
         }
-        Tooltip tip = new Tooltip(String.join("\n\n", written) + "\n\nClick to see and edit the statement");
-        tip.setFont(Font.font("Menlo", base * 0.8));
+        Tooltip tip = new Tooltip(MarkMeaning.STATEMENT + "\n\n" + String.join("\n\n", written)
+                + "\n\nClick to see and edit the statement");
+        tip.setWrapText(true);
+        tip.setMaxWidth(base * 34);
         mark.setTooltip(tip);
+        // the mark stands in a node of the tree, whose own tooltip would be shown in its place
+        dev.ikm.komet.framework.controls.MarkTooltip.install(mark, tip);
         mark.setOnMouseClicked(e -> {
             VBox cards = new VBox(6);
             situation.ifPresent(nid -> context.complexConceptCard(nid).ifPresent(card -> {

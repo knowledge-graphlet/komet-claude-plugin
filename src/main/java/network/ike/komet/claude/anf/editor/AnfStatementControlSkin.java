@@ -102,6 +102,7 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
 
     private static final PseudoClass DROP_TARGET = PseudoClass.getPseudoClass("drop-target");
     private static final PseudoClass PROVISIONAL = PseudoClass.getPseudoClass("provisional");
+    private static final PseudoClass SELECTED = PseudoClass.getPseudoClass("selected");
 
     /** The three statement kinds, in the order the kind control shows them. */
     private static final List<AnfSemantic> KINDS = List.of(AnfSemantic.PERFORMANCE, AnfSemantic.REQUEST,
@@ -327,8 +328,7 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
         }
         AnfStatement node = expressionOf(tree).vertex(vertex.asUuid());
         return switch (node) {
-            case AnfStatement.Root root ->
-                    createClauseNode(vertex, tree, "anf-statement", "Statement");
+            case AnfStatement.Root root -> statementClause(vertex, tree);
             case AnfStatement.Context context ->
                     createClauseNode(vertex, tree, "anf-context", "Context");
             case Circumstance circumstance ->
@@ -345,6 +345,33 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
             case null, default -> super.buildVertex(vertex, tree);
         };
     }
+
+    /**
+     * The statement's own clause, which begins with the sign a statement has wherever it is named,
+     * where every other clause begins with its bar. A statement that is what must hold keeps a
+     * bar before the sign, dotted, which says so.
+     */
+    private Node statementClause(EntityVertex vertex, DiTreeEntity tree) {
+        Node clause = createClauseNode(vertex, tree, "anf-statement", "Statement");
+        if (clause instanceof VBox box && !box.getChildren().isEmpty() && box.getChildren().getFirst() instanceof HBox header
+                && !header.getChildren().isEmpty() && header.getChildren().getFirst().getStyleClass().contains("ditree-clause-bar")) {
+            Node sign = StatementSign.node(SIGN_SIZE);
+            if (anfControl().isMustHold()) {
+                Node bar = header.getChildren().getFirst();
+                bar.getStyleClass().add("anf-must-hold");
+                MarkMeaning.install(bar, MarkMeaning.MUST_HOLD);
+                header.getChildren().add(1, sign);
+            } else {
+                header.getChildren().set(0, sign);
+            }
+        }
+        return clause;
+    }
+
+    /** The size of text the statement's sign stands beside in its form: the clause's label, in capitals. */
+    private static final double SIGN_SIZE = 13;
+    /** The size of a value's words in the form, which the mark of words with no concept stands beside. */
+    private static final double WORDS_SIZE = 12;
 
     /**
      * A labelled attribute row: accent bar, attribute name, then the value nodes. A row with a
@@ -525,6 +552,12 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
         KLComponentControl searcher;
         /** Counts the searches asked, so a slow answer to an earlier one is dropped. */
         int asked;
+        /** The concepts listed, and the words they were found for. */
+        List<ConceptFacade> listed = List.of();
+        String listedFor = "";
+        /** The listed concept that is selected: the one Use settles the value with, and an additional description is added to. */
+        ConceptFacade selected;
+        Button useSelected;
 
         FindOrCreate(EntityVertex vertex, ChipKind kind, Optional<AnfProvisional> provisional, String prompt) {
             this.vertex = vertex;
@@ -535,13 +568,9 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
             value.getStyleClass().add("anf-unsettled");
             value.setId("anf-find-" + vertex.vertexIndex() + (kind == ChipKind.ROLE_TYPE ? "-role" : ""));
             if (!kept()) {
-                // the sigil a badge carries for a component the knowledge base does not have: one look for that meaning
-                Node mark = dev.ikm.komet.framework.controls.KonceptSigils
-                        .create(network.ike.docs.konceptcore.KonceptKind.UNKNOWN, 0, 0).orElseGet(() -> new javafx.scene.text.Text("?"));
+                // one mark for words the knowledge base has nothing for, whatever they turn out to be
+                Node mark = WordsMark.node(WORDS_SIZE);
                 mark.getStyleClass().add("anf-unsettled-mark");
-                // the size of the words it stands before, which the badge's stylesheet would otherwise make a badge's
-                mark.setStyle("-fx-font-size: 1em;");
-                Tooltip.install(mark, new Tooltip("Words only: not a concept of the knowledge base yet"));
                 value.getChildren().add(mark);
             }
             Label said = new Label(said());
@@ -588,15 +617,6 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
         void beneath(VBox column, AnfSemantic attribute) {
             this.column = column;
             this.attribute = attribute;
-            // the subject of information is a group, and a group is a complex concept: that is what its words want
-            if (attribute == AnfSemantic.SUBJECT_OF_INFORMATION && !kept() && provisional.isPresent()) {
-                javafx.scene.text.Text complex = new javafx.scene.text.Text(dev.ikm.komet.framework.controls.KonceptStatus.COMPLEX_GLYPH);
-                complex.getStyleClass().add("anf-complex-mark");
-                complex.setFill(javafx.scene.paint.Color.web(dev.ikm.komet.framework.controls.KonceptStatus.COMPLEX_COLOR_HEX));
-                complex.setStyle("-fx-font-weight: bold; -fx-font-size: 1em;");
-                Tooltip.install(complex, new Tooltip("A group: a complex concept is wanted for these words"));
-                value.getChildren().add(1, complex);
-            }
         }
 
         /** Opens the panel beneath the row, or closes it. */
@@ -695,7 +715,19 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
             query.textProperty().subscribe((was, now) -> rest.playFromStart());
             query.setOnAction(e -> {
                 rest.stop();
-                search(query.getText());
+                // Enter uses the selected concept while the list is the one found for these words, and searches otherwise
+                if (selected != null && listedFor.equals(query.getText() == null ? "" : query.getText().strip())) {
+                    use(selected);
+                } else {
+                    search(query.getText());
+                }
+            });
+            // the arrow keys move the selection through the list while the words are typed
+            query.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+                if (e.getCode() == KeyCode.DOWN || e.getCode() == KeyCode.UP) {
+                    step(e.getCode() == KeyCode.DOWN ? 1 : -1);
+                    e.consume();
+                }
             });
             onEscape(query, this::toggle);
             status.getStyleClass().add("anf-find-status");
@@ -719,6 +751,15 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
                 });
                 built.getChildren().addAll(alsoDescribe, describing);
             }
+            useSelected = new Button("Use the selected concept");
+            useSelected.setId("anf-find-use");
+            useSelected.setDisable(true);
+            useSelected.setOnAction(e -> {
+                if (selected != null) {
+                    use(selected);
+                }
+            });
+            built.getChildren().add(useSelected);
             if (writer != null) {
                 built.getChildren().addAll(heading("None of these"), newConcept(writer));
             }
@@ -856,7 +897,11 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
             int mine = ++asked;
             String wanted = text == null ? "" : text.strip();
             results.getChildren().clear();
+            listed = List.of();
+            listedFor = "";
+            marked();
             if (wanted.length() < 3) {
+                selected = null;
                 status("Type three letters or more to search.");
                 return;
             }
@@ -877,7 +922,16 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
                 List<ConceptFacade> concepts = found.stream().filter(ConceptFacade.class::isInstance)
                         .map(ConceptFacade.class::cast).limit(LISTED).toList();
                 status(concepts.isEmpty() ? "No concept is found for these words." : "");
-                concepts.forEach(concept -> results.getChildren().add(result(concept)));
+                listed = concepts;
+                listedFor = wanted;
+                for (int i = 0; i < concepts.size(); i++) {
+                    results.getChildren().add(result(concepts.get(i), i));
+                }
+                // a concept selected before stays selected while it is still listed
+                if (selected != null && concepts.stream().noneMatch(concept -> concept.nid() == selected.nid())) {
+                    selected = null;
+                }
+                marked();
                 revealSoon();                                        // the panel is taller by what was found
             }));
         }
@@ -887,8 +941,44 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
             showing(status, !text.isEmpty());
         }
 
-        /** One concept the search found: its identicon, its name, what it is a kind of, and Use. */
-        private Node result(ConceptFacade concept) {
+        /** Selects a listed concept, or none: the one Use settles the value with. */
+        private void select(ConceptFacade concept) {
+            selected = concept;
+            problem("");
+            marked();
+        }
+
+        /** Moves the selection through the list by a row, from no selection to its first row or its last. */
+        private void step(int by) {
+            if (listed.isEmpty()) {
+                return;
+            }
+            int at = -1;
+            for (int i = 0; i < listed.size() && selected != null; i++) {
+                at = listed.get(i).nid() == selected.nid() ? i : at;
+            }
+            int next = at < 0 ? (by > 0 ? 0 : listed.size() - 1) : Math.clamp(at + by, 0, listed.size() - 1);
+            select(listed.get(next));
+        }
+
+        /** Shows which row is selected, and lets Use be pressed only while a listed concept is. */
+        private void marked() {
+            boolean any = false;
+            for (Node row : results.getChildren()) {
+                boolean is = selected != null && Long.valueOf(selected.nid()).equals(row.getUserData());
+                row.pseudoClassStateChanged(SELECTED, is);
+                any |= is;
+            }
+            if (useSelected != null) {
+                useSelected.setDisable(!any);
+            }
+        }
+
+        /**
+         * One concept the search found, as a row to select: its identicon, its name, and what it is a
+         * kind of. A click selects it, a double click uses it.
+         */
+        private Node result(ConceptFacade concept, int index) {
             ImageView icon = new ImageView(dev.ikm.komet.framework.Identicon.generateIdenticonImage(concept.publicId()));
             icon.setFitWidth(16);
             icon.setFitHeight(16);
@@ -909,12 +999,24 @@ public class AnfStatementControlSkin extends KLDiTreeControlSkin {
                 kindOf.setMinWidth(0);
                 named.getChildren().add(kindOf);
             }
-            Button use = new Button("Use");
-            use.setMinWidth(Region.USE_PREF_SIZE);
-            use.setOnAction(e -> use(concept));
-            HBox row = new HBox(6, icon, named, use);
+            // the tick is the selection's mark that does not rest on colour
+            Label tick = new Label("\u2713");
+            tick.getStyleClass().add("anf-find-result-tick");
+            tick.setMinWidth(Region.USE_PREF_SIZE);
+            HBox row = new HBox(6, icon, named, tick);
             row.setAlignment(Pos.CENTER_LEFT);
             row.getStyleClass().add("anf-find-result");
+            row.setId("anf-find-result-" + index);
+            row.setUserData(concept.nid());
+            row.setCursor(Cursor.HAND);
+            row.setOnMouseClicked(e -> {
+                select(concept);
+                if (e.getClickCount() >= 2) {
+                    use(concept);
+                }
+                e.consume();
+            });
+            Tooltip.install(row, new Tooltip("Click to select this concept. A double click uses it."));
             return row;
         }
 

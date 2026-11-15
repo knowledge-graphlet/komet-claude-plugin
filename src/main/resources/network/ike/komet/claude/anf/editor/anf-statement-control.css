@@ -2,8 +2,15 @@
    ditree-control.css) with accent bars and rows for the statement's clauses and attributes. */
 
 /* Clause accent bars, beside the axiom kinds' (necessary #FF4E08, sufficient #5EC200,
-   role group #009BFF, role #FF9100, feature #956AFF). */
-.anf-statement-control .ditree-clause-bar.anf-statement   { -fx-background-color: #2E3240; }
+   role group #009BFF, role #FF9100, feature #956AFF). The statement's own clause begins with
+   the statement's sign and has no bar, but for a statement that is what must hold, as a complex
+   concept's prerequisite is, where a statement otherwise is what was found: its bar is dotted. */
+.anf-statement-control .ditree-clause-bar.anf-must-hold {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent transparent transparent #2E3240;
+    -fx-border-style: dotted;
+    -fx-border-width: 0 0 0 3;
+}
 .anf-statement-control .ditree-clause-bar.anf-context     { -fx-background-color: #00A3A3; }
 .anf-statement-control .ditree-clause-bar.anf-circumstance { -fx-background-color: #D6336C; }
 .anf-statement-control .ditree-clause-bar.anf-repetition  { -fx-background-color: #E67700; }
@@ -58,10 +65,24 @@
     -fx-text-fill: #8a93a6;
     -fx-font-size: 0.916667em;
 }
+/* A concept the search found is a row to select. The selected row is tinted and ticked. */
 .anf-statement-control .anf-find-result {
-    -fx-padding: 3 0 3 0;
+    -fx-padding: 3 6 3 6;
     -fx-border-color: #e3e7ee transparent transparent transparent;
     -fx-border-width: 1 0 0 0;
+}
+.anf-statement-control .anf-find-result:hover {
+    -fx-background-color: #f1f4f9;
+}
+.anf-statement-control .anf-find-result:selected {
+    -fx-background-color: #dbe7fb;
+}
+.anf-statement-control .anf-find-result-tick {
+    -fx-text-fill: transparent;
+    -fx-font-weight: bold;
+}
+.anf-statement-control .anf-find-result:selected .anf-find-result-tick {
+    -fx-text-fill: #1a56b0;
 }
 .anf-statement-control .anf-find-problem {
     -fx-text-fill: #a32d2d;

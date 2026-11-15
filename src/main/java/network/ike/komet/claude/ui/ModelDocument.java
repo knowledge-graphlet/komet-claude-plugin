@@ -122,12 +122,25 @@ final class ModelDocument {
      * @return the statement's public id
      */
     static PublicId statementOf(long block, ViewCalculator view) {
+        return writtenStatementOf(block, view).orElseGet(() -> LocalConcepts.derived(PrimitiveData.publicId(block), "anf-statement|0"));
+    }
+
+    /**
+     * The statement an anf block holds in the knowledge base now: the first statement of the ANF
+     * statement pattern about the block that is visible in the view. A block whose statement has
+     * not been written has none, and its statement has no identity to show yet.
+     *
+     * @param block the nid of the anf block's element semantic
+     * @param view  the view
+     * @return the statement's public id, or empty when the knowledge base has no statement for the block
+     */
+    static Optional<PublicId> writtenStatementOf(long block, ViewCalculator view) {
         for (SemanticEntity<SemanticEntityVersion> statement : EntityService.get()
                 .semanticsForComponentOfPattern(block, IkePattern.ANF_STATEMENT_PATTERN.nid()).toList()) {
             if (view.latest(statement.nid()).isPresent()) {
-                return statement.publicId();
+                return Optional.of(statement.publicId());
             }
         }
-        return LocalConcepts.derived(PrimitiveData.publicId(block), "anf-statement|0");
+        return Optional.empty();
     }
 }

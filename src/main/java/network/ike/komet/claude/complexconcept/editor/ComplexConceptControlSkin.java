@@ -419,6 +419,7 @@ public class ComplexConceptControlSkin extends KLDiTreeControlSkin {
         AnfStatementControl nested = new AnfStatementControl();
         nested.getStyleClass().add("cc-nested-statement");
         nested.setShowsMissing(false);
+        nested.setMustHold(true);
         share(nested);
         nested.setValue(tree);
         return nested;

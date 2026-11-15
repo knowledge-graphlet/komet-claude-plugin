@@ -42,6 +42,7 @@ import javafx.scene.control.Tooltip;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
+import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Font;
@@ -344,12 +345,16 @@ final class ComplexConceptBlockRenderer implements network.ike.komet.document.St
             GridPane grid = new GridPane();
             grid.setHgap(10);
             grid.setVgap(3);
-            // a dotted bar beside the prerequisites says they are what must hold, where a statement's solid bar says what was found
-            grid.getStyleClass().add("complex-concept-must-hold");
-            grid.setStyle("-fx-border-color: transparent transparent transparent #2E3240; -fx-border-style: dotted;"
+            // a dotted bar beside the prerequisites says they are what must hold, where a statement's sign says what was found.
+            // It is a node of its own, so the pointer at rest on it shows what it means and the grid's chips keep their own.
+            Region mustHold = new Region();
+            mustHold.getStyleClass().add("complex-concept-must-hold");
+            mustHold.setStyle("-fx-border-color: transparent transparent transparent #2E3240; -fx-border-style: dotted;"
                     + " -fx-border-width: 0 0 0 3;");
-            grid.setPadding(new Insets(2, 0, 2, 9));
-            VBox.setMargin(grid, new Insets(0, 0, 0, 3));
+            mustHold.setMinWidth(9);
+            mustHold.setMaxHeight(Double.MAX_VALUE);
+            network.ike.komet.claude.anf.editor.MarkMeaning.install(mustHold, network.ike.komet.claude.anf.editor.MarkMeaning.MUST_HOLD);
+            grid.setPadding(new Insets(2, 0, 2, 0));
             // the value and the relation are short and stay whole; the topic takes what is left, its name wrapping
             grid.add(head("given"), 0, 0);
             grid.add(whole(head("value")), 1, 0);
@@ -369,7 +374,10 @@ final class ComplexConceptBlockRenderer implements network.ike.komet.document.St
                 grid.add(whole(relation), 2, r);
                 r++;
             }
-            section.getChildren().add(grid);
+            HBox held = new HBox(mustHold, grid);
+            HBox.setHgrow(grid, Priority.ALWAYS);
+            VBox.setMargin(held, new Insets(0, 0, 0, 3));
+            section.getChildren().add(held);
             return section;
         }
 

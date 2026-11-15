@@ -375,6 +375,7 @@ public final class DocumentBlockKinds {
         FenceRenderer renderer(Context context, BlockRewriter rewriter) {
             AnfBlockRenderer renderer = new AnfBlockRenderer(context.view(), context.viewProperties(), context.base(), ProfileBlocks.of(context.blocks()));
             renderer.setRewriter(rewriter);
+            renderer.setElement(context.element());
             return renderer;
         }
 
@@ -418,6 +419,7 @@ public final class DocumentBlockKinds {
         FenceRenderer renderer(Context context, BlockRewriter rewriter, List<Source> before) {
             AnfBlockRenderer renderer = new AnfBlockRenderer(context.view(), context.viewProperties(), context.base(), ProfileBlocks.of(context.blocks()));
             renderer.setRewriter(rewriter);
+            renderer.setElement(context.element());
             renderer.setGroupBefore(before.isEmpty() ? null : groupOf(before.getLast()));
             return renderer;
         }

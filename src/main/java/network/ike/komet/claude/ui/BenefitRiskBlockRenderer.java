@@ -40,6 +40,8 @@ import javafx.scene.text.FontPosture;
 import javafx.scene.text.FontWeight;
 import jfx.incubator.scene.control.richtext.model.StyleAttributeMap;
 import network.ike.komet.claude.anf.AnfAdoc;
+import network.ike.komet.claude.anf.editor.MarkMeaning;
+import network.ike.komet.claude.anf.editor.StatementSign;
 import network.ike.komet.claude.benefitrisk.DeviceRecord;
 import network.ike.komet.claude.benefitrisk.EffectSize;
 import network.ike.komet.claude.benefitrisk.EffectsReading;
@@ -541,17 +543,21 @@ final class BenefitRiskBlockRenderer implements network.ike.komet.document.Struc
         finding.countName().ifPresent(names::add);
         // the sign a statement has on its own line, in place of the letters ANF
         Label mark = new Label();
-        mark.setGraphic(StatementSign.node(base * 0.95));
+        // the label says what the sign is and which statement this is, so the sign says nothing of its own
+        mark.setGraphic(StatementMarks.graphic(names, context, base));
         mark.setId("anf-statement-mark");
         mark.setMinWidth(Region.USE_PREF_SIZE);
         mark.setFont(Font.font(null, FontWeight.BOLD, base * 0.7));
         mark.setStyle("-fx-padding: 0 3 0 3;");
         mark.setCursor(javafx.scene.Cursor.HAND);
-        Tooltip tip = new Tooltip(String.join("\n\n", names.stream().map(name -> context.statement(name)
+        Tooltip tip = new Tooltip(MarkMeaning.STATEMENT + "\n\n" + String.join("\n\n", names.stream().map(name -> context.statement(name)
                 .map(statement -> "anf:" + name + "\n" + AnfAdoc.toAdoc(statement).strip()).orElse("anf:" + name)).toList())
                 + "\n\nClick to see and edit the statement");
-        tip.setFont(Font.font("Menlo", base * 0.8));
+        tip.setWrapText(true);
+        tip.setMaxWidth(base * 34);
         mark.setTooltip(tip);
+        // the mark stands in a finding's row, whose own tooltip would be shown in its place
+        dev.ikm.komet.framework.controls.MarkTooltip.install(mark, tip);
         mark.setOnMouseClicked(e -> {
             VBox cards = new VBox(6);
             for (String name : names) {

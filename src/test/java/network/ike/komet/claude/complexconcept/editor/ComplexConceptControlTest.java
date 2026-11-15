@@ -202,6 +202,10 @@ class ComplexConceptControlTest {
                 "dotted: a prerequisite is what must hold, not what was found");
         assertTrue(onFx(() -> bar.getBackground() == null || bar.getBackground().getFills().stream()
                 .allMatch(fill -> fill.getFill().equals(javafx.scene.paint.Color.TRANSPARENT))), "and no solid bar stands behind the dots");
+        assertEquals(network.ike.komet.claude.anf.editor.MarkMeaning.MUST_HOLD, network.ike.komet.claude.anf.editor.MarkMeaning.of(bar),
+                "the bar says what it means");
+        assertEquals(1, (int) onFx(() -> bar.getParent().getChildrenUnmodifiable().indexOf(statements.getFirst().lookup(".anf-statement-sign"))),
+                "and the statement's sign follows it");
         assertFalse(statements.getFirst().isShowsMissing(), "a prerequisite does not list a subject of record as missing");
         assertTrue(onFx(() -> control.getMissing().isEmpty()), "the specification is complete");
         assertNull(onFx(control::getLastRefusal));

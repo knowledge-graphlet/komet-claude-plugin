@@ -274,7 +274,14 @@ class BlockLayoutSettlesIT {
         assertFalse(onFx(() -> ((javafx.scene.control.Label) first.lookup(".anf-statement-group")).getFont().getStyle()).toLowerCase().contains("italic"),
                 "the group is not set apart by italics");
         assertEquals(2, (int) onFx(() -> first.lookupAll(".anf-words-mark").size()), "the group and the topic are words with no concept yet, and say so");
-        assertEquals(1, (int) onFx(() -> first.lookupAll(".anf-complex-mark").size()), "the group's words want a complex concept, and say that too");
+        assertEquals(0, (int) onFx(() -> first.lookupAll(".anf-complex-mark").size()), "one mark for a group's words and a topic's alike");
+        Node sign = onFx(() -> first.lookup("#anf-settle-removal").lookup(".anf-statement-sign"));
+        assertTrue(onFx(() -> sign.getStyleClass().contains("mark-tile")), "the sign is a tile");
+        Node place = onFx(() -> first.lookup("#anf-settle-removal").lookup(".anf-statement-unassigned"));
+        assertNotNull(place, "a statement the knowledge base does not have has an empty place where its identicon would stand");
+        assertEquals(1, (int) onFx(() -> place.getParent().getChildrenUnmodifiable().indexOf(place)), "after its sign");
+        assertNull(onFx(() -> first.lookup("#anf-settle-removal").lookup(".anf-statement-identicon")), "and no identicon");
+        assertEquals(network.ike.komet.claude.anf.editor.MarkMeaning.NO_IDENTITY, network.ike.komet.claude.anf.editor.MarkMeaning.of(place));
 
         Node next = onFx(() -> {
             Node block = statement("The implant in the jaw joint, in patients");

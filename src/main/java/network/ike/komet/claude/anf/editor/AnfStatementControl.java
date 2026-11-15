@@ -43,6 +43,7 @@ public class AnfStatementControl extends KLDiTreeControl {
     private final ReadOnlyObjectWrapper<String> lastRefusal = new ReadOnlyObjectWrapper<>(this, "lastRefusal");
     private final ObservableList<String> missing = FXCollections.observableArrayList();
     private final BooleanProperty showsMissing = new SimpleBooleanProperty(this, "showsMissing", true);
+    private final BooleanProperty mustHold = new SimpleBooleanProperty(this, "mustHold", false);
     private final BooleanProperty envelopeFromContext = new SimpleBooleanProperty(this, "envelopeFromContext", false);
 
     /**
@@ -172,6 +173,27 @@ public class AnfStatementControl extends KLDiTreeControl {
     /** @param shows whether the control lists what the statement still lacks */
     public final void setShowsMissing(boolean shows) {
         showsMissing.set(shows);
+    }
+
+    /**
+     * Whether the statement is what must hold, as a complex concept's prerequisite is, where a
+     * statement otherwise is what was found. False by default. Such a statement's form begins
+     * with a dotted bar before its sign. Set it before the statement is given its value.
+     *
+     * @return the property
+     */
+    public final BooleanProperty mustHoldProperty() {
+        return mustHold;
+    }
+
+    /** @return whether the statement is what must hold */
+    public final boolean isMustHold() {
+        return mustHold.get();
+    }
+
+    /** @param holds whether the statement is what must hold */
+    public final void setMustHold(boolean holds) {
+        mustHold.set(holds);
     }
 
     /**

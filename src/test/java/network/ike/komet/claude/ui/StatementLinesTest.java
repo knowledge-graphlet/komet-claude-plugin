@@ -157,18 +157,18 @@ class StatementLinesTest {
     @Test
     void aStatementHasItsBarAndWordsWithNoConceptHaveTheirMark() {
         DecisionFigure figure = StatementLines.figure(StatementLines.read("[anf,type=performance]", REMOVAL), true);
-        assertEquals(2, figure.marks().stream().filter(mark -> mark.role().equals("statement-sign")).count(),
-                "the sign of a statement at the head of the line, an upright stroke and a stroke out of its middle");
+        assertEquals(3, figure.marks().stream().filter(mark -> mark.role().equals("statement-sign")).count(),
+                "the sign of a statement at the head of the line: a tile, and on it an upright stroke and a stroke out of its middle");
         DecisionFigure.Text group = figure.marks().stream().filter(DecisionFigure.Text.class::isInstance).map(DecisionFigure.Text.class::cast)
                 .filter(text -> text.role().equals("statement-group")).findFirst().orElseThrow();
         assertFalse(group.italic(), "the group is not set apart by italics");
         assertTrue(group.bold(), "it is named as a name is");
         assertEquals(List.of("?", "?"), words(figure, "statement-words-mark"), "the group and the topic are words with no concept yet");
         assertTrue(group.x() > 0, "the group's words begin after their mark");
-        assertTrue(figure.marks().stream().anyMatch(mark -> mark.role().equals("statement-complex-mark")),
-                "a group is a complex concept, so its words carry the complex concept's mark too");
-        assertTrue(StatementLines.figure(StatementLines.read("[anf,type=performance]", REMOVAL), false).marks().stream()
-                .noneMatch(mark -> mark.role().equals("statement-complex-mark")), "a topic's words want a concept, and carry the one mark");
+        assertEquals(2, figure.marks().stream().filter(DecisionFigure.Circle.class::isInstance)
+                .filter(mark -> mark.role().equals("statement-words-mark")).count(), "each question mark stands in a ring");
+        assertTrue(figure.marks().stream().noneMatch(mark -> mark.role().equals("statement-complex-mark")),
+                "one mark for a group's words and a topic's alike: what the words become is settled when they are resolved");
 
         // a topic that is a concept has no mark; the group, still words, has its own
         List<String> concept = REMOVAL.stream().map(line -> line.startsWith("topic")

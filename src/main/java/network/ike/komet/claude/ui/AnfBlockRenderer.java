@@ -60,6 +60,9 @@ import network.ike.komet.claude.anf.AnfStatementView;
 import network.ike.komet.claude.anf.AnfValue;
 import network.ike.komet.claude.anf.Circumstance;
 import network.ike.komet.claude.anf.editor.AnfStatementControl;
+import network.ike.komet.claude.anf.editor.MarkMeaning;
+import network.ike.komet.claude.anf.editor.StatementSign;
+import network.ike.komet.claude.anf.editor.WordsMark;
 import network.ike.komet.claude.anf.element.ClinicalElement;
 import network.ike.komet.claude.anf.element.ElementLevel;
 import network.ike.komet.claude.anf.element.ElementText;
@@ -98,6 +101,8 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
     private final ProfileBlocks context;
     private KonceptLabelTypography typography = KonceptLabelTypography.DEFAULT;
     private BlockRewriter rewriter;
+    /** The stored block this renderer draws, by which its statement takes its identity; empty for a block that is not a stored document's. */
+    private java.util.OptionalLong element = java.util.OptionalLong.empty();
 
     AnfBlockRenderer(ViewCalculator viewCalc, double base, ProfileBlocks context) {
         this(viewCalc, null, base, context);
@@ -112,6 +117,16 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
         this.viewProperties = viewProperties;
         this.base = base;
         this.context = context;
+    }
+
+    /**
+     * Says which stored block this renderer draws, so the statement it states is known by the
+     * identity the knowledge base gives it, and its identicon is drawn.
+     *
+     * @param element the stored block's nid, or empty
+     */
+    void setElement(java.util.OptionalLong element) {
+        this.element = element == null ? java.util.OptionalLong.empty() : element;
     }
 
     public void setChipTypography(KonceptLabelTypography typography) {
@@ -147,6 +162,11 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
         }
         String body = literal == null ? "" : literal;
         publish(info, body, viewCalc, context);
+        if (element.isPresent()) {
+            // the identity of the statement this block states, once the knowledge base has the statement
+            idOf(info).ifPresent(name -> ModelDocument.writtenStatementOf(element.getAsLong(), viewCalc)
+                    .ifPresent(identity -> context.defineStatementIdentity(name, identity)));
+        }
         return List.of(new BlockPiece(() -> new Finding(info, body).column, body.stripTrailing()));
     }
 
@@ -306,6 +326,8 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
         final Node sign = StatementSign.node(base * 0.95);
         /** What was observed, with how and when it was known beneath it. */
         final VBox observed = new VBox(0);
+        /** Whether the result stands beneath what was observed, as it does in a line too narrow for both side by side. */
+        boolean stacked;
         /** The result, with its timing beneath it, in a column every statement of a run shares. */
         final VBox amounts = new VBox(0);
         final HBox statementRow = new HBox(8);
@@ -369,7 +391,7 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
                 groupLine.setCursor(Cursor.HAND);
                 groupLine.setOnMouseClicked(e -> toggle());
                 // set down a little, so it stands on the middle of the first line's letters
-                HBox.setMargin(sign, new Insets(base * 0.22, 0, 0, 0));
+                HBox.setMargin(sign, new Insets(base * 0.12, 0, 0, 0));
                 observed.setMinWidth(0);
                 HBox.setHgrow(observed, Priority.ALWAYS);
                 amounts.setMinWidth(base * 9.5);
@@ -377,6 +399,23 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
                 amounts.setMaxWidth(base * 9.5);
                 statementRow.getStyleClass().add("anf-statement-line");
                 statementRow.getChildren().addAll(sign, fold, observed, amounts);
+                // after the layout that gave the line its width, not within it
+                statementRow.widthProperty().subscribe(width -> {
+                    boolean narrow = width.doubleValue() > 0 && width.doubleValue() < base * (stacked ? 28 : 26);
+                    if (narrow != stacked) {
+                        javafx.application.Platform.runLater(this::arrange);
+                    }
+                });
+                // the statement's identicon follows its sign, as a STAMP's follows its pentagon; a statement the
+                // knowledge base does not have yet has an empty place there, which no identicon can be taken for
+                statementRow.getChildren().add(1, identity());
+                // a block is read again once its edit is saved and its statement written, and the line, kept as it
+                // stands, is then put in the place the new reading has for it: the statement may have its identity now
+                column.parentProperty().subscribe(parent -> {
+                    if (parent != null && statementRow.getChildren().size() > 1) {
+                        statementRow.getChildren().set(1, identity());
+                    }
+                });
                 statementRow.setAlignment(Pos.TOP_LEFT);
                 statementRow.setMaxWidth(base * 46);
                 statementRow.setPadding(new Insets(1, 0, 3, 0));
@@ -480,8 +519,8 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
                 groupLine.getChildren().add(chip(grounded));
             } else {
                 if (wantsConcept(statement.subjectOfInformation())) {
-                    // a group is a complex concept: what is wanted for its words is one
-                    groupLine.getChildren().add(complexWordsMark(base * 0.92));
+                    // one mark, as a topic's words have: what the words become is settled when they are resolved
+                    groupLine.getChildren().add(wordsMark(base * 0.92));
                 }
                 groupLine.getChildren().add(group);
             }
@@ -512,6 +551,34 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
                 within.getStyleClass().add("anf-statement-timing");
                 within.setWrapText(true);
                 amounts.getChildren().add(within);
+            }
+            arrange();
+        }
+
+        /**
+         * Stands the result beside what was observed, or beneath it in a line too narrow for both:
+         * side by side there, what was observed would be a column a word or two wide and many lines
+         * tall. A line is that narrow in a narrow card, or in one whose document is magnified.
+         */
+        private void arrange() {
+            double width = statementRow.getWidth();
+            // a line whose width is not known yet is taken as wide; the two bounds apart, so a width at the edge does not flip it back and forth
+            boolean narrow = width > 0 && width < base * (stacked ? 28 : 26);
+            stacked = narrow;
+            if (narrow && !observed.getChildren().contains(amounts)) {
+                statementRow.getChildren().remove(amounts);
+                amounts.setMinWidth(0);
+                amounts.setPrefWidth(Region.USE_COMPUTED_SIZE);
+                amounts.setMaxWidth(Double.MAX_VALUE);
+                amounts.setPadding(new Insets(2, 0, 0, 0));
+                observed.getChildren().add(amounts);
+            } else if (!narrow && !statementRow.getChildren().contains(amounts)) {
+                observed.getChildren().remove(amounts);
+                amounts.setMinWidth(base * 9.5);
+                amounts.setPrefWidth(base * 9.5);
+                amounts.setMaxWidth(base * 9.5);
+                amounts.setPadding(Insets.EMPTY);
+                statementRow.getChildren().add(amounts);
             }
         }
 
@@ -780,6 +847,23 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
             return tree;
         }
 
+        /**
+         * What follows the statement's sign: its identicon once the knowledge base has the statement,
+         * and until then the empty place of one. The knowledge base is asked each time, since a
+         * statement is written when its block's edit is saved.
+         */
+        private Node identity() {
+            Optional<String> name = idOf(info);
+            java.util.OptionalLong stored = AnfBlockRenderer.this.element;
+            if (stored.isPresent() && name.isPresent()) {
+                ModelDocument.writtenStatementOf(stored.getAsLong(), viewCalc)
+                        .ifPresent(written -> context.defineStatementIdentity(name.get(), written));
+            }
+            Node shown = StatementSign.identity(name.flatMap(context::statementIdentity), base);
+            HBox.setMargin(shown, new Insets(base * 0.14, 0, 0, -3));
+            return shown;
+        }
+
         /** The statement's editable tree for a peek from another block, on a plain background, writing back as this block does. */
         private Node card() {
             AnfStatementControl tree = tree();
@@ -799,35 +883,11 @@ final class AnfBlockRenderer implements network.ike.komet.document.StructuredBlo
     }
 
     /**
-     * The mark of words that are not a concept of the knowledge base: the sigil a badge carries for
-     * a component the knowledge base does not have, so the question mark looks one way wherever it
-     * means that.
+     * The mark of words the knowledge base has nothing for: one mark, whatever the words turn out
+     * to be, a concept, a complex concept or a statement.
      */
     private Node wordsMark(double size) {
-        Node sigil = dev.ikm.komet.framework.controls.KonceptSigils
-                .create(network.ike.docs.konceptcore.KonceptKind.UNKNOWN, 0, size).orElseGet(() -> new javafx.scene.text.Text("?"));
-        sigil.getStyleClass().add("anf-words-mark");
-        // the size of the words it stands before, which the badge's stylesheet would otherwise make a badge's
-        sigil.setStyle("-fx-font-size: " + size + "px;");
-        Tooltip.install(sigil, new Tooltip("Words only: not a concept of the knowledge base yet"));
-        return sigil;
-    }
-
-    /**
-     * The mark of words for which a complex concept is wanted, as a group is: the sigil of what the
-     * knowledge base does not have, then the complex concept's own mark.
-     */
-    private Node complexWordsMark(double size) {
-        javafx.scene.text.Text complex = new javafx.scene.text.Text(dev.ikm.komet.framework.controls.KonceptStatus.COMPLEX_GLYPH);
-        complex.getStyleClass().add("anf-complex-mark");
-        complex.setFill(Color.web(dev.ikm.komet.framework.controls.KonceptStatus.COMPLEX_COLOR_HEX));
-        complex.setFont(Font.font(null, FontWeight.BOLD, size));
-        Tooltip.install(complex, new Tooltip("A group: a complex concept is wanted for these words"));
-        // both marks are the size of the words, so standing at the top of the line they stand on its first baseline
-        HBox both = new HBox(1, wordsMark(size), complex);
-        both.setAlignment(Pos.TOP_LEFT);
-        both.setMinWidth(Region.USE_PREF_SIZE);
-        return both;
+        return WordsMark.node(size, "Open the statement to find what the knowledge base has for them, or to make it.");
     }
 
     private Label stateTag(String word, String fill, String ink) {
