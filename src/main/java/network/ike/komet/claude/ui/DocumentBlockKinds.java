@@ -638,6 +638,12 @@ public final class DocumentBlockKinds {
                     : new KonceptTreeBlockRenderer(context.viewProperties(), context.base());
         }
 
+        /** The tree on a page: a line to each concept, indented beneath its parent. */
+        @Override
+        public List<network.ike.komet.document.DecisionFigure> figures(Source source, Context context) {
+            return KonceptTreePrint.figures(source.content());
+        }
+
         /** A tree rooted at the SNOMED CT root, the concept to replace by the one the person means. */
         @Override
         public Optional<Skeleton> skeleton(Context context) {
