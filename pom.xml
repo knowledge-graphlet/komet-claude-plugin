@@ -70,7 +70,7 @@
 
     <properties>
         <!-- stamp-adoc-core (ike-issues#468); komet-desktop stages the same version into plugins/. -->
-        <stamp-adoc-core.version>1.2.0-SNAPSHOT</stamp-adoc-core.version>
+        <stamp-adoc-core.version>1.3.0-SNAPSHOT</stamp-adoc-core.version>
         <test.excludedGroups>external</test.excludedGroups>
         <!-- How many test JVMs run at once, unit tests and integration tests alike; each test class
              still gets a fresh JVM (reuseForks=false from ike-parent). No class depends on another:
