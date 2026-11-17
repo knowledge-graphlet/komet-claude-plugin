@@ -140,7 +140,8 @@ module komet.claude {
     provides dev.ikm.komet.layout_engine.host.KlCardProvider
             with network.ike.komet.claude.ClaudeCard.Factory,
                  network.ike.komet.claude.instructions.InstructionEditorCard.Factory,
-                 network.ike.komet.claude.composition.KnowledgeBaseCompositionCard.Factory;
+                 network.ike.komet.claude.composition.KnowledgeBaseCompositionCard.Factory,
+                 network.ike.komet.claude.rules.RulesCard.Factory;
     // The same assistant in the sidebar of every top-level window (journal, landing page, KL editor).
     provides dev.ikm.komet.layout.sidebar.KlAssistantPaneProvider
             with network.ike.komet.claude.AssistantPane.Provider;

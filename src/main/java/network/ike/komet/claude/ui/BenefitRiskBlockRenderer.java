@@ -95,13 +95,19 @@ final class BenefitRiskBlockRenderer implements network.ike.komet.document.Struc
     private static final double ROW_GAP = 8;
     private static final String CAPTION = "-fx-text-fill: #666;";
 
+    private final String tag;
     private final View view;
     private final ViewCalculator viewCalc;
     private final ViewProperties viewProperties;
     private final double base;
     private final ProfileBlocks context;
 
-    BenefitRiskBlockRenderer(View view, ViewCalculator viewCalc, ViewProperties viewProperties, double base, ProfileBlocks context) {
+    /**
+     * @param tag the tag of the fences this renderer draws; it declines every other fence
+     */
+    BenefitRiskBlockRenderer(String tag, View view, ViewCalculator viewCalc, ViewProperties viewProperties, double base,
+                             ProfileBlocks context) {
+        this.tag = tag;
         this.view = view;
         this.viewCalc = viewCalc;
         this.viewProperties = viewProperties;
@@ -111,6 +117,12 @@ final class BenefitRiskBlockRenderer implements network.ike.komet.document.Struc
 
     @Override
     public List<BlockPiece> render(String info, String literal, StyleAttributeMap baseStyle) {
+        // Each renderer answers only to its own tag and declines the rest. Without this, the first
+        // benefit-risk kind drew every fence no earlier kind had drawn, a listing of Java for one,
+        // as a view that could not read it.
+        if (!tag.equals(KonceptTreeBlockRenderer.firstWord(info))) {
+            return List.of();
+        }
         String body = literal == null ? "" : literal;
         publish(info, body, context);
         return List.of(new BlockPiece(() -> new Host(info, body).node, body.stripTrailing()));

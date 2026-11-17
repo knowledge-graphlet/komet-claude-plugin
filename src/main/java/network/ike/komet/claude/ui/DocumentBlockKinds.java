@@ -545,7 +545,8 @@ public final class DocumentBlockKinds {
 
         @Override
         FenceRenderer renderer(Context context, BlockRewriter rewriter) {
-            return new BenefitRiskBlockRenderer(view, context.view(), context.viewProperties(), context.base(), ProfileBlocks.of(context.blocks()));
+            return new BenefitRiskBlockRenderer(style(), view, context.view(), context.viewProperties(), context.base(),
+                    ProfileBlocks.of(context.blocks()));
         }
 
         @Override

@@ -1,4 +1,5 @@
 * xref:komet-assistant.adoc[]
 * xref:instruction-editor.adoc[]
 * xref:knowledge-base-composition.adoc[]
+* xref:rules.adoc[]
 * xref:trash.adoc[]

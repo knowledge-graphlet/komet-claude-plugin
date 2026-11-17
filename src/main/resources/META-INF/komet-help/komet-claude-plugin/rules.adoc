@@ -1,0 +1,79 @@
+= The Rules card
+
+The Rules card lists the rules Komet has loaded. It is where you decide on a rule the Komet Assistant proposed, and where you write and edit rules yourself.
+Komet's rules fire when something is observed, such as a component being focused, and each rule whose conditions hold offers an action, for example an entry in the component's menu.
+
+The card is about Komet's rules, not a concept, so it does not follow the journal's focus.
+Add it from the journal's *+* menu.
+
+== The list
+
+Every rule set is listed, proposals first.
+A rule set is a group of rules that were written together.
+
+Komet:: Rule sets that are part of Komet.
+Plugin:: Rule sets a plugin brought.
+Written in Komet:: Rule sets written while Komet runs, by you or by the assistant. Only these have source the card can show and edit.
+
+A name that begins _Proposed_ is waiting for you to decide.
+A name that begins _Not in use_ has findings that keep its rules from running.
+
+== The selected rule set
+
+Select a rule set to read it: where it came from, whether it is in use, the names of its rules, its findings, and its Java source when it was written in Komet.
+The text is selectable and can be copied like any read-only text in Komet.
+
+A finding is what keeps a rule set out of use: a line the compiler refused, a rule Komet would not take, or what a rule did wrong when it ran.
+A finding from the compiler names the line of the source it is about.
+
+== Deciding on a proposed rule
+
+A rule the assistant writes is a proposal.
+Komet compiles it so that you can see whether it is sound, but none of it runs until you accept it.
+Read the source before you accept: a rule is Java that runs inside Komet.
+
+Accept:: Puts the proposed rules in use. If the proposal is an edit of a rule set already in use, it takes that rule set's place.
+Discard:: Removes the proposal. A rule set already in use stays as it is.
+
+Accept is not available while a proposal has findings.
+Ask the assistant to fix them, and the proposal is replaced with the corrected one.
+
+== Writing and editing a rule
+
+New:: On the toolbar. Opens the editor on a new rule set, started from a rule that compiles and offers nothing yet.
+Edit:: Opens the editor on the selected rule set, when it was written in Komet. A proposal can be edited too.
+
+In the editor, give the rule set a name and write its Java source.
+A rule is a method of the class, its conditions are methods the rule names, and every rule needs a name no other rule has.
+The line and column of the cursor show beside the buttons.
+
+Check:: Compiles the source and lists its findings. Nothing changes.
+Save:: Compiles the source and, when it has no findings, puts its rules in use at once. With findings nothing is saved, and the rules in use stay as they are.
+Cancel:: Leaves the editor without saving.
+
+Select a finding to select the line it is about.
+While the editor is open, the list waits: save or cancel before choosing another rule set.
+
+A rule you save is yours, so it is not proposed and needs no Accept.
+When you edit a proposal and save it, your version is put in use and the proposal is removed.
+
+== Removing a rule set
+
+Remove:: Takes a rule set written in Komet out of use and removes it from the list.
+
+Rule sets that are part of Komet or of a plugin cannot be removed here.
+
+== What is kept
+
+Rules written in Komet last until you quit Komet.
+They are not saved with the knowledge base yet.
+
+== The toolbar
+
+Refresh:: Reads the rule sets again. The card shows a proposal as soon as the assistant makes it; use Refresh after rules change some other way.
+
+== Asking the assistant
+
+The Komet Assistant can list the rules, read the source of a rule written in Komet, and run the rules on a component to say what they offer.
+It can propose a rule, and it cannot accept one.
+See xref:komet-assistant.adoc[The Komet Assistant card].

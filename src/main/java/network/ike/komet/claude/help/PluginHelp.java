@@ -37,6 +37,9 @@ public final class PluginHelp extends KlResourceHelpProvider {
     /** The Knowledge Base Composition card's topic. */
     public static final KlHelpTopic KNOWLEDGE_BASE_COMPOSITION = new KlHelpTopic(BOOK_ID, "knowledge-base-composition");
 
+    /** The Rules card's topic. */
+    public static final KlHelpTopic RULES = new KlHelpTopic(BOOK_ID, "rules");
+
     /** Creates the book; called by the service loader. */
     public PluginHelp() {
         super(BOOK_ID, "IKE plugin for Komet");

@@ -58,6 +58,17 @@ class DocumentBlockKindsTest {
         assertEquals("ANF statement", new DocumentBlockKinds.Anf().menuName(), "a name already capitalized stays as it is");
     }
 
+    /** A fence under another tag is no kind's to draw, so an ordinary listing stays a listing wherever Markdown is shown. */
+    @Test
+    void aListingOfJavaIsLeftAloneByEveryKind() {
+        network.ike.komet.document.StructuredBlockKind.Context context = new network.ike.komet.document.StructuredBlockKind.Context(null);
+        String java = "package authored.rules;\n\npublic class OfferActivation {\n}\n";
+        for (network.ike.komet.document.StructuredBlockKind kind : network.ike.komet.document.StructuredBlocks.kinds()) {
+            kind.fenceRenderer(context).ifPresent(renderer ->
+                    assertEquals(List.of(), renderer.render("java", java, null), kind.style() + " draws a listing of Java"));
+        }
+    }
+
     /** Every kind the module provides offers Insert a skeleton, and the skeleton is one block of the kind's style (dev-document-edit-menu). */
     @Test
     void everyProvidedKindOffersASkeletonThatParsesAsOneBlockOfItsStyle() {

@@ -56,6 +56,15 @@ affirmation, refutation or comment on document lines, or the retraction of an
 earlier annotation commit (`propose_annotation`). `pending_changes` reads what
 is waiting to be published, yours and the person's.
 
+**Rules:** `list_rules` lists the rule sets Komet has loaded and whether
+each is in use; `read_rule` reads the Java source of a rule written in
+Komet; `run_rules` runs the rules in use on a component, as when it is
+focused, and returns what they offered, performing nothing. `propose_rule`
+proposes rules as Java source: Komet compiles it at once and returns the
+compiler's findings, none of its code runs, and it waits in the Rules card
+for the person to accept or discard (`discard_rule_proposal` withdraws it).
+You cannot accept a rule.
+
 **Load a skill:** `load_skill` returns the instructions for a kind of
 request, when the system prompt lists skills.
 

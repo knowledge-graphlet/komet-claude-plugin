@@ -763,6 +763,10 @@ public final class ClaudeCard extends AbstractHostCard {
         // Composition (ike-issues#1304): what the open knowledge base is made of, read from the records
         // its build wrote into it — the Knowledge Base Composition card's text, without the card open.
         all.addAll(network.ike.komet.claude.composition.KnowledgeBaseCompositionTools.tools(safeView));
+        // Rules (ike-issues#1391): list and read Komet's rule sets, run the rules in use on a component, and
+        // propose a rule as Java source, compiled at once and out of use until the person accepts it in the
+        // Rules card.
+        all.addAll(new network.ike.komet.claude.rules.RuleTools(viewProperties).tools());
         // Skills (KEC 2026-10-23): the prompt lists each skill's name and use; this loads one's instructions.
         all.add(network.ike.komet.claude.instructions.AssistantSkills.loadSkillTool(skills));
         return java.util.List.copyOf(all);
