@@ -25,6 +25,8 @@ import dev.ikm.komet.layout_engine.host.AbstractHostCard;
 import dev.ikm.komet.layout_engine.host.KlCardProvider;
 import dev.ikm.komet.preferences.KometPreferences;
 import dev.ikm.tinkar.coordinate.Calculators;
+import dev.ikm.tinkar.coordinate.Coordinates;
+import dev.ikm.tinkar.coordinate.edit.EditCoordinate;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
 import javafx.application.Platform;
 import javafx.scene.control.Button;
@@ -42,7 +44,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
 /**
  * The Rules card (IKE-Network/ike-issues#1391): the rule sets Komet has loaded, the place a
  * person accepts or discards a rule the assistant proposed, and where a person writes and edits
- * rules. Its content is a {@link RulesPane}.
+ * rules. Its content is a {@link RulesPane}. What a person saves or accepts is written to the
+ * knowledge base under the journal's author, module and path, as an unpublished change.
  *
  * <p>The card is about Komet's rules, not a concept, so it ignores the journal topic.
  */
@@ -122,7 +125,7 @@ public final class RulesCard extends AbstractHostCard {
         }
         OPEN.add(new WeakReference<>(this));
         // The view can change while the card is open, so each render names components under the current one.
-        pane = new RulesPane(RuleService::get,
+        pane = new RulesPane(RuleService::get, new StoredRules(this::view, this::edit),
                 markdown -> new MarkdownRichText(view(), MarkdownRichText.DEFAULT_BASE).renderMarkdown(markdown));
         setCardContent(pane);
         pane.reload();
@@ -131,6 +134,13 @@ public final class RulesCard extends AbstractHostCard {
     /** The card's view, or the default one before the card is hosted. */
     private ViewCalculator view() {
         return getCardViewProperties() != null ? getCardViewProperties().calculator() : Calculators.View.Default();
+    }
+
+    /** Whose change a write from the card is: the journal's author, module and path, or the default ones before the card is hosted. */
+    private EditCoordinate edit() {
+        return getCardViewProperties() != null
+                ? getCardViewProperties().nodeView().editCoordinate().toEditCoordinateRecord()
+                : Coordinates.Edit.Default();
     }
 
     // ── factories ────────────────────────────────────────────────

@@ -32,7 +32,6 @@ import dev.ikm.tinkar.entity.StampEntity;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.entity.graph.adaptor.axiom.LogicalAxiom;
 import dev.ikm.tinkar.entity.graph.adaptor.axiom.LogicalExpression;
-import dev.ikm.tinkar.entity.graph.adaptor.axiom.LogicalExpressionBuilder;
 import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.EntityProxy;
@@ -178,7 +177,7 @@ public final class PromoteToComplexConcept implements KometAction {
         }
         try {
             if (lacking) {
-                writer.concept(complexConcept, name, List.of(), primitiveBelow(parent.get()));
+                writer.concept(complexConcept, name, List.of(), BlockConcepts.primitiveBelow(parent.get()));
             }
             if (specified.isEmpty()) {
                 ComplexConceptBuilder specification = new ComplexConceptBuilder();
@@ -224,18 +223,6 @@ public final class PromoteToComplexConcept implements KometAction {
         SemanticEntityVersion head = view.<SemanticEntityVersion>latest(specification).get();
         return ComplexConceptExpression.from((DiTreeEntity) head.fieldValues().get(0)).root().definition()
                 .flatMap(ComplexConcept.Definition::expressionTree);
-    }
-
-    /**
-     * A concept's stated definition when all that is known is its parent: primitive, an is-a to it.
-     *
-     * @param parent the parent concept
-     * @return the definition
-     */
-    private static DiTreeEntity primitiveBelow(ConceptFacade parent) {
-        LogicalExpressionBuilder logical = new LogicalExpressionBuilder();
-        logical.NecessarySet(logical.And(logical.ConceptAxiom(parent)));
-        return (DiTreeEntity) logical.build().sourceGraph();
     }
 
     /**

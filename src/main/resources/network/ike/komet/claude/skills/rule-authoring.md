@@ -75,6 +75,8 @@ What it must not do: write to the knowledge base, open a window, read or write f
 
 `propose_rule` with a name for the rule source and the whole Java source. Komet compiles it at once.
 
+- The name becomes the name of the rule set in the knowledge base once the person accepts it, and the proposal's `id` derives from it. Choose a name in plain words that no other rule set has, and keep it: a proposal made again with its `id` keeps its first name. A name a rule set in use already has makes your proposal an edit of that rule set, and the result says so.
+
 - A finding names a line of the source you sent. Fix what it says and propose again with the same `id`, so the proposal is replaced rather than joined by a second one.
 - "A rule named … is already in use" means the name is taken: give the rule another name.
 - Do not stop at the first proposal that compiles if it does not do what the person asked. Read your own source once more.
@@ -82,6 +84,8 @@ What it must not do: write to the knowledge base, open a window, read or write f
 ## 5. Hand it to the person
 
 Tell the person the rule is proposed and where to decide: the Rules card, which they add from the journal's **+** menu. There they read the source, then choose Accept or Discard. Say in a sentence what the rule will offer and when. You cannot accept a rule, and it does nothing until they do.
+
+An accepted rule set is kept in the knowledge base as an unpublished change, and Komet puts it in use again each time it starts. Each rule becomes a concept named by the sentence in its `@Rule`, which is one more reason to write that sentence in plain words. A proposal is not kept: one the person has not decided on is gone when Komet quits.
 
 To change a rule already in use, propose the new source with that rule source's `id`. The rule in use stays as it is until the person accepts the edit.
 

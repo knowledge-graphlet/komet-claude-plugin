@@ -186,9 +186,11 @@ module komet.claude {
             with network.ike.komet.claude.help.PluginHelp;
 
     // Headless commit narrator: started once at app startup (after datastore load) by the
-    // ServiceLifecycle machinery, regardless of whether the assistant UI is opened.
+    // ServiceLifecycle machinery, regardless of whether the assistant UI is opened. The rule sets
+    // the knowledge base keeps are put in use the same way (IKE-Network/ike-issues#1391).
     provides dev.ikm.tinkar.common.service.ServiceLifecycle
-            with network.ike.komet.claude.narrator.CommitNarratorLifecycle;
+            with network.ike.komet.claude.narrator.CommitNarratorLifecycle,
+                 network.ike.komet.claude.rules.StoredRulesLifecycle;
     // The conversations and instruction sets the plugin's cards moved to Komet's Trash, which the
     // journal's Trash lists and Komet empties as it quits.
     provides dev.ikm.komet.layout.trash.KlTrashProvider

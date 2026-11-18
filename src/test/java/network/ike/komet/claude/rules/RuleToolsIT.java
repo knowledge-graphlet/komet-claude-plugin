@@ -169,6 +169,40 @@ class RuleToolsIT {
     }
 
     @Test
+    void aNewProposalTakesTheIdentityItsNameGivesAndAnIdKeepsTheNameItHas() {
+        String proposed = call("propose_rule", Map.of("name", "Activation rules", "java", source()));
+
+        UUID id = idIn(proposed);
+        assertEquals(StoredRules.identity("Activation rules", viewProperties.calculator()), id);
+
+        String renamed = call("propose_rule",
+                Map.of("name", "Rules for activation", "java", source(), "id", id.toString()));
+
+        assertTrue(renamed.startsWith("Proposed \"Activation rules\". It compiled"), renamed);
+        assertTrue(renamed.contains("It keeps the name \"Activation rules\""), renamed);
+        assertEquals(1, rules.ruleSets().count(ruleSet -> !ruleSet.accepted()));
+        String unknown = call("propose_rule",
+                Map.of("name", "Other rules", "java", source(), "id", UUID.randomUUID().toString()));
+        assertTrue(unknown.startsWith("Error: No rule source has the id"), unknown);
+        assertTrue(unknown.contains("Omit the id to propose a new rule source"), unknown);
+    }
+
+    @Test
+    void aProposalUnderTheNameOfARuleSetInUseIsAProposedEditOfIt() {
+        UUID id = StoredRules.identity("Activation rules", viewProperties.calculator());
+        rules.putRuleSource(new RuleSource(id, "Activation rules", source()));
+
+        String proposed = call("propose_rule", Map.of("name", "Activation rules", "java",
+                source().replace("isComponentActive", "isComponentInactive")));
+
+        assertEquals(id, idIn(proposed));
+        assertTrue(proposed.contains("A rule set named \"Activation rules\" is already in use, so this is proposed as"
+                + " an edit of it."), proposed);
+        assertEquals(2, rules.ruleSets().count(ruleSet -> ruleSet.source().map(RuleSource::id).filter(id::equals).isPresent()),
+                "the rule set in use and its proposed edit");
+    }
+
+    @Test
     void readRuleReturnsTheSourceWithAProposedEditBeforeTheRuleInUse() {
         UUID id = UUID.randomUUID();
         rules.putRuleSource(new RuleSource(id, "Activation rules", source()));

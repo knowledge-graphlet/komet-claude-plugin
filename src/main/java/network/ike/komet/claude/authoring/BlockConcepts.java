@@ -16,6 +16,7 @@
 package network.ike.komet.claude.authoring;
 
 import dev.ikm.komet.framework.observable.ObservableComposer;
+import dev.ikm.komet.framework.observable.ObservableField;
 import dev.ikm.komet.kview.mvvm.view.genpurpose.StatedDefinitionSeeds;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
@@ -23,9 +24,11 @@ import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.StampEntity;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
+import dev.ikm.tinkar.entity.graph.adaptor.axiom.LogicalExpressionBuilder;
 import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.PatternFacade;
+import dev.ikm.tinkar.terms.State;
 import network.ike.komet.claude.authoring.ConceptProposalWriter.Synonym;
 import network.ike.komet.document.LocalConcepts;
 
@@ -34,6 +37,7 @@ import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.function.Consumer;
 
 /**
  * What a structured block or an action writes, in one pending transaction, so its new concepts
@@ -117,6 +121,34 @@ public final class BlockConcepts {
     }
 
     /**
+     * Writes a semantic of several fields, new or a new version, in the concepts' transaction.
+     *
+     * @param id         the semantic's public id
+     * @param pattern    its pattern
+     * @param referenced the component it is on
+     * @param fields     sets the version's fields, which start as the version before left them
+     */
+    public void semantic(PublicId id, PatternFacade pattern, EntityFacade referenced,
+                         Consumer<List<ObservableField.Editable<?>>> fields) {
+        ConceptProposalTools.onFxThread(() -> ConceptProposalWriter.semantic(composer(), id, referenced, pattern, fields));
+    }
+
+    /**
+     * Writes an inactive version of a semantic in the concepts' transaction: what it stated is
+     * withdrawn, and its fields stay as they were.
+     *
+     * @param id         the semantic's public id
+     * @param pattern    its pattern
+     * @param referenced the component it is on
+     */
+    public void retire(PublicId id, PatternFacade pattern, EntityFacade referenced) {
+        ConceptProposalTools.onFxThread(() -> {
+            composer().composeSemantic(id, referenced, pattern, State.INACTIVE).save();
+            return null;
+        });
+    }
+
+    /**
      * Writes a semantic with one field, new or a new version, in the concepts' transaction but in
      * another module: an existing component stays in its own module, and still publishes with the
      * concepts.
@@ -171,6 +203,18 @@ public final class BlockConcepts {
             }
             return null;
         });
+    }
+
+    /**
+     * A concept's stated definition when all that is known is its parent: primitive, an is-a to it.
+     *
+     * @param parent the parent concept
+     * @return the definition
+     */
+    public static DiTreeEntity primitiveBelow(ConceptFacade parent) {
+        LogicalExpressionBuilder logical = new LogicalExpressionBuilder();
+        logical.NecessarySet(logical.And(logical.ConceptAxiom(parent)));
+        return (DiTreeEntity) logical.build().sourceGraph();
     }
 
     private ObservableComposer composer() {

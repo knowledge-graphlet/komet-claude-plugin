@@ -21,6 +21,7 @@ import dev.ikm.komet.framework.rulebase.RuleSource;
 import dev.ikm.komet.rules.evrete.EvreteRulesService;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
+import dev.ikm.tinkar.coordinate.Coordinates;
 import dev.ikm.tinkar.entity.load.LoadEntitiesFromProtobufFile;
 import javafx.application.Platform;
 import javafx.scene.Scene;
@@ -47,6 +48,7 @@ import java.util.function.Supplier;
 import static network.ike.komet.claude.rules.RuleSourceFixture.RULE_NAME;
 import static network.ike.komet.claude.rules.RuleSourceFixture.lineOf;
 import static network.ike.komet.claude.rules.RuleSourceFixture.source;
+import static network.ike.komet.claude.rules.RuleSourceFixture.sourceNamed;
 import static network.ike.komet.claude.rules.RuleSourceFixture.sourceWith;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -56,7 +58,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * The Rules card's content (IKE-Network/ike-issues#1391), where a person decides on a proposed
  * rule and writes and edits rules: the pane in a scene of its own, its buttons fired as a click
  * fires them and its editor filled as typing fills it, on a rule service of the test's own. The text beside the list goes through the renderer the card uses, on the
- * starter set in a memory-only store.
+ * starter set in a memory-only store, which is also where the pane keeps what is saved and
+ * accepted. The tests share that store, so each names a rule set of its own.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class RulesPaneIT {
@@ -64,6 +67,7 @@ class RulesPaneIT {
     private static final File PB_STARTER_DATA = new File("target/data/ike-starter-set-reasoned-pb.zip");
 
     private EvreteRulesService rules;
+    private StoredRules store;
     private RulesPane pane;
 
     @BeforeAll
@@ -90,8 +94,9 @@ class RulesPaneIT {
     @BeforeEach
     void showThePaneOnRulesWithNoSource() throws Exception {
         rules = new EvreteRulesService();
+        store = new StoredRules(Calculators.View::Default, Coordinates.Edit::Default);
         pane = onFx(() -> {
-            RulesPane shown = new RulesPane(() -> rules, markdown ->
+            RulesPane shown = new RulesPane(() -> rules, store, markdown ->
                     new MarkdownRichText(Calculators.View.Default(), MarkdownRichText.DEFAULT_BASE).renderMarkdown(markdown));
             // A scene and one layout pass give the pane's controls their place in the scene graph.
             new Scene(shown, 1000, 700);
@@ -113,8 +118,9 @@ class RulesPaneIT {
 
     @Test
     void aProposalIsListedFirstWithItsSourceAndAcceptPutsItsRulesInUse() {
-        UUID id = UUID.randomUUID();
-        rules.proposeRuleSource(new RuleSource(id, "Activation rules", source()));
+        String name = "Activation rules, proposed and accepted";
+        UUID id = store.identity(name);
+        rules.proposeRuleSource(new RuleSource(id, name, source()));
         onFx(() -> {
             pane.reload();
             pane.select(id);
@@ -126,13 +132,17 @@ class RulesPaneIT {
         assertTrue(shown.contains("Proposed: not in use until a person accepts it"), shown);
         assertTrue(shown.contains("```java\n" + source().stripTrailing() + "\n```"), shown);
         assertFalse(disabled("#rulesAccept"));
+        assertFalse(store.kept(id), "a proposal is not in the knowledge base");
 
         click("#rulesAccept");
 
         ListedRuleSet accepted = rules.ruleSets().getLast();
         assertTrue(accepted.accepted() && accepted.inUse(), accepted::toString);
         assertEquals(accepted, onFx(() -> pane.selected().orElseThrow()), "the accepted rule set stays selected");
-        assertEquals("Accepted \"Activation rules\". Its rules are in use.", status());
+        assertEquals("Accepted \"" + name + "\". Its rules are in use."
+                + " It is kept in the knowledge base, as an unpublished change.", status());
+        assertTrue(StoredRules.read(Calculators.View.Default()).contains(new RuleSource(id, name, source())),
+                "accepting it kept it");
         assertTrue(disabled("#rulesAccept") && disabled("#rulesDiscard"));
         assertFalse(disabled("#rulesRemove"));
     }
@@ -237,9 +247,12 @@ class RulesPaneIT {
         assertFalse(onFx(() -> pane.editing()));
         ListedRuleSet saved = rules.ruleSets().getLast();
         assertTrue(saved.accepted() && saved.inUse(), saved::toString);
-        assertEquals(new RuleSource(saved.source().orElseThrow().id(), "My rules", source()), saved.source().orElseThrow());
+        assertEquals(new RuleSource(store.identity("My rules"), "My rules", source()), saved.source().orElseThrow(),
+                "its identity is the one its name gives");
         assertEquals(saved, onFx(() -> pane.selected().orElseThrow()), "the saved rule set is the one selected");
-        assertEquals("Saved \"My rules\". Its rules are in use.", status());
+        assertEquals("Saved \"My rules\". Its rules are in use. It is kept in the knowledge base, as an unpublished change.",
+                status());
+        assertTrue(StoredRules.read(Calculators.View.Default()).contains(saved.source().orElseThrow()), "saving it kept it");
     }
 
     @Test
@@ -306,14 +319,16 @@ class RulesPaneIT {
 
     @Test
     void anEditedRuleInUseIsReplacedWhenItIsSaved() {
-        UUID id = UUID.randomUUID();
-        rules.putRuleSource(new RuleSource(id, "Activation rules", source()));
+        String name = "Activation rules, edited and saved";
+        UUID id = store.identity(name);
+        rules.putRuleSource(new RuleSource(id, name, source()));
         onFx(() -> {
             pane.reload();
             pane.select(id);
             return null;
         });
         click("#rulesEdit");
+        assertTrue(disabled("#rulesEditorName"), "a rule set keeps the name it was first given");
         String edited = source().replace("isComponentActive", "isComponentInactive");
         type("#rulesEditorJava", edited);
 
@@ -324,12 +339,15 @@ class RulesPaneIT {
         assertTrue(saved.inUse(), saved::toString);
         assertEquals(edited, saved.source().orElseThrow().java());
         assertTrue(onFx(() -> pane.shownMarkdown()).contains("isComponentInactive"));
+        assertTrue(StoredRules.read(Calculators.View.Default()).contains(new RuleSource(id, name, edited)),
+                "the knowledge base keeps the edited text");
     }
 
     @Test
     void savingAnEditedProposalPutsItInUseAndTheProposalIsGone() {
-        UUID id = UUID.randomUUID();
-        rules.proposeRuleSource(new RuleSource(id, "Activation rules", sourceWith("NoSuchType nothing = null;")));
+        String name = "Activation rules, proposed with findings and fixed";
+        UUID id = store.identity(name);
+        rules.proposeRuleSource(new RuleSource(id, name, sourceWith("NoSuchType nothing = null;")));
         onFx(() -> {
             pane.reload();
             pane.select(id);
@@ -345,6 +363,70 @@ class RulesPaneIT {
         ListedRuleSet saved = rules.ruleSets().getLast();
         assertTrue(saved.accepted() && saved.inUse(), saved::toString);
         assertEquals(source(), saved.source().orElseThrow().java());
+        assertTrue(store.kept(id), "the person's own version is the one kept");
+    }
+
+    @Test
+    void theNameIsGivenWhenARuleSetIsNewAndANameThatIsTakenIsRefused() {
+        String name = "Activation rules, whose name is taken";
+        rules.putRuleSource(new RuleSource(store.identity(name), name, source()));
+        onFx(() -> {
+            pane.reload();
+            pane.newRuleSource();
+            return null;
+        });
+        assertFalse(disabled("#rulesEditorName"), "a new rule set is named in the editor");
+        type("#rulesEditorName", name);
+        type("#rulesEditorJava", sourceNamed("Offer of a rule set with a taken name"));
+
+        click("#rulesSave");
+
+        assertTrue(onFx(() -> pane.editing()), "the editor stays open, for another name");
+        assertEquals("Not saved. A rule set named \"" + name + "\" already exists. Give this one a name of its own,"
+                + " or edit that one. The rules in use have not changed.", status());
+        assertEquals(source(), rules.ruleSets().getLast().source().orElseThrow().java(), "the one that has the name stays");
+        assertFalse(store.kept(store.identity(name)), "and nothing was written");
+    }
+
+    @Test
+    void removeTakesAKeptRuleSetOutOfTheKnowledgeBaseToo() {
+        String name = "Activation rules, saved and removed";
+        onFx(() -> {
+            pane.newRuleSource();
+            return null;
+        });
+        type("#rulesEditorName", name);
+        type("#rulesEditorJava", sourceNamed("Offer of a rule set saved and removed"));
+        click("#rulesSave");
+        UUID id = store.identity(name);
+        assertTrue(store.kept(id));
+
+        click("#rulesRemove");
+
+        assertEquals(0, rules.ruleSets().count(ruleSet -> ruleSet.origin() == ListedRuleSet.Origin.SOURCE));
+        assertEquals("Removed \"" + name + "\". Its rules are no longer in use."
+                + " Its text, which was never published, is taken back out of the knowledge base.", status());
+        assertFalse(store.kept(id));
+    }
+
+    @Test
+    void aSavedRuleSetIsInUseInARuleServiceStartedLater() throws Exception {
+        String name = "Activation rules, saved before a restart";
+        String java = sourceNamed("Offer of a rule set saved before a restart");
+        onFx(() -> {
+            pane.newRuleSource();
+            return null;
+        });
+        type("#rulesEditorName", name);
+        type("#rulesEditorJava", java);
+        click("#rulesSave");
+
+        EvreteRulesService startedLater = new EvreteRulesService();
+        List<ListedRuleSet> loaded = StoredRules.loadInto(() -> startedLater, Calculators.View.Default());
+
+        ListedRuleSet again = loaded.stream().filter(ruleSet -> ruleSet.name().equals(name)).findFirst().orElseThrow();
+        assertTrue(again.accepted() && again.inUse(), again::toString);
+        assertEquals(new RuleSource(store.identity(name), name, java), again.source().orElseThrow());
     }
 
     @Test

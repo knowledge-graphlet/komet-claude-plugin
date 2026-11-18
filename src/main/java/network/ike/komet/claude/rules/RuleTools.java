@@ -50,7 +50,8 @@ import java.util.function.Supplier;
  *
  * <p>A rule the assistant writes is proposed, never put in use: Komet compiles it at once and
  * answers the compiler's findings, none of its code runs, and it waits in the Rules card for the
- * person to accept or discard it. No tool here accepts a rule.
+ * person to accept or discard it. No tool here accepts a rule. A proposal is not in the knowledge
+ * base: accepting it in the Rules card is what keeps it there ({@link StoredRules}).
  *
  * <p>Running the rules performs nothing. The rules fire as they do when a component is focused,
  * and the tool reads back what they offered.
@@ -135,7 +136,10 @@ public final class RuleTools {
 
     private AnthropicTool proposeRule() {
         Map<String, Object> properties = new LinkedHashMap<>();
-        properties.put("name", strProp("The name the rule source is listed under, in plain words: what its rules are for."));
+        properties.put("name", strProp("""
+                The name the rule source is listed under, in plain words: what its rules are for. It \
+                becomes the name of the rule set's concept in the knowledge base, and the rule source's id \
+                derives from it, so give it a name no other rule set has."""));
         properties.put("java", strProp("""
                 The whole Java source: one public class of rules, written as the Rule authoring skill \
                 describes."""));
@@ -154,10 +158,11 @@ public final class RuleTools {
                 input -> {
                     String name = required(input, "name");
                     String java = required(input, "java");
-                    UUID id = input.get("id") == null ? UUID.randomUUID() : id(input);
-                    ListedRuleSet proposed = rules.get().proposeRuleSource(new RuleSource(id, name.strip(), java));
+                    Named named = named(input, name.strip());
+                    UUID id = named.id();
+                    ListedRuleSet proposed = rules.get().proposeRuleSource(new RuleSource(id, named.name(), java));
                     rulesChanged.run();
-                    return proposed.findings().isEmpty()
+                    return (proposed.findings().isEmpty()
                             ? """
                             Proposed "%s". It compiled, and it is waiting in the Rules card for the person to \
                             accept or discard. NOTHING IS IN USE until they accept it.
@@ -168,8 +173,42 @@ public final class RuleTools {
                             propose again with the same id.
                             id: %s
                             Findings:
-                            %s""".formatted(proposed.name(), id, findings(proposed));
+                            %s""".formatted(proposed.name(), id, findings(proposed))) + named.note();
                 });
+    }
+
+    /**
+     * The identity and the name a proposal is listed under, and what to tell the assistant about
+     * them.
+     */
+    private record Named(UUID id, String name, String note) {
+    }
+
+    /**
+     * Settles a proposal's identity and name. A new rule source takes the identity its name
+     * gives, as a concept does, so a name a rule set already has makes the proposal an edit of
+     * that rule set. A proposal made with an id keeps the name the rule source with that id has:
+     * a rule set's name is given once.
+     */
+    private Named named(Map<String, Object> input, String name) {
+        if (input.get("id") == null) {
+            ViewProperties viewProperties = view.get();
+            UUID id = StoredRules.identity(name, viewProperties == null ? null : viewProperties.calculator());
+            boolean edits = sourcesWith(id).stream().anyMatch(ListedRuleSet::accepted);
+            return new Named(id, name, edits ? "\nA rule set named \"" + name + "\" is already in use, so this is "
+                    + "proposed as an edit of it. For a new rule set, withdraw this proposal and propose it under "
+                    + "a name of its own." : "");
+        }
+        UUID id = id(input);
+        List<ListedRuleSet> existing = sourcesWith(id);
+        if (existing.isEmpty()) {
+            throw new IllegalArgumentException("No rule source has the id " + id + ". Omit the id to propose a new "
+                    + "rule source: its id derives from its name.");
+        }
+        String itsName = existing.getFirst().name();
+        return new Named(id, itsName, itsName.equals(name) ? "" : "\nIt keeps the name \"" + itsName + "\": a rule "
+                + "set's name is given when it is first proposed. For another name, withdraw this proposal and "
+                + "propose it again under that name.");
     }
 
     private AnthropicTool discardRuleProposal() {

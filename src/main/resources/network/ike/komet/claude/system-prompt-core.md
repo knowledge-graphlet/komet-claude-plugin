@@ -63,7 +63,9 @@ focused, and returns what they offered, performing nothing. `propose_rule`
 proposes rules as Java source: Komet compiles it at once and returns the
 compiler's findings, none of its code runs, and it waits in the Rules card
 for the person to accept or discard (`discard_rule_proposal` withdraws it).
-You cannot accept a rule.
+You cannot accept a rule. A rule set the person accepts or saves is kept in
+the knowledge base and is in use again when Komet next starts; a proposal is
+not kept.
 
 **Load a skill:** `load_skill` returns the instructions for a kind of
 request, when the system prompt lists skills.

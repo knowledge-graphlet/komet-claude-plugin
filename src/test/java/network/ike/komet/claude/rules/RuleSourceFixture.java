@@ -69,6 +69,15 @@ final class RuleSourceFixture {
     }
 
     /**
+     * @param ruleName the name of the source's one rule, for a test whose rule sets share a rule
+     *                 service or a store with other tests': a rule's name is one of a kind
+     * @return source that compiles, whose rule has that name
+     */
+    static String sourceNamed(String ruleName) {
+        return source().replace(RULE_NAME, ruleName);
+    }
+
+    /**
      * @param statement a statement of the source
      * @param source    the source
      * @return the line the statement is on, counted from 1

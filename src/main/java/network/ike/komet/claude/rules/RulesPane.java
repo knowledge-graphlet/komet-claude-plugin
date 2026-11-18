@@ -56,6 +56,12 @@ import java.util.function.Supplier;
  * findings nothing is saved, so the rules in use stay as they are. A rule the person wrote or
  * edited needs no second acceptance: saving it is the person's own act.
  *
+ * <p>What a person saves or accepts is kept in the knowledge base ({@link StoredRules}) before
+ * its rules come into use, and what they remove is taken out of it, so the rules in use and the
+ * rule sets Komet starts with next time are the same. When the knowledge base refuses the write,
+ * nothing changes, and the status line says why. A rule set's name becomes the name of its
+ * concept, from which its identity derives, so it is given once, when the rule set is new.
+ *
  * <p>The pane shows what the rule service lists when it is asked to: after its own buttons, and
  * when {@link #reload()} is called. The text beside the list is {@link RuleSetText#detail}, the
  * words the assistant's {@code read_rule} tool answers.
@@ -96,6 +102,7 @@ final class RulesPane extends BorderPane {
     static final String NEW_NAME = "New rules";
 
     private final Supplier<RuleService> rules;
+    private final StoredRules store;
     private final ListView<ListedRuleSet> list = new ListView<>();
     private final MarkdownEditPane detail;
     private final Button accept = new Button("Accept");
@@ -115,17 +122,24 @@ final class RulesPane extends BorderPane {
     private final Button save = new Button("Save");
     private final Button cancel = new Button("Cancel");
 
-    /** The identity of the rule source in the editor; null when nothing is being edited. */
+    /** Whether the editor is open. */
+    private boolean editorOpen;
+    /**
+     * The identity of the rule source in the editor; null for a new one, whose identity its name
+     * gives when it is checked or saved.
+     */
     private UUID editingId;
     /** Whether the source in the editor came from a proposal, which saving takes the place of. */
     private boolean editingProposal;
 
     /**
      * @param rules    the rule service whose rule sets are shown
+     * @param store    where a rule set a person saves or accepts is kept
      * @param renderer turns the selected rule set's Markdown into what the pane shows
      */
-    RulesPane(Supplier<RuleService> rules, Function<String, StyledTextModel> renderer) {
+    RulesPane(Supplier<RuleService> rules, StoredRules store, Function<String, StyledTextModel> renderer) {
         this.rules = rules;
+        this.store = store;
         this.detail = new MarkdownEditPane("", false, renderer);
 
         list.setId("rulesList");
@@ -155,7 +169,7 @@ final class RulesPane extends BorderPane {
     private void buildReading() {
         detail.setId("rulesDetail");
         accept.setId("rulesAccept");
-        accept.setTooltip(new Tooltip("Put this proposed rule source in use"));
+        accept.setTooltip(new Tooltip("Put this proposed rule source in use and keep it in the knowledge base"));
         accept.setOnAction(event -> selectedSourceId().ifPresent(this::acceptProposal));
         discard.setId("rulesDiscard");
         discard.setTooltip(new Tooltip("Discard this proposed rule source"));
@@ -164,7 +178,7 @@ final class RulesPane extends BorderPane {
         edit.setTooltip(new Tooltip("Edit this rule source"));
         edit.setOnAction(event -> selected().ifPresent(this::editRuleSet));
         remove.setId("rulesRemove");
-        remove.setTooltip(new Tooltip("Take this rule source out of use and remove it"));
+        remove.setTooltip(new Tooltip("Take this rule source out of use, here and in the knowledge base"));
         remove.setOnAction(event -> selectedSourceId().ifPresent(this::removeSource));
 
         HBox decisions = new HBox(8, accept, discard, edit, remove);
@@ -177,6 +191,7 @@ final class RulesPane extends BorderPane {
     private void buildEditing() {
         editorName.setId("rulesEditorName");
         editorName.setPromptText("Name");
+        editorName.setTooltip(new Tooltip("The rule set's name, given when it is new"));
         editorJava.setId("rulesEditorJava");
         editorJava.setFont(CODE);
         editorJava.caretPositionProperty().addListener((observable, before, caret) -> showPlace());
@@ -207,7 +222,7 @@ final class RulesPane extends BorderPane {
         check.setTooltip(new Tooltip("Compile this source and list its findings, changing nothing"));
         check.setOnAction(event -> checkEdited());
         save.setId("rulesSave");
-        save.setTooltip(new Tooltip("Compile this source and put its rules in use"));
+        save.setTooltip(new Tooltip("Compile this source, keep it in the knowledge base and put its rules in use"));
         save.setOnAction(event -> saveEdited());
         cancel.setId("rulesCancel");
         cancel.setTooltip(new Tooltip("Leave the editor without saving"));
@@ -243,13 +258,13 @@ final class RulesPane extends BorderPane {
     /** Opens the editor on a new rule source, started from {@link #NEW_SOURCE}. */
     void newRuleSource() {
         if (!editing()) {
-            beginEditing(UUID.randomUUID(), NEW_NAME, NEW_SOURCE, false);
+            beginEditing(null, NEW_NAME, NEW_SOURCE, false);
         }
     }
 
     /** @return whether the editor is open */
     boolean editing() {
-        return editingId != null;
+        return editorOpen;
     }
 
     /** @return the rule set shown beside the list, if one is selected */
@@ -277,13 +292,25 @@ final class RulesPane extends BorderPane {
     }
 
     private void acceptProposal(UUID id) {
+        Optional<ListedRuleSet> proposal = rules.get().ruleSets().detectOptional(ruleSet -> !ruleSet.accepted()
+                && ruleSet.source().map(RuleSource::id).filter(id::equals).isPresent());
+        StoredRules.Outcome kept = null;
+        if (proposal.isPresent()) {
+            // Kept first: a rule set the knowledge base refuses does not come into use.
+            kept = store.keep(proposal.get().source().orElseThrow(), proposal.get().ruleNames().castToList());
+            if (kept.refused()) {
+                statusLine.setText("Not accepted. " + kept.why() + " The rules in use have not changed.");
+                return;
+            }
+        }
         Optional<ListedRuleSet> accepted = rules.get().acceptRuleSource(id);
         reload();
         select(id);
+        String keptWords = kept == null ? "" : kept(kept);
         statusLine.setText(accepted
                 .map(ruleSet -> ruleSet.inUse()
-                        ? "Accepted \"" + ruleSet.name() + "\". Its rules are in use."
-                        : "Accepted \"" + ruleSet.name() + "\", but it is not in use: it has findings.")
+                        ? "Accepted \"" + ruleSet.name() + "\". Its rules are in use." + keptWords
+                        : "Accepted \"" + ruleSet.name() + "\", but it is not in use: it has findings." + keptWords)
                 .orElse("That proposal is no longer there."));
     }
 
@@ -297,9 +324,15 @@ final class RulesPane extends BorderPane {
 
     private void removeSource(UUID id) {
         String name = selected().map(ListedRuleSet::name).orElse("");
-        boolean removed = rules.get().removeRuleSource(id);
+        // Taken out of the knowledge base first, so a rule set it still keeps is still in use.
+        StoredRules.Outcome removed = store.remove(id);
+        if (removed.refused()) {
+            statusLine.setText("Not removed. " + removed.why() + " The rules in use have not changed.");
+            return;
+        }
+        boolean wasThere = rules.get().removeRuleSource(id);
         reload();
-        statusLine.setText(removed ? "Removed \"" + name + "\". Its rules are no longer in use."
+        statusLine.setText(wasThere ? "Removed \"" + name + "\". Its rules are no longer in use." + removed(removed)
                 : "That rule source is no longer there.");
     }
 
@@ -309,9 +342,12 @@ final class RulesPane extends BorderPane {
     }
 
     private void beginEditing(UUID id, String name, String java, boolean proposal) {
+        editorOpen = true;
         editingId = id;
         editingProposal = proposal;
         editorName.setText(name);
+        // A rule set keeps the name it was first given: its concept's name, and so its identity.
+        editorName.setDisable(id != null);
         editorJava.setText(java);
         editorJava.positionCaret(0);
         editorFindings.getItems().clear();
@@ -323,6 +359,7 @@ final class RulesPane extends BorderPane {
     }
 
     private void endEditing() {
+        editorOpen = false;
         editingId = null;
         editingProposal = false;
         selected.setCenter(reading);
@@ -332,12 +369,33 @@ final class RulesPane extends BorderPane {
     private RuleSource edited() {
         String name = editorName.getText() == null || editorName.getText().isBlank()
                 ? NEW_NAME : editorName.getText().strip();
-        return new RuleSource(editingId, name, editorJava.getText() == null ? "" : editorJava.getText());
+        // A new rule set's identity is the one its name gives, as a concept's is.
+        UUID id = editingId == null ? store.identity(name) : editingId;
+        return new RuleSource(id, name, editorJava.getText() == null ? "" : editorJava.getText());
+    }
+
+    /** What stands in the way of a new rule set's name: a rule set that already has it. */
+    private Optional<String> nameTaken(RuleSource source) {
+        if (editingId != null) {
+            return Optional.empty();
+        }
+        boolean listed = rules.get().ruleSets().anySatisfy(ruleSet ->
+                ruleSet.source().map(RuleSource::id).filter(source.id()::equals).isPresent());
+        return listed || store.kept(source.id())
+                ? Optional.of("A rule set named \"" + source.name() + "\" already exists. Give this one a name of its"
+                        + " own, or edit that one.")
+                : Optional.empty();
     }
 
     private void checkEdited() {
-        ListedRuleSet checked = rules.get().checkRuleSource(edited());
+        RuleSource source = edited();
+        ListedRuleSet checked = rules.get().checkRuleSource(source);
         editorFindings.getItems().setAll(checked.findings().castToList());
+        Optional<String> taken = nameTaken(source);
+        if (taken.isPresent()) {
+            statusLine.setText(taken.get() + " Nothing has changed.");
+            return;
+        }
         statusLine.setText(checked.findings().isEmpty()
                 ? "No findings. Rules: " + checked.ruleNames().makeString("; ") + ". Nothing has changed yet."
                 : found(checked) + " Nothing has changed.");
@@ -345,11 +403,22 @@ final class RulesPane extends BorderPane {
 
     private void saveEdited() {
         RuleSource source = edited();
+        Optional<String> taken = nameTaken(source);
+        if (taken.isPresent()) {
+            statusLine.setText("Not saved. " + taken.get() + " The rules in use have not changed.");
+            return;
+        }
         // Checked first: a source with findings is not saved, so the rules in use stay as they are.
         ListedRuleSet checked = rules.get().checkRuleSource(source);
         editorFindings.getItems().setAll(checked.findings().castToList());
         if (checked.findings().notEmpty()) {
             statusLine.setText("Not saved. " + found(checked) + " The rules in use have not changed.");
+            return;
+        }
+        // Kept next: a rule set the knowledge base refuses does not come into use.
+        StoredRules.Outcome kept = store.keep(source, checked.ruleNames().castToList());
+        if (kept.refused()) {
+            statusLine.setText("Not saved. " + kept.why() + " The rules in use have not changed.");
             return;
         }
         ListedRuleSet saved = rules.get().putRuleSource(source);
@@ -360,8 +429,27 @@ final class RulesPane extends BorderPane {
         endEditing();
         reload();
         select(source.id());
-        statusLine.setText(saved.inUse() ? "Saved \"" + saved.name() + "\". Its rules are in use."
-                : "Saved \"" + saved.name() + "\", but it is not in use: it has findings.");
+        statusLine.setText((saved.inUse() ? "Saved \"" + saved.name() + "\". Its rules are in use."
+                : "Saved \"" + saved.name() + "\", but it is not in use: it has findings.") + kept(kept));
+    }
+
+    /** What keeping a rule set came to, as a sentence after the one that says its rules are in use. */
+    private static String kept(StoredRules.Outcome outcome) {
+        return switch (outcome.result()) {
+            case WRITTEN -> " It is kept in the knowledge base, as an unpublished change.";
+            case AS_IT_WAS -> " The knowledge base already keeps this text.";
+            case NO_RULE_MODEL -> " This knowledge base cannot keep rule sets yet, so this one lasts until Komet quits.";
+            case TAKEN_BACK, REFUSED -> "";
+        };
+    }
+
+    /** What taking a rule set out of the knowledge base came to, as a sentence of its own. */
+    private static String removed(StoredRules.Outcome outcome) {
+        return switch (outcome.result()) {
+            case WRITTEN -> " Its removal from the knowledge base is an unpublished change.";
+            case TAKEN_BACK -> " Its text, which was never published, is taken back out of the knowledge base.";
+            case AS_IT_WAS, NO_RULE_MODEL, REFUSED -> "";
+        };
     }
 
     private void cancelEditing() {
