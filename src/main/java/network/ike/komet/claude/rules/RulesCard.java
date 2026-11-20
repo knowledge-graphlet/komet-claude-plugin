@@ -126,6 +126,7 @@ public final class RulesCard extends AbstractHostCard {
         OPEN.add(new WeakReference<>(this));
         // The view can change while the card is open, so each render names components under the current one.
         pane = new RulesPane(RuleService::get, new StoredRules(this::view, this::edit),
+                AcceptedRules.ofThisInstallation(),
                 markdown -> new MarkdownRichText(view(), MarkdownRichText.DEFAULT_BASE).renderMarkdown(markdown));
         setCardContent(pane);
         pane.reload();

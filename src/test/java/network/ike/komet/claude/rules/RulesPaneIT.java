@@ -18,7 +18,10 @@ package network.ike.komet.claude.rules;
 import dev.ikm.komet.framework.rulebase.ListedRuleSet;
 import dev.ikm.komet.framework.rulebase.RuleFinding;
 import dev.ikm.komet.framework.rulebase.RuleSource;
+import dev.ikm.komet.preferences.KometPreferences;
+import dev.ikm.komet.preferences.KometPreferencesImpl;
 import dev.ikm.komet.rules.evrete.EvreteRulesService;
+import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.common.service.PrimitiveData;
 import dev.ikm.tinkar.coordinate.Calculators;
 import dev.ikm.tinkar.coordinate.Coordinates;
@@ -27,9 +30,11 @@ import javafx.application.Platform;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.TextInputControl;
 import network.ike.komet.claude.HeadlessFx;
+import network.ike.komet.document.SemanticVersions;
 import network.ike.komet.document.surface.MarkdownRichText;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
@@ -40,6 +45,7 @@ import org.junit.jupiter.api.TestInstance;
 
 import java.io.File;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -59,7 +65,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * rule and writes and edits rules: the pane in a scene of its own, its buttons fired as a click
  * fires them and its editor filled as typing fills it, on a rule service of the test's own. The text beside the list goes through the renderer the card uses, on the
  * starter set in a memory-only store, which is also where the pane keeps what is saved and
- * accepted. The tests share that store, so each names a rule set of its own.
+ * accepted. The record of what was accepted on this installation is a preferences node of the
+ * test's own. The tests share that store, so each names a rule set of its own.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class RulesPaneIT {
@@ -68,6 +75,8 @@ class RulesPaneIT {
 
     private EvreteRulesService rules;
     private StoredRules store;
+    private KometPreferences acceptedNode;
+    private AcceptedRules acceptedHere;
     private RulesPane pane;
 
     @BeforeAll
@@ -84,10 +93,18 @@ class RulesPaneIT {
         PrimitiveData.selectControllerByName("Load Memory-Only 64-bit Store");
         PrimitiveData.start();
         assertTrue(new LoadEntitiesFromProtobufFile(PB_STARTER_DATA).compute().getTotalCount() > 0);
+        acceptedNode = KometPreferencesImpl.getConfigurationRootPreferences()
+                .node("rule-sets-accepted-here-" + UUID.randomUUID());
+        acceptedHere = new AcceptedRules(() -> acceptedNode);
     }
 
     @AfterAll
     void teardown() {
+        try {
+            acceptedNode.removeNode();
+        } catch (Exception neverWritten) {
+            // a node never flushed has no folder to delete
+        }
         PrimitiveData.stop();
     }
 
@@ -96,7 +113,7 @@ class RulesPaneIT {
         rules = new EvreteRulesService();
         store = new StoredRules(Calculators.View::Default, Coordinates.Edit::Default);
         pane = onFx(() -> {
-            RulesPane shown = new RulesPane(() -> rules, store, markdown ->
+            RulesPane shown = new RulesPane(() -> rules, store, acceptedHere, markdown ->
                     new MarkdownRichText(Calculators.View.Default(), MarkdownRichText.DEFAULT_BASE).renderMarkdown(markdown));
             // A scene and one layout pass give the pane's controls their place in the scene graph.
             new Scene(shown, 1000, 700);
@@ -143,6 +160,7 @@ class RulesPaneIT {
                 + " It is kept in the knowledge base, as an unpublished change.", status());
         assertTrue(StoredRules.read(Calculators.View.Default()).contains(new RuleSource(id, name, source())),
                 "accepting it kept it");
+        assertTrue(acceptedHere.accepted(new RuleSource(id, name, source())), "and it is on record as accepted here");
         assertTrue(disabled("#rulesAccept") && disabled("#rulesDiscard"));
         assertFalse(disabled("#rulesRemove"));
     }
@@ -405,8 +423,13 @@ class RulesPaneIT {
 
         assertEquals(0, rules.ruleSets().count(ruleSet -> ruleSet.origin() == ListedRuleSet.Origin.SOURCE));
         assertEquals("Removed \"" + name + "\". Its rules are no longer in use."
-                + " Its text, which was never published, is taken back out of the knowledge base.", status());
+                + " It was never published, so all of it is taken back out of the knowledge base: its text, and"
+                + " the concepts of the rule set and of its rules.", status());
         assertFalse(store.kept(id));
+        assertFalse(SemanticVersions.exists(PublicIds.of(id), Calculators.View.Default()),
+                "its concept is taken back with its text");
+        assertFalse(acceptedHere.accepted(new RuleSource(id, name, sourceNamed("Offer of a rule set saved and removed"))),
+                "and it is no longer on record as accepted here");
     }
 
     @Test
@@ -422,11 +445,102 @@ class RulesPaneIT {
         click("#rulesSave");
 
         EvreteRulesService startedLater = new EvreteRulesService();
-        List<ListedRuleSet> loaded = StoredRules.loadInto(() -> startedLater, Calculators.View.Default());
+        List<ListedRuleSet> loaded = StoredRules.loadInto(() -> startedLater, Calculators.View.Default(), acceptedHere);
 
         ListedRuleSet again = loaded.stream().filter(ruleSet -> ruleSet.name().equals(name)).findFirst().orElseThrow();
         assertTrue(again.accepted() && again.inUse(), again::toString);
         assertEquals(new RuleSource(store.identity(name), name, java), again.source().orElseThrow());
+    }
+
+    @Test
+    void aRuleSetTheKnowledgeBaseKeepsThatNobodyAcceptedHereWaitsForAcceptAndIsNotDiscarded() throws Exception {
+        String name = "Activation rules, kept elsewhere";
+        String ruleName = "Offer of a rule set kept elsewhere";
+        String java = sourceNamed(ruleName);
+        UUID id = store.identity(name);
+        // Kept as a knowledge base that was copied or received keeps it: nobody accepted it here.
+        assertEquals(StoredRules.Result.WRITTEN, store.keep(new RuleSource(id, name, java), List.of(ruleName)).result());
+        // The store is shared, so loading also gives the rule service what other tests kept.
+        StoredRules.loadInto(() -> rules, Calculators.View.Default(), acceptedHere);
+        long inUse = rules.ruleSets().count(ListedRuleSet::inUse);
+        long waiting = rules.ruleSets().count(ruleSet -> !ruleSet.accepted());
+        onFx(() -> {
+            pane.reload();
+            return null;
+        });
+
+        assertEquals(inUse + " rule sets in use, " + waiting + " kept in the knowledge base and not accepted here.",
+                status());
+        assertTrue(onFx(() -> pane.select(id)));
+        assertTrue(listLines().contains("Not accepted here · " + name), () -> listLines().toString());
+        assertFalse(onFx(() -> pane.selected().orElseThrow()).accepted());
+        String shown = onFx(() -> pane.shownMarkdown());
+        assertTrue(shown.contains("Kept in the knowledge base, not accepted here: not in use until a person accepts it"),
+                shown);
+        assertFalse(disabled("#rulesAccept"));
+        assertTrue(disabled("#rulesDiscard"), "what the knowledge base keeps is accepted or removed, not hidden");
+        assertFalse(disabled("#rulesRemove"));
+        assertEquals(inUse, rules.ruleSets().count(ListedRuleSet::inUse), "none of its rules are in use");
+
+        click("#rulesAccept");
+
+        ListedRuleSet now = onFx(() -> pane.selected().orElseThrow());
+        assertTrue(now.accepted() && now.inUse(), now::toString);
+        assertEquals("Accepted \"" + name + "\". Its rules are in use. The knowledge base already keeps this text.",
+                status());
+        assertTrue(acceptedHere.accepted(new RuleSource(id, name, java)), "so the next start puts it in use");
+        assertTrue(listLines().contains(name), () -> listLines().toString());
+    }
+
+    @Test
+    void removeTakesARuleSetNobodyAcceptedHereOutOfTheKnowledgeBase() throws Exception {
+        String name = "Activation rules, kept elsewhere and removed";
+        String ruleName = "Offer of a rule set kept elsewhere and removed";
+        UUID id = store.identity(name);
+        store.keep(new RuleSource(id, name, sourceNamed(ruleName)), List.of(ruleName));
+        StoredRules.loadInto(() -> rules, Calculators.View.Default(), acceptedHere);
+        onFx(() -> {
+            pane.reload();
+            pane.select(id);
+            return null;
+        });
+
+        click("#rulesRemove");
+
+        assertEquals("Removed \"" + name + "\". It was not in use."
+                + " It was never published, so all of it is taken back out of the knowledge base: its text, and"
+                + " the concepts of the rule set and of its rules.", status());
+        assertFalse(store.kept(id));
+        assertFalse(onFx(() -> pane.select(id)), "it is no longer listed");
+        assertTrue(rules.ruleSets().noneSatisfy(ruleSet ->
+                ruleSet.source().map(RuleSource::id).filter(id::equals).isPresent()), "nor does the rule service list it");
+        assertFalse(SemanticVersions.exists(PublicIds.of(id), Calculators.View.Default()));
+    }
+
+    @Test
+    void anAssistantsProposedEditOfAKeptRuleSetIsStillAProposalToDiscard() {
+        String name = "Activation rules, kept, with an edit proposed";
+        String ruleName = "Offer of a rule set kept, with an edit proposed";
+        String java = sourceNamed(ruleName);
+        UUID id = store.identity(name);
+        onFx(() -> {
+            pane.newRuleSource();
+            return null;
+        });
+        type("#rulesEditorName", name);
+        type("#rulesEditorJava", java);
+        click("#rulesSave");
+        rules.proposeRuleSource(new RuleSource(id, name, java.replace("isComponentActive", "isComponentInactive")));
+        onFx(() -> {
+            pane.reload();
+            pane.select(id);
+            return null;
+        });
+
+        assertFalse(onFx(() -> pane.selected().orElseThrow()).accepted(), "the proposal is the one selected");
+        assertTrue(listLines().contains("Proposed · " + name), () -> listLines().toString());
+        assertFalse(disabled("#rulesDiscard"), "a proposal that is not the kept text is discarded as before");
+        assertTrue(disabled("#rulesRemove"));
     }
 
     @Test
@@ -470,6 +584,18 @@ class RulesPaneIT {
         onFx(() -> {
             ((TextInputControl) pane.lookup(field)).setText(text);
             return null;
+        });
+    }
+
+    /** The lines of the list as they are drawn, after one layout pass. */
+    private List<String> listLines() {
+        return onFx(() -> {
+            pane.applyCss();
+            pane.layout();
+            return pane.lookup("#rulesList").lookupAll(".list-cell").stream()
+                    .map(cell -> ((ListCell<?>) cell).getText())
+                    .filter(Objects::nonNull)
+                    .toList();
         });
     }
 

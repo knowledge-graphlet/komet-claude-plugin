@@ -18,6 +18,8 @@ package network.ike.komet.claude.rules;
 import dev.ikm.komet.framework.rulebase.ListedRuleSet;
 import dev.ikm.komet.framework.rulebase.RuleService;
 import dev.ikm.komet.framework.rulebase.RuleSource;
+import dev.ikm.komet.preferences.KometPreferences;
+import dev.ikm.komet.preferences.KometPreferencesImpl;
 import dev.ikm.komet.rules.evrete.EvreteRulesService;
 import dev.ikm.tinkar.common.id.LongIdCollection;
 import dev.ikm.tinkar.common.id.PublicIds;
@@ -41,6 +43,7 @@ import network.ike.foundation.ike.bindings.IkePattern;
 import network.ike.komet.claude.HeadlessFx;
 import network.ike.komet.claude.rules.StoredRules.Result;
 import network.ike.komet.document.LocalConcepts;
+import network.ike.komet.document.SemanticVersions;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -66,7 +69,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * what reading gives back, what removing one leaves, and what a rule service has in use once
  * the kept rule sets are loaded into it, as Komet does when it starts. The store is the starter
  * set in a memory-only store, the writes are the ones the Rules card makes, and the rule service
- * is Komet's own. Each test names a rule set of its own, since they share the store.
+ * is Komet's own. The record of what was accepted on this installation is a preferences node of
+ * the test's own. Each test names a rule set of its own, since they share the store.
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class StoredRulesIT {
@@ -76,6 +80,8 @@ class StoredRulesIT {
     private ViewCalculator view;
     private EditCoordinate edit;
     private StoredRules stored;
+    private KometPreferences acceptedNode;
+    private AcceptedRules accepted;
 
     @BeforeAll
     void startStore() {
@@ -94,10 +100,18 @@ class StoredRulesIT {
         view = Calculators.View.Default();
         edit = Coordinates.Edit.Default();
         stored = new StoredRules(() -> view, () -> edit);
+        acceptedNode = KometPreferencesImpl.getConfigurationRootPreferences()
+                .node("rule-sets-accepted-here-" + UUID.randomUUID());
+        accepted = new AcceptedRules(() -> acceptedNode);
     }
 
     @AfterAll
     void stopStore() {
+        try {
+            acceptedNode.removeNode();
+        } catch (Exception neverWritten) {
+            // a node never flushed has no folder to delete
+        }
         PrimitiveData.stop();
     }
 
@@ -185,23 +199,62 @@ class StoredRulesIT {
     }
 
     @Test
-    void removingATextThatWasNeverPublishedTakesItBackAndTheNameCanBeUsedAgain() {
+    void removingARuleSetThatWasNeverPublishedTakesAllOfItBackAndTheNameCanBeUsedAgain() {
         String name = "Kept rules, removed before publishing";
         UUID id = stored.identity(name);
         String ruleName = "Rule removed before publishing";
+        UUID rule = LocalConcepts.uuid(ruleName);
         String java = sourceNamed(ruleName);
+        // Saved twice, as a person who edits before publishing does: one change still contains it all.
+        stored.keep(new RuleSource(id, name, java.replace("isComponentActive", "isComponentInactive")), List.of(ruleName));
         stored.keep(new RuleSource(id, name, java), List.of(ruleName));
+        assertTrue(SemanticVersions.exists(PublicIds.of(id), view) && SemanticVersions.exists(PublicIds.of(rule), view));
+        long ruleSetNid = PrimitiveData.nid(PublicIds.of(id));
+        Transaction change = changeOf(ruleSetNid);
 
         StoredRules.Outcome removed = stored.remove(id);
 
         assertEquals(Result.TAKEN_BACK, removed.result(), removed::why);
         assertFalse(stored.kept(id));
         assertTrue(StoredRules.read(view).stream().noneMatch(source -> source.id().equals(id)));
+        assertFalse(SemanticVersions.exists(PublicIds.of(id), view), "the rule set's concept is taken back with its text");
+        assertFalse(SemanticVersions.exists(PublicIds.of(rule), view), "and so is its rule's concept");
+        assertFalse(change.isOpen(), "the change they were in is over, so no publish carries a rule set with no text");
+        assertFalse(EntityHandle.get(ruleSetNid).expectEntity().uncommitted(), "nothing of it is left unpublished");
         assertEquals(Result.AS_IT_WAS, stored.remove(id).result(), "removing it again finds nothing to remove");
 
         assertEquals(Result.WRITTEN, stored.keep(new RuleSource(id, name, java), List.of(ruleName)).result());
         assertTrue(StoredRules.read(view).contains(new RuleSource(id, name, java)),
                 "the text kept again is the text, as it was before it was removed");
+        assertEquals(name, view.getFullyQualifiedNameText(PrimitiveData.nid(PublicIds.of(id))).orElseThrow(),
+                "and its concept is written again under the same name");
+        assertEquals(ruleName, view.getFullyQualifiedNameText(PrimitiveData.nid(PublicIds.of(rule))).orElseThrow());
+    }
+
+    @Test
+    void removingARuleSetWhoseUnpublishedChangeContainsOtherWorkTakesBackItsTextAndSaysTheConceptsStay() {
+        String sharedRule = "Rule two unpublished rule sets declare";
+        String java = sourceNamed(sharedRule);
+        String name = "Kept rules, sharing a change, removed";
+        UUID id = stored.identity(name);
+        String other = "Kept rules, sharing a change, staying";
+        UUID otherId = stored.identity(other);
+        assertEquals(Result.WRITTEN, stored.keep(new RuleSource(id, name, java), List.of(sharedRule)).result());
+        // The second rule set declares the first one's rule, which is unpublished, so it joins that change.
+        assertEquals(Result.WRITTEN, stored.keep(new RuleSource(otherId, other, java), List.of(sharedRule)).result());
+        long ruleSetNid = PrimitiveData.nid(PublicIds.of(id));
+        assertEquals(changeOf(ruleSetNid), changeOf(PrimitiveData.nid(PublicIds.of(otherId))), "one change contains both");
+
+        StoredRules.Outcome removed = stored.remove(id);
+
+        assertEquals(Result.TEXT_TAKEN_BACK, removed.result(), removed::why);
+        assertEquals("The concepts of the rule set and of its rules stay, because the unpublished change they are in"
+                + " contains other work too.", removed.why());
+        assertFalse(stored.kept(id));
+        assertTrue(SemanticVersions.exists(PublicIds.of(id), view), "its concept stays with the other work");
+        assertTrue(stored.kept(otherId), "and the other rule set is kept as it was");
+        assertTrue(StoredRules.read(view).contains(new RuleSource(otherId, other, java)));
+        assertTrue(SemanticVersions.exists(PublicIds.of(LocalConcepts.uuid(sharedRule)), view), "with the rule it declares");
     }
 
     @Test
@@ -217,6 +270,7 @@ class StoredRulesIT {
         StoredRules.Outcome removed = stored.remove(id);
 
         assertEquals(Result.WRITTEN, removed.result(), removed::why);
+        assertTrue(SemanticVersions.exists(PublicIds.of(id), view), "a published rule set keeps its concept, its identity");
         assertEquals(2, versionsOf(text), "the published text stays as history");
         Latest<SemanticEntityVersion> latest = view.latest(text);
         assertTrue(latest.isAbsent() || !latest.get().active(), "the latest version is not in use");
@@ -281,16 +335,17 @@ class StoredRulesIT {
     }
 
     @Test
-    void theRuleSetsKeptAreInUseOnceTheyAreLoadedAsKometDoesWhenItStarts() throws Exception {
+    void aKeptRuleSetAcceptedHereIsInUseOnceItIsLoadedAsKometDoesWhenItStarts() throws Exception {
         String name = "Kept rules, loaded at start";
         UUID id = stored.identity(name);
         String ruleName = "Rule loaded at start";
         String java = sourceNamed(ruleName);
         stored.keep(new RuleSource(id, name, java), List.of(ruleName));
+        accepted.accept(new RuleSource(id, name, java));
         EvreteRulesService rulesAfterARestart = new EvreteRulesService();
         assertEquals(0, rulesAfterARestart.ruleSets().count(ruleSet -> ruleSet.origin() == ListedRuleSet.Origin.SOURCE));
 
-        List<ListedRuleSet> loaded = StoredRules.loadInto(() -> rulesAfterARestart, view);
+        List<ListedRuleSet> loaded = StoredRules.loadInto(() -> rulesAfterARestart, view, accepted);
 
         ListedRuleSet ruleSet = loaded.stream()
                 .filter(listed -> listed.source().map(RuleSource::id).filter(id::equals).isPresent()).findFirst().orElseThrow();
@@ -302,16 +357,56 @@ class StoredRulesIT {
     }
 
     @Test
+    void aKeptRuleSetNobodyAcceptedHereIsLoadedAsAProposalAndNoneOfItsRulesAreInUse() throws Exception {
+        String name = "Kept rules, from another installation";
+        UUID id = stored.identity(name);
+        String ruleName = "Rule from another installation";
+        String java = sourceNamed(ruleName);
+        // Kept, as a knowledge base that was copied or received keeps it, and never accepted here.
+        stored.keep(new RuleSource(id, name, java), List.of(ruleName));
+        EvreteRulesService rulesAfterARestart = new EvreteRulesService();
+
+        List<ListedRuleSet> loaded = StoredRules.loadInto(() -> rulesAfterARestart, view, accepted);
+
+        ListedRuleSet proposal = loaded.stream()
+                .filter(listed -> listed.source().map(RuleSource::id).filter(id::equals).isPresent()).findFirst().orElseThrow();
+        assertFalse(proposal.accepted() || proposal.inUse(), proposal::toString);
+        assertEquals(List.of(ruleName), proposal.ruleNames().castToList(), "it is compiled, so its rules are named");
+        assertEquals(java, proposal.source().orElseThrow().java());
+        // The store is shared, so the rule service also has what other tests kept and accepted.
+        assertTrue(rulesAfterARestart.ruleSets().select(ListedRuleSet::inUse)
+                .noneSatisfy(ruleSet -> ruleSet.ruleNames().contains(ruleName)), "its rule is not among the rules in use");
+        assertEquals(java, stored.keptText(id).orElseThrow(), "the knowledge base keeps it all the same");
+
+        // Once a person accepts that text here, the next start puts it in use.
+        accepted.accept(new RuleSource(id, name, java));
+        EvreteRulesService afterAccepting = new EvreteRulesService();
+        ListedRuleSet inUse = StoredRules.loadInto(() -> afterAccepting, view, accepted).stream()
+                .filter(listed -> listed.source().map(RuleSource::id).filter(id::equals).isPresent()).findFirst().orElseThrow();
+        assertTrue(inUse.accepted() && inUse.inUse(), inUse::toString);
+
+        // A text that changed since, wherever it changed, is not the text that was accepted.
+        String changed = java.replace("isComponentActive", "isComponentInactive");
+        stored.keep(new RuleSource(id, name, changed), List.of(ruleName));
+        EvreteRulesService afterTheChange = new EvreteRulesService();
+        ListedRuleSet again = StoredRules.loadInto(() -> afterTheChange, view, accepted).stream()
+                .filter(listed -> listed.source().map(RuleSource::id).filter(id::equals).isPresent()).findFirst().orElseThrow();
+        assertFalse(again.accepted() || again.inUse(), again::toString);
+        assertEquals(changed, again.source().orElseThrow().java());
+    }
+
+    @Test
     void aKeptTextThatNoLongerCompilesIsLoadedOutOfUseWithItsFindings() throws Exception {
         String name = "Kept rules, written for an API that changed";
         UUID id = stored.identity(name);
         // The card keeps only text that compiles; a text can stop compiling when Komet's rules API changes.
         String ruleName = "Rule written for an API that changed";
-        stored.keep(new RuleSource(id, name, sourceWith("NoSuchType nothing = null;").replace(RULE_NAME, ruleName)),
-                List.of(ruleName));
+        String java = sourceWith("NoSuchType nothing = null;").replace(RULE_NAME, ruleName);
+        stored.keep(new RuleSource(id, name, java), List.of(ruleName));
+        accepted.accept(new RuleSource(id, name, java));
         EvreteRulesService rulesAfterAnUpgrade = new EvreteRulesService();
 
-        List<ListedRuleSet> loaded = StoredRules.loadInto(() -> rulesAfterAnUpgrade, view);
+        List<ListedRuleSet> loaded = StoredRules.loadInto(() -> rulesAfterAnUpgrade, view, accepted);
 
         ListedRuleSet ruleSet = loaded.stream()
                 .filter(listed -> listed.source().map(RuleSource::id).filter(id::equals).isPresent()).findFirst().orElseThrow();

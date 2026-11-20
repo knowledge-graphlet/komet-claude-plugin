@@ -51,15 +51,29 @@ public final class RuleSetText {
      * @return one short sentence
      */
     public static String state(ListedRuleSet ruleSet) {
+        return state(ruleSet, false);
+    }
+
+    /**
+     * Says whether a rule set is in use, and if it is not, why.
+     *
+     * @param ruleSet           the rule set
+     * @param keptNotAccepted   whether the rule set is one the knowledge base keeps whose text no
+     *                          person saved or accepted on this installation
+     * @return one short sentence
+     */
+    public static String state(ListedRuleSet ruleSet, boolean keptNotAccepted) {
         if (ruleSet.inUse()) {
             return "In use";
         }
         if (ruleSet.accepted()) {
             return "Not in use: it has findings";
         }
+        String proposed = keptNotAccepted ? "Kept in the knowledge base, not accepted here"
+                : "Proposed";
         return ruleSet.findings().isEmpty()
-                ? "Proposed: not in use until a person accepts it"
-                : "Proposed: it has findings, so it cannot be accepted as it is";
+                ? proposed + ": not in use until a person accepts it"
+                : proposed + ": it has findings, so it cannot be accepted as it is";
     }
 
     /**
@@ -96,9 +110,21 @@ public final class RuleSetText {
      * @return the description as Markdown
      */
     public static String detail(ListedRuleSet ruleSet) {
+        return detail(ruleSet, false);
+    }
+
+    /**
+     * Describes one rule set in full: its state, its rules, its findings and its Java source.
+     *
+     * @param ruleSet         the rule set
+     * @param keptNotAccepted whether the rule set is one the knowledge base keeps whose text no
+     *                        person saved or accepted on this installation
+     * @return the description as Markdown
+     */
+    public static String detail(ListedRuleSet ruleSet, boolean keptNotAccepted) {
         StringBuilder text = new StringBuilder();
         text.append("# ").append(ruleSet.name()).append("\n\n");
-        text.append(origin(ruleSet)).append(" · ").append(state(ruleSet));
+        text.append(origin(ruleSet)).append(" · ").append(state(ruleSet, keptNotAccepted));
         ruleSet.source().map(RuleSource::id).ifPresent(id -> text.append("\n\nid: ").append(id));
         if (ruleSet.ruleNames().notEmpty()) {
             text.append("\n\nRules: ").append(ruleSet.ruleNames().makeString("; "));

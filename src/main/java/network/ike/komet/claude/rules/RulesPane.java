@@ -38,8 +38,10 @@ import jfx.incubator.scene.control.richtext.model.StyledTextModel;
 import network.ike.komet.document.MarkdownEditPane;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -61,6 +63,11 @@ import java.util.function.Supplier;
  * rule sets Komet starts with next time are the same. When the knowledge base refuses the write,
  * nothing changes, and the status line says why. A rule set's name becomes the name of its
  * concept, from which its identity derives, so it is given once, when the rule set is new.
+ *
+ * <p>Saving or accepting a rule set is also what lets it come into use by itself when Komet next
+ * starts ({@link AcceptedRules}). A rule set the knowledge base keeps whose text nobody saved or
+ * accepted on this installation is listed as not accepted here: it is not in use, and it stays
+ * listed until a person accepts it or removes it.
  *
  * <p>The pane shows what the rule service lists when it is asked to: after its own buttons, and
  * when {@link #reload()} is called. The text beside the list is {@link RuleSetText#detail}, the
@@ -103,6 +110,12 @@ final class RulesPane extends BorderPane {
 
     private final Supplier<RuleService> rules;
     private final StoredRules store;
+    private final AcceptedRules acceptedHere;
+    /**
+     * The proposals that are the text the knowledge base keeps: rule sets nobody saved or accepted
+     * on this installation. Read at each {@link #reload()}.
+     */
+    private Set<UUID> keptNotAccepted = Set.of();
     private final ListView<ListedRuleSet> list = new ListView<>();
     private final MarkdownEditPane detail;
     private final Button accept = new Button("Accept");
@@ -135,11 +148,14 @@ final class RulesPane extends BorderPane {
     /**
      * @param rules    the rule service whose rule sets are shown
      * @param store    where a rule set a person saves or accepts is kept
+     * @param accepted the record of the texts a person saved or accepted on this installation
      * @param renderer turns the selected rule set's Markdown into what the pane shows
      */
-    RulesPane(Supplier<RuleService> rules, StoredRules store, Function<String, StyledTextModel> renderer) {
+    RulesPane(Supplier<RuleService> rules, StoredRules store, AcceptedRules accepted,
+              Function<String, StyledTextModel> renderer) {
         this.rules = rules;
         this.store = store;
+        this.acceptedHere = accepted;
         this.detail = new MarkdownEditPane("", false, renderer);
 
         list.setId("rulesList");
@@ -241,6 +257,16 @@ final class RulesPane extends BorderPane {
     void reload() {
         ListedRuleSet before = list.getSelectionModel().getSelectedItem();
         List<ListedRuleSet> listed = proposalsFirst(rules.get().ruleSets().castToList());
+        Set<UUID> kept = new HashSet<>();
+        for (ListedRuleSet ruleSet : listed) {
+            if (!ruleSet.accepted() && ruleSet.source().isPresent()) {
+                RuleSource source = ruleSet.source().get();
+                if (store.keptText(source.id()).filter(source.java()::equals).isPresent()) {
+                    kept.add(source.id());
+                }
+            }
+        }
+        keptNotAccepted = kept;
         list.getItems().setAll(listed);
         Optional<ListedRuleSet> again = before == null ? Optional.empty()
                 : listed.stream().filter(ruleSet -> same(ruleSet, before)).findFirst();
@@ -297,11 +323,13 @@ final class RulesPane extends BorderPane {
         StoredRules.Outcome kept = null;
         if (proposal.isPresent()) {
             // Kept first: a rule set the knowledge base refuses does not come into use.
-            kept = store.keep(proposal.get().source().orElseThrow(), proposal.get().ruleNames().castToList());
+            RuleSource source = proposal.get().source().orElseThrow();
+            kept = store.keep(source, proposal.get().ruleNames().castToList());
             if (kept.refused()) {
                 statusLine.setText("Not accepted. " + kept.why() + " The rules in use have not changed.");
                 return;
             }
+            recordAccepted(source, kept);
         }
         Optional<ListedRuleSet> accepted = rules.get().acceptRuleSource(id);
         reload();
@@ -324,16 +352,28 @@ final class RulesPane extends BorderPane {
 
     private void removeSource(UUID id) {
         String name = selected().map(ListedRuleSet::name).orElse("");
+        // One the knowledge base keeps that was not accepted here is listed as a proposal.
+        boolean notInUse = selected().filter(ruleSet -> !ruleSet.accepted()).isPresent();
         // Taken out of the knowledge base first, so a rule set it still keeps is still in use.
         StoredRules.Outcome removed = store.remove(id);
         if (removed.refused()) {
             statusLine.setText("Not removed. " + removed.why() + " The rules in use have not changed.");
             return;
         }
-        boolean wasThere = rules.get().removeRuleSource(id);
+        acceptedHere.forget(id);
+        boolean wasThere = notInUse ? rules.get().discardProposedRuleSource(id) : rules.get().removeRuleSource(id);
         reload();
-        statusLine.setText(wasThere ? "Removed \"" + name + "\". Its rules are no longer in use." + removed(removed)
+        statusLine.setText(wasThere
+                ? "Removed \"" + name + "\"." + (notInUse ? " It was not in use." : " Its rules are no longer in use.")
+                        + removed(removed)
                 : "That rule source is no longer there.");
+    }
+
+    /** Records that a person saved or accepted a text here, when the knowledge base keeps it. */
+    private void recordAccepted(RuleSource source, StoredRules.Outcome kept) {
+        if (kept.result() == StoredRules.Result.WRITTEN || kept.result() == StoredRules.Result.AS_IT_WAS) {
+            acceptedHere.accept(source);
+        }
     }
 
     private void editRuleSet(ListedRuleSet ruleSet) {
@@ -421,6 +461,7 @@ final class RulesPane extends BorderPane {
             statusLine.setText("Not saved. " + kept.why() + " The rules in use have not changed.");
             return;
         }
+        recordAccepted(source, kept);
         ListedRuleSet saved = rules.get().putRuleSource(source);
         if (editingProposal) {
             // The person's own version takes the proposal's place.
@@ -439,7 +480,7 @@ final class RulesPane extends BorderPane {
             case WRITTEN -> " It is kept in the knowledge base, as an unpublished change.";
             case AS_IT_WAS -> " The knowledge base already keeps this text.";
             case NO_RULE_MODEL -> " This knowledge base cannot keep rule sets yet, so this one lasts until Komet quits.";
-            case TAKEN_BACK, REFUSED -> "";
+            case TAKEN_BACK, TEXT_TAKEN_BACK, REFUSED -> "";
         };
     }
 
@@ -447,7 +488,10 @@ final class RulesPane extends BorderPane {
     private static String removed(StoredRules.Outcome outcome) {
         return switch (outcome.result()) {
             case WRITTEN -> " Its removal from the knowledge base is an unpublished change.";
-            case TAKEN_BACK -> " Its text, which was never published, is taken back out of the knowledge base.";
+            case TAKEN_BACK -> " It was never published, so all of it is taken back out of the knowledge base: its"
+                    + " text, and the concepts of the rule set and of its rules.";
+            case TEXT_TAKEN_BACK -> " Its text, which was never published, is taken back out of the knowledge base."
+                    + (outcome.why().isEmpty() ? "" : " " + outcome.why());
             case AS_IT_WAS, NO_RULE_MODEL, REFUSED -> "";
         };
     }
@@ -494,31 +538,43 @@ final class RulesPane extends BorderPane {
 
     private void show(ListedRuleSet ruleSet) {
         // Another rule set is another document, shown from its start.
-        detail.showText(ruleSet == null ? "" : RuleSetText.detail(ruleSet));
+        boolean kept = ruleSet != null && keptNotAccepted(ruleSet);
+        detail.showText(ruleSet == null ? "" : RuleSetText.detail(ruleSet, kept));
         boolean proposal = ruleSet != null && !ruleSet.accepted();
         boolean written = ruleSet != null && ruleSet.source().isPresent();
         // A proposal with findings cannot be accepted as it is; it can still be edited or discarded.
         accept.setDisable(!proposal || ruleSet.findings().notEmpty());
-        discard.setDisable(!proposal);
+        // What the knowledge base keeps is not discarded, which would only hide it until Komet
+        // next starts: it is accepted, or removed from the knowledge base.
+        discard.setDisable(!proposal || kept);
         edit.setDisable(!written);
-        remove.setDisable(!written || proposal);
+        remove.setDisable(!written || (proposal && !kept));
+    }
+
+    /** Whether a listed rule set is one the knowledge base keeps that nobody accepted here. */
+    private boolean keptNotAccepted(ListedRuleSet ruleSet) {
+        return !ruleSet.accepted()
+                && ruleSet.source().map(RuleSource::id).filter(keptNotAccepted::contains).isPresent();
     }
 
     private void showCounts(List<ListedRuleSet> listed) {
-        long proposed = listed.stream().filter(ruleSet -> !ruleSet.accepted()).count();
+        long kept = listed.stream().filter(this::keptNotAccepted).count();
+        long proposed = listed.stream().filter(ruleSet -> !ruleSet.accepted()).count() - kept;
         long inUse = listed.stream().filter(ListedRuleSet::inUse).count();
         statusLine.setText(inUse + " rule set" + (inUse == 1 ? "" : "s") + " in use"
-                + (proposed == 0 ? "." : ", " + proposed + " proposed and waiting for you."));
+                + (proposed == 0 ? "" : ", " + proposed + " proposed and waiting for you")
+                + (kept == 0 ? "" : ", " + kept + " kept in the knowledge base and not accepted here")
+                + ".");
     }
 
     private Optional<UUID> selectedSourceId() {
         return selected().flatMap(ListedRuleSet::source).map(RuleSource::id);
     }
 
-    private static String line(ListedRuleSet ruleSet) {
+    private String line(ListedRuleSet ruleSet) {
         // The state comes first, so it still shows when a long name is cut short.
         if (!ruleSet.accepted()) {
-            return "Proposed · " + ruleSet.name();
+            return (keptNotAccepted(ruleSet) ? "Not accepted here · " : "Proposed · ") + ruleSet.name();
         }
         return ruleSet.inUse() ? ruleSet.name() : "Not in use · " + ruleSet.name();
     }

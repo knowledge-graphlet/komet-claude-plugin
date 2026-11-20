@@ -85,7 +85,7 @@ What it must not do: write to the knowledge base, open a window, read or write f
 
 Tell the person the rule is proposed and where to decide: the Rules card, which they add from the journal's **+** menu. There they read the source, then choose Accept or Discard. Say in a sentence what the rule will offer and when. You cannot accept a rule, and it does nothing until they do.
 
-An accepted rule set is kept in the knowledge base as an unpublished change, and Komet puts it in use again each time it starts. Each rule becomes a concept named by the sentence in its `@Rule`, which is one more reason to write that sentence in plain words. A proposal is not kept: one the person has not decided on is gone when Komet quits.
+An accepted rule set is kept in the knowledge base as an unpublished change, and Komet puts it in use again each time it starts on the person's computer. On another computer the same knowledge base lists it as not accepted here, and it is not in use there until someone accepts it there. Each rule becomes a concept named by the sentence in its `@Rule`, which is one more reason to write that sentence in plain words. A proposal is not kept: one the person has not decided on is gone when Komet quits.
 
 To change a rule already in use, propose the new source with that rule source's `id`. The rule in use stays as it is until the person accepts the edit.
 

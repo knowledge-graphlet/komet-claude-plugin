@@ -16,6 +16,7 @@ Plugin:: Rule sets a plugin brought.
 Written in Komet:: Rule sets written while Komet runs, by you or by the assistant. Only these have source the card can show and edit.
 
 A name that begins _Proposed_ is waiting for you to decide.
+A name that begins _Not accepted here_ is a rule set the knowledge base keeps that you have not accepted on this computer. It is waiting for you too.
 A name that begins _Not in use_ has findings that keep its rules from running.
 
 == The selected rule set
@@ -37,6 +38,23 @@ Discard:: Removes the proposal. A rule set already in use stays as it is.
 
 Accept is not available while a proposal has findings.
 Ask the assistant to fix them, and the proposal is replaced with the corrected one.
+
+== Rule sets not accepted here
+
+A knowledge base can contain rule sets that were written somewhere else, for example when you open a knowledge base someone sent you.
+A rule is Java that runs inside Komet, so Komet does not run those rules just because the knowledge base contains them.
+
+When Komet starts, it puts a rule set in use only if you saved or accepted that same source on this computer, under your account.
+Any other rule set the knowledge base keeps is listed as _Not accepted here_.
+Komet compiles it so that you can see whether it is sound, but none of it runs.
+
+Read the source, then choose:
+
+Accept:: Puts its rules in use. From then on Komet puts the rule set in use each time it starts.
+Remove:: Takes the rule set out of the knowledge base.
+
+There is no Discard for such a rule set, because the knowledge base would list it again the next time Komet starts.
+If the source of a rule set you accepted is changed somewhere else, the rule set waits for your Accept again.
 
 == Writing and editing a rule
 
@@ -60,13 +78,14 @@ When you edit a proposal and save it, your version is put in use and the proposa
 
 == Removing a rule set
 
-Remove:: Takes a rule set written in Komet out of use, removes it from the list and takes its text out of use in the knowledge base.
+Remove:: Takes a rule set written in Komet out of use, removes it from the list and takes it out of the knowledge base. A rule set that is not accepted here can be removed too.
 
 Rule sets that are part of Komet or of a plugin cannot be removed here.
 
 == What is kept
 
-A rule set you save or accept is kept in the knowledge base, and Komet puts it in use again each time it starts.
+A rule set you save or accept is kept in the knowledge base, and Komet puts it in use again each time it starts on this computer.
+Komet remembers which sources you saved or accepted with your account's preferences on this computer, not in the knowledge base.
 The rule set is a concept with the name you gave it.
 Each of its rules is a concept too, named by the sentence in the rule's `@Rule`.
 The source is kept with the rule set, and each edit you save is a version of it.
@@ -74,8 +93,10 @@ The source is kept with the rule set, and each edit you save is a version of it.
 What the card writes is an unpublished change, like any other edit in Komet, until you publish it.
 A rule set that is not published yet is in use all the same, and it is still there after you quit and start Komet again.
 
+Removing a rule set that was never published takes all of it back out of the knowledge base: its source, and the concepts of the rule set and of its rules.
+If the same unpublished change contains other work, such as another rule set that uses one of its rules, only the source is taken back, and the card says that the concepts stay.
+
 Removing a rule set that was published writes an inactive version of its source, which is an unpublished change too.
-Removing one that was never published takes its source back out of the unpublished change.
 The concepts of the rule set and its rules stay.
 
 A proposal is not kept.

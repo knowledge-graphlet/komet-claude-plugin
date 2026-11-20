@@ -27,13 +27,18 @@ import dev.ikm.tinkar.coordinate.edit.EditCoordinate;
 import dev.ikm.tinkar.coordinate.logic.PremiseType;
 import dev.ikm.tinkar.coordinate.stamp.calculator.Latest;
 import dev.ikm.tinkar.coordinate.view.calculator.ViewCalculator;
+import dev.ikm.tinkar.entity.ConceptEntity;
+import dev.ikm.tinkar.entity.Entity;
 import dev.ikm.tinkar.entity.EntityHandle;
 import dev.ikm.tinkar.entity.EntityService;
+import dev.ikm.tinkar.entity.EntityVersion;
 import dev.ikm.tinkar.entity.PatternEntityVersion;
 import dev.ikm.tinkar.entity.SemanticEntity;
 import dev.ikm.tinkar.entity.SemanticEntityVersion;
+import dev.ikm.tinkar.entity.StampEntity;
 import dev.ikm.tinkar.entity.graph.DiTreeEntity;
 import dev.ikm.tinkar.entity.graph.EntityVertex;
+import dev.ikm.tinkar.entity.transaction.Transaction;
 import dev.ikm.tinkar.terms.ConceptFacade;
 import dev.ikm.tinkar.terms.EntityFacade;
 import dev.ikm.tinkar.terms.EntityProxy;
@@ -72,11 +77,20 @@ import java.util.function.Supplier;
  * is, so a rule set a person saved is there when Komet next starts, published or not.
  *
  * <p>A concept's identity derives from its name ({@link LocalConcepts}), and so does a rule
- * set's and a rule's. A name the knowledge base already holds for a concept that is no rule set
+ * set's and a rule's. A name the knowledge base already has for a concept that is no rule set
  * is refused, in words that say so.
  *
  * <p>A knowledge base that lacks the rule model keeps no rule sets: nothing is read from it and
  * nothing is written to it, and the caller is told.
+ *
+ * <p>Rule text is Java that runs inside Komet. So what the knowledge base keeps comes into use
+ * when Komet starts only where a person saved or accepted that very text on this installation
+ * ({@link AcceptedRules}); any other text is proposed, and waits for the person's Accept.
+ *
+ * <p>Removing a rule set that was never published takes back the whole of it, its concept and
+ * its rules' concepts with its text, so that a later publish does not publish a rule set with no
+ * text. A published rule set keeps its concepts, which are its identity, and its text gets an
+ * inactive version.
  */
 public final class StoredRules {
 
@@ -84,8 +98,16 @@ public final class StoredRules {
     public enum Result {
         /** Written, as part of an unpublished change. */
         WRITTEN,
-        /** A text that was never published was taken back out of its unpublished change. */
+        /**
+         * A rule set that was never published was taken back whole: its text, its concept and its
+         * rules' concepts are out of the knowledge base.
+         */
         TAKEN_BACK,
+        /**
+         * A text that was never published was taken back out of its unpublished change, and the
+         * concepts of the rule set and of its rules stay.
+         */
+        TEXT_TAKEN_BACK,
         /** Nothing was written: the knowledge base already has it so. */
         AS_IT_WAS,
         /** Nothing was written: the knowledge base lacks the rule model, so it keeps no rule sets. */
@@ -98,7 +120,8 @@ public final class StoredRules {
      * What keeping a rule set, or taking it out, came to.
      *
      * @param result what happened
-     * @param why    the reason nothing was written, for a person to act on; empty unless refused
+     * @param why    the reason nothing was written, for a person to act on, or what a person
+     *               should know about what was taken back; empty otherwise
      */
     public record Outcome(Result result, String why) {
 
@@ -152,7 +175,7 @@ public final class StoredRules {
     }
 
     /**
-     * The identity of the rule set a name names: the concept the knowledge base holds under that
+     * The identity of the rule set a name names: the concept the knowledge base has under that
      * name, or the identity a concept of that name will have once it is written.
      *
      * @param name the rule set's name
@@ -191,18 +214,23 @@ public final class StoredRules {
     }
 
     /**
-     * Puts every rule set the knowledge base keeps in use, as a person's own rule source is. One
-     * that no longer compiles is listed out of use with its findings, as any rule source is.
+     * Gives the rule service every rule set the knowledge base keeps. One whose text a person
+     * saved or accepted on this installation is put in use, as a person's own rule source is, and
+     * one that no longer compiles is listed out of use with its findings. Any other is proposed:
+     * compiled and listed, with none of its code run until a person accepts it.
      *
-     * @param rules the rule service, asked for only when the knowledge base keeps a rule set
-     * @param view  the view the knowledge base is read under
+     * @param rules    the rule service, asked for only when the knowledge base keeps a rule set
+     * @param view     the view the knowledge base is read under
+     * @param accepted the texts a person saved or accepted on this installation
      * @return the rule sets as the rule service now lists them; empty when the knowledge base
      *         keeps none
      */
-    public static List<ListedRuleSet> loadInto(Supplier<RuleService> rules, ViewCalculator view) {
+    public static List<ListedRuleSet> loadInto(Supplier<RuleService> rules, ViewCalculator view,
+                                               AcceptedRules accepted) {
         List<ListedRuleSet> loaded = new ArrayList<>();
         for (RuleSource source : read(view)) {
-            loaded.add(rules.get().putRuleSource(source));
+            loaded.add(accepted.accepted(source) ? rules.get().putRuleSource(source)
+                    : rules.get().proposeRuleSource(source));
         }
         return loaded;
     }
@@ -230,6 +258,23 @@ public final class StoredRules {
             return false;
         }
         return textOf(PrimitiveData.nid(PublicIds.of(id)), view).filter(text -> inUse(text.nid(), view)).isPresent();
+    }
+
+    /**
+     * @param id a rule set's identity
+     * @return the text the knowledge base keeps in use for it; empty when it keeps none
+     */
+    public Optional<String> keptText(UUID id) {
+        ViewCalculator view = this.view.get();
+        if (!modelPresent(view) || !has(PublicIds.of(id), view)) {
+            return Optional.empty();
+        }
+        int textField = fieldOf(IkeConcept.RULE_SET_TEXT, view);
+        return textOf(PrimitiveData.nid(PublicIds.of(id)), view)
+                .flatMap(text -> versionInUse(text.nid(), view))
+                .map(version -> version.fieldValues().get(textField))
+                .filter(String.class::isInstance)
+                .map(String.class::cast);
     }
 
     /**
@@ -309,7 +354,7 @@ public final class StoredRules {
             return Outcome.of(Result.WRITTEN);
         } catch (RuntimeException e) {
             if (joined) {
-                // The change holds earlier work too: take back only the text written here.
+                // The change contains earlier work too: take back only the text written here.
                 if (PrimitiveData.get().hasPublicId(textId)) {
                     writer.withdraw(PrimitiveData.nid(textId));
                 }
@@ -321,13 +366,20 @@ public final class StoredRules {
     }
 
     /**
-     * Takes a rule set's text out of use in the knowledge base. An unpublished version of the text
-     * is taken back out of its unpublished change. A published text then gets an inactive version,
-     * an unpublished change like any other, and the versions before it stay as its history. The
-     * rule set's concept and its rules' concepts stay.
+     * Takes a rule set out of use in the knowledge base.
+     *
+     * <p>A rule set that was never published is taken back whole, when the unpublished change it
+     * is in contains nothing else: its text, its concept and its rules' concepts, so that a later
+     * publish does not publish a rule set with no text. When that change contains other work too,
+     * only the text is taken back, and the concepts stay with the other work.
+     *
+     * <p>A published rule set keeps its concept and its rules' concepts, which are its identity.
+     * An unpublished version of its text is taken back out of its unpublished change. A published
+     * text then gets an inactive version, an unpublished change like any other, and the versions
+     * before it stay as its history.
      *
      * @param id the rule set's identity
-     * @return what was written, or why nothing was
+     * @return what was written or taken back, or why nothing was
      */
     public Outcome remove(UUID id) {
         ViewCalculator view = this.view.get();
@@ -349,7 +401,22 @@ public final class StoredRules {
         BlockConcepts writer = new BlockConcepts("Remove rule set: " + name, view,
                 ConceptFacade.make(edit.getAuthorNidForChanges()), ConceptFacade.make(edit.getDefaultModuleNid()),
                 ConceptFacade.make(edit.getDefaultPathNid()));
+        boolean neverPublished = EntityHandle.get(ruleSetNid).orNull() instanceof Entity<?> concept
+                && !published(concept);
         try {
+            if (changeOfItsOwn(ruleSetNid, view).isPresent()) {
+                // Never published, in a change that contains nothing else: the whole change is taken back.
+                if (!writer.continuePendingWorkOf(EntityProxy.make(ruleSetNid))) {
+                    return Outcome.refusedBecause("“" + name + "” is unpublished in a change this one cannot"
+                            + " join (another author's, module's or path's). Publish or discard that change first.");
+                }
+                writer.rollback();
+                if (has(ruleSet, view)) {
+                    return Outcome.refusedBecause("The unpublished change that contains “" + name + "” could not be"
+                            + " taken back.");
+                }
+                return Outcome.of(Result.TAKEN_BACK);
+            }
             if (view.<SemanticEntityVersion>latest(textNid).get().uncommitted()) {
                 if (!writer.continuePendingWorkOf(EntityProxy.make(textNid))) {
                     return Outcome.refusedBecause("The text of “" + name + "” is unpublished in a change this"
@@ -359,7 +426,10 @@ public final class StoredRules {
                 writer.withdraw(textNid);
                 if (!SemanticVersions.visible(textNid, view) || !inUse(textNid, view)) {
                     // It was never published, or the version published before it was already removed.
-                    return Outcome.of(Result.TAKEN_BACK);
+                    return neverPublished
+                            ? new Outcome(Result.TEXT_TAKEN_BACK, "The concepts of the rule set and of its rules"
+                                    + " stay, because the unpublished change they are in contains other work too.")
+                            : Outcome.of(Result.TEXT_TAKEN_BACK);
                 }
             }
             writer.retire(text.get().publicId(), IkePattern.RULE_SOURCE_PATTERN, EntityProxy.make(ruleSetNid));
@@ -367,6 +437,62 @@ public final class StoredRules {
         } catch (RuntimeException e) {
             return Outcome.refusedBecause("The knowledge base did not take it: " + e.getMessage());
         }
+    }
+
+    /**
+     * The unpublished change a rule set is in, when the rule set was never published and the
+     * change contains nothing but the rule set: its concept, the concepts of rules that were never
+     * published either, and the semantics on what it contains, the rule set's text among them.
+     * Such a change can be taken back whole. A change that also contains another rule set, some
+     * other concept, a pattern, or an edit of a component that is published is not the rule set's
+     * own.
+     */
+    private static Optional<Transaction> changeOfItsOwn(long ruleSet, ViewCalculator view) {
+        if (!(EntityHandle.get(ruleSet).orNull() instanceof ConceptEntity<?> concept) || published(concept)) {
+            return Optional.empty();
+        }
+        Transaction change = null;
+        for (EntityVersion version : concept.versions()) {
+            if (!version.uncommitted()) {
+                continue;
+            }
+            Optional<Transaction> holder = Transaction.forVersion(version);
+            if (holder.isEmpty() || (change != null && holder.get() != change)) {
+                return Optional.empty();
+            }
+            change = holder.get();
+        }
+        if (change == null) {
+            return Optional.empty();
+        }
+        Set<Long> components = new LinkedHashSet<>();
+        for (long nid : change.componentNids()) {
+            components.add(nid);
+        }
+        for (long nid : components) {
+            boolean itsOwn = switch (EntityHandle.get(nid).orNull()) {
+                case StampEntity<?> _ -> true;
+                case ConceptEntity<?> other -> !published(other)
+                        && (nid == ruleSet || isKindOf(nid, IkeConcept.KOMET_RULE, view));
+                case SemanticEntity<?> semantic -> !published(semantic)
+                        && components.contains(semantic.referencedComponentNid());
+                case null, default -> false;
+            };
+            if (!itsOwn) {
+                return Optional.empty();
+            }
+        }
+        return Optional.of(change);
+    }
+
+    /** Whether a component has a version that was published: one neither unpublished nor cancelled. */
+    private static boolean published(Entity<?> entity) {
+        for (EntityVersion version : entity.versions()) {
+            if (!version.uncommitted() && !version.canceled()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ── reading ──────────────────────────────────────────────────

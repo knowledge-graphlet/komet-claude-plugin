@@ -72,7 +72,10 @@ class StoredRulesWithoutTheRuleModelIT {
         assertEquals(List.of(), StoredRules.read(Calculators.View.Default()));
         assertEquals(List.of(), StoredRules.loadInto(() -> {
             throw new AssertionError("the rule service is not asked for when no rule set is kept");
-        }, Calculators.View.Default()));
+        }, Calculators.View.Default(), new AcceptedRules(() -> {
+            throw new AssertionError("nor is the record of what was accepted here");
+        })));
+        assertEquals(java.util.Optional.empty(), stored.keptText(id));
 
         assertFalse(PrimitiveData.get().hasPublicId(PublicIds.of(id)), "no concept was written");
         assertFalse(PrimitiveData.get().hasPublicId(IkePattern.RULE_SOURCE_PATTERN.publicId()),

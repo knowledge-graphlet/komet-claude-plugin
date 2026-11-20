@@ -27,8 +27,14 @@ import org.slf4j.LoggerFactory;
 import java.util.List;
 
 /**
- * Puts the rule sets the knowledge base keeps in use when Komet starts, once the knowledge base
- * is open (IKE-Network/ike-issues#1391), whether or not a Rules card is ever opened.
+ * Gives the rule service the rule sets the knowledge base keeps when Komet starts, once the
+ * knowledge base is open (IKE-Network/ike-issues#1391), whether or not a Rules card is ever
+ * opened.
+ *
+ * <p>A rule set whose text a person saved or accepted on this installation is put in use
+ * ({@link AcceptedRules}). Any other is proposed: it is listed on the Rules card and none of its
+ * code runs until a person accepts it there, so a knowledge base that came from elsewhere does
+ * not run its rule text by being opened.
  *
  * <p>A knowledge base that lacks the rule source pattern is left alone, and the rule service is
  * asked for only when the knowledge base keeps a rule set, so a knowledge base with none starts as
@@ -52,11 +58,14 @@ public class StoredRulesLifecycle implements ServiceLifecycle {
             if (!StoredRules.patternPresent()) {
                 return;
             }
-            List<ListedRuleSet> loaded = StoredRules.loadInto(RuleService::get, Calculators.View.Default());
+            List<ListedRuleSet> loaded = StoredRules.loadInto(RuleService::get, Calculators.View.Default(),
+                    AcceptedRules.ofThisInstallation());
             if (!loaded.isEmpty()) {
                 long inUse = loaded.stream().filter(ListedRuleSet::inUse).count();
-                LOG.info("Loaded {} rule set(s) from the knowledge base; {} in use, {} out of use with findings",
-                        loaded.size(), inUse, loaded.size() - inUse);
+                long waiting = loaded.stream().filter(ruleSet -> !ruleSet.accepted()).count();
+                LOG.info("Loaded {} rule set(s) from the knowledge base; {} in use, {} waiting for Accept"
+                                + " (not accepted here), {} out of use with findings",
+                        loaded.size(), inUse, waiting, loaded.size() - inUse - waiting);
             }
         } catch (Throwable failure) {
             LOG.error("The rule sets the knowledge base keeps could not be loaded; Komet runs without them", failure);
