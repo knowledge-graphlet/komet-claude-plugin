@@ -16,6 +16,7 @@
 package network.ike.komet.claude.documenttools;
 
 import network.ike.komet.document.AddDocumentBlock;
+import network.ike.komet.document.CommitAuthors;
 import network.ike.komet.document.CommitSummaries;
 import network.ike.komet.document.DeleteDocumentBlock;
 import network.ike.komet.document.DocumentAssembly;
@@ -589,7 +590,9 @@ public final class DocumentGraphTools {
                     try {
                         Files.createDirectories(file.getParent());
                         Files.writeString(file, "= " + title.strip() + "\n\n" + summary.strip() + "\n");
-                        DocumentCommit.Result committed = DocumentCommit.first(root, relative, "Add " + title.strip() + "\n");
+                        // The assistant wrote the file: its first commit is the assistant's, under the person (#1399).
+                        Map<String, String> authors = CommitAuthors.assistantsWorkNow();
+                        DocumentCommit.Result committed = DocumentCommit.first(root, relative, "Add " + title.strip() + "\n", authors);
                         if (!committed.ok()) {
                             Files.deleteIfExists(file);
                             return "Not created: " + committed.output();
@@ -597,6 +600,7 @@ public final class DocumentGraphTools {
                         PublicId anchor = GitDocumentMaterializer.materialize(root, file).anchor();
                         pairing.pair(anchor);
                         return "Created " + relative + " in " + root + " as a local first commit, " + committed.sha().substring(0, 7)
+                                + CommitAuthors.described(authors)
                                 + ", nothing pushed; it is stored, open beside you and paired with this conversation. Insert your "
                                 + "blocks after its first paragraph with propose_block_insert.";
                     } catch (IOException e) {

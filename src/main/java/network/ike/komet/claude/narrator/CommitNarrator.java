@@ -22,6 +22,8 @@ import design.knowledge.stamp.adoc.model.Annotation;
 import design.knowledge.stamp.adoc.model.AnnotationKind;
 import design.knowledge.stamp.adoc.model.AnnotationTarget;
 import design.knowledge.stamp.adoc.model.KonceptRef;
+import network.ike.komet.document.CommitAuthors;
+import network.ike.komet.document.DocumentCommit;
 import network.ike.komet.document.DocumentCommits;
 import network.ike.komet.document.GitDocumentMaterializer;
 import dev.ikm.komet.preferences.PreferencesService;
@@ -46,9 +48,12 @@ import network.ike.komet.claude.tools.GraphTools;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -71,8 +76,15 @@ import java.util.function.Consumer;
  * stamped document rebuilt from git, is not narrated from the store at all: a rebuild is transparent
  * (IKE-Network/ike-issues#1355). A stamped document a person commits to git through Komet is narrated
  * from that commit instead ({@link DocumentCommits}): the narration is written to the document's git
- * repository as a comment on the commit's STAMP, authored by the narrator, and comes into the store,
- * under the document's module, with every rebuild.
+ * repository as a comment on the commit's STAMP, and comes into the store, under the document's module,
+ * with every rebuild.
+ * <p>
+ * A narration is the assistant's own work, so it is the assistant's commit (IKE-Network/ike-issues#1399,
+ * decision 4): when the file of authors ({@link CommitAuthors}) names the person's assistant, the
+ * annotation commit has the assistant as git author and the person as committer, and its annotation
+ * names no annotator of its own, so the commit's author is the annotator: the author concept made from
+ * the assistant's address. With no assistant named, the commit is written under git's own author, and
+ * its annotation names {@link NarratorIdentity#NARRATOR_AUTHOR}, as before.
  * <p>
  * Every narration's identity is derived from the STAMP it narrates ({@link CommentWriter#narrationId}),
  * so a change is narrated once: one already in the store is not asked of Claude again.
@@ -284,8 +296,10 @@ public final class CommitNarrator {
 
     /**
      * Narrates a stamped document a person committed to git (IKE-Network/ike-issues#1355): the narration is a
-     * comment on the commit's STAMP, written to the document's repository as an annotation commit authored by
-     * the narrator, then brought into the store by rebuilding the document, under the document's module. Its
+     * comment on the commit's STAMP, written to the document's repository as an annotation commit
+     * ({@link #writeNarration}): the person's assistant's, under the person, when the file of authors names an
+     * assistant, else the narrator's. It is then brought into the store by rebuilding the document, under the
+     * document's module. Its
      * identity is derived from the commit's STAMP, so it is written once, and every rebuild recreates it.
      */
     private void narrateDocumentCommit(DocumentCommits.Committed committed, String key, String model) throws Exception {
@@ -307,18 +321,41 @@ public final class CommitNarrator {
         if (narrative == null || narrative.isBlank()) {
             return;
         }
-        GitIdentityAdapter adapter = GitIdentityAdapter.fromMailmap(committed.root());
-        Annotation comment = new Annotation(AnnotationKind.COMMENT.ref(),
-                new AnnotationTarget.ChangeSet(new KonceptRef(adapter.stamp(committed.sha()).uuid(), committed.sha().substring(0, 7))),
-                new KonceptRef(NarratorIdentity.NARRATOR_AUTHOR.publicId().asUuidArray()[0], NarratorIdentity.NARRATOR_AUTHOR_NAME),
-                Instant.now(), id.asUuidArray()[0]);
-        AnnotationCommit.Result written = AnnotationCommit.write(committed.root(), List.of(comment), narrative.strip(), false);
+        AnnotationCommit.Result written = writeNarration(committed.root(), committed.sha(), id, narrative,
+                CommitAuthors.assistantsWorkNow());
         if (!written.ok()) {
             LOG.warn("Not narrated: the narration of {} at {} could not be committed: {}", committed.file(),
                     committed.sha(), written.output());
             return;
         }
         GitDocumentMaterializer.materialize(committed.root(), committed.root().resolve(committed.file()), true);
+    }
+
+    /**
+     * Writes a narration of a document's commit to its git repository: an unsigned annotation commit whose
+     * one comment is on the commit's STAMP, the narration its body. With the assistant's variables
+     * ({@link CommitAuthors#assistantsWork}) it is the assistant's commit under the person, and the commit's
+     * author is the annotator; with none it is written under git's own author and names the narrator as
+     * annotator.
+     *
+     * @param root      the working tree root
+     * @param sha       the narrated commit
+     * @param id        the narration's identity ({@link CommentWriter#narrationId})
+     * @param narrative the narration
+     * @param authors   git's author and committer variables for the commit; none to write it under git's own
+     * @return what git did
+     * @throws IOException if the repository cannot be read or git cannot be run
+     */
+    static AnnotationCommit.Result writeNarration(Path root, String sha, PublicId id, String narrative,
+                                                  Map<String, String> authors) throws IOException {
+        GitIdentityAdapter adapter = GitIdentityAdapter.fromMailmap(root);
+        KonceptRef annotator = authors.isEmpty()
+                ? new KonceptRef(NarratorIdentity.NARRATOR_AUTHOR.publicId().asUuidArray()[0], NarratorIdentity.NARRATOR_AUTHOR_NAME)
+                : null;                                          // the commit's author, the person's assistant, is the annotator
+        Annotation comment = new Annotation(AnnotationKind.COMMENT.ref(),
+                new AnnotationTarget.ChangeSet(new KonceptRef(adapter.stamp(sha).uuid(), sha.substring(0, 7))),
+                annotator, Instant.now(), id.asUuidArray()[0]);
+        return DocumentCommit.annotate(root, List.of(comment), narrative.strip(), false, authors);
     }
 
     /**

@@ -40,6 +40,12 @@ import java.util.UUID;
  * <p>
  * The author/module pair is also the key the narrator uses to recognize — and skip — its own
  * comment commits (see the commit narrator's worthiness guard).
+ * <p>
+ * A narration of a stamped document's git commit names this author only when no assistant is named
+ * for the person: with the IKE Dashboard's file of authors naming one, the narration is the person's
+ * assistant's commit, and its author concept is the one made from the assistant's address
+ * (IKE-Network/ike-issues#1399, decision 4). The narrations the narrator writes in the store, on
+ * knowledge commits, are still this author's.
  */
 public final class NarratorIdentity {
 
