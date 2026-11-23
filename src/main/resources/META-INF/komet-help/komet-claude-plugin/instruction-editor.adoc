@@ -48,6 +48,16 @@ Each set has its own conversation, kept until Komet quits.
 The drawer uses the Anthropic API key and model from an Assistant card's settings, so set those first.
 How the drafting behaves comes from *Settings › Drafting prompt*: the bundled _Instruction Editor default_, or a System Prompt set of your own.
 
+== Changes from the Komet Assistant
+
+You can also ask the Komet Assistant card about your instruction sets: it can say whether an Instruction Editor is open, read a set, and open the editor at a set when you ask.
+When you ask it to change a set, it opens the Instruction Editor that contains the set, reopening it if its window is closed, and puts its new text into the set as unsaved changes.
+The status line says _Unsaved changes from the Komet Assistant_, and View marks what changed.
+Nothing is saved until you choose *Save*, or *Save as…* for a system default. *Revert draft* puts back the text from before the change.
+
+If the editor has unsaved changes to another set, it stays on that set so your text is not lost. The change waits with its own set and shows when you open it.
+A change that is not saved is gone when the editor closes.
+
 == Using a set
 
 To have an assistant work from a set, open the Komet Assistant card's settings:

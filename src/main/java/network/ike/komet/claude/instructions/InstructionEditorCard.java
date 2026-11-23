@@ -67,12 +67,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * The Instruction Editor card ({@code IKE-Network/ike-issues#1044}): the standardized,
@@ -83,7 +85,9 @@ import java.util.UUID;
  * settings pane selects; ike-issues#1042). Sets are payload files registered by preferences
  * entries ({@link InstructionSets}), so they ride the preferences git sync, and the tile carries
  * the {@code card-type} marker so use sites discover it journal-wide (the tile-store pickup
- * model). Assistant support inside this card is the recorded follow-on from the skills brief.
+ * model). The card's own Assistant drawer drafts with the person; the Komet Assistant reads the
+ * sets and proposes edits through {@link InstructionEditorTools}, shown here as tracked changes
+ * for the person to save or revert, as the drawer's proposals are.
  */
 public final class InstructionEditorCard extends AbstractHostCard {
 
@@ -136,6 +140,8 @@ public final class InstructionEditorCard extends AbstractHostCard {
         final List<ExchangeView> exchangePanes = new ArrayList<>();
         ProposalBase base;
         String proposal;
+        /** Whether the proposal under review came from the Komet Assistant, not this card's drawer. */
+        boolean fromKometAssistant;
         boolean busy;
     }
 
@@ -317,11 +323,15 @@ public final class InstructionEditorCard extends AbstractHostCard {
             ensureTileLabel();
             seedExamplesOnce();
             refreshSets(null);
+            OPEN.add(new WeakReference<>(this));
+            List<Runnable> waiting = List.copyOf(whenShown);
+            whenShown.clear();
+            waiting.forEach(Runnable::run);
         }
     }
 
     /** The current seed generation — bump when a new system default joins the seed set. */
-    private static final int SEED_GENERATION = 5;
+    private static final int SEED_GENERATION = 6;
 
     /**
      * Seeds the read-only system defaults (KEC 2026-08-17, settled): real sets showing the form,
@@ -335,6 +345,9 @@ public final class InstructionEditorCard extends AbstractHostCard {
      *   <li>The drafting persona refreshed in place, for tiles seeded at generation 2.</li>
      *   <li>Read-only copies of the assistant's bundled skills (KEC 2026-10-23), to read and to
      *       Save as… a copy that changes; the assistant itself uses the bundled originals.</li>
+     *   <li>The tool contract and the default instructions refreshed in place (generation 5).</li>
+     *   <li>The tool contract refreshed in place again, for the Komet Assistant's tools on the
+     *       Instruction Editor and the journal's windows (generation 6).</li>
      * </ol>
      */
     private void seedExamplesOnce() {
@@ -411,6 +424,14 @@ public final class InstructionEditorCard extends AbstractHostCard {
                     store.refreshSystemDefault(set, bundledResource("system-prompt-core.md"));
                 } else if (set.readOnly() && "Komet Assistant default".equals(set.name())) {
                     store.refreshSystemDefault(set, bundledResource("system-prompt-instructions.md"));
+                }
+            }
+        } else if (generation < 6) {
+            // Generation 6 added the tools on the Instruction Editor and the journal's windows to the
+            // tool contract: refresh OUR read-only copy of it. Generation 5's pass above did it already.
+            for (InstructionSet set : store.list()) {
+                if (set.readOnly() && "Komet tool contract".equals(set.name())) {
+                    store.refreshSystemDefault(set, bundledResource("system-prompt-core.md"));
                 }
             }
         }
@@ -583,6 +604,10 @@ public final class InstructionEditorCard extends AbstractHostCard {
         Region buttonSpacer = new Region();
         HBox.setHgrow(buttonSpacer, Priority.ALWAYS);
         statusLine.setMinWidth(0);
+        // A status as long as "Unsaved changes from the Komet Assistant" wraps beside the buttons rather
+        // than being cut short at a narrow card's width.
+        statusLine.setWrapText(true);
+        statusLine.setMinHeight(Region.USE_PREF_SIZE);
         revertDraftButton = new Button("Revert draft");
         revertDraftButton.setMinWidth(Region.USE_PREF_SIZE);
         revertDraftButton.setTooltip(new Tooltip(
@@ -745,7 +770,172 @@ public final class InstructionEditorCard extends AbstractHostCard {
         // The plugin Trash outlives every card: its listeners go first, so a failing unbind still releases the card.
         PluginTrash.stopListening(trashPutBack);
         PluginTrash.stopListening(trashChanged);
+        OPEN.removeIf(reference -> reference.get() == null || reference.get() == this);
         super.knowledgeLayoutUnbind();
+    }
+
+    /*
+     * The Komet Assistant's side of the card (InstructionEditorTools): which set is on screen,
+     * whether it has unsaved changes, and a proposal shown for the person's review. Everything here
+     * runs on the JavaFX application thread, and nothing here saves: Save, Save as… and Revert
+     * draft stay the person's.
+     */
+
+    /** Cards whose content is built and not yet unbound, so the assistant's tools find what is open. */
+    private static final List<WeakReference<InstructionEditorCard>> OPEN = new CopyOnWriteArrayList<>();
+
+    /** Work the assistant asked of the card before its content was built: run once it is. */
+    private final List<Runnable> whenShown = new ArrayList<>();
+
+    /**
+     * The open Instruction Editor of a tile.
+     *
+     * @param tile the name of the tile's preferences node, as the journal's Tiles menu has it
+     * @return the card showing it, or empty when the tile's window is closed
+     */
+    static Optional<InstructionEditorCard> open(String tile) {
+        for (WeakReference<InstructionEditorCard> reference : OPEN) {
+            InstructionEditorCard card = reference.get();
+            if (card == null) {
+                OPEN.remove(reference);
+            } else if (card.tile().equals(tile)) {
+                return Optional.of(card);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** @return the name of this card's tile, its window's preferences node */
+    String tile() {
+        KometPreferences window = preferences().parent();
+        return window == null ? "" : window.name();
+    }
+
+    /** @return the name the journal's Tiles menu lists this tile under */
+    String tileLabel() {
+        return preferences().get(TILE_LABEL_KEY, CARD_NAME);
+    }
+
+    /** @return the set on screen, or empty when there is none */
+    Optional<InstructionSet> shownSet() {
+        return Optional.ofNullable(active);
+    }
+
+    /** @return whether the set on screen differs from its saved text */
+    boolean hasUnsavedChanges() {
+        return active != null
+                && (!loadedName.equals(nameField.getText() == null ? "" : nameField.getText())
+                        || !loadedDescription.equals(descriptionText())
+                        || loadedCategory != categoryBox.getValue()
+                        || !loadedBody.equals(bodyPane.getText()));
+    }
+
+    /** @return the set on screen as the person sees it, in the portable form, saved or not */
+    String shownDocument() {
+        return InstructionSets.withFrontmatter(nameField.getText(), descriptionText(), categoryBox.getValue(),
+                bodyPane.getText());
+    }
+
+    /**
+     * @param setId a set of this tile
+     * @return who made the proposal waiting for the person's review on the set, if one is
+     */
+    Optional<String> proposalWaiting(String setId) {
+        DraftingSession session = draftingSessions.get(setId);
+        if (session == null || session.proposal == null) {
+            return Optional.empty();
+        }
+        return Optional.of(session.fromKometAssistant ? "the Komet Assistant" : "the Assistant drawer of this editor");
+    }
+
+    /** Brings the card's window to the front of the journal. */
+    void reveal() {
+        dev.ikm.komet.layout_engine.window.RevealWindowEvent.reveal(fxObject());
+    }
+
+    /**
+     * Runs work now when the card's content is built, or once it is: a tile the assistant just
+     * reopened builds its content on a later pulse.
+     *
+     * @param work the work, run on the JavaFX application thread
+     */
+    void whenShown(Runnable work) {
+        if (content != null) {
+            work.run();
+        } else {
+            whenShown.add(work);
+        }
+    }
+
+    /** How a set the assistant asked for came to the screen. */
+    enum Shown {
+        /** The set is on screen. */
+        SHOWN,
+        /** Another set with unsaved changes is on screen, so the editor stayed on it. */
+        KEPT_UNSAVED
+    }
+
+    /**
+     * Shows a set of this tile, unless another set with unsaved changes is on screen: switching
+     * sets reloads the editor, and the person's unsaved text would be lost.
+     *
+     * @param set a set of this tile
+     * @return what the person sees
+     */
+    Shown showSet(InstructionSet set) {
+        if (active != null && active.id().equals(set.id())) {
+            return Shown.SHOWN;
+        }
+        if (hasUnsavedChanges()) {
+            return Shown.KEPT_UNSAVED;
+        }
+        refreshSets(set);
+        return Shown.SHOWN;
+    }
+
+    /**
+     * Shows the Komet Assistant's proposal for a set as tracked changes for the person to review,
+     * the way the drawer's proposals are shown: Save (Save as… for a system default) keeps it and
+     * Revert draft takes it back. A proposal for a set that is not on screen waits with that set,
+     * and shows when the person opens it.
+     *
+     * @param set      a set of this tile
+     * @param document the whole proposed document, in the portable form
+     * @return what the person sees
+     */
+    Shown proposeFromKometAssistant(InstructionSet set, String document) {
+        if (InstructionSets.parseFrontmatter(stripFence(document)).body().isBlank()) {
+            throw new IllegalArgumentException("The proposed document has no body, so there is nothing to review.");
+        }
+        receiveProposal(set.id(), document);
+        DraftingSession session = draftingSession(set.id());
+        session.fromKometAssistant = true;
+        Shown shown = showSet(set);
+        updateChangeState();
+        return shown;
+    }
+
+    /**
+     * Withdraws the Komet Assistant's proposal for a set that the person has not saved. On screen,
+     * the text the editor had before the proposal comes back, unsaved changes of the person's
+     * included. A proposal from the card's own drawer is left alone.
+     *
+     * @param setId a set of this tile
+     * @return whether a proposal was withdrawn
+     */
+    boolean withdrawKometAssistantProposal(String setId) {
+        DraftingSession session = draftingSessions.get(setId);
+        if (session == null || session.proposal == null || !session.fromKometAssistant) {
+            return false;
+        }
+        if (active != null && active.id().equals(setId)) {
+            revertDraft();
+        } else {
+            session.base = null;
+            session.proposal = null;
+            session.fromKometAssistant = false;
+        }
+        return true;
     }
 
     /** Reloads the rail, keeping (or setting) the selection; empty swaps in the first-run state. */
@@ -829,12 +1019,17 @@ public final class InstructionEditorCard extends AbstractHostCard {
                 bodyPane.clearChangeBase();
             }
         }
+        boolean fromKometAssistant = reviewing && session.fromKometAssistant;
         if (active.readOnly()) {
             statusLine.setText(changed
-                    ? "\u25cf System default — Save as\u2026 to keep your changes"
+                    ? (fromKometAssistant
+                            ? "\u25cf Changes from the Komet Assistant — Save as\u2026 to keep them"
+                            : "\u25cf System default — Save as\u2026 to keep your changes")
                     : "System default — use Save as\u2026 to make your copy");
         } else {
-            statusLine.setText(changed ? "\u25cf Unsaved changes" : "");
+            statusLine.setText(changed
+                    ? (fromKometAssistant ? "\u25cf Unsaved changes from the Komet Assistant" : "\u25cf Unsaved changes")
+                    : "");
         }
     }
 
@@ -1286,6 +1481,7 @@ public final class InstructionEditorCard extends AbstractHostCard {
     private void endReview(DraftingSession session) {
         session.base = null;
         session.proposal = null;
+        session.fromKometAssistant = false;
         bodyPane.clearChangeBase();
         revertDraftButton.setVisible(false);
         revertDraftButton.setManaged(false);

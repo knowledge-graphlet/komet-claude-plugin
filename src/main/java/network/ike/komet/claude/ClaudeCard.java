@@ -767,6 +767,9 @@ public final class ClaudeCard extends AbstractHostCard {
         // propose a rule as Java source, compiled at once and out of use until the person accepts it in the
         // Rules card.
         all.addAll(new network.ike.komet.claude.rules.RuleTools(viewProperties).tools());
+        // The journal's windows and its Instruction Editors: what is open, the instruction sets the editors
+        // contain, and a set's new text proposed as tracked changes there, saved only by the person.
+        all.addAll(new network.ike.komet.claude.instructions.InstructionEditorTools(journalTopic, safeView).tools());
         // Skills (KEC 2026-10-23): the prompt lists each skill's name and use; this loads one's instructions.
         all.add(network.ike.komet.claude.instructions.AssistantSkills.loadSkillTool(skills));
         return java.util.List.copyOf(all);
