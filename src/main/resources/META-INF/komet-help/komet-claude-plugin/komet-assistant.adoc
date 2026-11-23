@@ -26,7 +26,9 @@ When Anthropic's service is busy the card retries by itself and says so.
 
 == Reading the answer
 
-Each question starts an exchange, headed by its number and a short title the assistant gives it.
+Each question starts an exchange, headed by its number, a short title the assistant gives it, and the date and time you asked.
+Each reply is headed by _Komet Assistant_ and the date and time it came, in your computer's time zone; the year is given when it is not this year, and always on a printed page.
+A conversation from before Komet kept these times shows them on its replies, read from its journal, and not on its questions.
 Click the heading to fold the exchange away; *⊞* and *⊟* above the transcript open or fold them all.
 
 Concept chips:: Every concept the assistant reports is shown as a chip: its identicon and the name your view prefers. A retired concept's chip is struck through. Right-click a chip to copy its name or its _k:_ token; its link opens the concept's definition.

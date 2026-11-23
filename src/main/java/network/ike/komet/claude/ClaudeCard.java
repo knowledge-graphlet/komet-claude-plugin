@@ -124,6 +124,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -370,6 +371,8 @@ public final class ClaudeCard extends AbstractHostCard {
         boolean outcomeStopped;
         final List<MarkdownRichText.Entry> entries = new ArrayList<>();
         final List<Map<String, Object>> apiMessages = new ArrayList<>();
+        /** When each of {@link #apiMessages} was said, in the same order; null where that was not recorded. */
+        final List<Instant> turnTimes = new ArrayList<>();
         final StringBuilder markdown = new StringBuilder();
         /** Turn index where the current exchange (the last user question) begins; scroll anchor. */
         int turnStartTurn;
@@ -395,7 +398,8 @@ public final class ClaudeCard extends AbstractHostCard {
     /** Serialized form of a {@link Conversation} (json4j); {@code journalAnchor} is the journal's
      *  anchor UUID, or null for a conversation that predates (or never reached) the journal. */
     private record ConversationDto(String id, String name, List<Map<String, Object>> turns,
-                                   String journalAnchor, Map<String, String> titles, String paired) {
+                                   String journalAnchor, Map<String, String> titles, String paired,
+                                   List<String> times) {
     }
 
     private ClaudeCard(KometPreferences preferences) {
@@ -2572,7 +2576,8 @@ public final class ClaudeCard extends AbstractHostCard {
         // fails — a failed turn must not linger in the transcript (or diverge from the saved history).
         int entryMark = conv.entries.size();
         int markdownMark = conv.markdown.length();
-        renderUser(conv, text);
+        Instant asked = Instant.now();
+        renderUser(conv, text, asked);
 
         conv.busy = true;
         conv.activity = "Working";
@@ -2629,6 +2634,7 @@ public final class ClaudeCard extends AbstractHostCard {
             String system = withPaneContext(requestSystem(conv));
             List<Map<String, Object>> context = new ArrayList<>(history);
             String message = text;
+            Instant messageSaid = asked;
             String lastReply = null;
             String errorMessage = null;
             int rounds = 0;
@@ -2678,11 +2684,13 @@ public final class ClaudeCard extends AbstractHostCard {
                 String answer = cut ? reply
                         : rewriteFlaggedTerms(conv, client, system, context, message, reply, listener, stopped);
                 lastReply = answer;
+                Instant answered = Instant.now();
                 journalExchange(conv, message, answer);
                 context.add(Map.of("role", "user", "content", message));
                 context.add(Map.of("role", "assistant", "content", answer));
                 boolean correcting = rounds > 0;
                 String sent = message;
+                Instant sentSaid = messageSaid;
                 Platform.runLater(() -> {
                     // The conversation may have been deleted while in flight — do not render or
                     // persist it (a save here would resurrect the deleted file on disk).
@@ -2690,11 +2698,13 @@ public final class ClaudeCard extends AbstractHostCard {
                         return;
                     }
                     if (correcting) {
-                        renderFeedback(conv, sent);
+                        renderFeedback(conv, sent, sentSaid);
                     }
-                    renderAssistant(conv, answer);
+                    renderAssistant(conv, answer, answered);
                     conv.apiMessages.add(Map.of("role", "user", "content", sent));
+                    conv.turnTimes.add(sentSaid);
                     conv.apiMessages.add(Map.of("role", "assistant", "content", answer));
+                    conv.turnTimes.add(answered);
                     saveConversation(conv);
                 });
                 // findings on a block cut off mid-way would ask for the wrong correction: a cut reply stands as it is
@@ -2708,6 +2718,7 @@ public final class ClaudeCard extends AbstractHostCard {
                 }
                 setActivity(conv, "Correcting the decision tree…");
                 message = feedback.get();
+                messageSaid = Instant.now();
                 rounds++;
             }
             String finalReply = lastReply;
@@ -3323,6 +3334,7 @@ public final class ClaudeCard extends AbstractHostCard {
             dto.put("id", conv.id);
             dto.put("name", conv.name);
             dto.put("turns", conv.apiMessages);
+            dto.put("times", ConversationTimes.saved(conv.turnTimes));
             if (conv.pairedDocument != null) {
                 dto.put("paired", conv.pairedDocument.asUuidArray()[0].toString());
             }
@@ -3769,6 +3781,7 @@ public final class ClaudeCard extends AbstractHostCard {
             if (dto.turns() != null) {
                 conv.apiMessages.addAll(dto.turns());
             }
+            conv.turnTimes.addAll(ConversationTimes.read(dto.times(), conv.apiMessages.size()));
             if (dto.journalAnchor() != null && !dto.journalAnchor().isBlank()) {
                 try {
                     conv.journalAnchor = PublicIds.of(UUID.fromString(dto.journalAnchor()));
@@ -3781,10 +3794,11 @@ public final class ClaudeCard extends AbstractHostCard {
             // document of record (#807), but its per-element chronology reads happen OFF the FX
             // thread, and it only replaces the display when it covers at least the JSON history —
             // a journal missing turns (one failed append) must not hide them.
-            for (Map<String, Object> turn : conv.apiMessages) {
+            for (int i = 0; i < conv.apiMessages.size(); i++) {
+                Map<String, Object> turn = conv.apiMessages.get(i);
                 String content = String.valueOf(turn.get("content"));
                 boolean user = "user".equals(String.valueOf(turn.get("role")));
-                appendLoadedEntry(conv, content, !user);
+                appendLoadedEntry(conv, content, !user, conv.turnTimes.get(i));
             }
             conversations.add(conv);
             reconcileFromJournalAsync(conv);
@@ -3829,8 +3843,10 @@ public final class ClaudeCard extends AbstractHostCard {
                 }
                 conv.entries.clear();
                 conv.markdown.setLength(0);
-                for (JournalStore.TurnRecord turn : records) {
-                    appendLoadedEntry(conv, turn.markdown(), turn.assistantAuthored());
+                for (int i = 0; i < records.size(); i++) {
+                    JournalStore.TurnRecord turn = records.get(i);
+                    Instant kept = i < conv.turnTimes.size() ? conv.turnTimes.get(i) : null;
+                    appendLoadedEntry(conv, turn.markdown(), turn.assistantAuthored(), ConversationTimes.of(kept, turn));
                 }
                 if (conv == active) {
                     refreshTranscript();
@@ -3842,12 +3858,12 @@ public final class ClaudeCard extends AbstractHostCard {
     }
 
     /** Appends one restored turn to the conversation's entries and Save markdown. */
-    private void appendLoadedEntry(Conversation conv, String content, boolean assistant) {
+    private void appendLoadedEntry(Conversation conv, String content, boolean assistant, Instant saidAt) {
         if (assistant) {
-            conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT, content, true));
+            conv.entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT, content, true, saidAt));
             conv.markdown.append("**Komet Assistant:** ").append(content).append("\n\n");
         } else {
-            conv.entries.add(network.ike.komet.claude.ui.AssistantTurns.user(content));
+            conv.entries.add(network.ike.komet.claude.ui.AssistantTurns.user(content).saidAt(saidAt));
             conv.markdown.append("**You:** ").append(content).append("\n\n");
         }
     }
@@ -3856,10 +3872,10 @@ public final class ClaudeCard extends AbstractHostCard {
      *  Transcript rendering (FX thread)                                           *
      ******************************************************************************/
 
-    private void renderUser(Conversation conv, String text) {
+    private void renderUser(Conversation conv, String text, Instant saidAt) {
         // The exchange begins at the turn this entry is about to occupy (the current end).
         conv.turnStartTurn = conv.entries.size();
-        MarkdownRichText.Entry entry = network.ike.komet.claude.ui.AssistantTurns.user(text);
+        MarkdownRichText.Entry entry = network.ike.komet.claude.ui.AssistantTurns.user(text).saidAt(saidAt);
         conv.entries.add(entry);
         conv.markdown.append("**You:** ").append(text).append("\n\n");
         if (conv == active) {
@@ -3871,8 +3887,8 @@ public final class ClaudeCard extends AbstractHostCard {
     }
 
     /** Komet's findings on the assistant's block, sent back for correction: a turn of Komet's own. */
-    private void renderFeedback(Conversation conv, String text) {
-        MarkdownRichText.Entry entry = network.ike.komet.claude.ui.AssistantTurns.user(text);
+    private void renderFeedback(Conversation conv, String text, Instant saidAt) {
+        MarkdownRichText.Entry entry = network.ike.komet.claude.ui.AssistantTurns.user(text).saidAt(saidAt);
         conv.entries.add(entry);
         conv.markdown.append("**Komet:** ").append(text).append("\n\n");
         if (conv == active) {
@@ -3902,7 +3918,7 @@ public final class ClaudeCard extends AbstractHostCard {
             }
             Optional<String> restated = FencedBlocks.replace(entry.content(), info, literal, newInfo, newLiteral);
             if (restated.isPresent()) {
-                conv.entries.set(i, new MarkdownRichText.Entry(entry.role(), restated.get(), true));
+                conv.entries.set(i, entry.restated(restated.get()));
                 turn = i;
                 break;
             }
@@ -3929,9 +3945,9 @@ public final class ClaudeCard extends AbstractHostCard {
         refreshTranscript(true);
     }
 
-    private void renderAssistant(Conversation conv, String markdown) {
+    private void renderAssistant(Conversation conv, String markdown, Instant saidAt) {
         MarkdownRichText.Entry entry =
-                new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT, markdown, true);
+                new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT, markdown, true, saidAt);
         conv.entries.add(entry);
         conv.markdown.append("**Komet Assistant:** ").append(markdown).append("\n\n");
         if (conv == active) {
