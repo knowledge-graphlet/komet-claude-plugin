@@ -308,41 +308,103 @@ public final class InstructionEditorTools {
                         if (JournalWindows.of(topic).isEmpty()) {
                             throw new IllegalStateException(NOT_OPEN);
                         }
-                        Tile tile = located != null ? located.tile() : editorToOpen(topic);
+                        Opening opening = open(this, topic, located);
+                        Tile tile = opening.tile();
                         if (tile == null) {
-                            EvtBusFactory.getDefaultEvtBus().publish(topic, new MakeCardWindowEvent(this,
-                                    MakeCardWindowEvent.FOCUS_OR_CREATE, EDITOR_PROVIDER));
                             return "The journal had no Instruction Editor, so a new one was made and opened. It "
                                     + "contains Komet's system defaults: read-only sets the person can copy with "
                                     + "Save as…. Nothing else was written.";
                         }
-                        Optional<InstructionEditorCard> open = InstructionEditorCard.open(tile.name());
-                        if (open.isPresent()) {
-                            InstructionEditorCard card = open.get();
-                            card.reveal();
-                            if (located == null) {
-                                return "Brought \"" + tile.label() + "\" to the front" + editorSays(state(tile).orElseThrow())
-                                        + ". Nothing was written.";
-                            }
-                            return card.showSet(located.set()) == Shown.SHOWN
-                                    ? "Brought \"" + tile.label() + "\" to the front, showing \"" + located.set().name()
-                                            + "\". Nothing was written."
-                                    : "Brought \"" + tile.label() + "\" to the front. It stayed on \""
-                                            + card.shownSet().map(InstructionSet::name).orElse("")
-                                            + "\", which has unsaved changes, so they are not lost. The person can open \""
-                                            + located.set().name() + "\" from the editor's list once they save or revert "
-                                            + "them. Nothing was written.";
+                        InstructionEditorCard card = opening.fronted();
+                        if (card == null) {
+                            return "Reopened \"" + tile.label() + "\", whose window was closed"
+                                    + (located == null ? "" : ", at \"" + located.set().name() + "\"")
+                                    + ". Nothing was written.";
                         }
-                        EvtBusFactory.getDefaultEvtBus().publish(topic, MakeCardWindowEvent.focusOrReopen(this, tile.name(),
-                                card -> {
-                                    if (located != null && card instanceof InstructionEditorCard editor) {
-                                        editor.whenShown(() -> editor.showSet(located.set()));
-                                    }
-                                }));
-                        return "Reopened \"" + tile.label() + "\", whose window was closed"
-                                + (located == null ? "" : ", at \"" + located.set().name() + "\"") + ". Nothing was written.";
+                        if (located == null) {
+                            return "Brought \"" + tile.label() + "\" to the front" + editorSays(state(tile).orElseThrow())
+                                    + ". Nothing was written.";
+                        }
+                        return opening.shown() == Shown.SHOWN
+                                ? "Brought \"" + tile.label() + "\" to the front, showing \"" + located.set().name()
+                                        + "\". Nothing was written."
+                                : "Brought \"" + tile.label() + "\" to the front. It stayed on \""
+                                        + card.shownSet().map(InstructionSet::name).orElse("")
+                                        + "\", which has unsaved changes, so they are not lost. The person can open \""
+                                        + located.set().name() + "\" from the editor's list once they save or revert "
+                                        + "them. Nothing was written.";
                     });
                 });
+    }
+
+    /**
+     * What opening the journal's Instruction Editor did.
+     *
+     * @param tile    the editor's tile; {@code null} when the journal had none and a new one was made
+     * @param fronted the open editor brought to the front; {@code null} when its closed tile is reopening, or a new
+     *                one was made
+     * @param shown   whether the fronted editor shows the set asked for; {@code null} when no set was asked for, or
+     *                the editor is not open yet (a reopened tile shows the set once it renders)
+     */
+    record Opening(Tile tile, InstructionEditorCard fronted, Shown shown) {
+    }
+
+    /**
+     * Opens an Instruction Editor of the journal, at a set when one is asked for: the editor that contains the set,
+     * else an open one, else a closed one reopened from its preferences, else a new one. While the journal has an
+     * editor, open or closed, no second one is made. An open editor that has unsaved changes to another set stays on
+     * that set, so the text is not lost. Call on the FX thread.
+     *
+     * @param source       the card asking
+     * @param journalTopic the journal
+     * @param located      the set to show and the tile that contains it, or {@code null} for none
+     * @return what was done
+     */
+    static Opening open(Object source, UUID journalTopic, Located located) {
+        Tile tile = located != null ? located.tile() : editorToOpen(journalTopic);
+        if (tile == null) {
+            EvtBusFactory.getDefaultEvtBus().publish(journalTopic, new MakeCardWindowEvent(source,
+                    MakeCardWindowEvent.FOCUS_OR_CREATE, EDITOR_PROVIDER));
+            return new Opening(null, null, null);
+        }
+        Optional<InstructionEditorCard> open = InstructionEditorCard.open(tile.name());
+        if (open.isPresent()) {
+            InstructionEditorCard card = open.get();
+            card.reveal();
+            return new Opening(tile, card, located == null ? null : card.showSet(located.set()));
+        }
+        EvtBusFactory.getDefaultEvtBus().publish(journalTopic, MakeCardWindowEvent.focusOrReopen(source, tile.name(),
+                card -> {
+                    if (located != null && card instanceof InstructionEditorCard editor) {
+                        editor.whenShown(() -> editor.showSet(located.set()));
+                    }
+                }));
+        return new Opening(tile, null, null);
+    }
+
+    /**
+     * Opens an Instruction Editor of the journal for the person, from an assistant card's settings: the editor that
+     * contains the set chosen there, at that set, else an open editor, else a closed one reopened from its
+     * preferences; only a journal with no Instruction Editor at all gets a new one. A set no editor contains, or one
+     * in the Trash, is not shown. Call on the FX thread.
+     *
+     * @param source       the card asking
+     * @param journalTopic the journal
+     * @param setId        the id of the set to show, or blank for none
+     */
+    public static void openForPerson(Object source, UUID journalTopic, String setId) {
+        Located located = null;
+        if (setId != null && !setId.isBlank()) {
+            for (Tile tile : tiles(journalTopic)) {
+                Optional<InstructionSet> set = tile.sets().list().stream()
+                        .filter(candidate -> candidate.id().equals(setId)).findFirst();
+                if (set.isPresent()) {
+                    located = new Located(tile, set.get());
+                    break;
+                }
+            }
+        }
+        open(source, journalTopic, located);
     }
 
     /** The editor to open with no set named: an open one, else a closed one, else none. Call on the FX thread. */

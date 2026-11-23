@@ -341,6 +341,51 @@ class InstructionEditorToolsIT {
         assertEquals(InstructionEditorCard.Factory.class.getName(), asked.getFirst().getProviderClassName());
     }
 
+    /** The assistant card's settings button, "Open in Instruction Editor…", with the bundled default chosen, then a set. */
+    @Test
+    void theSettingsButtonReopensThePersonsClosedEditorAndNeverMakesASecond() {
+        String tile = closedEditor();
+        InstructionSet set = createSet(tile, "Discharge summaries");
+
+        onFx(() -> {
+            InstructionEditorTools.openForPerson(this, topic, "");
+            return null;
+        });
+
+        assertEquals(1, asked.size());
+        assertEquals(MakeCardWindowEvent.FOCUS_OR_REOPEN, asked.getFirst().getEventType(),
+                "the person's closed editor is reopened, never a second one made");
+        assertEquals(tile, asked.getFirst().getTile());
+        settle();
+        InstructionEditorCard card = InstructionEditorCard.open(tile).orElseThrow();
+
+        onFx(() -> {
+            InstructionEditorTools.openForPerson(this, topic, set.id());
+            return null;
+        });
+
+        assertEquals(1, asked.size(), "an open editor is fronted without asking the journal");
+        assertEquals(set.id(), onFx(() -> card.shownSet().orElseThrow().id()), "at the set chosen in the settings");
+    }
+
+    @Test
+    void theSettingsButtonOpensTheEditorThatContainsTheChosenSet() {
+        openEditor();
+        String closed = closedEditor();
+        InstructionSet set = createSet(closed, "Discharge summaries");
+
+        onFx(() -> {
+            InstructionEditorTools.openForPerson(this, topic, set.id());
+            return null;
+        });
+
+        assertEquals(1, asked.size());
+        assertEquals(MakeCardWindowEvent.FOCUS_OR_REOPEN, asked.getFirst().getEventType());
+        assertEquals(closed, asked.getFirst().getTile(), "the editor that contains the set, not the open one");
+        settle();
+        assertEquals(set.id(), onFx(() -> InstructionEditorCard.open(closed).orElseThrow().shownSet().orElseThrow().id()));
+    }
+
     @Test
     void refusalsSayWhyAndChangeNothing() {
         String tile = closedEditor();

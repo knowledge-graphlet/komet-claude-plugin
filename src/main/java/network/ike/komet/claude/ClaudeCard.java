@@ -82,7 +82,6 @@ import dev.ikm.komet.framework.dnd.KometClipboard;
 import dev.ikm.tinkar.common.id.PublicId;
 import dev.ikm.tinkar.common.id.PublicIds;
 import dev.ikm.tinkar.events.EvtBusFactory;
-import network.ike.komet.claude.instructions.InstructionEditorCard;
 import network.ike.komet.claude.trash.PluginTrash;
 import dev.ikm.komet.kview.mvvm.view.trash.TrashTray;
 import dev.ikm.komet.layout.trash.KlTrash;
@@ -1251,7 +1250,7 @@ public final class ClaudeCard extends AbstractHostCard {
         openEditor.setOnAction(e -> {
             // Navigating away: the settings pane yields to the editor it just summoned.
             settingsSurface.hide();
-            openInInstructionEditor();
+            openInInstructionEditor(selector.getValue() == null ? "" : selector.getValue().id());
         });
         // Revert to default (KEC 2026-08-18): back to the bundled system prompt — the titled
         // selection clears AND the legacy card-level override is removed, so "default" means
@@ -1305,17 +1304,19 @@ public final class ClaudeCard extends AbstractHostCard {
     /**
      * One editing surface (KEC 2026-08-17, ike-issues#1044): instead of a second editor
      * window, ask the hosting journal — via the {@code Make*WindowEvent} idiom on the journal
-     * topic — to front its open Instruction Editor card, or create one when none is open.
+     * topic — for the Instruction Editor that contains the chosen set, at that set; else an
+     * open editor; else the person's closed editor, reopened from its preferences
+     * (ike-issues#1403). Only a journal with no Instruction Editor gets a new one.
+     *
+     * @param setId the id of the set chosen in the section, or blank for the bundled default
      */
-    private void openInInstructionEditor() {
+    private void openInInstructionEditor(String setId) {
         java.util.UUID journalTopic = getJournalTopic();
         if (journalTopic == null) {
             LOG.warn("No journal topic; cannot open the Instruction Editor");
             return;
         }
-        EvtBusFactory.getDefaultEvtBus().publish(journalTopic, new MakeCardWindowEvent(this,
-                MakeCardWindowEvent.FOCUS_OR_CREATE,
-                InstructionEditorCard.Factory.class.getName()));
+        network.ike.komet.claude.instructions.InstructionEditorTools.openForPerson(this, journalTopic, setId);
     }
 
     /** Display names of the models the key can use, as the Models API last listed them. */
@@ -4214,7 +4215,7 @@ public final class ClaudeCard extends AbstractHostCard {
         Button openEditor = new Button("Open in Instruction Editor…");
         openEditor.setOnAction(e -> {
             settingsSurface.hide();
-            openInInstructionEditor();
+            openInInstructionEditor(selector.getValue() == null ? "" : selector.getValue().id());
         });
         return new VBox(6, selector, preview, openEditor, hint);
     }
