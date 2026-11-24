@@ -45,7 +45,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Deleting a trashed conversation for good, on the memory-only 64-bit store with the starter
- * set: its journal, instance data in its own pattern, leaves the knowledge base whole, and its
+ * set: its journal, local data in its own pattern, leaves the knowledge base whole, and its
  * file leaves the disk (KEC 2026-10-23).
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)

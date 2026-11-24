@@ -89,12 +89,12 @@ public final class StampTools {
 
             @Override
             public String description() {
-                return "Read the STAMP provenance of a STAMPed document's lines: for each line, the commit (STAMP) "
+                return "Read the STAMP provenance of an IKE document's lines: for each line, the commit (STAMP) "
                         + "that introduced it — short SHA, date, author — and whether anyone has affirmed, refuted or "
                         + "commented on it, plus the STAMP list and the lines still in the review queue (introduced but "
                         + "affirmed by no one). Call this before answering who wrote, changed, reviewed, disputed or "
                         + "concurred with a passage, or what remains to review. Defaults to the document shown in the "
-                        + "Stamped Document card. When the card has a working tree the provenance is read from git, with "
+                        + "IKE Document card. When the card has a working tree the provenance is read from git, with "
                         + "stale annotations named; when it has none it is read from the store's per-line STAMPs, which "
                         + "is just as current for what was materialized. Pass file to read a file of a working tree "
                         + "instead. Pass from/to to see a range; without them the lines selected in the card are listed, "
@@ -153,7 +153,7 @@ public final class StampTools {
                 return "Prepare an annotation of specific lines of a committed file — an affirmation (the person has "
                         + "reviewed the lines and stands behind them), a refutation (they dispute them, with the reason "
                         + "as text), or a comment (no stance) — compute the Annotation: trailers (kind, path, line "
-                        + "range, anchoring revision, content hash) and hand them with the text to the Stamped Document "
+                        + "range, anchoring revision, content hash) and hand them with the text to the IKE Document "
                         + "card, which asks the person to confirm with a signed commit. Or prepare a retraction: kind "
                         + "retract with commit, the SHA of an earlier annotation commit as stamp_lines lists it, withdraws "
                         + "every annotation that commit recorded, so its lines read as before it (a judgment it had replaced "
@@ -211,7 +211,7 @@ public final class StampTools {
                     List<int[]> ranges = input.get("ranges") == null && open != null && str(input, "file") == null
                             ? open.selectedLineNumbers() : ranges(input);
                     if (ranges.isEmpty()) {
-                        throw new IllegalArgumentException("no ranges given and no lines are selected in the Stamped Document card");
+                        throw new IllegalArgumentException("no ranges given and no lines are selected in the IKE Document card");
                     }
                     List<Annotation> annotations = new ArrayList<>();
                     try (GitRepo repo = GitRepo.open(target.root())) {
@@ -228,11 +228,11 @@ public final class StampTools {
                     }
                     return "Prepared " + annotations.size() + " trailer(s) for " + AnnotationCommit.subject(annotations) + ":\n" + trailers
                             + (handedOff
-                                ? "\n\nThe Stamped Document card has selected these lines and is asking the person to confirm the "
+                                ? "\n\nThe IKE Document card has selected these lines and is asking the person to confirm the "
                                   + StampedDocumentCard.displayName(kind).toLowerCase() + " with a signed commit. Nothing is recorded until they do; tell "
                                   + "them the confirmation is waiting in the card."
-                                : "\n\nNo Stamped Document card shows this file, so nothing was handed off. Ask the person to open "
-                                  + target.relative() + " in a Stamped Document card, select lines "
+                                : "\n\nNo IKE Document card shows this file, so nothing was handed off. Ask the person to open "
+                                  + target.relative() + " in an IKE Document card, select lines "
                                   + ranges.stream().map(r -> r[0] + "-" + r[1]).reduce((a, b) -> a + ", " + b).orElse("")
                                   + ", and choose " + (kind == AnnotationKind.COMMENT ? "Comment" : kind.verb()) + " from their menu.");
                 } catch (IllegalArgumentException | IOException e) {
@@ -272,10 +272,10 @@ public final class StampTools {
         return "Prepared the retraction of " + retracted.commitSha().substring(0, 7) + " (" + retracted.summary() + ", by " + retracted.author().name()
                 + "):\n" + annotation.trailer()
                 + (handedOff
-                    ? "\n\nThe Stamped Document card is asking the person to confirm the retraction with a signed commit. Nothing is "
+                    ? "\n\nThe IKE Document card is asking the person to confirm the retraction with a signed commit. Nothing is "
                       + "recorded until they do; tell them the confirmation is waiting in the card."
-                    : "\n\nNo Stamped Document card shows this file, so nothing was handed off. Ask the person to open "
-                      + target.relative() + " in a Stamped Document card, select a line the annotation covers, and choose Retract… from its menu.");
+                    : "\n\nNo IKE Document card shows this file, so nothing was handed off. Ask the person to open "
+                      + target.relative() + " in an IKE Document card, select a line the annotation covers, and choose Retract… from its menu.");
     }
 
     /** The tool's kind word as an annotation kind. */
@@ -296,7 +296,7 @@ public final class StampTools {
 
     /** What to say when the card shows a document but knows no working tree for it. */
     static String noWorkingTree(StampedDocumentCard card) {
-        return "The Stamped Document card shows " + card.currentDocument().orElse("a document")
+        return "The IKE Document card shows " + card.currentDocument().orElse("a document")
                 + " from the store but has no working tree for it (its Repository panel says no working tree holds the "
                 + "document's file); the document itself is fully in the store.";
     }
@@ -329,7 +329,7 @@ public final class StampTools {
         static Target resolve(StampedDocumentCard card, String file) {
             if (file == null || file.isBlank()) {
                 if (card == null || card.shown().isEmpty()) {
-                    throw new IllegalArgumentException("no Stamped Document card shows a document and no file was given; read a stored "
+                    throw new IllegalArgumentException("no IKE Document card shows a document and no file was given; read a stored "
                             + "document with read_document (document=<name>), or pass file, a path in a git working tree");
                 }
                 if (!hasWorkingTree(card)) {
@@ -341,7 +341,7 @@ public final class StampTools {
             Path given = Path.of(file);
             if (!given.isAbsolute()) {
                 if (card == null || card.repoRoot() == null) {
-                    throw new IllegalArgumentException("relative path " + file + " needs a Stamped Document card with a working tree to resolve against; pass an absolute path");
+                    throw new IllegalArgumentException("relative path " + file + " needs an IKE Document card with a working tree to resolve against; pass an absolute path");
                 }
                 given = card.repoRoot().resolve(given);
             }

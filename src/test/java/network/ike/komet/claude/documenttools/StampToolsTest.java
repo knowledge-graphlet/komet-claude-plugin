@@ -87,7 +87,7 @@ class StampToolsTest {
 
         assertTrue(out.startsWith("Prepared 1 trailer(s) for Affirm doc.adoc 1-1:"), out);
         assertTrue(out.contains("Annotation: " + AnnotationKind.AFFIRMATION.ref() + " doc.adoc:1-1@" + headBefore.substring(0, 7) + "#"), out);
-        assertTrue(out.contains("No Stamped Document card shows this file"), out);
+        assertTrue(out.contains("No IKE Document card shows this file"), out);
         try (GitRepo repo = GitRepo.open(root)) {
             assertEquals(headBefore, repo.headRevision(), "the tool never commits");
         }
@@ -97,7 +97,7 @@ class StampToolsTest {
     void errorsComeBackAsTextNotExceptions() throws Exception {
         Path file = seedRepository();
 
-        assertTrue(StampTools.stampLines(noCard).execute(Map.of()).startsWith("Error: no Stamped Document card shows a document and no file was given"));
+        assertTrue(StampTools.stampLines(noCard).execute(Map.of()).startsWith("Error: no IKE Document card shows a document and no file was given"));
         assertTrue(StampTools.stampLines(noCard).execute(Map.of("file", root.resolve("missing.adoc").toString())).startsWith("Error:"));
         assertTrue(StampTools.proposeAnnotation(noCard).execute(Map.of("file", file.toString(), "kind", "affirm",
                         "ranges", List.of(Map.of("from", 2, "to", 9)))).startsWith("Error:"));

@@ -16,7 +16,9 @@
 package network.ike.komet.claude;
 
 import network.ike.komet.claude.json.Json;
+import network.ike.komet.document.ConversationFile;
 import network.ike.komet.document.surface.JournalStore.TurnRecord;
+import network.ike.komet.document.surface.MarkdownRichText;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -95,5 +97,26 @@ class ConversationTimesTest {
         assertEquals(ASKED, ConversationTimes.of(ASKED, reply), "the conversation's own time stands before the journal's");
         assertNull(ConversationTimes.of(null, new TurnRecord("four", true)), "a turn whose time is not known");
         assertNull(ConversationTimes.of(null, new TurnRecord("four", true, Long.MAX_VALUE)), "a turn not committed");
+    }
+
+    @Test
+    void aSavedTurnHasTheTimeItsHeadingShows() {
+        long recorded = ANSWERED.toEpochMilli();
+        List<TurnRecord> journal = List.of(new TurnRecord("two and two?", false, recorded - 1), new TurnRecord("four", true, recorded),
+                new TurnRecord("and three?", false, recorded + 9), new TurnRecord("seven", true, recorded + 10));
+        List<MarkdownRichText.Entry> shown = List.of(MarkdownRichText.Entry.user("two and two?").saidAt(ASKED),
+                new MarkdownRichText.Entry(MarkdownRichText.Role.ASSISTANT, "four", true, ANSWERED),
+                MarkdownRichText.Entry.user("and three?"));
+        assertEquals(List.of(new ConversationFile.Turn("two and two?", false, ASKED.toEpochMilli()),
+                new ConversationFile.Turn("four", true, recorded),
+                new ConversationFile.Turn("and three?", false, recorded + 9),
+                new ConversationFile.Turn("seven", true, recorded + 10)), ConversationTimes.turns(journal, shown),
+                "the conversation's own time, else the journal's");
+        assertEquals(List.of(new ConversationFile.Turn("two and two?", false, ASKED.toEpochMilli()),
+                new ConversationFile.Turn("four", true, recorded),
+                new ConversationFile.Turn("and three?", false, 0)), ConversationTimes.turns(shown), "what the card shows has no other time");
+        assertEquals(List.of(new ConversationFile.Turn("four", true, recorded)),
+                ConversationTimes.turns(List.of(new TurnRecord("four", true, recorded)), List.of(MarkdownRichText.Entry.user("other").saidAt(ASKED))),
+                "a turn of another speaker's is not the same turn");
     }
 }

@@ -15,7 +15,9 @@
  */
 package network.ike.komet.claude;
 
+import network.ike.komet.document.ConversationFile;
 import network.ike.komet.document.surface.JournalStore;
+import network.ike.komet.document.surface.MarkdownRichText;
 
 import java.time.DateTimeException;
 import java.time.Instant;
@@ -82,5 +84,37 @@ final class ConversationTimes {
         }
         boolean known = turn.time() > 0 && turn.time() < Long.MAX_VALUE;
         return turn.assistantAuthored() && known ? Instant.ofEpochMilli(turn.time()) : null;
+    }
+
+    /**
+     * A conversation's turns as a file saves them, from its journal. Each has the time the conversation
+     * keeps of it, which is what its heading shows; a turn it keeps no time of has the time of its STAMP
+     * in the journal, which is when the exchange it is part of was recorded.
+     *
+     * @param journal the journal's turns
+     * @param shown   the turns the card shows, in the same order
+     * @return a turn for each of the journal's
+     */
+    static List<ConversationFile.Turn> turns(List<JournalStore.TurnRecord> journal, List<MarkdownRichText.Entry> shown) {
+        List<ConversationFile.Turn> turns = new ArrayList<>(journal.size());
+        for (int i = 0; i < journal.size(); i++) {
+            JournalStore.TurnRecord turn = journal.get(i);
+            MarkdownRichText.Entry entry = i < shown.size() ? shown.get(i) : null;
+            boolean same = entry != null && (entry.role() == MarkdownRichText.Role.ASSISTANT) == turn.assistantAuthored();
+            turns.add(new ConversationFile.Turn(turn.markdown(), turn.assistantAuthored(),
+                    same && entry.saidAt() != null ? entry.saidAt().toEpochMilli() : turn.time()));
+        }
+        return turns;
+    }
+
+    /**
+     * A conversation's turns as a file saves them, from what a card shows.
+     *
+     * @param shown the turns the card shows
+     * @return a turn for each, with the time the conversation keeps of it, or 0
+     */
+    static List<ConversationFile.Turn> turns(List<MarkdownRichText.Entry> shown) {
+        return shown.stream().map(entry -> new ConversationFile.Turn(entry.content(), entry.role() == MarkdownRichText.Role.ASSISTANT,
+                entry.saidAt() == null ? 0 : entry.saidAt().toEpochMilli())).toList();
     }
 }

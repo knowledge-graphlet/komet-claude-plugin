@@ -331,7 +331,7 @@ public final class InstructionEditorCard extends AbstractHostCard {
     }
 
     /** The current seed generation — bump when a new system default joins the seed set. */
-    private static final int SEED_GENERATION = 6;
+    private static final int SEED_GENERATION = 7;
 
     /**
      * Seeds the read-only system defaults (KEC 2026-08-17, settled): real sets showing the form,
@@ -347,7 +347,8 @@ public final class InstructionEditorCard extends AbstractHostCard {
      *       Save as… a copy that changes; the assistant itself uses the bundled originals.</li>
      *   <li>The tool contract and the default instructions refreshed in place (generation 5).</li>
      *   <li>The tool contract refreshed in place again, for the Komet Assistant's tools on the
-     *       Instruction Editor and the journal's windows (generation 6).</li>
+     *       Instruction Editor and the journal's windows (generation 6), and for the storage actions
+     *       the assistant offers (generation 7).</li>
      * </ol>
      */
     private void seedExamplesOnce() {
@@ -426,9 +427,10 @@ public final class InstructionEditorCard extends AbstractHostCard {
                     store.refreshSystemDefault(set, bundledResource("system-prompt-instructions.md"));
                 }
             }
-        } else if (generation < 6) {
+        } else if (generation < 7) {
             // Generation 6 added the tools on the Instruction Editor and the journal's windows to the
-            // tool contract: refresh OUR read-only copy of it. Generation 5's pass above did it already.
+            // tool contract, and generation 7 the storage actions the assistant offers and never
+            // performs: refresh OUR read-only copy of it. Generation 5's pass above did it already.
             for (InstructionSet set : store.list()) {
                 if (set.readOnly() && "Komet tool contract".equals(set.name())) {
                     store.refreshSystemDefault(set, bundledResource("system-prompt-core.md"));

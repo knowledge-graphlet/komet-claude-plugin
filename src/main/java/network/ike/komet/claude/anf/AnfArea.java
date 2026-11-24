@@ -322,7 +322,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         HBox.setHgrow(spacer, Priority.ALWAYS);
         MenuButton fromDocument = new MenuButton("From document");
         fromDocument.setId("from-document-button");
-        fromDocument.setTooltip(new Tooltip("Read a stamped document's prose as the narrative: elements then anchor to its sentences"));
+        fromDocument.setTooltip(new Tooltip("Read an IKE document's prose as the narrative: elements then anchor to its sentences"));
         // listed now and again each time it opens, since a document may be materialized meanwhile
         fromDocument.setOnShowing(event -> listDocuments(fromDocument));
         listDocuments(fromDocument);
@@ -997,7 +997,7 @@ public final class AnfArea extends SupplementalAreaBlueprint implements KlToolAr
         SegmentNarrative read = segments;
         Optional<Path> root = DocumentNarratives.workingTree(anchor);
         if (root.isEmpty()) {
-            setStatus("Open the document in a Stamped Document card first: the lift writes the annotations in its working tree.");
+            setStatus("Open the document in an IKE Document card first: the lift writes the annotations in its working tree.");
             return;
         }
         DocumentNarratives.Recording recording;

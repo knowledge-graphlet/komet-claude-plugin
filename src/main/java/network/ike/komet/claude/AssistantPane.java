@@ -419,7 +419,10 @@ public final class AssistantPane implements KlAssistantPane {
         more.getItems().addAll(new SeparatorMenuItem(), find,
                 menuItem("Expand all exchanges", () -> card.paneSetAllExchangesCollapsed(false)),
                 menuItem("Collapse all exchanges", () -> card.paneSetAllExchangesCollapsed(true)),
-                menuItem("Save transcript…", card::paneSaveTranscript));
+                menuItem("Save to File…", card::paneSaveTranscript),
+                menuItem("Save to Another File…", card::paneSaveToAnotherFile),
+                menuItem("Share Conversation…", card::paneShare),
+                menuItem("Export Conversation…", card::paneExport));
         List<MenuItem> last = new ArrayList<>();
         if (card.isPaneInJournal()) {
             last.add(menuItem("Open in a card", card::paneOpenInCard));

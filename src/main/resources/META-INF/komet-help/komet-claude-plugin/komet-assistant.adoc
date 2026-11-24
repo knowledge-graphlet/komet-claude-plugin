@@ -2,7 +2,7 @@
 
 The Komet Assistant card is a conversation with Claude about the knowledge base you have open.
 The assistant answers by running queries against the card's own view, and shows the concepts it finds as concept chips you can read, drag and open.
-It can also propose changes, a new concept, a change to an existing concept or an edit to a STAMPed document, but nothing it proposes takes effect until you publish or commit it.
+It can also propose changes, a new concept, a change to an existing concept or an edit to an IKE document, but nothing it proposes takes effect until you publish or commit it.
 
 Add the card from the journal's *+* menu.
 
@@ -37,7 +37,19 @@ Proposed definitions:: A definition the assistant proposes is drawn as a definit
 Tables:: Columns can be resized, and the widths are kept with the conversation. Right-click a table to copy it.
 
 Choose *🔍*, or press Cmd-F, to find text in the conversation.
-*Save…* writes the conversation to a Markdown file.
+*Save…* saves the conversation to a file, as an IKE Document you can open, annotate and narrate like any other.
+The file is AsciiDoc: the conversation's title, then a section for each turn, headed by who spoke.
+In a folder that is a git repository, each turn is a commit at the time it was said: your turns are your commits, and the assistant's have the assistant as author and you as committer, when your authors file names an assistant.
+In a folder without git, Komet asks whether to make it a repository first; without one the file is a single version, with no history.
+
+The conversation stays here and can go on.
+Once it is saved, *Save…* adds the turns said since to the same file, each a commit of its own.
+In the sidebar, *More › Save to Another File…* starts a new file.
+*Share…* saves the conversation in the same way and shares that document with everyone who syncs this knowledge base.
+Komet asks first.
+The conversation itself stays here, and what is said later is shared when you choose *Share…* or *Save…* again and then sync.
+
+Komet never writes over another document, and adds nothing to a file with changes that are not committed: commit or discard them first.
 
 == The view the assistant reads
 
@@ -56,8 +68,15 @@ See xref:trash.adoc[The Trash].
 Each assistant card keeps its own conversations, and reopens on the last one, where you left it.
 The list at the top of the rail shows the other assistant cards in the journal; choose one to read its conversations, and send in one to carry it over to this card.
 
-Each exchange is also recorded in the knowledge base, as a conversation journal: instance data, which the store alone holds.
-See _Kinds of data_ in the help of the stamped document.
+Each exchange is also recorded in the knowledge base, as a conversation journal: local data, which never syncs and which this knowledge base alone contains.
+See _Kinds of data_ in the help on IKE documents.
+
+*Export…*, above the transcript, in a conversation's context menu and in the sidebar's *More* menu, writes a conversation to one file, with its journal.
+In another knowledge base, *File › Import Dataset…* reads that file, and the conversation appears in the assistant's list, where it can go on.
+Komet first checks that the knowledge base has every concept, pattern and module the file needs; if not, nothing is read in and Komet says why.
+If the conversation is here already, Komet asks whether to replace it.
+An imported conversation waits for an assistant card when none is open.
+*View › Storage* lists every conversation in the knowledge base with every document.
 
 == Changes the assistant proposes
 
@@ -66,10 +85,11 @@ The assistant can propose changes, and each waits for you:
 A new concept:: The assistant writes it uncommitted and opens it in a concept window in the journal. Review it there; it becomes part of the knowledge base only when you choose *Publish*. The assistant can revise the proposal or withdraw it.
 A change to an existing concept:: When you ask, the assistant changes a concept's stated definition (its parents, attributes, role groups, or whether it is defined) or its descriptions (retiring, rewording, changing which synonym is preferred, adding synonyms or a textual definition). It writes the change uncommitted and shows you the definition before and after. The change waits in the *Unpublished Changes* tray of the journal, under the concept: the Change Review window shows each field before and after, and *Publish* or *Discard* there settles all of it. The assistant's changes to one concept are one change, which it can withdraw if you ask. You can modify the change before publishing it: edit the concept in its window as usual. Your edit joins the assistant's change rather than starting one beside it, so one *Publish* or *Discard* settles both; the assistant, asked again, builds on your edit. Once the change holds your edits, the assistant no longer withdraws it on its own; discard it in the tray.
 A change to an instruction set:: When you ask, the assistant puts a set's new text into the Instruction Editor that contains it, as unsaved changes, and reopens the editor if its window is closed. Nothing is saved until you choose *Save* there, or *Save as…* for a system default; *Revert draft* puts back the text from before. See xref:instruction-editor.adoc[The Instruction Editor card].
-An edit to a STAMPed document:: The assistant writes the edit uncommitted, under its own name, and the STAMPed Document card shows it as a pending edit. *Commit*, in the bar at the bottom of that card, records it in git as your commit. *Discard…* drops it.
-An annotation:: The assistant prepares an affirmation, refutation or comment on document lines, and the STAMPed Document card asks you to confirm it as a git commit.
+An edit to an IKE document:: The assistant writes the edit uncommitted, under its own name, and the IKE Document card shows it as a pending edit. *Commit*, in the bar at the bottom of that card, records it in git as your commit. *Discard…* drops it.
+An annotation:: The assistant prepares an affirmation, refutation or comment on document lines, and the IKE Document card asks you to confirm it as a git commit.
+An action on a whole document or conversation:: When you ask, the assistant offers to remove a document from the knowledge base, share it, make a shared one local, delete one, export the conversation, or import an exported one. The offer is a button above the message box, and nothing is done until you choose it. Most then ask you to confirm, as they do from their own menus. *✕* dismisses an offer.
 
-See _The STAMPed Document card_ in the help of the stamped document.
+See _The IKE Document card_ in the help on IKE documents.
 
 == Settings
 

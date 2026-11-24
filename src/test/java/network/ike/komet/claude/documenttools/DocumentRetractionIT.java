@@ -180,7 +180,7 @@ class DocumentRetractionIT {
 
         assertTrue(prepared.startsWith("Prepared the retraction of " + affirmed.substring(0, 7)), prepared);
         assertTrue(prepared.contains(Annotation.of(AnnotationKind.RETRACTION, new AnnotationTarget.Commit(affirmed)).trailer()), "the trailer names the commit in full: " + prepared);
-        assertTrue(prepared.contains("No Stamped Document card shows this file"), prepared);
+        assertTrue(prepared.contains("No IKE Document card shows this file"), prepared);
         assertEquals(head, gitOut(dir, "rev-parse", "HEAD"), "nothing was committed");
         assertEquals(3, GitDocumentMaterializer.load(anchor, true).orElseThrow().lines().stream().filter(l -> !l.affirmers().isEmpty()).count(),
                 "the affirmation is still in force");

@@ -281,7 +281,11 @@ public final class PluginTrash {
      * @return why it could not, or empty when it did
      */
     static Optional<String> deletePayload(Path file, PublicId journalAnchor) {
-        if (journalAnchor != null && PrimitiveData.running() && PrimitiveData.get().hasPublicId(journalAnchor)) {
+        if (journalAnchor != null && !PrimitiveData.running()) {
+            // Deleting the file alone would leave the journal in the knowledge base with nothing to find it by.
+            return Optional.of("the knowledge base is not open, so its journal could not be deleted");
+        }
+        if (journalAnchor != null && PrimitiveData.get().hasPublicId(journalAnchor)) {
             try {
                 DocumentScopes.delete(journalAnchor);
             } catch (RuntimeException e) {

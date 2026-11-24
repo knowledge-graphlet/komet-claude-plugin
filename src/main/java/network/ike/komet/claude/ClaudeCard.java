@@ -269,6 +269,8 @@ public final class ClaudeCard extends AbstractHostCard {
     private List<DocumentSurface.DocumentMatch> matches = List.of();
     private int matchPos = -1;
 
+    /** The assistant's offers in the active conversation. */
+    private javafx.scene.layout.FlowPane offersBar;
     private Button retryButton;
     /** Stops the active conversation's in-flight generation (ike-issues#1028). */
     private Button stopButton;
@@ -310,24 +312,24 @@ public final class ClaudeCard extends AbstractHostCard {
      *  name, an explicit payload-file pointer, last-active, journal anchor, and move
      *  provenance. Payload JSON stays dumb transcript; nothing is discovered by
      *  filename convention. */
-    private static final String INDEX_NODE = "conversations";
+    static final String INDEX_NODE = "conversations";
     /** Marker key identifying an assistant card's node during tile enumeration. */
-    private static final String CARD_TYPE_KEY = "card-type";
-    private static final String CARD_TYPE_VALUE = "komet-assistant";
+    static final String CARD_TYPE_KEY = "card-type";
+    static final String CARD_TYPE_VALUE = "komet-assistant";
     /** Human label for this tile in other cards' tile selectors; set once at first open. */
-    private static final String TILE_LABEL_KEY = "tile-label";
+    static final String TILE_LABEL_KEY = "tile-label";
     // Index-entry keys (per conversation child node).
-    private static final String KEY_NAME = "name";
-    private static final String KEY_FILE = "file";
+    static final String KEY_NAME = "name";
+    static final String KEY_FILE = "file";
     private static final String KEY_LAST_ACTIVE = "last-active";
-    private static final String KEY_ANCHOR = "journal-anchor";
-    private static final String KEY_MOVED_TO = "moved-to";
+    static final String KEY_ANCHOR = "journal-anchor";
+    static final String KEY_MOVED_TO = "moved-to";
     private static final String KEY_MOVED_FROM = "moved-from";
     /** A conversation an earlier Delete hid; since the Trash (2026-10-23) such conversations
      *  are brought into it, and deleted when it is emptied. */
-    private static final String KEY_HIDDEN = "hidden";
+    static final String KEY_HIDDEN = "hidden";
     /** When a conversation was moved to the Trash (epoch milliseconds); it is out of the rail. */
-    private static final String KEY_TRASHED = "trashed";
+    static final String KEY_TRASHED = "trashed";
     /** Child node of a conversation's index entry holding remembered table
      *  column widths (ike-issues#1034), keyed by table identity. */
     private static final String TABLE_WIDTHS_NODE = "table-widths";
@@ -376,6 +378,8 @@ public final class ClaudeCard extends AbstractHostCard {
         final StringBuilder markdown = new StringBuilder();
         /** Turn index where the current exchange (the last user question) begins; scroll anchor. */
         int turnStartTurn;
+        /** What the assistant offered and the person has not yet selected or dismissed. */
+        final List<dev.ikm.komet.layout.storage.KlStorageOffer> offers = new ArrayList<>();
         /** The conversation's journal-anchor id (#807); set on the worker after the first
          *  persisted exchange, read on FX for save — hence volatile. Null until then. */
         volatile PublicId journalAnchor;
@@ -397,9 +401,9 @@ public final class ClaudeCard extends AbstractHostCard {
 
     /** Serialized form of a {@link Conversation} (json4j); {@code journalAnchor} is the journal's
      *  anchor UUID, or null for a conversation that predates (or never reached) the journal. */
-    private record ConversationDto(String id, String name, List<Map<String, Object>> turns,
-                                   String journalAnchor, Map<String, String> titles, String paired,
-                                   List<String> times) {
+    record ConversationDto(String id, String name, List<Map<String, Object>> turns,
+                           String journalAnchor, Map<String, String> titles, String paired,
+                           List<String> times) {
     }
 
     private ClaudeCard(KometPreferences preferences) {
@@ -513,9 +517,24 @@ public final class ClaudeCard extends AbstractHostCard {
         surface.setAllExchangesCollapsed(collapsed);
     }
 
-    /** Saves the transcript of the conversation on screen to a file the person chooses. */
+    /** Saves the conversation on screen to its file, or to a file the person chooses when it has none. */
     void paneSaveTranscript() {
         saveTranscript();
+    }
+
+    /** Saves the conversation on screen to a file the person chooses, even when it has one. */
+    void paneSaveToAnotherFile() {
+        saveToFile(true, _ -> { });
+    }
+
+    /** Shares the conversation on screen as the document it is saved as. */
+    void paneShare() {
+        shareConversation();
+    }
+
+    /** Exports the conversation on screen, as the strip's Export does. */
+    void paneExport() {
+        exportConversation();
     }
 
     /** @return the assistant's help topic, when a help book answers for it */
@@ -705,7 +724,7 @@ public final class ClaudeCard extends AbstractHostCard {
         refreshSystemPrompt();
         // Tools read the live card view each call via the method reference, so they always reflect the
         // journal's current coordinate (after bind).
-        this.tools = assistantTools(this.documentPairing, this::viewCalculator, this::safeViewCalculator, this::safeViewProperties,
+        this.tools = assistantTools(this.documentPairing, this.offerHost, this::viewCalculator, this::safeViewCalculator, this::safeViewProperties,
                 this::getJournalTopic, this::skills);
         this.journalStore = new JournalStore(this::safeViewCalculator);
         fxObject().getStyleClass().add("claude-card");
@@ -730,11 +749,13 @@ public final class ClaudeCard extends AbstractHostCard {
             java.util.function.Supplier<ViewCalculator> safeView, java.util.function.Supplier<ViewProperties> viewProperties,
             java.util.function.Supplier<java.util.UUID> journalTopic,
             java.util.function.Supplier<java.util.List<network.ike.komet.claude.instructions.AssistantSkills.Skill>> skills) {
-        return assistantTools(network.ike.komet.claude.documenttools.DocumentGraphTools.Pairing.NONE, view, safeView, viewProperties, journalTopic, skills);
+        return assistantTools(network.ike.komet.claude.documenttools.DocumentGraphTools.Pairing.NONE,
+                network.ike.komet.claude.storage.StorageOfferTools.Host.NONE, view, safeView, viewProperties, journalTopic, skills);
     }
 
     /** The tools, with the document tools acting on the document a conversation is paired with. */
     private static java.util.List<AnthropicTool> assistantTools(network.ike.komet.claude.documenttools.DocumentGraphTools.Pairing pairing,
+            network.ike.komet.claude.storage.StorageOfferTools.Host offers,
             java.util.function.Supplier<ViewCalculator> view,
             java.util.function.Supplier<ViewCalculator> safeView, java.util.function.Supplier<ViewProperties> viewProperties,
             java.util.function.Supplier<java.util.UUID> journalTopic,
@@ -773,6 +794,9 @@ public final class ClaudeCard extends AbstractHostCard {
         // The journal's windows and its Instruction Editors: what is open, the instruction sets the editors
         // contain, and a set's new text proposed as tracked changes there, saved only by the person.
         all.addAll(new network.ike.komet.claude.instructions.InstructionEditorTools(journalTopic, safeView).tools());
+        // Storage (ike-issues#1313): removing, sharing, exporting and importing whole documents and conversations,
+        // which the assistant offers and the person performs.
+        all.add(network.ike.komet.claude.storage.StorageOfferTools.offerTool(offers));
         // Skills (KEC 2026-10-23): the prompt lists each skill's name and use; this loads one's instructions.
         all.add(network.ike.komet.claude.instructions.AssistantSkills.loadSkillTool(skills));
         return java.util.List.copyOf(all);
@@ -785,6 +809,60 @@ public final class ClaudeCard extends AbstractHostCard {
     private Conversation requestConversation() {
         Conversation conv = answering.get();
         return conv != null ? conv : active;
+    }
+
+    /** The offers the assistant makes, shown in the conversation answering until the person selects or dismisses one. */
+    private final network.ike.komet.claude.storage.StorageOfferTools.Host offerHost =
+            new network.ike.komet.claude.storage.StorageOfferTools.Host() {
+                @Override
+                public void offer(dev.ikm.komet.layout.storage.KlStorageOffer offer) {
+                    Conversation conv = requestConversation();
+                    if (conv == null) {
+                        throw new IllegalStateException("there is no conversation to make an offer in");
+                    }
+                    Platform.runLater(() -> {
+                        conv.offers.removeIf(made -> made.label().equals(offer.label()));
+                        conv.offers.add(offer);
+                        showOffers();
+                    });
+                }
+
+                @Override
+                public dev.ikm.komet.layout.storage.KlStorageOffer.Perform export() {
+                    Conversation conv = requestConversation();
+                    return (node, edit, done) -> exportConversation(conv, done);
+                }
+            };
+
+    /** Draws the active conversation's offers, each with the control that dismisses it. */
+    private void showOffers() {
+        if (offersBar == null) {
+            return;
+        }
+        List<dev.ikm.komet.layout.storage.KlStorageOffer> offers = active == null ? List.of() : active.offers;
+        offersBar.getChildren().clear();
+        for (dev.ikm.komet.layout.storage.KlStorageOffer offer : offers) {
+            Conversation conv = active;
+            Runnable gone = () -> {
+                conv.offers.remove(offer);
+                showOffers();
+            };
+            Button perform = new Button(offer.label());
+            perform.setId(offer.id());
+            perform.setTooltip(new Tooltip(offer.tooltip()));
+            perform.setOnAction(e -> {
+                perform.setDisable(true);
+                offer.perform().perform(fxObject(), personEdit(), gone);
+            });
+            Button dismiss = new Button("✕");
+            dismiss.setTooltip(new Tooltip("Dismiss this offer"));
+            dismiss.setOnAction(e -> gone.run());
+            HBox one = new HBox(2, perform, dismiss);
+            one.setAlignment(Pos.CENTER_LEFT);
+            offersBar.getChildren().add(one);
+        }
+        offersBar.setVisible(!offers.isEmpty());
+        offersBar.setManaged(!offers.isEmpty());
     }
 
     /** The pairing the document tools read and create_document makes, for the conversation answering. */
@@ -893,7 +971,7 @@ public final class ClaudeCard extends AbstractHostCard {
                 .whenComplete((found, failure) -> Platform.runLater(() -> {
                     if (failure != null || found.isEmpty()) {
                         statusLabel.setText(failure != null ? "Could not list the documents: " + failure.getMessage()
-                                : "The knowledge base holds no documents yet; open one in a Stamped Document card first.");
+                                : "The knowledge base holds no documents yet; open one in an IKE Document card first.");
                         return;
                     }
                     statusLabel.setText("");
@@ -1863,7 +1941,11 @@ public final class ClaudeCard extends AbstractHostCard {
         HBox statusBar = new HBox(8, statusLabel, statusSpacer, stopButton, retryButton);
         statusBar.setAlignment(Pos.CENTER_LEFT);
         statusBar.setPadding(new Insets(2, 8, 0, 8));
-        VBox bottom = new VBox(statusBar, inputBar);
+        offersBar = new javafx.scene.layout.FlowPane(8, 4);
+        offersBar.setId("assistantOffers");
+        offersBar.setPadding(new Insets(4, 8, 0, 8));
+        showOffers();
+        VBox bottom = new VBox(statusBar, offersBar, inputBar);
 
         statusTimer = new Timeline(new KeyFrame(Duration.seconds(1), e -> updateStatusArea()));
         statusTimer.setCycleCount(Animation.INDEFINITE);
@@ -1993,7 +2075,10 @@ public final class ClaudeCard extends AbstractHostCard {
         renameItem.setOnAction(e -> renameActive());
         MenuItem trashItem = new MenuItem("Move to Trash");
         trashItem.setOnAction(e -> moveActiveToTrash());
-        conversationList.setContextMenu(new ContextMenu(renameItem, trashItem));
+        MenuItem exportItem = new MenuItem("Export…");
+        exportItem.setId("assistantConversationExport");
+        exportItem.setOnAction(e -> exportConversation());
+        conversationList.setContextMenu(new ContextMenu(renameItem, exportItem, trashItem));
         removeButton.disableProperty().bind(conversationList.getSelectionModel().selectedItemProperty().isNull());
 
         // The tile is the overarching scope, so its selector sits ABOVE the conversations
@@ -2062,6 +2147,8 @@ public final class ClaudeCard extends AbstractHostCard {
         // The selector rendered at construction, before the identity block could migrate a
         // pre-convention label — re-read so the minted name shows immediately.
         refreshTileSelector();
+        // A label minted just now has the selector choose this tile again, which loads its conversations.
+        conversations.clear();
         loadConversations();
         if (conversations.isEmpty()) {
             newConversation();
@@ -2431,7 +2518,8 @@ public final class ClaudeCard extends AbstractHostCard {
      */
     private BorderPane transcriptPanel() {
         Button saveButton = new Button("Save…");
-        saveButton.setTooltip(new Tooltip("Save this conversation's transcript"));
+        saveButton.setId("assistantSaveToFile");
+        saveButton.setTooltip(new Tooltip("Save this conversation to an AsciiDoc file, an IKE Document; once saved, Save adds the turns said since"));
         saveButton.setOnAction(e -> saveTranscript());
         Button expandAll = new Button("⊞");
         expandAll.setTooltip(new Tooltip("Expand all exchanges"));
@@ -2439,13 +2527,21 @@ public final class ClaudeCard extends AbstractHostCard {
         Button collapseAll = new Button("⊟");
         collapseAll.setTooltip(new Tooltip("Collapse all exchanges"));
         collapseAll.setOnAction(e -> surface.setAllExchangesCollapsed(true));
-        HBox strip = new HBox(4, saveButton, expandAll, collapseAll);
+        Button shareButton = new Button("Share…");
+        shareButton.setId("assistantShare");
+        shareButton.setTooltip(new Tooltip("Save this conversation as an IKE Document, and share that with everyone who syncs this knowledge base"));
+        shareButton.setOnAction(e -> shareConversation());
+        Button exportButton = new Button("Export…");
+        exportButton.setId("assistantExport");
+        exportButton.setTooltip(new Tooltip("Write this conversation to a file that another knowledge base can import"));
+        exportButton.setOnAction(e -> exportConversation());
+        HBox strip = new HBox(4, saveButton, shareButton, exportButton, expandAll, collapseAll);
         strip.setAlignment(Pos.CENTER_RIGHT);
         strip.setPadding(new Insets(2, 8, 2, 8));
 
         BorderPane panel = new BorderPane();
         if (!paneMode) {
-            // In a sidebar these three actions are in the pane's More menu.
+            // In a sidebar these actions are in the pane's More menu.
             panel.setTop(strip);
         }
         panel.setCenter(documentArea.fxObject());
@@ -3125,6 +3221,7 @@ public final class ClaudeCard extends AbstractHostCard {
         refreshTranscript(false);
         updateInputState();
         updateStatusArea();
+        showOffers();
         paneChanged.run();
     }
 
@@ -3179,10 +3276,109 @@ public final class ClaudeCard extends AbstractHostCard {
      * emptied; until then Put Back returns it.
      */
     private void moveActiveToTrash() {
-        if (active == null) {
-            return;
+        if (active != null) {
+            moveToTrash(active);
         }
-        Conversation toTrash = active;
+    }
+
+    /**
+     * Moves a conversation to the Trash, from the open card that lists it, or from its card's index
+     * when none does. Call on the JavaFX thread.
+     *
+     * @param conversation the conversation
+     * @return whether it was moved
+     */
+    static boolean moveToTrash(ConversationStorage.Indexed conversation) {
+        for (java.lang.ref.WeakReference<ClaudeCard> ref : OPEN) {
+            ClaudeCard card = ref.get();
+            Conversation listed = card == null ? null : card.listed(conversation.id());
+            if (listed != null) {
+                return card.moveToTrash(listed);
+            }
+        }
+        try {
+            KometPreferences entry = conversation.card().node(INDEX_NODE).node(conversation.id());
+            long now = System.currentTimeMillis();
+            entry.put(KEY_TRASHED, Long.toString(now));
+            entry.sync();
+            PluginTrash.moveToTrash(trashEntry(conversation.id(), conversation.title(), now, entry,
+                    conversation.payload() == null ? "" : conversation.payload().toString(), entry.get(KEY_ANCHOR, "")));
+            return true;
+        } catch (BackingStoreException | RuntimeException e) {
+            LOG.warn("Could not move conversation {} to the Trash", conversation.id(), e);
+            return false;
+        }
+    }
+
+    /** The conversation of an id that this card lists, or {@code null}. */
+    private Conversation listed(String id) {
+        return conversations.stream().filter(conv -> conv.id.equals(id)).findFirst().orElse(null);
+    }
+
+    /**
+     * Shows a conversation's file again in the open cards that list it, once an import has replaced
+     * it. Call on the JavaFX thread.
+     *
+     * @param id      the conversation's id
+     * @param payload its file
+     */
+    static void reload(String id, Path payload) {
+        for (java.lang.ref.WeakReference<ClaudeCard> ref : OPEN) {
+            ClaudeCard card = ref.get();
+            Conversation listed = card == null ? null : card.listed(id);
+            if (listed == null) {
+                continue;
+            }
+            boolean wasActive = card.active == listed;
+            int at = card.conversations.indexOf(listed);
+            Conversation again = card.loadConversation(payload);
+            if (again == null) {
+                continue;
+            }
+            again.homeNode = listed.homeNode;
+            again.homeDir = listed.homeDir;
+            card.conversations.remove(again);
+            card.conversations.set(at, again);
+            if (wasActive) {
+                card.activate(again);
+            }
+        }
+    }
+
+    /** Gives the imported conversations that are waiting to the assistant card last opened, when one is open. Call on the JavaFX thread. */
+    static void takeInImported() {
+        for (int i = OPEN.size() - 1; i >= 0; i--) {
+            ClaudeCard card = OPEN.get(i).get();
+            if (card != null && card.conversationList != null && card.fxObject().getScene() != null
+                    && (card.tileSelector == null || card.tileSelector.getValue() == null || card.tileSelector.getValue().own())) {
+                card.takeInWaiting();
+                return;
+            }
+        }
+    }
+
+    /** Takes in the imported conversations that are waiting, as this card's own, last in its list. */
+    private void takeInWaiting() {
+        Path dir = conversationsDir();
+        for (ConversationStorage.Waiting waiting : ConversationStorage.takeWaiting()) {
+            try {
+                Conversation taken = loadConversation(waiting.json());
+                if (taken == null) {
+                    continue;
+                }
+                String fileName = "conversation-" + waiting.id() + ".json";
+                if (dir != null) {
+                    Files.writeString(dir.resolve(fileName), waiting.json(), StandardCharsets.UTF_8);
+                    writeIndexEntry(preferences(), taken, fileName);
+                    preferences().sync();
+                }
+            } catch (IOException | BackingStoreException e) {
+                LOG.warn("Could not keep the imported conversation {}", waiting.id(), e);
+            }
+        }
+    }
+
+    private boolean moveToTrash(Conversation toTrash) {
         int idx = conversations.indexOf(toTrash);
         // Cancel any in-flight request: the worker is interrupt-aware, and the completion handler's
         // liveness guard already skips persistence for a conversation no longer in the list.
@@ -3194,12 +3390,13 @@ public final class ClaudeCard extends AbstractHostCard {
         conversations.remove(toTrash);
         if (conversations.isEmpty()) {
             newConversation();
-        } else {
+        } else if (toTrash == active) {
             activate(conversations.get(Math.min(idx, conversations.size() - 1)));
         }
         statusLabel.setText(trashed ? "Moved “" + railLabel(toTrash) + "” to the Trash."
                 : "“" + railLabel(toTrash) + "” was never saved, so there is nothing to keep in the Trash.");
         statusLabel.setTooltip(null);
+        return trashed;
     }
 
     /** Shows the Trash's conversation count on its button. */
@@ -3758,11 +3955,22 @@ public final class ClaudeCard extends AbstractHostCard {
     /** Loads this card's conversations, most recently active first. */
     private void loadConversations() {
         loadTile(preferences(), conversationsDir(), false);
+        takeInWaiting();
     }
 
     private Conversation loadConversation(Path file) {
         try {
-            ConversationDto dto = Json.parse(Files.readString(file, StandardCharsets.UTF_8), ConversationDto.class);
+            return loadConversation(Files.readString(file, StandardCharsets.UTF_8));
+        } catch (IOException e) {
+            LOG.warn("Could not load conversation {}", file, e);
+            return null;
+        }
+    }
+
+    /** Loads a conversation from its file's contents, at the end of the list; {@code null} when they cannot be read. */
+    private Conversation loadConversation(String json) {
+        try {
+            ConversationDto dto = Json.parse(json, ConversationDto.class);
             Conversation conv = new Conversation(dto.id(), dto.name());
             conv.named = true;
             if (dto.paired() != null && !dto.paired().isBlank()) {
@@ -3804,7 +4012,7 @@ public final class ClaudeCard extends AbstractHostCard {
             reconcileFromJournalAsync(conv);
             return conv;
         } catch (Exception e) {
-            LOG.warn("Could not load conversation {}", file, e);
+            LOG.warn("Could not load a conversation", e);
             return null;
         }
     }
@@ -3960,21 +4168,232 @@ public final class ClaudeCard extends AbstractHostCard {
         }
     }
 
+    /** The index-entry key of the file a conversation was last saved to (IKE-Network/ike-issues#1313). */
+    private static final String KEY_SAVED_TO = "saved-to";
+
+    /**
+     * Saves the conversation on screen to an AsciiDoc file, an IKE Document, or adds the turns said
+     * since to the file it was last saved to (IKE-Network/ike-issues#1313; step 3 of
+     * {@code design-2026-11-22-knowledge-shared-local}, settled by KEC on 2026-11-23). A conversation
+     * not saved yet, or whose file is gone, asks where.
+     */
     private void saveTranscript() {
-        FileChooser chooser = new FileChooser();
-        chooser.setTitle("Save conversation");
-        chooser.setInitialFileName("komet-assistant-chat.md");
-        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Markdown", "*.md"));
-        File file = chooser.showSaveDialog(ownerWindow());
-        if (file == null) {
+        saveToFile(false, _ -> { });
+    }
+
+    /**
+     * Shares the conversation as the document it is saved as (the second question before step 4 of
+     * {@code design-2026-11-22-knowledge-shared-local}, settled by KEC on 2026-11-23): saves it, asking where
+     * when it has no file, then reads the file in and shares that, after asking. The conversation stays here
+     * and can go on.
+     */
+    private void shareConversation() {
+        saveToFile(false, file -> network.ike.komet.document.DocumentSharing.shareFile(fxObject(), file, personEdit()));
+    }
+
+    /**
+     * Exports the conversation on screen to a file another knowledge base can import, with its journal
+     * (IKE-Network/ike-issues#1313, step 2 of {@code plan-2026-11-22-remove-export-import-data}).
+     */
+    private void exportConversation() {
+        exportConversation(active, () -> { });
+    }
+
+    private void exportConversation(Conversation conv, Runnable done) {
+        if (conv == null || conv.journalAnchor == null) {
+            dev.ikm.komet.kview.storage.StorageGestures.report(fxObject(), dev.ikm.komet.kview.storage.StorageGestures.EXPORT, false,
+                    "Nothing to export yet: the knowledge base has none of this conversation.");
+            done.run();
             return;
         }
-        try {
-            Files.writeString(file.toPath(), transcriptMarkdown.toString(), StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            entries.add(new MarkdownRichText.Entry(MarkdownRichText.Role.ERROR,
-                    "Could not save: " + e.getMessage(), false));
-            refreshTranscript();
+        saveConversation(conv);
+        dev.ikm.komet.kview.storage.StorageGestures.export(fxObject(), conv.journalAnchor, railLabel(conv), personEdit(), done);
+    }
+
+    /** The edit coordinate of the person: the card's view, or the default before it has one. */
+    private dev.ikm.tinkar.coordinate.edit.EditCoordinate personEdit() {
+        ViewProperties properties = safeViewProperties();
+        return properties == null ? dev.ikm.tinkar.coordinate.Coordinates.Edit.Default()
+                : properties.nodeView().editCoordinate().toEditCoordinateRecord();
+    }
+
+    /**
+     * Saves the conversation to a file the person chooses, or adds to the file it was last saved to.
+     *
+     * @param choose whether to ask for the file even when the conversation has one
+     * @param then   given the file on the JavaFX thread once it holds every turn
+     */
+    private void saveToFile(boolean choose, java.util.function.Consumer<Path> then) {
+        Conversation conv = active;
+        if (conv == null || conv.entries.stream().noneMatch(ClaudeCard::isTurn)) {
+            saveReport(false, "Nothing to save yet: the conversation has no turns.");
+            return;
+        }
+        KometPreferences entry = (conv.homeNode != null ? conv.homeNode : preferences()).node(INDEX_NODE).node(conv.id);
+        String remembered = entry.get(KEY_SAVED_TO, "");
+        PublicId anchor = conv.journalAnchor;
+        List<MarkdownRichText.Entry> shown = List.copyOf(conv.entries);
+        java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+            List<network.ike.komet.document.ConversationFile.Turn> turns = conversationTurns(anchor, shown);
+            Path again = null;
+            if (!choose && !remembered.isBlank()) {
+                Path file = Path.of(remembered);
+                try {
+                    if (Files.exists(file) && network.ike.komet.document.ConversationFile.held(file, conv.id).isPresent()) {
+                        again = file;
+                    }
+                } catch (IOException e) {
+                    LOG.warn("Could not read {}, where conversation {} was saved", file, conv.id, e);
+                }
+            }
+            return new Object[] {turns, again};
+        }).whenComplete((found, failure) -> Platform.runLater(() -> {
+            if (failure != null) {
+                saveReport(false, "Could not read the conversation: " + failure.getMessage());
+                return;
+            }
+            @SuppressWarnings("unchecked")
+            List<network.ike.komet.document.ConversationFile.Turn> turns = (List<network.ike.komet.document.ConversationFile.Turn>) found[0];
+            if (found[1] instanceof Path again) {
+                writeConversation(conv, entry, again, turns, false, then);
+            } else {
+                chooseConversationFile(conv, entry, remembered, turns, then);
+            }
+        }));
+    }
+
+    /**
+     * Saves the conversation on screen to a file, as Save does once the person has chosen the file and
+     * answered whether to make a repository: for automation and tests, which cannot drive the chooser.
+     * Call on the JavaFX thread.
+     *
+     * @param file           the file
+     * @param makeRepository whether to make a folder without git a repository first
+     * @return the outcome and what Save reports
+     * @throws IOException if the file cannot be written or git cannot be run
+     */
+    public String saveConversationTo(Path file, boolean makeRepository) throws IOException {
+        Conversation conv = active;
+        if (conv == null) {
+            return "No conversation is shown.";
+        }
+        KometPreferences entry = (conv.homeNode != null ? conv.homeNode : preferences()).node(INDEX_NODE).node(conv.id);
+        network.ike.komet.document.ConversationFile.Saved saved = network.ike.komet.document.ConversationFile.save(file, conv.id,
+                conv.name, conversationTurns(conv.journalAnchor, List.copyOf(conv.entries)), makeRepository,
+                network.ike.komet.document.CommitAuthors.current());
+        if (saved.outcome() == network.ike.komet.document.ConversationFile.Outcome.SAVED
+                || saved.outcome() == network.ike.komet.document.ConversationFile.Outcome.NOTHING_NEW) {
+            entry.put(KEY_SAVED_TO, saved.file().toString());
+        }
+        return saved.outcome() + ": " + saved.report();
+    }
+
+    /** Whether an entry is someone's turn, the person's or the assistant's. */
+    private static boolean isTurn(MarkdownRichText.Entry entry) {
+        return entry.role() == MarkdownRichText.Role.USER || entry.role() == MarkdownRichText.Role.ASSISTANT;
+    }
+
+    /**
+     * A conversation's turns, from its journal, which records who said each, or from what the card
+     * shows when the journal has fewer turns. Each has the time the conversation keeps of it, as its
+     * heading shows; a turn it keeps no time of has the journal's, or none.
+     */
+    private List<network.ike.komet.document.ConversationFile.Turn> conversationTurns(PublicId anchor, List<MarkdownRichText.Entry> shown) {
+        List<MarkdownRichText.Entry> turns = shown.stream().filter(ClaudeCard::isTurn).toList();
+        if (anchor != null) {
+            try {
+                Optional<List<JournalStore.TurnRecord>> journal = journalStore.load(anchor);
+                if (journal.isPresent() && journal.get().size() >= turns.size()) {
+                    return ConversationTimes.turns(journal.get(), turns);
+                }
+            } catch (RuntimeException e) {
+                LOG.warn("Could not read the journal {}; saving the turns the card shows", anchor.idString(), e);
+            }
+        }
+        return ConversationTimes.turns(turns);
+    }
+
+    /** Asks where to save, and whether to make a folder without git a repository first. */
+    private void chooseConversationFile(Conversation conv, KometPreferences entry, String remembered,
+                                        List<network.ike.komet.document.ConversationFile.Turn> turns, java.util.function.Consumer<Path> then) {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle("Save conversation to file");
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("AsciiDoc", "*.adoc"));
+        Path folder = remembered.isBlank() ? null : Path.of(remembered).getParent();
+        if (folder == null || !Files.isDirectory(folder)) {
+            Path library = Path.of(System.getProperty("user.home"), "komet", "adoc");
+            folder = Files.isDirectory(library) ? library : Path.of(System.getProperty("user.home"));
+        }
+        chooser.setInitialDirectory(folder.toFile());
+        chooser.setInitialFileName(network.ike.komet.document.ConversationFile.fileName(conv.name));
+        File chosen = chooser.showSaveDialog(ownerWindow());
+        if (chosen == null) {
+            return;
+        }
+        Path file = chosen.toPath();
+        if (!file.getFileName().toString().contains(".")) {
+            file = file.resolveSibling(file.getFileName() + ".adoc");
+        }
+        boolean makeRepository = false;
+        if (!network.ike.komet.document.ConversationFile.inRepository(file)) {
+            ButtonType make = new ButtonType("Make Repository", ButtonBar.ButtonData.OK_DONE);
+            ButtonType without = new ButtonType("Save Without History", ButtonBar.ButtonData.OTHER);
+            Alert ask = new Alert(Alert.AlertType.CONFIRMATION, "", make, without, ButtonType.CANCEL);
+            ask.initOwner(ownerWindow());
+            ask.setTitle("Save conversation");
+            ask.setHeaderText(file.getParent() + " is a folder without git.");
+            ask.setContentText("Make it a git repository, and each turn is a commit at the time it was said, by whoever said it."
+                    + " Without git the file is one version, with no history.");
+            ask.getDialogPane().setId("conversationSaveRepositoryDialog");
+            Optional<ButtonType> answer = ask.showAndWait();
+            if (answer.isEmpty() || answer.get() == ButtonType.CANCEL) {
+                return;
+            }
+            makeRepository = answer.get() == make;
+        }
+        writeConversation(conv, entry, file, turns, makeRepository, then);
+    }
+
+    /** Writes the turns the file does not hold yet, off the JavaFX thread, and says what was done. */
+    private void writeConversation(Conversation conv, KometPreferences entry, Path file,
+                                   List<network.ike.komet.document.ConversationFile.Turn> turns, boolean makeRepository,
+                                   java.util.function.Consumer<Path> then) {
+        String name = conv.name;
+        java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+            try {
+                return network.ike.komet.document.ConversationFile.save(file, conv.id, name, turns, makeRepository,
+                        network.ike.komet.document.CommitAuthors.current());
+            } catch (IOException e) {
+                throw new java.io.UncheckedIOException(e);
+            }
+        }).whenComplete((saved, failure) -> Platform.runLater(() -> {
+            if (failure != null) {
+                Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
+                saveReport(false, "Could not save the conversation: " + cause.getMessage());
+                return;
+            }
+            boolean done = saved.outcome() == network.ike.komet.document.ConversationFile.Outcome.SAVED
+                    || saved.outcome() == network.ike.komet.document.ConversationFile.Outcome.NOTHING_NEW;
+            if (done) {
+                entry.put(KEY_SAVED_TO, saved.file().toString());
+            }
+            saveReport(done, saved.report());
+            if (done) {
+                then.accept(saved.file());
+            }
+        }));
+    }
+
+    /** Says what a save did: a toast in the window, and a line in Warnings and Errors. */
+    private void saveReport(boolean done, String message) {
+        LOG.info("Save conversation: {}", message);
+        if (!done) {
+            AlertStreams.getRoot().dispatch(AlertObject.makeAdvisory("Save conversation", message));
+        }
+        javafx.scene.Node from = fxObject();
+        if (from.getScene() != null && from.getScene().getWindow() != null) {
+            new dev.ikm.komet.kview.controls.Toast(from).show(done ? dev.ikm.komet.kview.controls.Toast.Status.SUCCESS
+                    : dev.ikm.komet.kview.controls.Toast.Status.FAILURE, message);
         }
     }
 

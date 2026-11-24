@@ -161,7 +161,7 @@ public final class DocumentGraphTools {
     static Opened open(StampedDocumentCard card, String name) {
         if (name == null || name.isBlank()) {
             if (card == null || card.shown().isEmpty()) {
-                throw new IllegalArgumentException("no Stamped Document card shows a document; pass document, a name the card's "
+                throw new IllegalArgumentException("no IKE Document card shows a document; pass document, a name the card's "
                         + "chooser shows: the store holds " + examples());
             }
             PublicId anchor = card.shown().get().anchor();
@@ -204,7 +204,7 @@ public final class DocumentGraphTools {
     private static String examples() {
         List<String> names = new ArrayList<>(GitDocumentMaterializer.storedDocuments().keySet());
         if (names.isEmpty()) {
-            return "no documents yet (Open file… in a Stamped Document card materializes one)";
+            return "no documents yet (Open file… in an IKE Document card materializes one)";
         }
         return names.size() + " document(s): " + String.join(", ", names.subList(0, Math.min(12, names.size()))) + (names.size() > 12 ? ", …" : "");
     }
@@ -295,12 +295,12 @@ public final class DocumentGraphTools {
 
     static AnthropicTool readDocument(StampTools.CardLocator card, Supplier<ViewCalculator> view, Pairing pairing) {
         return new Tool("read_document",
-                "Read a STAMPed document from the knowledge base's document graph — no git, no working tree needed: its "
+                "Read an IKE document from the knowledge base's document graph — no git, no working tree needed: its "
                         + "title and commit, then its block tree in document order, each block named by its path (§3.2) with its "
                         + "kind, level, title and parameters and the line range it holds (L45-L52), and, unless outline_only, every "
                         + "line: its ordinal, the STAMP that introduced it (short commit, date, author; 'uncommitted, <author>' for a "
                         + "pending edit), review marks (✓ affirmed, ✗ refuted, … commented, ✎ uncommitted) and its AsciiDoc text. "
-                        + "Defaults to the document shown in the Stamped Document card; pass document to read another by the name the "
+                        + "Defaults to the document shown in the IKE Document card; pass document to read another by the name the "
                         + "card's chooser shows or its recorded path. Long documents come a page at a time: pass offset (the next "
                         + "block index the result names) to continue. Call this before saying what a document says, who wrote a part "
                         + "of it, or proposing an edit.",
@@ -334,7 +334,7 @@ public final class DocumentGraphTools {
 
     static AnthropicTool readBlock(StampTools.CardLocator card, Supplier<ViewCalculator> view, Pairing pairing) {
         return new Tool("read_block",
-                "Read one block of a STAMPed document from the document graph, with every line's full provenance: the STAMP "
+                "Read one block of an IKE document from the document graph, with every line's full provenance: the STAMP "
                         + "that introduced it and its commit summary, the latest version when it differs (an uncommitted edit), each "
                         + "affirmation, refutation and comment with its author, date and text, and the references on the line. Name "
                         + "the block by its path (§3.2) or by a line it holds (L45). The lines are the block's AsciiDoc source as "
@@ -367,7 +367,7 @@ public final class DocumentGraphTools {
 
     static AnthropicTool findInDocument(StampTools.CardLocator card, Supplier<ViewCalculator> view, Pairing pairing) {
         return new Tool("find_in_document",
-                "Search the lines and block titles of a STAMPed document in the document graph for a text, case-insensitively; "
+                "Search the lines and block titles of an IKE document in the document graph for a text, case-insensitively; "
                         + "each match names the block (§3.2), its kind and the line (L45) with its introducing STAMP and text. Use it "
                         + "to find where a document says something before reading the block around it.",
                 obj("type", "object", "properties", obj(
@@ -398,7 +398,7 @@ public final class DocumentGraphTools {
 
     static AnthropicTool proposeBlockEdit(StampTools.CardLocator card, Supplier<ViewCalculator> view, Pairing pairing) {
         return new Tool("propose_block_edit",
-                "Propose new text for one block of a STAMPed document: the block's lines are replaced with the text, written "
+                "Propose new text for one block of an IKE document: the block's lines are replaced with the text, written "
                         + "as an uncommitted edit under the Komet assistant's name — the same edit the card's Edit block makes for a "
                         + "person — so the card shows it pending in the bar at the bottom of the card and the person commits it in git (Commit) or "
                         + "discards it (Discard…). Nothing reaches git until they commit; say so. Read the block first with "
@@ -451,7 +451,7 @@ public final class DocumentGraphTools {
                     }
                     return "Proposed for §" + node.path() + " of " + opened.name() + ": " + result.message()
                             + ". It is pending under " + StampNames.name(v, edit.getAuthorNidForChanges())
-                            + (opened.card() != null ? "; the card shows it with the edited badge" : "; open the document in a Stamped Document card to see it")
+                            + (opened.card() != null ? "; the card shows it with the edited badge" : "; open the document in an IKE Document card to see it")
                             + ". Nothing is in git until the person commits it (Commit); Discard… withdraws it."
                             + stated(opened.anchor(), node.block().nid(), previous, text, v, edit);
                 });
@@ -461,7 +461,7 @@ public final class DocumentGraphTools {
 
     static AnthropicTool proposeBlockInsert(StampTools.CardLocator card, Supplier<ViewCalculator> view, Pairing pairing) {
         return new Tool("propose_block_insert",
-                "Propose a new paragraph, listing or structured block of a STAMPed document, inserted right after a chosen block: the "
+                "Propose a new paragraph, listing or structured block of an IKE document, inserted right after a chosen block: the "
                         + "new lines and the block land as an uncommitted insertion under the Komet assistant's name — the same "
                         + "insertion the card's Add paragraph after… makes for a person — so the card shows the new block pending "
                         + "with the edited mark and the person commits it in git (Commit) or discards it (Discard…). Nothing "
@@ -519,7 +519,7 @@ public final class DocumentGraphTools {
                     }
                     return "Proposed after §" + node.path() + " of " + opened.name() + ": " + result.message()
                             + ". It is pending under " + StampNames.name(v, edit.getAuthorNidForChanges())
-                            + (opened.card() != null ? "; the card shows the new block with the edited mark" : "; open the document in a Stamped Document card to see it")
+                            + (opened.card() != null ? "; the card shows the new block with the edited mark" : "; open the document in an IKE Document card to see it")
                             + ". Nothing is in git until the person commits it (Commit); Discard… withdraws it. The blocks after it "
                             + "have moved, so read their paths again before you edit by them."
                             + newBlock(opened, graph).map(block -> stated(opened.anchor(), block, Optional.empty(), text, v, edit)).orElse("");
@@ -551,7 +551,7 @@ public final class DocumentGraphTools {
 
     static AnthropicTool createDocument(StampTools.CardLocator card, Pairing pairing) {
         return new Tool("create_document",
-                "Make a new AsciiDoc document in the working tree the person opened in a Stamped Document card, store it, open "
+                "Make a new AsciiDoc document in the working tree the person opened in an IKE Document card, store it, open "
                         + "it beside you and pair it with this conversation, so the document tools act on it from then on. The file "
                         + "holds the title and a first paragraph, and is committed locally as the document's first commit, because a "
                         + "document is stored from its git history: say so, and that nothing is pushed. Everything you add after is an "
@@ -613,7 +613,7 @@ public final class DocumentGraphTools {
 
     static AnthropicTool proposeBlockDelete(StampTools.CardLocator card, Supplier<ViewCalculator> view, Pairing pairing) {
         return new Tool("propose_block_delete",
-                "Propose removing one block of a STAMPed document: its lines leave the document as an uncommitted deletion under "
+                "Propose removing one block of an IKE document: its lines leave the document as an uncommitted deletion under "
                         + "the Komet assistant's name — the same deletion the card's Delete block… makes for a person — so the card "
                         + "shows the document without it, pending in the bar at the bottom of the card, and the person commits it in git (Commit) "
                         + "or discards it (Discard…). Nothing reaches git until they commit; say so. Only blocks that hold "
@@ -652,7 +652,7 @@ public final class DocumentGraphTools {
                     }
                     return "Proposed for §" + node.path() + " of " + opened.name() + ": " + result.message()
                             + ". It is pending under " + StampNames.name(v, edit.getAuthorNidForChanges())
-                            + (opened.card() != null ? "; the card shows the document without the block, with the edited badge" : "; open the document in a Stamped Document card to see it")
+                            + (opened.card() != null ? "; the card shows the document without the block, with the edited badge" : "; open the document in an IKE Document card to see it")
                             + ". Nothing is in git until the person commits it (Commit); Discard… brings the block back.";
                 });
     }
@@ -661,7 +661,7 @@ public final class DocumentGraphTools {
 
     static AnthropicTool proposeSentenceEdit(StampTools.CardLocator card, Supplier<ViewCalculator> view, Pairing pairing) {
         return new Tool("propose_sentence_edit",
-                "Propose new text for one sentence of a STAMPed document stored as semantic vertices (IKE-Network/ike-issues#1313): "
+                "Propose new text for one sentence of an IKE document stored as semantic vertices (IKE-Network/ike-issues#1313): "
                         + "only the lines the sentence changes are rewritten — the sentence goes on a line of its own, a part of it "
                         + "on one line whose words survive keeps that line, and changed text breaks after a clause or comma — and "
                         + "the sentence keeps its identity, with a new uncommitted version under the Komet assistant's name. Nothing "

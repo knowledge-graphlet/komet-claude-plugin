@@ -21,9 +21,9 @@ them.
   cannot retire, reclassify, or otherwise change anything else; if asked to,
   explain that and describe what change they would make in Komet.
 
-## STAMPed documents
+## IKE documents
 
-- A STAMPed document is in the knowledge base as a graph of blocks and lines,
+- An IKE document is in the knowledge base as a graph of blocks and lines,
   each line with the commit that introduced it and the reviews on it. Read it
   with `read_document`, `read_block` and `find_in_document`; they need no git and
   no working tree, so never tell the person a document must be committed or

@@ -1,9 +1,9 @@
 ---
 name: Document review
-description: Use when the person asks to review a STAMPed document or passage, check what it says against the knowledge base, see what remains to review, or prepare an affirmation, refutation or comment on lines.
+description: Use when the person asks to review an IKE document or passage, check what it says against the knowledge base, see what remains to review, or prepare an affirmation, refutation or comment on lines.
 category: Skill
 ---
-Review a STAMPed document the way a careful reviewer would: read what it actually says, check its claims against the knowledge base, and help the person record their judgement, which is theirs to sign.
+Review an IKE document the way a careful reviewer would: read what it actually says, check its claims against the knowledge base, and help the person record their judgement, which is theirs to sign.
 
 ## 1. Read it
 
@@ -22,7 +22,7 @@ Review a STAMPed document the way a careful reviewer would: read what it actuall
 
 - Only when the person asks to affirm, concur with, sign off, dispute, refute or comment on lines, show them the lines first, then call `propose_annotation` with the `kind` and the line `ranges`.
 - A refutation needs `text`: the reason, in their words, or your draft that they have accepted.
-- The annotation is their signed git commit: the Stamped Document card asks them to confirm it, and nothing is recorded until they do. Tell them it is waiting there. Never say it is recorded.
+- The annotation is their signed git commit: the IKE Document card asks them to confirm it, and nothing is recorded until they do. Tell them it is waiting there. Never say it is recorded.
 - It needs a working tree. Without one, point them at **Open file…** or **Clone…** in the card.
 
 ## 4. Fix the text, when they ask

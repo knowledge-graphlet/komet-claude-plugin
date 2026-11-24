@@ -168,11 +168,11 @@ class DocumentGraphToolsIT {
     @Test
     void theProvenanceToolsSayWhatIsMissingWithoutACard() {
         String lines = call("stamp_lines", Map.of());
-        assertTrue(lines.contains("no Stamped Document card shows a document"), lines);
+        assertTrue(lines.contains("no IKE Document card shows a document"), lines);
         assertTrue(lines.contains("read_document"), lines);
         assertTrue(!lines.contains("HEAD") && !lines.contains("commit the file"), "never 'not in HEAD' or 'commit the file first': " + lines);
         String annotation = call("propose_annotation", Map.of("kind", "affirm", "ranges", List.of(Map.of("from", 1, "to", 2))));
-        assertTrue(annotation.contains("no Stamped Document card shows a document"), annotation);
+        assertTrue(annotation.contains("no IKE Document card shows a document"), annotation);
     }
 
     private static String firstPath(String found) {

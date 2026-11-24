@@ -193,6 +193,9 @@ module komet.claude {
                  network.ike.komet.claude.rules.StoredRulesLifecycle;
     // The conversations and instruction sets the plugin's cards moved to Komet's Trash, which the
     // journal's Trash lists and Komet empties as it quits.
+    // The conversations the Storage window lists, and what their export and import add (IKE-Network/ike-issues#1313).
+    provides dev.ikm.komet.layout.storage.KlStorageProvider
+            with network.ike.komet.claude.ConversationStorage;
     provides dev.ikm.komet.layout.trash.KlTrashProvider
             with network.ike.komet.claude.trash.PluginTrashProvider;
 

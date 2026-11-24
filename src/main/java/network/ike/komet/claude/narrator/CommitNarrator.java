@@ -163,6 +163,10 @@ public final class CommitNarrator {
             try {
                 narrateAndWrite(evt, key, model);
             } catch (Throwable t) {
+                if (interrupted(t)) {
+                    LOG.info("Narration of transaction {} stopped as the narrator shut down", evt.transactionUuid());
+                    return;
+                }
                 LOG.error("Narration failed for transaction {}", evt.transactionUuid(), t);
             }
         });
@@ -213,13 +217,29 @@ public final class CommitNarrator {
             narrateBulk(evt, client, view, components);
             return;
         }
-        for (long componentNid : components) {
+        for (int i = 0; i < components.length; i++) {
             try {
-                narrateComponent(componentNid, client, view);
+                narrateComponent(components[i], client, view);
             } catch (Throwable t) {
-                LOG.warn("Failed to narrate component {}", componentNid, t);
+                if (interrupted(t)) {
+                    // Komet is quitting, and the narrator's worker was stopped mid-request: not a failure.
+                    LOG.info("Narration stopped as the narrator shut down, with {} of the commit's {} component(s) not reached",
+                            components.length - i, components.length);
+                    return;
+                }
+                LOG.warn("Failed to narrate component {}", components[i], t);
             }
         }
+    }
+
+    /** Whether a failure is the narrator's worker being stopped, as it is when Komet quits. */
+    static boolean interrupted(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof InterruptedException) {
+                return true;
+            }
+        }
+        return Thread.currentThread().isInterrupted();
     }
 
     private void narrateComponent(long componentNid, AnthropicClient client, ViewCalculator view) {
@@ -236,7 +256,7 @@ public final class CommitNarrator {
         }
         versions.sort((a, b) -> Long.compare(b.stamp().time(), a.stamp().time()));
         long stampNid = versions.get(0).stampNid();
-        if (!narratable(stampNid)) {
+        if (!narratable(stampNid, componentNid)) {
             return;
         }
         PublicId id = CommentWriter.narrationId(Entity.getStamp(stampNid).publicId(), optEntity.get().publicId());
@@ -289,6 +309,10 @@ public final class CommitNarrator {
             try {
                 narrateDocumentCommit(committed, key, model);
             } catch (Throwable t) {
+                if (interrupted(t)) {
+                    LOG.info("Narration of the commit of {} at {} stopped as the narrator shut down", committed.file(), committed.sha());
+                    return;
+                }
                 LOG.error("Narration failed for the commit of {} at {}", committed.file(), committed.sha(), t);
             }
         });
@@ -316,7 +340,7 @@ public final class CommitNarrator {
         String change = DocumentChange.of(committed.root(), committed.file(), committed.sha());
         AnthropicClient client = new AnthropicClient(key, model, MAX_TOKENS).effort(ClaudeCard.configuredEffort());
         String narrative = client.ask(SYSTEM_PROMPT, graphTools.tools(),
-                "A curator just committed a change to the stamped document " + committed.file() + ".\n" + change
+                "A curator just committed a change to the IKE document " + committed.file() + ".\n" + change
                         + "\n\nWrite a short, SME-readable note about what changed.");
         if (narrative == null || narrative.isBlank()) {
             return;
@@ -367,6 +391,21 @@ public final class CommitNarrator {
      */
     static boolean narratable(long stampNid) {
         return EntityBoundaries.stampKind(stampNid).kind() == DataKind.KNOWLEDGE;
+    }
+
+    /**
+     * Whether a component's change is narrated: a knowledge STAMP on a component born knowledge. A
+     * narration is knowledge, and knowledge never refers to other data, so a component born local or in
+     * a file, such as a document's own module written under itself, is not narrated even by a knowledge
+     * STAMP; asking for it would spend a request on a comment the commit boundary refuses
+     * (IKE-Network/ike-issues#1313).
+     *
+     * @param stampNid     the STAMP of the component's latest version
+     * @param componentNid the component
+     * @return whether to narrate it
+     */
+    static boolean narratable(long stampNid, long componentNid) {
+        return narratable(stampNid) && EntityBoundaries.kindOf(componentNid) == DataKind.KNOWLEDGE;
     }
 
     private static String componentContext(long nid, List<EntityVersion> versionsNewestFirst, ViewCalculator view) {
